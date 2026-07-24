@@ -637,18 +637,78 @@
   background: hsl(var(--background));
 }
 
-.workspace-chat-tool-log {
-  font-size: 0.85rem;
-  color: hsl(var(--muted-foreground));
-  border-style: dashed;
+/* Collapsible group summarizing the tool activity in an assistant turn. */
+.workspace-chat-tool-group {
+  width: fit-content;
+  max-width: calc(100% - 28px);
+  margin-bottom: 10px;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 8px;
   background: hsl(var(--muted) / 0.35);
+  overflow: hidden;
 }
 
-.workspace-chat-tool-log[data-tool-status="running"] {
+.workspace-chat-tool-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-chat-tool-group-toggle:hover {
+  color: hsl(var(--foreground));
+}
+
+.workspace-chat-tool-group-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-chat-tool-group-chevron {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.workspace-chat-tool-group-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.workspace-chat-tool-group[data-tool-status="running"] .workspace-chat-tool-group-summary {
   font-style: italic;
 }
 
-.workspace-chat-tool-log[data-tool-status="error"] {
+.workspace-chat-tool-group[data-tool-status="error"] .workspace-chat-tool-group-toggle {
+  color: hsl(var(--destructive));
+}
+
+.workspace-chat-tool-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 10px 10px 24px;
+}
+
+.workspace-chat-tool-group-item {
+  font-size: 0.85rem;
+  color: hsl(var(--muted-foreground));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.workspace-chat-tool-group-item[data-tool-status="running"] {
+  font-style: italic;
+}
+
+.workspace-chat-tool-group-item[data-tool-status="error"] {
   color: hsl(var(--destructive));
 }
 

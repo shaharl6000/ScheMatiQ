@@ -19,6 +19,36 @@ import {
 import { formatToolsList, mapChatTurnMessage } from '../helpers';
 import type { PendingChatAction, PendingRerunKind, WorkspaceMessage, WorkspaceSessionMode } from '../types';
 import { ChatMessageBody } from './ChatMessageBody';
+import { ToolActivityGroup } from './ToolActivityGroup';
+
+// Fold a flat message list into render groups so that consecutive tool_log
+// messages collapse into a single expandable block, while text/user messages
+// pass through untouched.
+type ChatRenderItem =
+  | { kind: 'message'; message: WorkspaceMessage }
+  | { kind: 'tool_group'; id: string; logs: WorkspaceMessage[] };
+
+function groupChatMessages(messages: WorkspaceMessage[]): ChatRenderItem[] {
+  const items: ChatRenderItem[] = [];
+  let pending: WorkspaceMessage[] = [];
+
+  const flush = () => {
+    if (pending.length === 0) return;
+    items.push({ kind: 'tool_group', id: `tools-${pending[0].id}`, logs: pending });
+    pending = [];
+  };
+
+  for (const message of messages) {
+    if (message.kind === 'tool_log') {
+      pending.push(message);
+    } else {
+      flush();
+      items.push({ kind: 'message', message });
+    }
+  }
+  flush();
+  return items;
+}
 
 export function ChatPanel({
   sessionId,
@@ -352,16 +382,19 @@ export function ChatPanel({
       )}
 
       <div className="workspace-chat-messages" ref={messagesRef}>
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`workspace-chat-message${message.kind === 'tool_log' ? ' workspace-chat-tool-log' : ''}`}
-            data-role={message.role}
-            data-tool-status={message.toolStatus}
-          >
-            <ChatMessageBody message={message} />
-          </div>
-        ))}
+        {groupChatMessages(messages).map((item) =>
+          item.kind === 'tool_group' ? (
+            <ToolActivityGroup key={item.id} logs={item.logs} />
+          ) : (
+            <div
+              key={item.message.id}
+              className="workspace-chat-message"
+              data-role={item.message.role}
+            >
+              <ChatMessageBody message={item.message} />
+            </div>
+          ),
+        )}
 
         {pendingAction && (
           <div className="rounded-md border bg-muted/30 p-3 text-sm">
