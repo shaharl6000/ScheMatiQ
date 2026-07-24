@@ -202,8 +202,8 @@ export function AdvancedSettingsFields({
           </div>
           {value.batchStrategy === 'fixed' && (
             <div className="space-y-1">
-              <Label htmlFor="adv-batch-size" className="flex items-start gap-1 text-xs text-muted-foreground leading-tight">
-                <span>Docs per batch</span>
+              <Label htmlFor="adv-batch-size" className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                Docs per batch
                 <InfoTooltip text="How many documents are analyzed together in each schema refinement step." />
               </Label>
               <Input
