@@ -134,7 +134,10 @@ class UniProtEnrichmentService:
 
             for idx in pending_indices:
                 row = rows[idx]
-                status = row.setdefault("_cell_status", {})
+                status = row.get("_cell_status")
+                if not isinstance(status, dict):
+                    status = {}
+                    row["_cell_status"] = status
 
                 protein = extract_value(row.get(pcol)) if pcol else None
                 if not protein:
