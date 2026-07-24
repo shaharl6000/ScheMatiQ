@@ -103,6 +103,29 @@ def test_add_list_get_remove_reference():
     assert refsvc.remove_reference_document(session, ref.id) is False
 
 
+def test_add_reference_replaces_same_filename():
+    session = _session("ref-dedup")
+    first = refsvc.build_reference_document("judges.csv", b"judge,president\nSmith,Trump")
+    refsvc.add_reference_document(session, first)
+
+    # Re-attaching the same filename (e.g. accidental double-attach, or an
+    # updated version) replaces the existing entry instead of duplicating it.
+    second = refsvc.build_reference_document(
+        "judges.csv", b"judge,president\nSmith,Trump\nJones,Obama"
+    )
+    refsvc.add_reference_document(session, second)
+
+    refs = refsvc.list_reference_documents(session)
+    assert len(refs) == 1
+    assert refs[0].id == second.id
+    assert refs[0].char_count == second.char_count
+
+    # A different filename still appends as a distinct entry.
+    other = refsvc.build_reference_document("courts.csv", b"court,circuit\nCA9,9")
+    refsvc.add_reference_document(session, other)
+    assert len(refsvc.list_reference_documents(session)) == 2
+
+
 # ---------------------------------------------------------------------------
 # Chat tools
 # ---------------------------------------------------------------------------

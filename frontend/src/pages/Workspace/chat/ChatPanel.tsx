@@ -137,7 +137,15 @@ export function ChatPanel({
       setReferenceError(null);
       try {
         const created = await referenceAPI.upload(sessionId, file);
-        setReferences((current) => [...current, created]);
+        // The backend dedups by filename (re-attaching the same name replaces
+        // the existing entry), so mirror that here: swap a same-named chip in
+        // place instead of appending a duplicate.
+        setReferences((current) => {
+          const withoutSameName = current.filter(
+            (ref) => ref.filename !== created.filename,
+          );
+          return [...withoutSameName, created];
+        });
       } catch (error) {
         const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data
           ?.detail;
@@ -467,6 +475,12 @@ export function ChatPanel({
       <div className="workspace-chat-input">
         {(references.length > 0 || referenceError) && (
           <div className="mb-2 flex flex-col gap-1">
+            {references.length > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                Stays available to the assistant for this whole conversation
+                until you remove it.
+              </div>
+            )}
             {references.map((ref) => (
               <div
                 key={ref.id}

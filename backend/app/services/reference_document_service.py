@@ -163,9 +163,22 @@ def get_reference_document(
 def add_reference_document(
     session: VisualizationSession, ref: ReferenceDocument
 ) -> None:
-    """Append a reference document to the session (in place)."""
+    """Add a reference document to the session (in place).
+
+    Reference documents are session-scoped lookup material that stays active
+    (and is re-sent to the model) until the user removes it. Attaching a file
+    whose name matches one already attached therefore *replaces* the existing
+    entry in place rather than appending a duplicate: re-attaching the same
+    file is a no-op-with-refresh, and uploading an updated version of a
+    same-named lookup swaps in the new content. This prevents the same text
+    from being injected into extraction/chat prompts twice.
+    """
     if session.reference_documents is None:  # defensive; default is a list
         session.reference_documents = []
+    for index, existing in enumerate(session.reference_documents):
+        if existing.filename == ref.filename:
+            session.reference_documents[index] = ref
+            return
     session.reference_documents.append(ref)
 
 
