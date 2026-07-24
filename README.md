@@ -38,13 +38,13 @@ ScheMatiQ helps domain experts turn a research question and a document collectio
 
 <!-- Keep short and user-facing: prepend notable, visible changes; skip internals, chores, and small fixes. -->
 
-- A brand-new interface, now the default, built around a chat assistant — ask it to build, edit, and refine your table as you go. The previous interface is still available at `/classic`.
+- A new interface (now the default): a familiar spreadsheet, like Google Sheets, paired with a chat assistant you can ask to build, edit, and refine your table as you go. The previous interface is still available at `/classic`.
 - Read your source documents in a side panel, and click any value to see the exact text it came from, highlighted in the document.
-- Add more documents to a project whenever you want.
-- If a document doesn't produce a result, you'll see why — nothing disappears without a reason.
-- Save a whole project, documents included, as a single file and reopen it later.
-- Give the chat assistant reference documents to work from.
-- Runs on Google's Gemini 3.5 Flash and 3.5 Flash-Lite.
+- Add more documents to a project whenever you want — their values are extracted and added to the table automatically.
+- If a document produces no result, you'll see the model's explanation of why (for example, an empty document, or no observation unit found).
+- Save a whole project as a single file, documents included — reopen it later and the documents are still there to view.
+- Give the chat assistant your own reference documents to work from — for example, a list of judges' birth dates to pull into a new column.
+- Runs on Google's Gemini 3.5 Flash (schema discovery) and 3.5 Flash-Lite (data extraction).
 
 ## How It Works
 
