@@ -15,7 +15,6 @@ export function InfoTooltip({ text, side = 'top' }: InfoTooltipProps) {
     <Popover>
       <PopoverTrigger
         type="button"
-        onClick={(e) => e.preventDefault()}
         className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
         aria-label="More info"
       >
