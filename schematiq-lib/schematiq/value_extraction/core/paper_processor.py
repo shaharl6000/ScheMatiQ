@@ -44,6 +44,7 @@ from ..config.prompts import (
     SYSTEM_PROMPT_VAL_REEXTRACT,
 )
 from ..utils.schema_builder import build_extraction_response_schema
+from ..utils.reference_retrieval import ReferenceRetriever
 from ..utils.excerpt_grounder import ExcerptGrounder
 
 # Type alias for warning callback: (paper_title, warning_type, message) -> None
@@ -63,6 +64,11 @@ FALLBACK_BATCH_SIZE = 3
 # This effectively disables chunking/passage-selection so the entire
 # document is sent together with the schema.
 DISABLE_RETRIEVER = True
+
+# External reference below this size is injected whole into each extraction
+# prompt (cheap, no retrieval). Above it, the reference is indexed once and only
+# the passages relevant to the current unit + columns are injected per prompt.
+REFERENCE_FULL_INJECT_MAX_CHARS = 12000
 
 # When True, use Gemini controlled generation (response_schema) for
 # value extraction. Only applies when the LLM backend is Gemini.
@@ -101,7 +107,16 @@ class PaperProcessor:
         self.json_parser = JSONResponseParser()
         self.unit_parser = UnitIdentificationParser()
         self.text_processor = TextProcessor()
-        self.prompt_builder = PromptBuilder(reference_context=reference_context)
+        # Small reference -> inject whole (cheap, no retrieval). Large reference ->
+        # index once and retrieve per unit so we never blow the context window.
+        reference_retriever = None
+        if reference_context and len(reference_context) > REFERENCE_FULL_INJECT_MAX_CHARS:
+            reference_retriever = ReferenceRetriever(reference_context)
+            reference_context = None
+        self.prompt_builder = PromptBuilder(
+            reference_context=reference_context,
+            reference_retriever=reference_retriever,
+        )
         self.on_value_extracted = on_value_extracted
         self.should_stop = should_stop
         self.on_warning = on_warning
@@ -1625,6 +1640,7 @@ class PaperProcessor:
                 [c.to_dict() for c in col_batch],
                 mode="all",
                 strict=False,
+                reference_query=unit_name,
             )
             msgs[0]["content"] = system_prompt
 

@@ -5,15 +5,26 @@ from typing import List, Dict
 from schematiq.core.schema import Column
 
 from ..config.prompts import SYSTEM_PROMPT_VAL, SYSTEM_PROMPT_VAL_STRICT
+from .reference_retrieval import ReferenceRetriever, build_reference_query
 
 
 class PromptBuilder:
     """Builds prompts for value extraction LLM calls."""
 
-    def __init__(self, reference_context: str | None = None):
-        # Optional external reference text injected into every value-extraction
-        # prompt as supplementary lookup material (never a source document).
+    def __init__(
+        self,
+        reference_context: str | None = None,
+        reference_retriever: "ReferenceRetriever | None" = None,
+        reference_k: int = 5,
+    ):
+        # Optional external reference injected into every value-extraction prompt
+        # as supplementary lookup material (never a source document). When the
+        # reference is small it is injected whole (reference_context). When it is
+        # large a retriever is supplied instead, and only the passages relevant to
+        # the current observation unit + columns are injected.
         self.reference_context = reference_context
+        self.reference_retriever = reference_retriever
+        self.reference_k = reference_k
 
     def build_val_messages(
         self,
@@ -25,6 +36,7 @@ class PromptBuilder:
         *,
         strict: bool = False,
         already_extracted: Dict[str, str] | None = None,
+        reference_query: str | None = None,
     ) -> List[Dict[str, str]]:
         """
         Build messages for value extraction LLM calls.
@@ -78,7 +90,14 @@ class PromptBuilder:
             """.strip()
 
         reference_block = ""
-        if self.reference_context:
+        ref_text = self.reference_context
+        if self.reference_retriever is not None:
+            # Prefer the explicit observation-unit descriptor (e.g. the unit name)
+            # as the retrieval key; fall back to the document title otherwise.
+            rq = build_reference_query(reference_query or paper_title, columns)
+            passages = self.reference_retriever.retrieve(rq, k=self.reference_k)
+            ref_text = "\n\n--- REFERENCE PASSAGE ---\n\n".join(passages) if passages else None
+        if ref_text:
             reference_block = (
                 "<EXTERNAL_REFERENCE>\n"
                 "The text below is an EXTERNAL REFERENCE supplied separately by the "
@@ -87,7 +106,7 @@ class PromptBuilder:
                 "lookup information (for example, to map an entity named in the source "
                 "document to an attribute recorded here) when it is relevant to a "
                 "requested column; otherwise ignore it.\n"
-                f"{self.reference_context}\n"
+                f"{ref_text}\n"
                 "</EXTERNAL_REFERENCE>"
             )
 
