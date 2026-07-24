@@ -187,7 +187,7 @@ export function AdvancedSettingsFields({
           <div className="space-y-1">
             <Label htmlFor="adv-batch-strategy" className="text-xs text-muted-foreground inline-flex items-center gap-1">
               Batching
-              <InfoTooltip text="How documents are grouped for schema discovery. Smart packs as many documents as fit the model context automatically. Fixed lets you set an exact number per batch." />
+              <InfoTooltip text="How documents are grouped for schema discovery. Smart packs as many documents as fit the model's context window automatically. Fixed lets you set an exact number per batch." />
             </Label>
             <Select
               value={value.batchStrategy}
@@ -202,8 +202,8 @@ export function AdvancedSettingsFields({
           </div>
           {value.batchStrategy === 'fixed' && (
             <div className="space-y-1">
-              <Label htmlFor="adv-batch-size" className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                Documents per batch
+              <Label htmlFor="adv-batch-size" className="flex items-start gap-1 text-xs text-muted-foreground leading-tight">
+                <span>Docs per batch</span>
                 <InfoTooltip text="How many documents are analyzed together in each schema refinement step." />
               </Label>
               <Input
@@ -221,14 +221,14 @@ export function AdvancedSettingsFields({
         {value.batchStrategy === 'fixed' ? (
           <p className="text-xs text-muted-foreground">
             Analyzing more documents together gives the model more context and usually
-            produces a richer schema. Higher values raise the chance of exceeding the
-            model's token limit; batches that do are split automatically.
+            produces a richer schema. Each model has a limited context window, so higher
+            values raise the chance of exceeding it; batches that do are split automatically.
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Documents are grouped automatically to fit as many as possible into each
-            step, giving the model broad context for a richer schema without exceeding
-            token limits.
+            Documents are grouped automatically to fit as many as possible within the
+            model's context window, giving it broad context for a richer schema without
+            exceeding the limit.
           </p>
         )}
         {developerMode && (
