@@ -24,12 +24,46 @@ ScheMatiQ helps domain experts turn a research question and a document collectio
 
 ## Table of Contents
 
+- [What's New](#whats-new)
 - [How It Works](#how-it-works)
 - [Getting Started](#getting-started)
 - [Features](#features)
 - [Development](#development)
 - [Contributing](#contributing)
 - [Citation](#citation)
+
+## What's New
+
+<!--
+  Maintainers: keep this curated. When shipping something notable, prepend a bullet
+  under the right heading and link the PR (#NNN). Skip pure chores, lint, and small
+  fixes. Trim the oldest bullets once a group grows past ~6 items.
+-->
+
+Recent, user-facing highlights. See the [pull requests](https://github.com/shaharl6000/ScheMatiQ/pulls?q=is%3Apr+is%3Amerged) for the full history.
+
+**Workspace — the new default interface**
+
+- Unified spreadsheet-style Workspace is now the default; the previous interface moved to `/classic` ([#229](https://github.com/shaharl6000/ScheMatiQ/pull/229)).
+- Browse and preview source documents in a Documents tab; documents skipped during extraction are listed with the reason they yielded no observation unit ([#196](https://github.com/shaharl6000/ScheMatiQ/pull/196), [#253](https://github.com/shaharl6000/ScheMatiQ/pull/253), [#255](https://github.com/shaharl6000/ScheMatiQ/pull/255)).
+- Add more documents to an existing project and extract them with the current schema ([#218](https://github.com/shaharl6000/ScheMatiQ/pull/218)).
+- By Unit / By Document views, plus Statistics and Monitor tabs ([#189](https://github.com/shaharl6000/ScheMatiQ/pull/189), [#187](https://github.com/shaharl6000/ScheMatiQ/pull/187)).
+- Save and reload portable project bundles, including the source documents (`.zip`) ([#230](https://github.com/shaharl6000/ScheMatiQ/pull/230), [#208](https://github.com/shaharl6000/ScheMatiQ/pull/208)).
+- Agentic chat assistant with tool calling and Markdown replies, plus a "How it works" onboarding panel ([#175](https://github.com/shaharl6000/ScheMatiQ/pull/175), [#220](https://github.com/shaharl6000/ScheMatiQ/pull/220), [#240](https://github.com/shaharl6000/ScheMatiQ/pull/240)).
+
+**Extraction quality & models**
+
+- Smart, token-aware batching for schema discovery, with a smart/fixed strategy toggle ([#261](https://github.com/shaharl6000/ScheMatiQ/pull/261), [#262](https://github.com/shaharl6000/ScheMatiQ/pull/262)).
+- Attach external reference documents that inform both the chat agent and value extraction ([#257](https://github.com/shaharl6000/ScheMatiQ/pull/257)–[#259](https://github.com/shaharl6000/ScheMatiQ/pull/259)).
+- User-seeded columns with AI completion for partial fields ([#154](https://github.com/shaharl6000/ScheMatiQ/pull/154)).
+- Grounding excerpts for a selected cell are highlighted in the source-document panel ([#243](https://github.com/shaharl6000/ScheMatiQ/pull/243), [#157](https://github.com/shaharl6000/ScheMatiQ/pull/157)).
+- Defaults on Gemini 3.5 Flash (schema) and 3.1 Flash-Lite (extraction), with Gemini 3.x `thinking_level` support ([#260](https://github.com/shaharl6000/ScheMatiQ/pull/260), [#235](https://github.com/shaharl6000/ScheMatiQ/pull/235)).
+
+**Reliability & platform**
+
+- LLM quota observability (`/api/usage`, rolling window) and clearer, user-friendly provider errors ([#237](https://github.com/shaharl6000/ScheMatiQ/pull/237), [#236](https://github.com/shaharl6000/ScheMatiQ/pull/236)).
+- Uploaded PDF, DOC, DOCX, RTF, and JSON files are converted to plain text before the pipeline ([#137](https://github.com/shaharl6000/ScheMatiQ/pull/137), [#146](https://github.com/shaharl6000/ScheMatiQ/pull/146)).
+- Shared embedding retriever and a pipeline refactored into focused modules ([#133](https://github.com/shaharl6000/ScheMatiQ/pull/133), [#124](https://github.com/shaharl6000/ScheMatiQ/pull/124)).
 
 ## How It Works
 
@@ -74,13 +108,16 @@ See [Features > Core Library](#core-library-schematiq-lib) for the full API surf
 
 ### Web Application
 
+- **Workspace** — A spreadsheet-style interface (the default) with By Unit / By Document views, a Documents tab for browsing and previewing sources, and Statistics and Monitor tabs. The previous interface remains available at `/classic`
+- **Chat Assistant** — An agentic, tool-calling assistant that can inspect and edit the schema and data, with optional external reference documents for context
 - **Real-time Progress** — WebSocket-based live updates during discovery and extraction
 - **Interactive Schema Editor** — Inspect and revise schema elements — add, edit, remove, or merge fields
 - **Continue Discovery** — Extend schema after initial convergence by processing more documents
 - **Reextraction** — Re-run structured data extraction with the current or edited schema
+- **Add Documents** — Add more documents to an existing project and extract them with the current schema; documents that yield no observation unit are surfaced with a reason
 - **Cost Estimation** — Preview estimated API costs before running expensive operations
-- **Document Upload** — TXT, MD, PDF, DOC, DOCX, and RTF; non-text formats are converted to plain text automatically before schema discovery and extraction
-- **Export** — Download results as CSV, JSON, or JSONL
+- **Document Upload** — TXT, MD, PDF, DOC, DOCX, RTF, and JSON; non-text formats are converted to plain text automatically before schema discovery and extraction
+- **Save & Export** — Save portable project bundles (with source documents), and export results as CSV, JSON, or JSONL
 
 ### Core Library (schematiq-lib)
 
