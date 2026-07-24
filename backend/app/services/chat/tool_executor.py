@@ -491,8 +491,21 @@ class ToolExecutor:
       column = args["column"]
       value = args["value"]
       source_document = await self._resolve_source_document(session_id, row_name)
+      # If the value came from a reference document, resolve its filename so the
+      # cell can be attributed to it.
+      reference_source = None
+      reference_id = (args.get("reference_id") or "").strip()
+      if reference_id:
+          session = session_manager.get_session(session_id)
+          if session:
+              from app.services import reference_document_service as refsvc
+
+              ref = refsvc.get_reference_document(session, reference_id)
+              if ref:
+                  reference_source = ref.filename
       return await data_editor.update_cell(
-          session_id, row_name, column, value, source_document=source_document
+          session_id, row_name, column, value, source_document=source_document,
+          reference_source=reference_source,
       )
 
   async def _resolve_source_document(self, session_id: str, row_name: str) -> Optional[str]:

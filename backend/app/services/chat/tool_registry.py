@@ -243,6 +243,15 @@ def _all_tools() -> list[ToolSpec]:
                     "row": {"type": "string", "description": "Row name / observation unit name."},
                     "column": {"type": "string", "description": "Column name."},
                     "value": {"type": "string", "description": "New cell value."},
+                    "reference_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional. If this value was taken from an attached "
+                            "reference document, pass that reference's id (from "
+                            "list_reference_sources) so the cell is marked as sourced "
+                            "from it. Omit for normal manual edits."
+                        ),
+                    },
                 },
                 "required": ["row", "column", "value"],
             },
