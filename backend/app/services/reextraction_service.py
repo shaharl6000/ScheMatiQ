@@ -910,11 +910,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
             if missing:
                 raise ValueError(
                     f"{len(missing)} source document(s) are unavailable. "
-                    "Upload them in the Classic Visualizer and try again."
+                    "Add them from the Documents tab, then try again."
                 )
             raise ValueError(
-                "No source documents available. Upload the original source "
-                "documents, then try again."
+                "No source documents available. Add the original source "
+                "documents from the Documents tab, then try again."
             )
 
         return await self.start_reextraction(
