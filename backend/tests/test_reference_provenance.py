@@ -87,6 +87,30 @@ async def test_reference_source_marks_flat_format(session_dirs, local_storage):
 
 
 @pytest.mark.asyncio
+async def test_reference_source_handles_null_cell_status(session_dirs, local_storage):
+    """Rows may serialize _cell_status as null; marking must not crash on it."""
+    work_dir, data_dir = session_dirs
+    session_id = "prov-nullstatus"
+    editor = DataEditor(work_dir=str(work_dir), data_dir=str(data_dir))
+    data_file = data_dir / session_id / "data.jsonl"
+    _write_jsonl(
+        data_file,
+        [{
+            "row_name": "Acker",
+            "_cell_status": None,
+            "data": {"president": {"answer": "", "excerpts": []}},
+        }],
+    )
+
+    await editor.update_cell(
+        session_id, "Acker", "president", "Ronald Reagan", reference_source="FJC.xlsx"
+    )
+
+    row = _read_row(data_file)
+    assert row["_cell_status"]["president"] == "external_source"
+
+
+@pytest.mark.asyncio
 async def test_no_reference_source_leaves_plain_manual_edit(session_dirs, local_storage):
     work_dir, data_dir = session_dirs
     session_id = "prov-plain"

@@ -201,7 +201,13 @@ class DataEditor:
                     "source": source_name,
                 }
             ]
-        status = row.setdefault("_cell_status", {})
+        # Rows may carry an explicit ``_cell_status: null`` (the field defaults to
+        # None on the row model), so setdefault is unsafe here — it would return
+        # None and the item assignment below would raise.
+        status = row.get("_cell_status")
+        if not isinstance(status, dict):
+            status = {}
+            row["_cell_status"] = status
         status[column] = "external_source"
 
     async def rename_column(
