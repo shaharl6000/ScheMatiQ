@@ -21,7 +21,7 @@ ScheMatiQ helps domain experts turn a research question and a document collectio
 <div align="center">
   <img src="docs/screenshot.png" alt="The ScheMatiQ Workspace" width="720">
   <br>
-  <sub><i>The ScheMatiQ Workspace — from a research question and documents to a grounded, editable table.</i></sub>
+  <sub><i>The ScheMatiQ Workspace: the extracted table next to the source document, with the text behind a selected value highlighted.</i></sub>
 </div>
 
 ## Table of Contents
@@ -58,12 +58,6 @@ Research Question    Observation Unit      Schema          Structured Data      
 1. **Observation Unit Discovery** — Identifies the entity each row represents (e.g., "research paper", "patient").
 2. **Schema Discovery** — Iteratively refines annotation schema fields across document batches using embedding-based retrieval, LLM generation, and semantic merging.
 3. **Structured Data Extraction** — Produces a structured table with values grounded in the source documents.
-
-<div align="center">
-  <img src="docs/workspace.png" alt="Editing the schema and inspecting grounded values in the ScheMatiQ Workspace" width="720">
-  <br>
-  <sub><i>Inspect and refine the schema, then trace each value back to its source — with the chat assistant alongside.</i></sub>
-</div>
 
 ## Getting Started
 
