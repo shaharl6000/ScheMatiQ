@@ -548,11 +548,32 @@
 }
 
 .workspace-chat {
+  position: relative;
   min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
   background: hsl(var(--muted) / 0.22);
+}
+
+.workspace-chat[data-drag-active="true"] {
+  outline: 2px dashed rgba(24, 128, 56, 0.55);
+  outline-offset: -2px;
+}
+
+.workspace-chat-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background) / 0.82);
+  pointer-events: none;
 }
 
 .workspace-chat-pane {

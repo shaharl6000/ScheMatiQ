@@ -1,7 +1,7 @@
 // Side-panel chat UI for inspecting and editing the project via workspace tools.
 // Parent: Workspace (index.tsx).
 
-import { type ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Bot, Check, FileText, Loader2, Paperclip, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -83,6 +83,7 @@ export function ChatPanel({
   const [references, setReferences] = useState<ReferenceDocumentInfo[]>([]);
   const [uploadingReference, setUploadingReference] = useState(false);
   const [referenceError, setReferenceError] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -129,12 +130,9 @@ export function ChatPanel({
     fileInputRef.current?.click();
   }, []);
 
-  const handleReferenceSelected = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      // Reset so selecting the same file again still fires onChange.
-      event.target.value = '';
-      if (!file || !sessionId) return;
+  const uploadReferenceFile = useCallback(
+    async (file: File) => {
+      if (!sessionId) return;
       setUploadingReference(true);
       setReferenceError(null);
       try {
@@ -151,6 +149,46 @@ export function ChatPanel({
       }
     },
     [sessionId],
+  );
+
+  const handleReferenceSelected = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      // Reset so selecting the same file again still fires onChange.
+      event.target.value = '';
+      if (!file) return;
+      await uploadReferenceFile(file);
+    },
+    [uploadReferenceFile],
+  );
+
+  const handleChatDragOver = useCallback(
+    (event: DragEvent<HTMLElement>) => {
+      if (!sessionId || uploadingReference) return;
+      if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      setDragActive(true);
+    },
+    [sessionId, uploadingReference],
+  );
+
+  const handleChatDragLeave = useCallback((event: DragEvent<HTMLElement>) => {
+    // Only clear when the pointer leaves the panel, not when moving between children.
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDragActive(false);
+  }, []);
+
+  const handleChatDrop = useCallback(
+    async (event: DragEvent<HTMLElement>) => {
+      if (!sessionId || uploadingReference) return;
+      event.preventDefault();
+      setDragActive(false);
+      const file = event.dataTransfer.files?.[0];
+      if (!file) return;
+      await uploadReferenceFile(file);
+    },
+    [sessionId, uploadingReference, uploadReferenceFile],
   );
 
   const handleRemoveReference = useCallback(
@@ -349,7 +387,19 @@ export function ChatPanel({
   }, [cancelPendingAction, onRegisterCancelPending, pendingAction]);
 
   return (
-    <aside className="workspace-chat">
+    <aside
+      className="workspace-chat"
+      data-drag-active={dragActive ? 'true' : undefined}
+      onDragOver={handleChatDragOver}
+      onDragLeave={handleChatDragLeave}
+      onDrop={handleChatDrop}
+    >
+      {dragActive && (
+        <div className="workspace-chat-drop-overlay">
+          <Paperclip className="h-5 w-5" />
+          Drop to attach reference
+        </div>
+      )}
       <div className="workspace-chat-header">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Bot className="h-4 w-4" />
