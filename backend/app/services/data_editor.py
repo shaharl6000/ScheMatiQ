@@ -55,7 +55,7 @@ class DataEditor:
     async def update_cell(
         self, session_id: str, row_name: str, column: str, value: Any,
         restore: Any = None, source_document: str = None,
-        row_index: Optional[int] = None,
+        row_index: Optional[int] = None, reference_source: Optional[str] = None,
     ) -> dict:
         """
         Update a specific cell value in the session's data file.
@@ -160,6 +160,12 @@ class DataEditor:
                 raise ValueError(f"Row at index {row_index} not found")
             raise ValueError(f"Row with row_name '{row_name}' not found")
 
+        # Provenance: when the value came from an attached reference document, mark
+        # the cell as externally sourced and attribute it to that reference, so the
+        # table shows where it came from (reuses the existing external_source style).
+        if reference_source and restore is None:
+            self._mark_external_source(row, column, reference_source)
+
         # Write back all rows
         with open(data_file, "w", encoding="utf-8") as f:
             for row in rows:
@@ -175,6 +181,28 @@ class DataEditor:
             "value": value,
             "previous_value": previous_value,
         }
+
+    @staticmethod
+    def _mark_external_source(row: dict, column: str, source_name: str) -> None:
+        """Flag a cell as sourced from an external reference document.
+
+        Sets ``_cell_status[column] = "external_source"`` (rendered distinctly in
+        the table) and, when the cell holds an answer/excerpts object, attaches an
+        excerpt attributing the value to ``source_name`` so the source is shown.
+        """
+        if "data" in row and isinstance(row["data"], dict):
+            cell = row["data"].get(column)
+        else:
+            cell = row.get(column)
+        if isinstance(cell, dict):
+            cell["excerpts"] = [
+                {
+                    "text": f"Value taken from reference document '{source_name}'.",
+                    "source": source_name,
+                }
+            ]
+        status = row.setdefault("_cell_status", {})
+        status[column] = "external_source"
 
     async def rename_column(
         self, session_id: str, old_name: str, new_name: str
