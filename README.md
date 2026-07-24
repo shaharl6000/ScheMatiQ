@@ -187,11 +187,26 @@ Contributions are welcome! Please open an issue or pull request on [GitHub](http
 If you use ScheMatiQ in your research, please cite:
 
 ```bibtex
-@inproceedings{schematiq2026,
-  title     = {ScheMatiQ: Query-Driven Schema Discovery and Structured Data Extraction from Document Collections},
-  author    = {TODO},
-  booktitle = {TODO},
-  year      = {2026}
+@inproceedings{levy-etal-2026-schematiq,
+    title = "{S}che{M}ati{Q}: From Research Question to Structured Data through Interactive Schema Discovery",
+    author = "Levy, Shahar  and
+      Habba, Eliya  and
+      Mintz, Reshef  and
+      Raveh, Barak  and
+      Keydar, Renana  and
+      Stanovsky, Gabriel",
+    editor = "Durrett, Greg  and
+      Jian, Ping",
+    booktitle = "Proceedings of the 64th Annual Meeting of the {A}ssociation for {C}omputational {L}inguistics (Volume 3: System Demonstrations)",
+    month = jul,
+    year = "2026",
+    address = "San Diego, California, United States",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2026.acl-demo.22/",
+    doi = "10.18653/v1/2026.acl-demo.22",
+    pages = "220--230",
+    ISBN = "979-8-89176-392-0",
+    abstract = "Many disciplines pose natural-language research questions over large document collections whose answers typically requires structured evidence, traditionally obtained by manually designing an annotation schema and exhaustively labeling the corpus, a slow and error-prone process. We introduce ScheMatiQ, which leverages calls to a backbone LLM to take a question and a corpus to produce a schema and a grounded database, with a web interface that lets steer and revise the extraction. In collaboration with domain experts, we show that ScheMatiQ yields outputs that support real-world analysis in law and computational biology. We release ScheMatiQ as open source with a public web interface, and invite experts across disciplines to use it with their own data. All resources, including the website, source code, and demonstration video, are available at: www.ScheMatiQ-ai.com."
 }
 ```
 
