@@ -169,7 +169,7 @@ export function AdvancedSettingsFields({
       {/* Schema parameters */}
       <div className="space-y-3">
         <Label className="text-sm font-medium">Schema Parameters</Label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div className="space-y-1">
             <Label htmlFor="adv-max-keys" className="text-xs text-muted-foreground inline-flex items-center gap-1">
               Max Columns
@@ -200,28 +200,30 @@ export function AdvancedSettingsFields({
               </SelectContent>
             </Select>
           </div>
+          {value.batchStrategy === 'fixed' && (
+            <div className="space-y-1">
+              <Label htmlFor="adv-batch-size" className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                Documents per batch
+                <InfoTooltip text="How many documents are analyzed together in each schema refinement step." />
+              </Label>
+              <Input
+                id="adv-batch-size"
+                type="number"
+                min={1}
+                max={20}
+                value={value.documentsBatchSize}
+                onChange={(e) => onChange({ documentsBatchSize: parseInt(e.target.value, 10) || DEFAULT_DOCUMENTS_BATCH_SIZE })}
+              />
+            </div>
+          )}
         </div>
 
         {value.batchStrategy === 'fixed' ? (
-          <div className="space-y-1">
-            <Label htmlFor="adv-batch-size" className="text-xs text-muted-foreground inline-flex items-center gap-1">
-              Documents per batch
-              <InfoTooltip text="How many documents are analyzed together in each schema refinement step." />
-            </Label>
-            <Input
-              id="adv-batch-size"
-              type="number"
-              min={1}
-              max={20}
-              value={value.documentsBatchSize}
-              onChange={(e) => onChange({ documentsBatchSize: parseInt(e.target.value, 10) || DEFAULT_DOCUMENTS_BATCH_SIZE })}
-            />
-            <p className="text-xs text-muted-foreground">
-              Analyzing more documents together gives the model more context and usually
-              produces a richer schema. Higher values raise the chance of exceeding the
-              model's token limit; batches that do are split automatically.
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Analyzing more documents together gives the model more context and usually
+            produces a richer schema. Higher values raise the chance of exceeding the
+            model's token limit; batches that do are split automatically.
+          </p>
         ) : (
           <p className="text-xs text-muted-foreground">
             Documents are grouped automatically to fit as many as possible into each
