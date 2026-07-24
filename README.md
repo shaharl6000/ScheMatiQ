@@ -19,7 +19,9 @@
 ScheMatiQ helps domain experts turn a research question and a document collection into a structured table — no predefined schema needed. The system uses a backbone LLM to iteratively discover an annotation schema, then extracts structured data grounded in the source documents. A web interface at [schematiq-ai.com](https://www.schematiq-ai.com/) supports human–AI collaboration, letting users inspect, revise, and refine results at every stage.
 
 <div align="center">
-  <img src="docs/screenshot.png" alt="ScheMatiQ web interface" width="700">
+  <img src="docs/screenshot.png" alt="The ScheMatiQ Workspace" width="720">
+  <br>
+  <sub><i>The ScheMatiQ Workspace — from a research question and documents to a grounded, editable table.</i></sub>
 </div>
 
 ## Table of Contents
@@ -36,12 +38,13 @@ ScheMatiQ helps domain experts turn a research question and a document collectio
 
 <!-- Keep short and user-facing: prepend notable, visible changes; skip internals, chores, and small fixes. -->
 
-- A redesigned spreadsheet-style interface (now the default) with a built-in chat assistant. The previous interface is still available at `/classic`.
-- Add more documents to a project at any time, and browse or preview your source documents in the app.
-- Documents that don't produce a result are shown with the reason, so nothing disappears without explanation.
-- Save and reopen a whole project, including its documents, as a single file.
-- Attach reference documents to help guide the extraction.
-- Now runs on Google's Gemini 3.5 Flash and 3.5 Flash-Lite.
+- A brand-new interface, now the default, built around a chat assistant — ask it to build, edit, and refine your table as you go. The previous interface is still available at `/classic`.
+- Read your source documents in a side panel, and click any value to see the exact text it came from, highlighted in the document.
+- Add more documents to a project whenever you want.
+- If a document doesn't produce a result, you'll see why — nothing disappears without a reason.
+- Save a whole project, documents included, as a single file and reopen it later.
+- Give the chat assistant reference documents to work from.
+- Runs on Google's Gemini 3.5 Flash and 3.5 Flash-Lite.
 
 ## How It Works
 
@@ -55,6 +58,12 @@ Research Question    Observation Unit      Schema          Structured Data      
 1. **Observation Unit Discovery** — Identifies the entity each row represents (e.g., "research paper", "patient").
 2. **Schema Discovery** — Iteratively refines annotation schema fields across document batches using embedding-based retrieval, LLM generation, and semantic merging.
 3. **Structured Data Extraction** — Produces a structured table with values grounded in the source documents.
+
+<div align="center">
+  <img src="docs/workspace.png" alt="Editing the schema and inspecting grounded values in the ScheMatiQ Workspace" width="720">
+  <br>
+  <sub><i>Inspect and refine the schema, then trace each value back to its source — with the chat assistant alongside.</i></sub>
+</div>
 
 ## Getting Started
 
