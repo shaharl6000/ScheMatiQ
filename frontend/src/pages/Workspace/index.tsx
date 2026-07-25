@@ -10,7 +10,6 @@ import {
   Loader2,
   MoreVertical,
   PanelLeft,
-  Plus,
   Sparkles,
   Table2,
   X,
@@ -1111,14 +1110,6 @@ function Workspace() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuLabel>Project</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => setProjectDialogOpen(true)}>
-              <Plus className="h-4 w-4" />
-              New Project
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => importInputRef.current?.click()} disabled={importingProject}>
-              {importingProject ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
-              Import Existing Project
-            </DropdownMenuItem>
             {sessionId && (
               <DropdownMenuItem onClick={() => navigate(`/visualize/${sessionId}?mode=${sessionMode}`)}>
                 <Table2 className="h-4 w-4" />
