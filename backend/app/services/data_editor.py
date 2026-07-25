@@ -103,7 +103,10 @@ class DataEditor:
                     continue
             else:
                 current_row_name = row.get("row_name") or row.get("_row_name")
-                if current_row_name != row_name:
+                current_unit_name = row.get("unit_name") or row.get("_unit_name")
+                # Rows produced per observation unit are identified by their unit
+                # name and may have no row_name at all, so accept a match on either.
+                if row_name not in (current_row_name, current_unit_name):
                     continue
                 if source_document:
                     current_src = _resolve_source_document(row)
