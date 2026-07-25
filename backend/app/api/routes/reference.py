@@ -86,7 +86,7 @@ async def upload_reference_document(
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     try:
-        ref = refsvc.build_reference_document(filename, raw)
+        ref = await refsvc.store_reference_document(session_id, filename, raw)
     except refsvc.UnsupportedReferenceFormat as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except refsvc.ReferenceExtractionError as exc:
@@ -113,6 +113,7 @@ async def delete_reference_document(session_id: str, reference_id: str) -> dict:
     removed = refsvc.remove_reference_document(session, reference_id)
     if not removed:
         raise HTTPException(status_code=404, detail="Reference document not found")
+    await refsvc.delete_reference_storage(session_id, reference_id)
     session_manager.update_session(session)
     await _broadcast_updated(session_id, session)
     return {"status": "success", "removed": reference_id}

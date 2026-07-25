@@ -1334,6 +1334,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 def should_stop():
                     return self.is_stop_requested(operation_id)
 
+                # Load reference context before entering the sync extraction thread.
+                reference_context = await build_reference_context(session)
+
                 def run_extraction():
                     return build_table_jsonl(
                         schema_path=schema_file,
@@ -1351,7 +1354,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         should_stop=should_stop,  # Allow graceful stop
                         known_units=known_units if known_units else None,
                         write_skip_rationale_artifact=session.write_artifacts,
-                        reference_context=build_reference_context(session),
+                        reference_context=reference_context,
                     )
 
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)
