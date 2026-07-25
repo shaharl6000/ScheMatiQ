@@ -23,9 +23,20 @@ from typing import List, Optional, Tuple
 
 from app.models.session import ReferenceDocument, VisualizationSession
 
-# Cap stored text so a single reference doc can't bloat the session blob
-# unboundedly (the session is serialized on every update).
-MAX_REFERENCE_CHARS = 200_000
+# Cap the extracted text size to avoid pathological uploads exhausting memory.
+# The text itself is stored in the storage backend (not inline on the session),
+# so this bound is generous rather than a session-bloat guard.
+MAX_REFERENCE_CHARS = 10_000_000
+
+# Reference text is stored as a file in the existing "documents" bucket, under a
+# per-session "references/" prefix, so it is session-scoped and cleaned up when
+# the session's documents are deleted. (Supabase has a fixed set of buckets, so
+# we reuse "documents" rather than introducing a new bucket.)
+REFERENCE_BUCKET = "documents"
+
+
+def _reference_storage_path(session_id: str, reference_id: str) -> str:
+    return f"{session_id}/references/{reference_id}.txt"
 
 # File types we can turn into useful text. Tabular and text-native formats are
 # handled in-process; pdf/docx reuse the existing document_conversion helpers.
@@ -145,6 +156,58 @@ def build_reference_document(filename: str, raw: bytes) -> ReferenceDocument:
         char_count=len(text),
         truncated=truncated,
     )
+
+
+async def store_reference_document(
+    session_id: str, filename: str, raw: bytes
+) -> ReferenceDocument:
+    """Extract text from an upload, store it in the storage backend, and return
+    metadata (with ``content=None`` — the text lives in storage, not inline)."""
+    from app.storage.factory import get_storage
+
+    text, truncated = extract_text(filename, raw)
+    ref = ReferenceDocument(
+        id=str(uuid.uuid4()),
+        filename=filename,
+        content=None,
+        char_count=len(text),
+        truncated=truncated,
+    )
+    storage = get_storage()
+    await storage.upload_text(
+        REFERENCE_BUCKET, _reference_storage_path(session_id, ref.id), text
+    )
+    return ref
+
+
+async def load_reference_text(session_id: str, ref: ReferenceDocument) -> str:
+    """Return a reference document's text.
+
+    Uses the inline ``content`` for legacy documents; otherwise downloads it from
+    the storage backend. Returns an empty string if the text can't be found.
+    """
+    if ref.content is not None:
+        return ref.content
+    from app.storage.factory import get_storage
+
+    storage = get_storage()
+    text = await storage.download_text(
+        REFERENCE_BUCKET, _reference_storage_path(session_id, ref.id)
+    )
+    return text or ""
+
+
+async def delete_reference_storage(session_id: str, reference_id: str) -> None:
+    """Best-effort removal of a reference document's stored text."""
+    from app.storage.factory import get_storage
+
+    try:
+        storage = get_storage()
+        await storage.delete_file(
+            REFERENCE_BUCKET, _reference_storage_path(session_id, reference_id)
+        )
+    except Exception:  # deletion is best-effort; never fail the caller on it
+        pass
 
 
 def list_reference_documents(session: VisualizationSession) -> List[ReferenceDocument]:

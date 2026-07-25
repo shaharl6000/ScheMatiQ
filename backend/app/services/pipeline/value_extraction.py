@@ -73,7 +73,7 @@ async def run_value_extraction(
     on_value_extracted = create_value_extracted_callback(ws_mixin, session_id, loop)
     on_warning = create_warning_callback(ws_manager, session_id, loop)
 
-    reference_context = build_reference_context(session)
+    reference_context = await build_reference_context(session)
 
     extraction_result = {}
 

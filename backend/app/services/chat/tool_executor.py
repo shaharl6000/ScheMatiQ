@@ -254,12 +254,13 @@ class ToolExecutor:
       ref = refsvc.get_reference_document(session, reference_id)
       if not ref:
           raise ValueError(f"Reference document '{reference_id}' not found")
+      full_text = await refsvc.load_reference_text(session_id, ref)
       # Cap the returned text so the whole result stays within the chat
       # tool-result budget. truncate_result drops an oversized string value
       # outright, which would hand the model an empty body; clip it here instead
       # and flag that more text exists. The full document is still used during
       # value extraction.
-      content = ref.content
+      content = full_text
       clipped = len(content) > READ_REFERENCE_CHAT_BUDGET
       if clipped:
           content = content[:READ_REFERENCE_CHAT_BUDGET]

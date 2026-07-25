@@ -157,7 +157,7 @@ class ReferenceDocument(BaseModel):
     """
     id: str
     filename: str
-    content: str  # Plain-text representation of the uploaded file
+    content: Optional[str] = None  # Legacy inline text; new docs store text in the storage backend
     char_count: int = 0
     truncated: bool = False  # True if content was capped at the size limit
     uploaded_at: datetime = Field(default_factory=datetime.now)

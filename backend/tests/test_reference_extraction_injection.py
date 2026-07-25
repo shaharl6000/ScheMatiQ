@@ -4,6 +4,8 @@ Covers the prompt builder injection, the threading through PaperProcessor /
 TableBuilder, and the backend build_reference_context helper.
 """
 
+import pytest
+
 from app.services.reference_context import build_reference_context
 from schematiq.value_extraction.utils.prompt_builder import PromptBuilder
 
@@ -49,7 +51,7 @@ def test_reference_context_threads_through_table_builder():
 class _Ref:
     def __init__(self, filename, content):
         self.filename = filename
-        self.content = content
+        self.content = content  # inline content -> load_reference_text returns it
 
 
 class _Session:
@@ -57,19 +59,22 @@ class _Session:
         self.reference_documents = refs
 
 
-def test_build_reference_context_none_when_empty():
-    assert build_reference_context(_Session([])) is None
-    assert build_reference_context(object()) is None  # missing attribute -> None
+@pytest.mark.asyncio
+async def test_build_reference_context_none_when_empty():
+    assert await build_reference_context(_Session([])) is None
+    assert await build_reference_context(object()) is None  # missing attribute -> None
 
 
-def test_build_reference_context_concatenates_labelled():
-    ctx = build_reference_context(
+@pytest.mark.asyncio
+async def test_build_reference_context_concatenates_labelled():
+    ctx = await build_reference_context(
         _Session([_Ref("a.csv", "judge,pres\nSmith,Trump"), _Ref("b.txt", "extra")])
     )
     assert "a.csv" in ctx and "Smith,Trump" in ctx
     assert "b.txt" in ctx and "extra" in ctx
 
 
-def test_build_reference_context_skips_blank():
-    ctx = build_reference_context(_Session([_Ref("blank.txt", "   ")]))
+@pytest.mark.asyncio
+async def test_build_reference_context_skips_blank():
+    ctx = await build_reference_context(_Session([_Ref("blank.txt", "   ")]))
     assert ctx is None
