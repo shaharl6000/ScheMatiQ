@@ -236,13 +236,28 @@ def _all_tools() -> list[ToolSpec]:
         ),
         ToolSpec(
             name="update_cell",
-            description="Update a single cell value in the data table.",
+            description=(
+                "Update a single cell value in the data table. Identify the row by "
+                "its observation-unit name (the 'row' argument). If the same unit "
+                "name appears in more than one row (the same-named unit occurring in "
+                "different source documents), also pass source_document — shown per "
+                "row by preview_data — to target the exact row; otherwise the first "
+                "matching row is updated."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "row": {"type": "string", "description": "Row name / observation unit name."},
                     "column": {"type": "string", "description": "Column name."},
                     "value": {"type": "string", "description": "New cell value."},
+                    "source_document": {
+                        "type": "string",
+                        "description": (
+                            "Optional. The row's source document (from preview_data). "
+                            "Provide it to disambiguate when several rows share the "
+                            "same unit name."
+                        ),
+                    },
                     "reference_id": {
                         "type": "string",
                         "description": (
@@ -257,7 +272,7 @@ def _all_tools() -> list[ToolSpec]:
             },
             cost_class="cheap",
             handler="update_cell",
-            server_injects=("session_id", "source_document"),
+            server_injects=("session_id",),
         ),
         ToolSpec(
             name="add_unit",
