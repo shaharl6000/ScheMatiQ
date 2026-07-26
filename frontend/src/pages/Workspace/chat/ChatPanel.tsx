@@ -549,7 +549,7 @@ export function ChatPanel({
             size="icon"
             onClick={ask}
             disabled={busy || !input.trim()}
-            className="ml-auto rounded-lg"
+            className="ml-auto h-9 w-9 rounded-lg"
             aria-label="Send message"
             title="Send message (Enter)"
           >
