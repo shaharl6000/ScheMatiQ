@@ -361,11 +361,23 @@ class ChatAgentService:
         for _ in range(MAX_TOOL_ITERATIONS):
             function_calls = getattr(response, "function_calls", None) or []
             if function_calls:
-                # Handle one tool call per turn. Gemini (AUTO mode) normally returns a
-                # single call; if it ever batches several, take the first and let the model
-                # re-issue the rest next turn, so trailing calls aren't dropped when an
-                # earlier one needs confirmation.
-                for function_call in function_calls[:1]:
+                # Execute every tool call the model issued this turn. The model often
+                # batches several calls (e.g. one update_cell per row); running only the
+                # first would silently drop the rest, and the model — having emitted them
+                # all — would report success for cells that were never written.
+                #
+                # Expensive tools require a per-call confirmation, so if any call in the
+                # batch is expensive we handle a single call this turn and let the model
+                # re-issue the remainder next turn.
+                has_expensive = any(
+                    TOOL_BY_NAME.get(fc.name) is not None
+                    and TOOL_BY_NAME[fc.name].cost_class == "expensive"
+                    for fc in function_calls
+                )
+                batch = function_calls[:1] if has_expensive else function_calls
+
+                response_parts: list[Any] = []
+                for function_call in batch:
                     tool_name = function_call.name
                     args = dict(function_call.args or {})
                     tool = TOOL_BY_NAME.get(tool_name)
@@ -425,11 +437,11 @@ class ChatAgentService:
                                 columns=self._affected_columns(tool_name, args),
                             )
                         )
-                    response = await self._send_function_response(
-                        state,
-                        PendingToolCall(tool_name, args, function_call),
-                        tool_result,
+                    response_parts.append(
+                        self._function_response_part(tool_name, tool_result)
                     )
+
+                response = await self._send_function_response_parts(state, response_parts)
                 continue
 
             text = (getattr(response, "text", None) or "").strip()
@@ -455,15 +467,32 @@ class ChatAgentService:
         pending: PendingToolCall,
         tool_result: dict[str, Any],
     ) -> Any:
-        from google.genai import types
-
-        part = types.Part.from_function_response(
-            name=pending.tool_name,
-            response={"result": tool_result},
-        )
         LLMCallTracker.get_instance().set_stage("chat")
         state.pending_llm_calls += 1
-        return await state.chat.send_message(part)
+        return await state.chat.send_message(
+            self._function_response_part(pending.tool_name, tool_result)
+        )
+
+    @staticmethod
+    def _function_response_part(tool_name: str, tool_result: dict[str, Any]) -> Any:
+        from google.genai import types
+
+        return types.Part.from_function_response(
+            name=tool_name,
+            response={"result": tool_result},
+        )
+
+    async def _send_function_response_parts(
+        self, state: ChatSessionState, parts: list[Any]
+    ) -> Any:
+        """Send one function response per tool call the model issued this turn.
+
+        Gemini expects a response for every function call it emitted; sending all of
+        them together lets a batch of tool calls (e.g. several update_cell) all run.
+        """
+        LLMCallTracker.get_instance().set_stage("chat")
+        state.pending_llm_calls += 1
+        return await state.chat.send_message(parts)
 
     def _text_message(self, content: str) -> dict[str, Any]:
         return {
