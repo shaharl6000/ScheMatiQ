@@ -491,7 +491,11 @@ class ToolExecutor:
       row_name = args["row"]
       column = args["column"]
       value = args["value"]
-      source_document = await self._resolve_source_document(session_id, row_name)
+      # Prefer an explicit source_document from the agent (needed to disambiguate
+      # same-named units in different documents); otherwise resolve it server-side.
+      source_document = args.get("source_document") or await self._resolve_source_document(
+          session_id, row_name
+      )
       # If the value came from a reference document, resolve its filename so the
       # cell can be attributed to it.
       reference_source = None
