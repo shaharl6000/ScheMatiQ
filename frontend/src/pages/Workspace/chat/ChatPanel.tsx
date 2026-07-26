@@ -2,7 +2,7 @@
 // Parent: Workspace (index.tsx).
 
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, Check, FileText, Loader2, Paperclip, X } from 'lucide-react';
+import { ArrowUp, Bot, Check, FileText, Loader2, Paperclip, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -514,7 +514,8 @@ export function ChatPanel({
           rows={3}
           disabled={busy}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            // Enter sends; Shift+Enter inserts a newline.
+            if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
               ask();
             }
@@ -542,6 +543,21 @@ export function ChatPanel({
               <Paperclip className="h-4 w-4" />
             )}
             Attach reference
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            onClick={ask}
+            disabled={busy || !input.trim()}
+            className="ml-auto rounded-lg"
+            aria-label="Send message"
+            title="Send message (Enter)"
+          >
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowUp className="h-4 w-4" />
+            )}
           </Button>
         </div>
       </div>
