@@ -175,11 +175,25 @@ function Workspace() {
   } = useWorkspaceLayout();
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
+  // Monotonic edit epoch. Bumped the instant a local grid edit begins (e.g.
+  // clearing a cell). A silent refresh whose network fetch started before the
+  // current epoch is stale: its payload predates the edit and would flash the
+  // pre-edit value back in for a frame before the edit's own authoritative
+  // refresh lands. Such stale payloads are dropped (not applied, not deferred).
+  const editEpochRef = useRef(0);
   const cancelChatPendingRef = useRef<(() => Promise<boolean>) | null>(null);
 
   const cancelChatPendingIfAny = useCallback(async (): Promise<boolean> => {
     if (!cancelChatPendingRef.current) return true;
     return cancelChatPendingRef.current();
+  }, []);
+
+  // Called synchronously when a local grid edit begins. Bumps the epoch so any
+  // refresh already in flight is treated as stale, and discards any snapshot
+  // deferred while the editor was open (it too predates the edit).
+  const notifyLocalEdit = useCallback(() => {
+    editEpochRef.current += 1;
+    deferredDataRef.current = null;
   }, []);
 
   const isCellEditorOpen = useCallback(() => {
@@ -188,7 +202,11 @@ function Workspace() {
   }, []);
 
   const applyData = useCallback(
-    (nextData: PaginatedData, opts?: { silent?: boolean }) => {
+    (nextData: PaginatedData, opts?: { silent?: boolean; epoch?: number }) => {
+      // Drop a silent refresh whose fetch predates the latest local edit.
+      if (opts?.silent && opts.epoch != null && opts.epoch < editEpochRef.current) {
+        return;
+      }
       if (opts?.silent && isCellEditorOpen()) {
         deferredDataRef.current = nextData;
         return;
@@ -209,6 +227,9 @@ function Workspace() {
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (!sessionId) return;
     const silent = Boolean(options?.silent);
+    // Snapshot the edit epoch at fetch start so applyData can drop this payload
+    // if a local edit happens (or already happened) while it was in flight.
+    const startEpoch = editEpochRef.current;
     if (!silent) {
       setLoading(true);
     }
@@ -229,7 +250,7 @@ function Workspace() {
           fetchData().catch(() => emptyData),
           fetchDocuments().catch(() => null),
         ]);
-        applyData(nextData, options);
+        applyData(nextData, { ...options, epoch: startEpoch });
         setDocuments(nextDocuments);
       } finally {
         if (!silent) setDataLoading(false);
@@ -773,6 +794,7 @@ function Workspace() {
         onGroundingHighlight={handleGroundingHighlight}
         onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
         onRefresh={refreshSilent}
+        onLocalEdit={notifyLocalEdit}
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
         layoutRevision={gridLayoutRevision}

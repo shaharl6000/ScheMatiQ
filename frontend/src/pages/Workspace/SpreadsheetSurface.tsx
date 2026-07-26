@@ -55,6 +55,7 @@ export function SpreadsheetSurface({
   onGroundingHighlight,
   onGroundingScrollRequest,
   onRefresh,
+  onLocalEdit,
   onEditFollowUp,
   onEditEnd,
   layoutRevision,
@@ -75,6 +76,10 @@ export function SpreadsheetSurface({
   // re-scroll to the highlight even when the same cell is clicked again.
   onGroundingScrollRequest?: () => void;
   onRefresh: () => void;
+  // Fired synchronously the instant a local grid edit is made, before its PUT
+  // resolves. Lets the parent invalidate in-flight/deferred background
+  // refreshes so a stale payload cannot flash the pre-edit value back in.
+  onLocalEdit: () => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
   onEditEnd: () => void;
   layoutRevision: string;
@@ -577,6 +582,12 @@ export function SpreadsheetSurface({
       if (oldValue === newValue || prop == null) continue;
       const key = String(prop);
 
+      // Signal the edit before any async persistence so the parent can drop
+      // background refreshes that were fetched pre-edit. Without this a clear
+      // (or any edit) briefly reverts when a stale silent refresh lands, then
+      // re-applies once the edit's own refresh resolves.
+      onLocalEdit();
+
       if (activeSheet === 'data') {
         if (key.startsWith('_')) continue;
         const sourceRow: DataRow | undefined = data.rows[rowIndex];
@@ -732,7 +743,7 @@ export function SpreadsheetSurface({
           });
       }
     }
-  }, [activeSheet, data.rows, observationUnitRows, onEditFollowUp, onRefresh, schemaColumns, sessionId, toast]);
+  }, [activeSheet, data.rows, observationUnitRows, onEditFollowUp, onLocalEdit, onRefresh, schemaColumns, sessionId, toast]);
 
   const handleBeforeRemoveRow = useCallback(
     (_index: number, _amount: number, physicalRows: number[], _source?: string): boolean | void => {
