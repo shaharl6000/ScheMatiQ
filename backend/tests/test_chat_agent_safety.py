@@ -356,3 +356,58 @@ async def test_excerpt_columns_excluded_from_targets(monkeypatch):
     service = _reextraction_service_with_columns(monkeypatch, ["Age", "Age_excerpt"])
     resolved = await service.resolve_reextraction_columns("s1", scope="all")
     assert resolved == ["Age"]
+
+
+# --- batched tool calls ----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batched_cheap_calls_all_execute(agent_with_fake_executor):
+    """When the model emits several cheap calls in one turn, all run (not just the
+    first). Regression: previously only function_calls[:1] ran, so filling N cells
+    via a batch of update_cell left N-1 cells silently unwritten."""
+    agent, executor = agent_with_fake_executor
+    chat = FakeChat([FakeResponse(text="Filled all rows.")])
+    state = _make_state(chat)
+
+    rows = [
+        ("John C. Coughenour", "Other Republican"),
+        ("Judge Canby", "Democratic"),
+        ("Judge Forrest", "Trump"),
+        ("Judge M. Smith", "Other Republican"),
+        ("Clay D. Land", "Other Republican"),
+    ]
+    calls = [
+        FakeFunctionCall("update_cell", {"row": r, "column": "appointee", "value": v})
+        for r, v in rows
+    ]
+    outbound: list[dict] = []
+    result = await agent._continue_after_tool(state, FakeResponse(function_calls=calls), outbound)
+
+    assert result["status"] == "complete"
+    executed_rows = [args["row"] for name, args in executor.executed if name == "update_cell"]
+    assert executed_rows == [r for r, _ in rows]  # all five, in order
+    # A single combined function-response message carries one part per call.
+    assert len(chat.sent) == 1
+    assert isinstance(chat.sent[0], list) and len(chat.sent[0]) == 5
+
+
+@pytest.mark.asyncio
+async def test_batch_with_expensive_still_pauses(agent_with_fake_executor):
+    """A batch containing an expensive tool must still gate on confirmation and not
+    execute anything inline."""
+    agent, executor = agent_with_fake_executor
+    chat = FakeChat([])
+    state = _make_state(chat)
+
+    calls = [
+        FakeFunctionCall("reextract", {"columns": ["Age"]}),
+        FakeFunctionCall("update_cell", {"row": "x", "column": "c", "value": "v"}),
+    ]
+    outbound: list[dict] = []
+    result = await agent._continue_after_tool(state, FakeResponse(function_calls=calls), outbound)
+
+    assert result["status"] == "pending_confirmation"
+    assert result["pending_action"]["tool_name"] == "reextract"
+    assert executor.executed == []
+    assert state.pending is not None and state.pending.tool_name == "reextract"
