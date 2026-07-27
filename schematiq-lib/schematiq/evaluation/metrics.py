@@ -3,7 +3,7 @@ from typing import Any, Optional
 # from bert_score import BERTScorer
 import numpy as np
 
-from table import Table
+from .table import Table
 
 class BaseMetric:
     """Calculates and stores information for evaluation metrics.
