@@ -18,7 +18,7 @@ import types
 
 import pytest
 
-from app.services.chat.agent_service import ChatAgentService
+from app.services.chat.agent_service import ChatAgentService, QUOTA_EXCEEDED_CHAT_MESSAGE
 from app.services.chat.session_store import (
     ChatSessionState,
     PendingToolCall,
@@ -88,6 +88,18 @@ def agent_with_fake_executor(monkeypatch):
     agent = ChatAgentService()
     executor = RecordingExecutor()
     agent._executor = executor
+    # These tests exercise tool/confirmation logic, not the LLM quota. Neutralize
+    # the quota guard so they stay deterministic regardless of the environment's
+    # cumulative usage (the real check reads durable usage state, so otherwise a
+    # developer or CI whose global usage is over the limit would see unrelated
+    # failures here). Quota enforcement itself is covered by dedicated tests below
+    # and is fully active in production.
+    async def _allow_quota():
+        return None
+
+    monkeypatch.setattr(
+        ChatAgentService, "_ensure_quota_available", staticmethod(_allow_quota)
+    )
     return agent, executor
 
 
@@ -411,3 +423,64 @@ async def test_batch_with_expensive_still_pauses(agent_with_fake_executor):
     assert result["pending_action"]["tool_name"] == "reextract"
     assert executor.executed == []
     assert state.pending is not None and state.pending.tool_name == "reextract"
+
+
+# --- quota enforcement (dedicated, deterministic) --------------------------
+#
+# These tests drive the quota guard directly with a mocked usage check, so they
+# verify the block/allow contract on purpose rather than depending on the
+# environment's real cumulative usage. They intentionally do NOT use the
+# quota-neutralizing fixture above.
+
+
+def _agent_with_quota(monkeypatch, *, exhausted: bool):
+    """Build an agent whose global-quota check is mocked to be exhausted or not."""
+    import app.services.chat.agent_service as agent_mod
+    from schematiq.core.llm_call_tracker import QuotaExceededError
+
+    agent = ChatAgentService()
+    executor = RecordingExecutor()
+    agent._executor = executor
+
+    monkeypatch.setattr(agent_mod, "DEVELOPER_MODE", False)
+
+    def _check(limit):
+        if exhausted:
+            raise QuotaExceededError(used=999999, limit=limit)
+        return None
+
+    monkeypatch.setattr(agent_mod.schematiq_runner, "check_global_quota", _check)
+    return agent, executor
+
+
+def _pending_reextract(state):
+    state.pending = PendingToolCall(
+        tool_name="reextract",
+        args={"columns": ["Age"]},
+        function_call_part=FakeFunctionCall("reextract", {"columns": ["Age"]}),
+    )
+
+
+@pytest.mark.asyncio
+async def test_quota_exhausted_blocks_confirm(monkeypatch):
+    agent, executor = _agent_with_quota(monkeypatch, exhausted=True)
+    state = _make_state(FakeChat([FakeResponse(text="unreachable")]))
+    _pending_reextract(state)
+
+    result = await agent.confirm_pending(state.workspace_session_id, state.chat_id)
+
+    assert result["status"] == "complete"
+    assert QUOTA_EXCEEDED_CHAT_MESSAGE in str(result["messages"])
+    assert executor.executed == []  # blocked: the pending action did not run
+
+
+@pytest.mark.asyncio
+async def test_quota_available_allows_confirm(monkeypatch):
+    agent, executor = _agent_with_quota(monkeypatch, exhausted=False)
+    state = _make_state(FakeChat([FakeResponse(text="Re-extraction started.")]))
+    _pending_reextract(state)
+
+    result = await agent.confirm_pending(state.workspace_session_id, state.chat_id)
+
+    assert result["status"] == "complete"
+    assert ("reextract", {"columns": ["Age"]}) in executor.executed
