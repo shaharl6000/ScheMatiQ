@@ -76,102 +76,91 @@ class DataEditor:
             FileNotFoundError: If no data file exists for the session
             ValueError: If the row is not found
         """
-        data_file = self._find_data_file(session_id)
-        if not data_file:
-            hydrated = await self._resolve_session_data_files(session_id)
-            data_file = hydrated[0] if hydrated else None
-        if not data_file:
+        # Resolve the *same* set of data files the reader (`get_data`) sees, in
+        # the same priority order. Historically this method wrote to a single
+        # file chosen by its own relative-path candidate list, which could
+        # diverge from what `get_data` reads (e.g. dev.sh `.dev-data/instance-*`
+        # work dirs, or a row duplicated across `extracted_data.jsonl` and the
+        # additional-documents `data/data.jsonl`). When they diverged the edit
+        # persisted to a file the reader ignored, so the value reverted on the
+        # next refresh. Updating every file that contains the row keeps writer
+        # and reader consistent and prevents a stale duplicate from winning the
+        # reader's first-occurrence dedup.
+        data_files = await self._resolve_session_data_files(session_id)
+        if not data_files:
+            single = self._find_data_file(session_id)
+            if single:
+                data_files = [single]
+        if not data_files:
             raise FileNotFoundError(f"No data file found for session {session_id}")
 
-        # Read all rows
-        rows = []
-        with open(data_file, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    rows.append(json.loads(line))
-
-        # Find and update the target row
         from app.services.data_utils import _resolve_source_document
 
         match_by_index = (not row_name) and row_index is not None
 
-        updated = False
+        updated_any = False
         previous_value = None
-        for idx, row in enumerate(rows):
-            if match_by_index:
-                if idx != row_index:
-                    continue
-            else:
-                current_row_name = row.get("row_name") or row.get("_row_name")
-                if current_row_name != row_name:
-                    continue
-                if source_document:
-                    current_src = _resolve_source_document(row)
-                    if current_src and current_src != source_document:
+        persisted_files: list = []
+
+        for file_position, data_file in enumerate(data_files):
+            # Read all rows for this file
+            rows = []
+            try:
+                with open(data_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip():
+                            rows.append(json.loads(line))
+            except FileNotFoundError:
+                continue
+
+            file_updated = False
+            for idx, row in enumerate(rows):
+                if match_by_index:
+                    # row_index is an absolute position in the reader's merged,
+                    # deduped view, not a per-file line number. Only the first
+                    # resolved file is authoritative for the index fallback
+                    # (used for name-less generic imports, effectively
+                    # single-file); do not attempt it against later files.
+                    if file_position != 0 or idx != row_index:
                         continue
-            # Matched row:
-            # Update the cell value
-            if "data" in row and isinstance(row["data"], dict):
-                # Capture previous value for undo support
-                previous_value = copy.deepcopy(row["data"].get(column))
-
-                if restore is not None:
-                    # Full restore (undo): replace entire cell object
-                    row["data"][column] = restore
-                elif column in row["data"]:
-                    cell_value = row["data"][column]
-                    # Handle ScheMatiQ answer format
-                    if isinstance(cell_value, dict) and "answer" in cell_value:
-                        cell_value["answer"] = value
-                        cell_value["excerpts"] = []
-                        cell_value["manually_edited"] = True
-                    else:
-                        row["data"][column] = {
-                            "answer": value,
-                            "excerpts": [],
-                            "manually_edited": True,
-                        }
                 else:
-                    row["data"][column] = {
-                        "answer": value,
-                        "excerpts": [],
-                        "manually_edited": True,
-                    }
-            else:
-                # Flat runtime JSONL format — preserve answer/excerpts dict shape
-                previous_value = copy.deepcopy(row.get(column))
-                if restore is not None:
-                    row[column] = restore
-                elif column in row and isinstance(row[column], dict) and "answer" in row[column]:
-                    row[column]["answer"] = value
-                    row[column]["excerpts"] = []
-                    row[column]["manually_edited"] = True
-                else:
-                    row[column] = {
-                        "answer": value,
-                        "excerpts": [],
-                        "manually_edited": True,
-                    }
-            updated = True
-            break
+                    current_row_name = row.get("row_name") or row.get("_row_name")
+                    if current_row_name != row_name:
+                        continue
+                    if source_document:
+                        current_src = _resolve_source_document(row)
+                        if current_src and current_src != source_document:
+                            continue
 
-        if not updated:
+                row_previous = self._apply_cell_update(
+                    row, column, value, restore=restore,
+                    reference_source=reference_source,
+                )
+                # Preserve the previous value from the first file that matched
+                # (the reader's authoritative first-occurrence).
+                if not updated_any:
+                    previous_value = row_previous
+                file_updated = True
+                updated_any = True
+                break
+
+            if file_updated:
+                with open(data_file, "w", encoding="utf-8") as f:
+                    for row in rows:
+                        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                persisted_files.append(data_file)
+
+            # Index-based match targets a single file only; stop after the first.
+            if match_by_index and file_position == 0:
+                break
+
+        if not updated_any:
             if match_by_index:
                 raise ValueError(f"Row at index {row_index} not found")
             raise ValueError(f"Row with row_name '{row_name}' not found")
 
-        # Provenance: when the value came from an attached reference document, mark
-        # the cell as externally sourced and attribute it to that reference, so the
-        # table shows where it came from (reuses the existing external_source style).
-        if reference_source and restore is None:
-            self._mark_external_source(row, column, reference_source)
-
-        # Write back all rows
-        with open(data_file, "w", encoding="utf-8") as f:
-            for row in rows:
-                f.write(json.dumps(row, ensure_ascii=False) + "\n")
-
-        await persist_session_data_file(session_id, data_file)
+        for data_file in persisted_files:
+            await persist_session_data_file(session_id, data_file)
 
         return {
             "status": "success",
@@ -181,6 +170,60 @@ class DataEditor:
             "value": value,
             "previous_value": previous_value,
         }
+
+    def _apply_cell_update(
+        self, row: dict, column: str, value: Any,
+        restore: Any = None, reference_source: Optional[str] = None,
+    ) -> Any:
+        """Mutate a single row's cell in place and return its previous value.
+
+        Handles both the nested ``data`` dict shape and the flat runtime JSONL
+        shape, preserving the ScheMatiQ ``answer``/``excerpts`` cell object.
+        """
+        previous_value = None
+        if "data" in row and isinstance(row["data"], dict):
+            previous_value = copy.deepcopy(row["data"].get(column))
+            if restore is not None:
+                row["data"][column] = restore
+            elif column in row["data"]:
+                cell_value = row["data"][column]
+                if isinstance(cell_value, dict) and "answer" in cell_value:
+                    cell_value["answer"] = value
+                    cell_value["excerpts"] = []
+                    cell_value["manually_edited"] = True
+                else:
+                    row["data"][column] = {
+                        "answer": value,
+                        "excerpts": [],
+                        "manually_edited": True,
+                    }
+            else:
+                row["data"][column] = {
+                    "answer": value,
+                    "excerpts": [],
+                    "manually_edited": True,
+                }
+        else:
+            previous_value = copy.deepcopy(row.get(column))
+            if restore is not None:
+                row[column] = restore
+            elif column in row and isinstance(row[column], dict) and "answer" in row[column]:
+                row[column]["answer"] = value
+                row[column]["excerpts"] = []
+                row[column]["manually_edited"] = True
+            else:
+                row[column] = {
+                    "answer": value,
+                    "excerpts": [],
+                    "manually_edited": True,
+                }
+
+        # Provenance: when the value came from an attached reference document,
+        # mark the cell as externally sourced (reuses the external_source style).
+        if reference_source and restore is None:
+            self._mark_external_source(row, column, reference_source)
+
+        return previous_value
 
     @staticmethod
     def _mark_external_source(row: dict, column: str, source_name: str) -> None:
