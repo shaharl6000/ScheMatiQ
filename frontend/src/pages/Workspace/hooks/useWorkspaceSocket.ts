@@ -128,13 +128,19 @@ export function useWorkspaceSocket({
       if (
         message.type === 'progress' ||
         message.type === 'completed' ||
-        message.type === 'schema_completed' ||
-        message.type === 'schema_updated' ||
         message.type === 'cell_extracted' ||
         message.type === 'row_completed' ||
-        message.type === 'schema_progress' ||
         message.type === 'reprocessing_progress' ||
-        message.type === 'reprocessing_completed' ||
+        message.type === 'reprocessing_completed'
+      ) {
+        void refreshSilent();
+        return;
+      }
+
+      if (
+        message.type === 'schema_completed' ||
+        message.type === 'schema_updated' ||
+        message.type === 'schema_progress' ||
         message.type === 'observation_unit_definition_updated'
       ) {
         void refresh({ silent: true });

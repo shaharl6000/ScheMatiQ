@@ -55,7 +55,8 @@ export function SpreadsheetSurface({
   onGroundingHighlight,
   onGroundingScrollRequest,
   onRefresh,
-  onLocalEdit,
+  onRefreshData,
+  onOptimisticCellEdit,
   onEditFollowUp,
   onEditEnd,
   layoutRevision,
@@ -76,10 +77,15 @@ export function SpreadsheetSurface({
   // re-scroll to the highlight even when the same cell is clicked again.
   onGroundingScrollRequest?: () => void;
   onRefresh: () => void;
-  // Fired synchronously the instant a local grid edit is made, before its PUT
-  // resolves. Lets the parent invalidate in-flight/deferred background
-  // refreshes so a stale payload cannot flash the pre-edit value back in.
-  onLocalEdit: () => void;
+  // Row-data-only refresh after a Data-sheet cell edit (no status/schema churn).
+  onRefreshData: () => void;
+  // Apply the edited value to React state immediately so the grid does not
+  // revert when a background refresh re-renders before the PUT completes.
+  onOptimisticCellEdit: (
+    identity: { rowName: string; sourceDocument?: string; rowIndex?: number },
+    column: string,
+    value: string,
+  ) => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
   onEditEnd: () => void;
   layoutRevision: string;
@@ -582,39 +588,40 @@ export function SpreadsheetSurface({
       if (oldValue === newValue || prop == null) continue;
       const key = String(prop);
 
-      // Signal the edit before any async persistence so the parent can drop
-      // background refreshes that were fetched pre-edit. Without this a clear
-      // (or any edit) briefly reverts when a stale silent refresh lands, then
-      // re-applies once the edit's own refresh resolves.
-      onLocalEdit();
-
       if (activeSheet === 'data') {
         if (key.startsWith('_')) continue;
         const sourceRow: DataRow | undefined = data.rows[rowIndex];
         const rowName = sourceRow?.row_name || sourceRow?._unit_name || '';
         const rowIndexId = sourceRow?._row_index;
+        const sourceDocument = sourceRow?._source_document || sourceRow?._parent_document;
         if (!rowName && rowIndexId == null) {
           toast({
             title: 'Cell update failed',
             description: 'Could not identify which row to update.',
             variant: 'destructive',
           });
-          onRefresh();
+          onRefreshData();
           continue;
         }
+
+        onOptimisticCellEdit(
+          { rowName, sourceDocument, rowIndex: rowIndexId },
+          key,
+          String(newValue ?? ''),
+        );
 
         schematiqAPI.updateCell(
           sessionId,
           rowName,
           key,
           String(newValue ?? ''),
-          sourceRow?._source_document || sourceRow?._parent_document,
+          sourceDocument,
           rowIndexId
         )
           .then(() => {
             const rowLabel = rowName || (rowIndexId != null ? `Row ${rowIndexId + 1}` : 'Row');
             toast({ title: 'Cell updated', description: `${rowLabel} / ${key}` });
-            onRefresh();
+            onRefreshData();
           })
           .catch((err: any) => {
             toast({
@@ -622,7 +629,7 @@ export function SpreadsheetSurface({
               description: err?.response?.data?.detail || err?.message || 'Could not update cell',
               variant: 'destructive',
             });
-            onRefresh();
+            onRefreshData();
           });
       }
 
@@ -743,7 +750,7 @@ export function SpreadsheetSurface({
           });
       }
     }
-  }, [activeSheet, data.rows, observationUnitRows, onEditFollowUp, onLocalEdit, onRefresh, schemaColumns, sessionId, toast]);
+  }, [activeSheet, data.rows, observationUnitRows, onEditFollowUp, onOptimisticCellEdit, onRefresh, onRefreshData, schemaColumns, sessionId, toast]);
 
   const handleBeforeRemoveRow = useCallback(
     (_index: number, _amount: number, physicalRows: number[], _source?: string): boolean | void => {

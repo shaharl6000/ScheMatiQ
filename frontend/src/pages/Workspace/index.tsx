@@ -64,6 +64,7 @@ import {
   buildExportFilename,
   dataEquals,
   documentDisplayName,
+  patchDataCell,
   schemaFromLoadSession,
   selectionArea,
   selectionsEqual,
@@ -175,33 +176,11 @@ function Workspace() {
   } = useWorkspaceLayout();
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
-  // Monotonic edit epoch. Bumped the instant a local grid edit begins (e.g.
-  // clearing a cell). A silent refresh whose network fetch started before the
-  // current epoch is stale: its payload predates the edit and would flash the
-  // pre-edit value back in for a frame before the edit's own authoritative
-  // refresh lands. Such stale payloads are dropped (not applied, not deferred).
-  const editEpochRef = useRef(0);
-  // Tracks the in-flight silent refresh so concurrent silent refreshes coalesce
-  // (declared here so a local edit can invalidate it — see notifyLocalEdit).
-  const inFlightSilentRef = useRef<Promise<void> | null>(null);
   const cancelChatPendingRef = useRef<(() => Promise<boolean>) | null>(null);
 
   const cancelChatPendingIfAny = useCallback(async (): Promise<boolean> => {
     if (!cancelChatPendingRef.current) return true;
     return cancelChatPendingRef.current();
-  }, []);
-
-  // Called synchronously when a local grid edit begins. Bumps the epoch so any
-  // refresh already in flight is treated as stale, discards any snapshot
-  // deferred while the editor was open (it too predates the edit), and drops
-  // the in-flight silent-refresh handle so the edit's own post-PUT refresh
-  // starts a *fresh* fetch (at the new epoch) instead of coalescing into the
-  // stale one — which would be rejected by the epoch guard, leaving the edit
-  // (e.g. a cell clear) never applied to state.
-  const notifyLocalEdit = useCallback(() => {
-    editEpochRef.current += 1;
-    deferredDataRef.current = null;
-    inFlightSilentRef.current = null;
   }, []);
 
   const isCellEditorOpen = useCallback(() => {
@@ -210,12 +189,11 @@ function Workspace() {
   }, []);
 
   const applyData = useCallback(
-    (nextData: PaginatedData, opts?: { silent?: boolean; epoch?: number }) => {
-      // Drop a silent refresh whose fetch predates the latest local edit.
-      if (opts?.silent && opts.epoch != null && opts.epoch < editEpochRef.current) {
-        return;
-      }
-      if (opts?.silent && isCellEditorOpen()) {
+    (nextData: PaginatedData, opts?: { silent?: boolean; force?: boolean }) => {
+      // Background polls defer while the inline editor is open so a mid-edit
+      // fetch cannot clobber what the user is typing. Post-edit refreshes pass
+      // force so the persisted value is always applied.
+      if (opts?.silent && !opts?.force && isCellEditorOpen()) {
         deferredDataRef.current = nextData;
         return;
       }
@@ -232,12 +210,36 @@ function Workspace() {
     setData((current) => (dataEquals(current, pending) ? current : pending));
   }, []);
 
+  // Fetch row data only — no status/schema/session churn. Used after cell edits
+  // and for background polls so a refresh cannot re-render the grid from stale
+  // React state while the network round-trip is still in flight.
+  const refreshData = useCallback(async (options?: { silent?: boolean; force?: boolean }) => {
+    if (!sessionId) return;
+    const fetchData = sessionMode === 'load'
+      ? () => loadAPI.getData(sessionId, 0, 500)
+      : () => schematiqAPI.getData(sessionId, 0, 500);
+    const nextData = await fetchData().catch(() => emptyData);
+    applyData(nextData, options);
+  }, [applyData, sessionId, sessionMode]);
+
+  const refreshAfterEdit = useCallback(() => refreshData({ silent: true, force: true }), [refreshData]);
+
+  const refreshSilent = useCallback(() => refreshData({ silent: true }), [refreshData]);
+
+  const applyOptimisticCellEdit = useCallback((
+    identity: { rowName: string; sourceDocument?: string; rowIndex?: number },
+    column: string,
+    value: string,
+  ) => {
+    deferredDataRef.current = null;
+    const patch = (current: PaginatedData) => patchDataCell(current, identity, column, value);
+    setData(patch);
+    setUnitData(patch);
+  }, []);
+
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (!sessionId) return;
     const silent = Boolean(options?.silent);
-    // Snapshot the edit epoch at fetch start so applyData can drop this payload
-    // if a local edit happens (or already happened) while it was in flight.
-    const startEpoch = editEpochRef.current;
     if (!silent) {
       setLoading(true);
     }
@@ -258,7 +260,7 @@ function Workspace() {
           fetchData().catch(() => emptyData),
           fetchDocuments().catch(() => null),
         ]);
-        applyData(nextData, { ...options, epoch: startEpoch });
+        applyData(nextData, options);
         setDocuments(nextDocuments);
       } finally {
         if (!silent) setDataLoading(false);
@@ -316,17 +318,6 @@ function Workspace() {
       }
     }
   }, [applyData, sessionId, sessionMode]);
-
-  const refreshSilent = useCallback(() => {
-    if (inFlightSilentRef.current) return inFlightSilentRef.current;
-    const run = refresh({ silent: true }).finally(() => {
-      // Only clear if this run is still the tracked one; a local edit (or a
-      // newer refresh) may have replaced the handle while we were in flight.
-      if (inFlightSilentRef.current === run) inFlightSilentRef.current = null;
-    });
-    inFlightSilentRef.current = run;
-    return run;
-  }, [refresh]);
 
   const {
     addDocsFiles,
@@ -802,8 +793,9 @@ function Workspace() {
         onSelectionChange={updateSheetSelection}
         onGroundingHighlight={handleGroundingHighlight}
         onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
-        onRefresh={refreshSilent}
-        onLocalEdit={notifyLocalEdit}
+        onRefresh={() => void refresh({ silent: true })}
+        onRefreshData={refreshAfterEdit}
+        onOptimisticCellEdit={applyOptimisticCellEdit}
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
         layoutRevision={gridLayoutRevision}

@@ -7,6 +7,7 @@ import type {
   ChatToolInfo,
   ChatTurnMessage,
   CostEstimate,
+  DataRow,
   PaginatedData,
   ScheMatiQConfig,
   ScheMatiQStatus,
@@ -133,6 +134,51 @@ export function buildExportFilename(question: string, ext: string, sessionId?: s
   const stem = slug || (sessionId ? sessionId.slice(0, 8) : 'project');
   return `schematiq_${stem}_${date}.${ext}`;
 }
+/** Apply a single cell edit to a copy of the paginated data (optimistic UI). */
+export function patchDataCell(
+  data: PaginatedData,
+  identity: { rowName: string; sourceDocument?: string; rowIndex?: number },
+  column: string,
+  value: string,
+): PaginatedData {
+  let changed = false;
+  const rows = data.rows.map((row, idx) => {
+    if (!rowMatchesEditIdentity(row, identity, idx)) return row;
+    changed = true;
+    return patchRowCellValue(row, column, value);
+  });
+  if (!changed) return data;
+  return { ...data, rows };
+}
+
+function rowMatchesEditIdentity(
+  row: DataRow,
+  identity: { rowName: string; sourceDocument?: string; rowIndex?: number },
+  _index: number,
+): boolean {
+  if (!identity.rowName && identity.rowIndex != null) {
+    return row._row_index === identity.rowIndex;
+  }
+  const name = row.row_name || row._unit_name || '';
+  if (name !== identity.rowName) return false;
+  if (identity.sourceDocument) {
+    const src = row._source_document || row._parent_document || '';
+    if (src && src !== identity.sourceDocument) return false;
+  }
+  return true;
+}
+
+function patchRowCellValue(row: DataRow, column: string, value: string): DataRow {
+  const next = { ...row };
+  const cell = { answer: value, excerpts: [] as unknown[], manually_edited: true };
+  if (next.data && typeof next.data === 'object') {
+    next.data = { ...next.data, [column]: cell };
+  } else {
+    next.data = { [column]: cell };
+  }
+  return next;
+}
+
 export function dataEquals(a: PaginatedData, b: PaginatedData): boolean {
   if (a === b) return true;
   if (
