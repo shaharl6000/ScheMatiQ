@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 # Track whether we already sent the quota alert (avoid spamming)
 _quota_alert_sent = False
+_quota_warning_sent = False
 _lock = threading.Lock()
 
 
@@ -138,6 +139,51 @@ def send_quota_exceeded_alert(total_used: int) -> None:
         <p style="color: #666; font-size: 14px;">
             To resume service, either increase <code>LLM_CALL_GLOBAL_LIMIT</code> in Railway
             environment variables, or reset the usage counter.
+        </p>
+    </div>
+    """
+    _send_email(subject, html_body)
+
+
+def send_quota_warning_alert(used: int, limit: int) -> None:
+    """Send a one-time email when LLM usage approaches the quota.
+
+    Fires before the limit is reached (see LLM_CALL_WARN_THRESHOLD) so service
+    can be extended before it blocks. Sent once per process lifetime.
+    """
+    global _quota_warning_sent
+    with _lock:
+        if _quota_warning_sent:
+            return
+        _quota_warning_sent = True
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    pct = int(round(100 * used / limit)) if limit else 0
+    subject = "ScheMatiQ — LLM Usage Approaching Limit"
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #e67e22;">LLM Usage Approaching Limit</h2>
+        <p>ScheMatiQ has used <strong>{pct}%</strong> of its API call quota.
+           Service is still running, but will stop accepting new work once the
+           limit is reached.</p>
+        <table style="border-collapse: collapse; margin: 16px 0;">
+            <tr>
+                <td style="padding: 8px 16px; border: 1px solid #ddd; font-weight: bold;">Calls Used</td>
+                <td style="padding: 8px 16px; border: 1px solid #ddd;">{used:,}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 16px; border: 1px solid #ddd; font-weight: bold;">Limit</td>
+                <td style="padding: 8px 16px; border: 1px solid #ddd;">{limit:,}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 16px; border: 1px solid #ddd; font-weight: bold;">Time</td>
+                <td style="padding: 8px 16px; border: 1px solid #ddd;">{now}</td>
+            </tr>
+        </table>
+        <p style="color: #666; font-size: 14px;">
+            To avoid interruption, raise <code>LLM_CALL_GLOBAL_LIMIT</code> in Railway
+            environment variables, or set a rolling window via
+            <code>LLM_CALL_LIMIT_WINDOW_DAYS</code>.
         </p>
     </div>
     """
