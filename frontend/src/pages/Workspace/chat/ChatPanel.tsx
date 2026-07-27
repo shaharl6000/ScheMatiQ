@@ -533,6 +533,7 @@ export function ChatPanel({
             type="button"
             size="sm"
             variant="outline"
+            className="h-8 px-3"
             onClick={handleAttachClick}
             disabled={!sessionId || uploadingReference}
             title="Attach an external reference document (e.g. a lookup spreadsheet). It is not treated as a source document."
@@ -549,7 +550,7 @@ export function ChatPanel({
             size="icon"
             onClick={ask}
             disabled={busy || !input.trim()}
-            className="ml-auto h-9 w-9 rounded-lg"
+            className="ml-auto h-8 w-8 rounded-lg"
             aria-label="Send message"
             title="Send message (Enter)"
           >
