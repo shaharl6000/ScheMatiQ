@@ -13,7 +13,7 @@ from datetime import datetime
 
 from app.core.config import (
     MAX_DOCUMENTS, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT, LLM_CALL_LIMIT_WINDOW_DAYS,
-    LLM_USAGE_SYNC_TTL_SECONDS,
+    LLM_USAGE_SYNC_TTL_SECONDS, LLM_CALL_WARN_THRESHOLD,
 )
 from app.core.logging_utils import set_session_context
 from app.services import schematiq_thread_pool, concurrency_limiter
@@ -180,16 +180,23 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         if limit <= 0:
             return
         usage = self.get_quota_usage(limit)
-        if usage["used"] >= limit:
+        used = usage["used"]
+        if used >= limit:
             # Visible on the uvicorn terminal even when logging is minimal
             print(
-                f"[LLM quota] blocked: used={usage['used']} quota_limit={limit} "
+                f"[LLM quota] blocked: used={used} quota_limit={limit} "
                 f"window_days={usage['window_days']} "
                 f"(raise LLM_CALL_GLOBAL_LIMIT, set a rolling window via "
                 f"LLM_CALL_LIMIT_WINDOW_DAYS, or LLM_CALL_GLOBAL_LIMIT=0 to disable)",
                 flush=True,
             )
-            raise QuotaExceededError(used=usage["used"], limit=limit)
+            raise QuotaExceededError(used=used, limit=limit)
+
+        # Approaching the limit: send a one-time heads-up email before it blocks.
+        if LLM_CALL_WARN_THRESHOLD > 0 and used >= LLM_CALL_WARN_THRESHOLD * limit:
+            from app.core.email_alerts import send_quota_warning_alert
+
+            send_quota_warning_alert(used=used, limit=limit)
 
     def get_usage_report(self) -> Dict[str, Any]:
         """Full quota usage report for the ``/api/usage`` endpoint.

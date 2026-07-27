@@ -141,6 +141,10 @@ LLM_CALL_GLOBAL_LIMIT = int(os.environ.get("LLM_CALL_GLOBAL_LIMIT", "1000"))
 LLM_CALL_LIMIT_WINDOW_DAYS = int(os.environ.get("LLM_CALL_LIMIT_WINDOW_DAYS", "0"))
 LLM_USAGE_SYNC_TTL_SECONDS = float(os.environ.get("LLM_USAGE_SYNC_TTL_SECONDS", "300"))
 
+# Fraction of LLM_CALL_GLOBAL_LIMIT at which to send a one-time "approaching
+# limit" warning email (e.g. 0.8 = warn at 80%). Set to 0 to disable the warning.
+LLM_CALL_WARN_THRESHOLD = float(os.environ.get("LLM_CALL_WARN_THRESHOLD", "0.8"))
+
 # ── Quota Alert Email ────────────────────────────────────────────
 # Send an email when the LLM quota is exceeded.
 # Uses the same Google OAuth credentials as Google Sheets (no extra passwords).
