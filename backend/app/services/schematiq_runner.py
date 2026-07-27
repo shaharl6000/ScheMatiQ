@@ -11,7 +11,10 @@ from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 from datetime import datetime
 
-from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT, LLM_CALL_LIMIT_WINDOW_DAYS
+from app.core.config import (
+    MAX_DOCUMENTS, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT, LLM_CALL_LIMIT_WINDOW_DAYS,
+    LLM_USAGE_SYNC_TTL_SECONDS,
+)
 from app.core.logging_utils import set_session_context
 from app.services import schematiq_thread_pool, concurrency_limiter
 
@@ -74,7 +77,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         # file already reflects everything recorded by this process (pipeline
         # and chat), so the external total only guards against redeploys and
         # is allowed to be a few minutes stale.
-        self._usage_sync_ttl = float(os.environ.get("LLM_USAGE_SYNC_TTL_SECONDS", "300"))
+        self._usage_sync_ttl = LLM_USAGE_SYNC_TTL_SECONDS
         self._usage_sync_lock = threading.Lock()
         self._last_sheets_sync = 0.0
         self._external_window_cache: Dict[int, Tuple[float, int]] = {}

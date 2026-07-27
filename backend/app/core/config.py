@@ -42,6 +42,7 @@ API_VERSION = "1.0.0"
 # Server Configuration
 DEFAULT_HOST = os.environ.get("HOST", "0.0.0.0")
 DEFAULT_PORT = int(os.environ.get("PORT", 8000))
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
 # CORS Configuration - supports comma-separated origins via ALLOWED_ORIGINS env var
 _default_origins = [
@@ -138,6 +139,7 @@ LLM_CALL_GLOBAL_LIMIT = int(os.environ.get("LLM_CALL_GLOBAL_LIMIT", "1000"))
 # When > 0, only LLM calls recorded within the last N days count toward
 # LLM_CALL_GLOBAL_LIMIT, so the quota recovers as old usage ages out.
 LLM_CALL_LIMIT_WINDOW_DAYS = int(os.environ.get("LLM_CALL_LIMIT_WINDOW_DAYS", "0"))
+LLM_USAGE_SYNC_TTL_SECONDS = float(os.environ.get("LLM_USAGE_SYNC_TTL_SECONDS", "300"))
 
 # ── Quota Alert Email ────────────────────────────────────────────
 # Send an email when the LLM quota is exceeded.

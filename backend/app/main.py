@@ -9,12 +9,18 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+# Add schematiq-lib to Python path (sibling directory to backend)
+_SCHEMATIQ_LIB_PATH = Path(__file__).parent.parent.parent / "schematiq-lib"
+if _SCHEMATIQ_LIB_PATH.exists() and str(_SCHEMATIQ_LIB_PATH) not in sys.path:
+    sys.path.insert(0, str(_SCHEMATIQ_LIB_PATH))
+
 # Configure logging to show in container logs
 # Set LOG_LEVEL=DEBUG to see detailed schema column tracking
 # Format includes [session_id] for Railway log filtering per session
+from app.core.config import LOG_LEVEL
 from app.core.logging_utils import SessionFilter
 
-log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+log_level = LOG_LEVEL.upper()
 logging.basicConfig(
     level=getattr(logging, log_level, logging.INFO),
     format='%(levelname)s:%(name)s:[%(session_id)s] %(message)s',
@@ -27,11 +33,6 @@ for _handler in logging.root.handlers:
 
 # Suppress noisy uvicorn access logs (frontend polling every ~3s floods Railway logs)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-
-# Add schematiq-lib to Python path (sibling directory to backend)
-_SCHEMATIQ_LIB_PATH = Path(__file__).parent.parent.parent / "schematiq-lib"
-if _SCHEMATIQ_LIB_PATH.exists() and str(_SCHEMATIQ_LIB_PATH) not in sys.path:
-    sys.path.insert(0, str(_SCHEMATIQ_LIB_PATH))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
