@@ -181,6 +181,9 @@ function Workspace() {
   // pre-edit value back in for a frame before the edit's own authoritative
   // refresh lands. Such stale payloads are dropped (not applied, not deferred).
   const editEpochRef = useRef(0);
+  // Tracks the in-flight silent refresh so concurrent silent refreshes coalesce
+  // (declared here so a local edit can invalidate it — see notifyLocalEdit).
+  const inFlightSilentRef = useRef<Promise<void> | null>(null);
   const cancelChatPendingRef = useRef<(() => Promise<boolean>) | null>(null);
 
   const cancelChatPendingIfAny = useCallback(async (): Promise<boolean> => {
@@ -189,11 +192,16 @@ function Workspace() {
   }, []);
 
   // Called synchronously when a local grid edit begins. Bumps the epoch so any
-  // refresh already in flight is treated as stale, and discards any snapshot
-  // deferred while the editor was open (it too predates the edit).
+  // refresh already in flight is treated as stale, discards any snapshot
+  // deferred while the editor was open (it too predates the edit), and drops
+  // the in-flight silent-refresh handle so the edit's own post-PUT refresh
+  // starts a *fresh* fetch (at the new epoch) instead of coalescing into the
+  // stale one — which would be rejected by the epoch guard, leaving the edit
+  // (e.g. a cell clear) never applied to state.
   const notifyLocalEdit = useCallback(() => {
     editEpochRef.current += 1;
     deferredDataRef.current = null;
+    inFlightSilentRef.current = null;
   }, []);
 
   const isCellEditorOpen = useCallback(() => {
@@ -309,11 +317,12 @@ function Workspace() {
     }
   }, [applyData, sessionId, sessionMode]);
 
-  const inFlightSilentRef = useRef<Promise<void> | null>(null);
   const refreshSilent = useCallback(() => {
     if (inFlightSilentRef.current) return inFlightSilentRef.current;
     const run = refresh({ silent: true }).finally(() => {
-      inFlightSilentRef.current = null;
+      // Only clear if this run is still the tracked one; a local edit (or a
+      // newer refresh) may have replaced the handle while we were in flight.
+      if (inFlightSilentRef.current === run) inFlightSilentRef.current = null;
     });
     inFlightSilentRef.current = run;
     return run;
