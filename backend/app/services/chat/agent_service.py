@@ -135,7 +135,12 @@ class ChatAgentService:
                 "messages": outbound_messages,
                 "pending_action": result.get("pending_action"),
             }
-        except QuotaExceededError:
+        except QuotaExceededError as exc:
+            # Chat trips the quota independently of the extraction routes, so the
+            # alert must be sent here too (one-time per process, handled inside).
+            from app.core.email_alerts import send_quota_exceeded_alert
+
+            send_quota_exceeded_alert(total_used=exc.used)
             outbound_messages.append(self._text_message(QUOTA_EXCEEDED_CHAT_MESSAGE))
             return {
                 "chat_id": state.chat_id,
@@ -173,7 +178,10 @@ class ChatAgentService:
         # confirmation can be retried once the quota is restored.
         try:
             await self._ensure_quota_available()
-        except QuotaExceededError:
+        except QuotaExceededError as exc:
+            from app.core.email_alerts import send_quota_exceeded_alert
+
+            send_quota_exceeded_alert(total_used=exc.used)
             return {
                 "chat_id": chat_id,
                 "status": "complete",

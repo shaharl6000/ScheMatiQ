@@ -464,6 +464,12 @@ def _pending_reextract(state):
 @pytest.mark.asyncio
 async def test_quota_exhausted_blocks_confirm(monkeypatch):
     agent, executor = _agent_with_quota(monkeypatch, exhausted=True)
+    import app.core.email_alerts as email_alerts
+
+    alerts: list[int] = []
+    monkeypatch.setattr(
+        email_alerts, "send_quota_exceeded_alert", lambda total_used: alerts.append(total_used)
+    )
     state = _make_state(FakeChat([FakeResponse(text="unreachable")]))
     _pending_reextract(state)
 
@@ -472,6 +478,7 @@ async def test_quota_exhausted_blocks_confirm(monkeypatch):
     assert result["status"] == "complete"
     assert QUOTA_EXCEEDED_CHAT_MESSAGE in str(result["messages"])
     assert executor.executed == []  # blocked: the pending action did not run
+    assert alerts == [999999]  # the quota alert was sent from the chat path
 
 
 @pytest.mark.asyncio
