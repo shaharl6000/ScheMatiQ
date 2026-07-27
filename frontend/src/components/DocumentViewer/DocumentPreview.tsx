@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, ExternalLink, Download, FileX, Upload } from 'lucide-react';
 
-import { unitsAPI } from '../../services/api';
+import { referenceAPI, unitsAPI } from '../../services/api';
 import { findHighlightRanges } from './highlightUtils';
 
 /** Extensions the browser can render inline in an <iframe>. */
@@ -63,6 +63,14 @@ interface DocumentPreviewProps {
    * document away and clicked the same cell again).
    */
   scrollNonce?: number;
+  /**
+   * When set, the panel renders this attached reference document instead of the
+   * source document `documentName` — used when the selected cell's value was
+   * filled from a reference. Reference text is fetched by id from the reference
+   * content endpoint and rendered with the same highlight-capable text renderer,
+   * so `highlightTexts` grounds the passage inside the reference.
+   */
+  referenceDoc?: { id: string; filename: string } | null;
 }
 
 /**
@@ -91,13 +99,25 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   onRequestUpload,
   highlightTexts,
   scrollNonce,
+  referenceDoc,
 }) => {
+  // A reference document, when set, takes precedence over the row's source
+  // document: the selected cell's value came from the reference, so we render
+  // and highlight inside it. The display name drives extension detection.
+  const isReference = Boolean(referenceDoc);
+  const displayName = referenceDoc?.filename ?? documentName;
+
   const contentUrl = useMemo(() => {
-    if (!sessionId || !documentName) return null;
+    if (!sessionId) return null;
+    if (referenceDoc) {
+      // Reference content has no cache-staleness concern (immutable per id).
+      return referenceAPI.getContentUrl(sessionId, referenceDoc.id);
+    }
+    if (!documentName) return null;
     const base = unitsAPI.getDocumentContentUrl(sessionId, documentName);
     // Cache-bust so a freshly uploaded file isn't masked by a cached 404/response.
     return reloadToken ? `${base}&_t=${reloadToken}` : base;
-  }, [sessionId, documentName, reloadToken]);
+  }, [sessionId, documentName, reloadToken, referenceDoc]);
 
   const [availability, setAvailability] = useState<Availability>('idle');
 
@@ -120,15 +140,17 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     };
   }, [contentUrl]);
 
-  const ext = documentName ? extensionOf(documentName) : '';
+  const ext = displayName ? extensionOf(displayName) : '';
   const canRenderInline = ext === '' || INLINE_EXTENSIONS.has(ext);
   const needsSandbox = SANDBOX_EXTENSIONS.has(ext);
   const showOpenFull = Boolean(contentUrl) && availability === 'ok';
 
   // Highlight mode is opt-in (the prop is present) and only applies to text
-  // formats we can render and annotate ourselves.
+  // formats we can render and annotate ourselves. Reference documents are always
+  // stored as extracted text, so they are text-renderable regardless of the
+  // original upload's extension (e.g. a .xlsx reference stored as .txt).
   const highlightEnabled = highlightTexts !== undefined;
-  const isTextRenderable = ext === '' || TEXT_EXTENSIONS.has(ext);
+  const isTextRenderable = isReference || ext === '' || TEXT_EXTENSIONS.has(ext);
   const useInlineText = highlightEnabled && isTextRenderable;
 
   const [text, setText] = useState<string | null>(null);
@@ -140,7 +162,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   const [contentIsBinary, setContentIsBinary] = useState(false);
 
   useEffect(() => {
-    if (!useInlineText || !sessionId || !documentName || availability !== 'ok') {
+    if (!useInlineText || !sessionId || !displayName || availability !== 'ok') {
       setText(null);
       setTextError(false);
       setContentIsBinary(false);
@@ -150,8 +172,10 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     setText(null);
     setTextError(false);
     setContentIsBinary(false);
-    unitsAPI
-      .getDocumentContentText(sessionId, documentName)
+    const fetchText = referenceDoc
+      ? referenceAPI.getContentText(sessionId, referenceDoc.id)
+      : unitsAPI.getDocumentContentText(sessionId, documentName as string);
+    fetchText
       .then((content) => {
         if (cancelled) return;
         if (content.startsWith('%PDF-') || content.indexOf('\u0000') !== -1) {
@@ -166,7 +190,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [useInlineText, sessionId, documentName, availability, reloadToken]);
+  }, [useInlineText, sessionId, documentName, displayName, availability, reloadToken, referenceDoc]);
 
   const highlightRanges = useMemo(
     () => (useInlineText ? findHighlightRanges(text, highlightTexts) : []),
@@ -247,10 +271,12 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
         <div className="h-full flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground text-center px-6">
           <FileX className="h-8 w-8 opacity-40" />
           <span>This document isn&apos;t available to preview.</span>
-          <span className="text-xs">
-            Imported projects don&apos;t include the original files. Upload them to enable preview.
-          </span>
-          {onRequestUpload && (
+          {!isReference && (
+            <span className="text-xs">
+              Imported projects don&apos;t include the original files. Upload them to enable preview.
+            </span>
+          )}
+          {!isReference && onRequestUpload && (
             <button
               type="button"
               onClick={onRequestUpload}
@@ -271,7 +297,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
         <iframe
           key={contentUrl}
           src={contentUrl}
-          title={documentName || 'Document preview'}
+          title={displayName || 'Document preview'}
           className="w-full h-full border-0"
           {...(needsSandbox ? { sandbox: '' } : {})}
         />
@@ -305,8 +331,13 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   return (
     <div className="flex-1 min-w-0 h-full flex flex-col">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border text-xs">
-        <span className="truncate text-muted-foreground" title={documentName || ''}>
-          {documentName || 'No document selected'}
+        {isReference && (
+          <span className="shrink-0 rounded bg-purple-100 px-1.5 py-0.5 font-medium text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
+            Reference
+          </span>
+        )}
+        <span className="truncate text-muted-foreground" title={displayName || ''}>
+          {displayName || 'No document selected'}
         </span>
         <span className="flex-1" />
         {showOpenFull && (

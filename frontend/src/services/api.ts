@@ -1094,6 +1094,23 @@ export const referenceAPI = {
   remove: async (sessionId: string, referenceId: string): Promise<void> => {
     await api.delete(`/reference/${sessionId}/${referenceId}`);
   },
+
+  /** URL of a reference document's raw text (used by the highlight-capable preview). */
+  getContentUrl: (sessionId: string, referenceId: string): string =>
+    `${API_BASE}/reference/${encodeURIComponent(sessionId)}/${encodeURIComponent(referenceId)}/content`,
+
+  /**
+   * Fetch a reference document's extracted plain text via the shared axios
+   * instance, so the source panel can render it in a DOM we control and
+   * highlight the passage a reference-sourced cell was filled from.
+   */
+  getContentText: async (sessionId: string, referenceId: string): Promise<string> => {
+    const response = await api.get<string>(
+      `/reference/${encodeURIComponent(sessionId)}/${encodeURIComponent(referenceId)}/content`,
+      { responseType: 'text', transformResponse: [(d) => d] },
+    );
+    return typeof response.data === 'string' ? response.data : String(response.data ?? '');
+  },
 };
 
 export async function downloadBlob(path: string, fallbackFilename: string): Promise<void> {
