@@ -414,7 +414,7 @@ export function ChatPanel({
           Chat
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline">gemini-3.5-flash-lite</Badge>
+          <Badge variant="outline">gemini-3.5-flash</Badge>
           <Button size="sm" variant="outline" onClick={showToolsList} disabled={busy}>
             Tools
           </Button>

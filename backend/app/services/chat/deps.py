@@ -47,7 +47,7 @@ schematiq_runner = ScheMatiQRunner(
     uniprot_enrichment_service=uniprot_enrichment_service,
 )
 
-CHAT_MODEL = "gemini-3.5-flash-lite"
+CHAT_MODEL = "gemini-3.5-flash"
 WORK_DIR = Path("./schematiq_work")
 
 
