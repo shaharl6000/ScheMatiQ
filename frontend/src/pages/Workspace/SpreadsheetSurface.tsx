@@ -366,10 +366,24 @@ export function SpreadsheetSurface({
   // renderer and merge builder both index this by physical row, so they stay
   // in sync with each other and survive column sorting/filtering (which only
   // changes the visual<->physical mapping, not this array).
+  //
+  // Derived from the raw `data.rows` prop rather than `dataRows` (the sheet
+  // rows handed to Handsontable) on purpose: Handsontable's mergeCells plugin
+  // writes back into its bound source data, blanking the grouping column on
+  // every row it covers with a merge. `dataRows` is that same bound array, so
+  // reading it here would pick up those blanks — correct right after the
+  // first merge, but wrong on every subsequent recompute (e.g. leaving the
+  // Data sheet and coming back), since by then the covered rows' values have
+  // already been zeroed out and no longer match their group's key.
   const groupKeys = useMemo<string[]>(() => {
     if (activeSheet !== 'data') return [];
-    return dataRows.map((row) => String((row as Record<string, string>)[groupColKey] ?? '').trim().toLowerCase());
-  }, [activeSheet, dataRows, groupColKey]);
+    return data.rows.map((row) => {
+      const raw = groupColKey === '_row_name'
+        ? (row.row_name || row._unit_name || '')
+        : documentDisplayName(row._source_document || row._parent_document || row.papers?.[0]);
+      return String(raw ?? '').trim().toLowerCase();
+    });
+  }, [activeSheet, data.rows, groupColKey]);
 
   // Resolve the group key shown at a given *visual* row (accounting for sort).
   const groupKeyAtVisual = useCallback(
