@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -17,10 +18,13 @@ from app.services import concurrency_limiter, session_manager
 from app.services.data_utils import _resolve_source_document, canonicalize_column_name
 from app.services.pipeline.data_query import get_data as query_get_data
 from schematiq.core.cost_estimator import estimate_from_config
+from schematiq.core.llm_call_tracker import QuotaExceededError
 from .deps import (
+    CHAT_MODEL,
     WORK_DIR,
     continue_discovery_service,
     data_editor,
+    get_gemini_api_key,
     load_user_llm_config,
     observation_unit_manager,
     reextraction_service,
@@ -80,6 +84,16 @@ class ToolExecutor:
           return f"Estimated cost: ${cost:.4f}, {calls} API calls."
       if tool_name in ("reextract", "reprocess", "continue_discovery"):
           return "This operation runs the backbone LLM over project documents. Confirm to proceed."
+      if tool_name == "fill_column_from_reference":
+          try:
+              rows = await self._load_all_rows(session_id)
+              n = len(rows)
+              return (
+                  f"This will run the model once per row ({n} rows) to fill "
+                  f"'{args.get('column')}' from the reference. Confirm to proceed."
+              )
+          except Exception:
+              return "This runs the model once per row to fill the column. Confirm to proceed."
       return "This is an expensive operation. Confirm to proceed."
 
   async def _handle_get_status(
@@ -264,7 +278,7 @@ class ToolExecutor:
       clipped = len(content) > READ_REFERENCE_CHAT_BUDGET
       if clipped:
           content = content[:READ_REFERENCE_CHAT_BUDGET]
-      return {
+      result = {
           "status": "success",
           "id": ref.id,
           "filename": ref.filename,
@@ -272,6 +286,14 @@ class ToolExecutor:
           "content_clipped": clipped,
           "content": content,
       }
+      if clipped:
+          result["hint"] = (
+              f"Only the first {READ_REFERENCE_CHAT_BUDGET} of {ref.char_count} "
+              "characters are shown. Do NOT fill a whole column from this preview: "
+              "rows not shown here would be guesses. To populate a column for all "
+              "rows from the full reference, call fill_column_from_reference."
+          )
+      return result
 
   async def _handle_add_column(
       self, session_id: str, session_mode: str, args: dict[str, Any]
@@ -541,6 +563,195 @@ class ToolExecutor:
       if len(unique) == 1:
           return unique[0]
       return None
+
+  # Reference text above this size is retrieved per row; below it, the whole
+  # reference is given to each per-row model call.
+  _REFERENCE_FULL_INJECT_MAX_CHARS = 12000
+  _NO_VALUE_SENTINELS = {"", "N/A", "NA", "NONE", "NULL", "UNKNOWN"}
+
+  async def _handle_fill_column_from_reference(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      column = (args.get("column") or "").strip()
+      reference_id = (args.get("reference_id") or "").strip()
+      if not column or not reference_id:
+          raise ValueError("Both 'column' and 'reference_id' are required.")
+
+      session = session_manager.get_session(session_id)
+      if not session:
+          raise ValueError("Session not found")
+
+      from app.services import reference_document_service as refsvc
+
+      ref = refsvc.get_reference_document(session, reference_id)
+      if not ref:
+          raise ValueError(f"Reference document '{reference_id}' not found")
+      if not any(c.name == column for c in session.columns):
+          raise ValueError(f"Column '{column}' does not exist")
+      column_definition = next(
+          (c.definition for c in session.columns if c.name == column), None
+      )
+
+      reference_text = await refsvc.load_reference_text(session_id, ref)
+      if not reference_text.strip():
+          return {"status": "error", "message": f"Reference '{ref.filename}' is empty."}
+
+      rows = await self._load_all_rows(session_id)
+      if not rows:
+          return {"status": "error", "message": "No rows to fill."}
+
+      from schematiq.value_extraction.utils.reference_retrieval import (
+          ReferenceRetriever,
+          build_reference_query,
+      )
+
+      retriever = (
+          ReferenceRetriever(reference_text)
+          if len(reference_text) > self._REFERENCE_FULL_INJECT_MAX_CHARS
+          else None
+      )
+      client = self._get_fill_client()
+
+      logger.info(
+          "fill_column_from_reference: column=%r reference=%r rows=%d retriever=%s",
+          column, ref.filename, len(rows), retriever is not None,
+      )
+      filled = 0
+      skipped = 0
+      calls = 0
+      stopped = False
+      for index, row in enumerate(rows):
+          unit = row.get("unit_name") or row.get("row_name")
+          if not unit:
+              skipped += 1
+              continue
+          # Count each per-row model call toward the quota; stop cleanly if it is
+          # reached mid-way rather than blowing far past the limit.
+          try:
+              schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
+          except QuotaExceededError:
+              stopped = True
+              break
+
+          if retriever is not None:
+              query = build_reference_query(
+                  unit, [{"column": column, "definition": column_definition}]
+              )
+              passages = retriever.retrieve(query, k=5)
+              context = "\n\n".join(passages) if passages else ""
+          else:
+              context = reference_text
+
+          value = await self._extract_value_from_reference(
+              client, unit, column, column_definition, context
+          )
+          calls += 1
+          logger.info(
+              "fill row %d/%d unit=%r -> %r", index + 1, len(rows), unit, value,
+          )
+
+          if value and value.strip().upper() not in self._NO_VALUE_SENTINELS:
+              await data_editor.update_cell(
+                  session_id,
+                  unit,
+                  column,
+                  value.strip(),
+                  source_document=row.get("source_document"),
+                  reference_source=ref.filename,
+              )
+              await self._broadcast_cell(session_id, unit, column, value.strip())
+              filled += 1
+          else:
+              skipped += 1
+
+      if calls:
+          try:
+              record_id = f"fill-{session_id[:8]}-{int(time.time())}"
+              await asyncio.to_thread(
+                  schematiq_runner.record_external_usage, record_id, {"chat": calls}
+              )
+          except Exception as exc:  # usage recording is best-effort
+              logger.debug("Could not record fill LLM usage: %s", exc)
+
+      message = (
+          f"Filled {filled} of {len(rows)} rows in '{column}' from '{ref.filename}'."
+      )
+      if stopped:
+          message += " Stopped early: the LLM quota was reached."
+      return {
+          "status": "success",
+          "filled": filled,
+          "skipped": skipped,
+          "total": len(rows),
+          "stopped": stopped,
+          "message": message,
+      }
+
+  async def _load_all_rows(self, session_id: str) -> list[dict[str, Any]]:
+      """Return every row (as dicts) for the session, paging through get_data."""
+      rows: list[dict[str, Any]] = []
+      page = 0
+      page_size = 200
+      while True:
+          data = await query_get_data(session_id, WORK_DIR, page=page, page_size=page_size)
+          batch = [r.model_dump() for r in data.rows]
+          rows.extend(batch)
+          if len(batch) < page_size:
+              break
+          page += 1
+          if page > 100:  # safety valve against a runaway pager
+              break
+      return rows
+
+  def _get_fill_client(self) -> Any:
+      """Lazily create a process-wide Gemini client for per-row fills."""
+      client = getattr(self, "_fill_client", None)
+      if client is None:
+          from google import genai
+
+          client = genai.Client(api_key=get_gemini_api_key())
+          self._fill_client = client
+      return client
+
+  async def _extract_value_from_reference(
+      self,
+      client: Any,
+      unit: str,
+      column: str,
+      column_definition: Optional[str],
+      context: str,
+  ) -> str:
+      """One focused model call: extract this unit's value for `column` from the
+      reference context. Returns the value text, or "N/A" if not found/empty."""
+      definition_line = f" (defined as: {column_definition})" if column_definition else ""
+      prompt = (
+          "You are filling a single cell in a table using an external reference "
+          "document.\n\n"
+          f"Row (observation unit): {unit}\n"
+          f"Column to fill: {column}{definition_line}\n\n"
+          "Reference excerpts:\n"
+          f"{context}\n\n"
+          f"Return ONLY the value of '{column}' for {unit}, with no extra words or "
+          "punctuation. If the reference does not contain it, return exactly: N/A"
+      )
+      response = await client.aio.models.generate_content(
+          model=CHAT_MODEL, contents=prompt
+      )
+      return (getattr(response, "text", None) or "").strip()
+
+  async def _broadcast_cell(
+      self, session_id: str, row_name: str, column: str, value: str
+  ) -> None:
+      try:
+          await websocket_manager.broadcast_to_session(
+              session_id,
+              {
+                  "type": "cell_extracted",
+                  "data": {"row_name": row_name, "column": column, "value": value},
+              },
+          )
+      except Exception:  # streaming is best-effort
+          pass
 
   async def _handle_add_unit(
       self, session_id: str, session_mode: str, args: dict[str, Any]

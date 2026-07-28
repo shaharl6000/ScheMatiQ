@@ -133,9 +133,11 @@ def _all_tools() -> list[ToolSpec]:
             name="read_reference_source",
             description=(
                 "Read the text of one external reference document by id (get the id "
-                "from list_reference_sources first). Use its content as supplementary "
-                "context to answer the user's question, or to decide whether to "
-                "propose a new schema column. Treat it as external reference "
+                "from list_reference_sources first). Returns a preview (clipped for "
+                "large files). Use it to answer a question or to decide whether to "
+                "propose a new schema column. Do NOT use it to fill a column for every "
+                "row: for that, use fill_column_from_reference, which reads the full "
+                "reference per row. Treat the content as external reference "
                 "information, not as a source document that yields observation-unit "
                 "rows."
             ),
@@ -151,6 +153,34 @@ def _all_tools() -> list[ToolSpec]:
             },
             cost_class="cheap",
             handler="read_reference_source",
+        ),
+        ToolSpec(
+            name="fill_column_from_reference",
+            description=(
+                "Fill an existing column for every row using an attached reference "
+                "document, running the model once per row so each observation unit "
+                "gets a focused lookup against the relevant part of the reference "
+                "(handles references far larger than the chat can read at once). "
+                "Cells are written and shown as each row completes. Use this instead "
+                "of many individual update_cell calls when filling a whole column "
+                "from a reference. Get the reference id from list_reference_sources."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "column": {
+                        "type": "string",
+                        "description": "Name of the existing column to fill.",
+                    },
+                    "reference_id": {
+                        "type": "string",
+                        "description": "Reference document id from list_reference_sources.",
+                    },
+                },
+                "required": ["column", "reference_id"],
+            },
+            cost_class="expensive",
+            handler="fill_column_from_reference",
         ),
         ToolSpec(
             name="add_column",

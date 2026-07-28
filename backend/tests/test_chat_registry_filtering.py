@@ -20,7 +20,10 @@ from app.services.chat.tool_registry import (
 
 # The four operations that spend the backbone LLM over project documents. These
 # MUST stay expensive so the confirmation gate keeps protecting them.
-EXPECTED_EXPENSIVE = {"run_schematiq", "reextract", "continue_discovery", "reprocess"}
+EXPECTED_EXPENSIVE = {
+    "run_schematiq", "reextract", "continue_discovery", "reprocess",
+    "fill_column_from_reference",
+}
 
 
 def test_registry_is_single_source_of_truth() -> None:

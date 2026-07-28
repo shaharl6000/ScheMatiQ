@@ -180,3 +180,30 @@ async def test_reprocess_strips_excerpt_from_mixed_column_list(
 
     assert captured["columns"] == ["Title"]
     assert result["columns"] == ["Title"]
+
+
+@pytest.mark.asyncio
+async def test_read_reference_clipped_hints_fill_tool(executor, sample_session, monkeypatch):
+    """A clipped reference read must steer the model to fill_column_from_reference
+    instead of filling a whole column from the truncated preview."""
+    import app.services.chat.tool_executor as te
+    import app.services.reference_document_service as refsvc
+
+    class _Ref:
+        id = "ref-1"
+        filename = "big.csv"
+        char_count = 3_000_000
+
+    monkeypatch.setattr(refsvc, "get_reference_document", lambda session, rid: _Ref())
+
+    async def fake_load_text(session_id, ref):
+        return "x" * 50000  # larger than the chat read budget -> clipped
+
+    monkeypatch.setattr(refsvc, "load_reference_text", fake_load_text)
+
+    result = await executor.execute(
+        "read_reference_source", sample_session.id, "schematiq", {"reference_id": "ref-1"},
+    )
+
+    assert result["content_clipped"] is True
+    assert "fill_column_from_reference" in result.get("hint", "")
