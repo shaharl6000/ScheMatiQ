@@ -364,8 +364,8 @@ export function SpreadsheetSurface({
 
   // One normalized group key per data row, in displayed (physical) order. The
   // renderer and merge builder both index this by physical row, so they stay
-  // in sync with each other and survive column sorting/filtering (which only
-  // changes the visual<->physical mapping, not this array).
+  // in sync with each other and survive column filtering (which only changes
+  // the visual<->physical mapping, not this array).
   //
   // Derived from the raw `data.rows` prop rather than `dataRows` (the sheet
   // rows handed to Handsontable) on purpose: Handsontable's mergeCells plugin
@@ -384,6 +384,20 @@ export function SpreadsheetSurface({
       return String(raw ?? '').trim().toLowerCase();
     });
   }, [activeSheet, data.rows, groupColKey]);
+
+  // Whether the current grouped view actually has any group spanning more
+  // than one row (i.e. a merge will be drawn). Handsontable's mergeCells
+  // plugin is not compatible with columnSorting: sorting while a merge is
+  // active reads already-blanked cells as sort keys, scrambles the row order,
+  // and applies the resulting (wrong) merge ranges — corrupting the grouping
+  // column's values on unrelated rows. See handsontable/handsontable#7509.
+  // Since sorting would also scatter a group's rows apart even if that bug
+  // didn't exist, the two features are mutually exclusive here: sorting is
+  // only offered when there's nothing merged to break.
+  const hasMultiRowGroup = useMemo<boolean>(
+    () => groupKeys.some((key, i) => i > 0 && key !== '' && key === groupKeys[i - 1]),
+    [groupKeys],
+  );
 
   // Resolve the group key shown at a given *visual* row (accounting for sort).
   const groupKeyAtVisual = useCallback(
@@ -927,7 +941,7 @@ export function SpreadsheetSurface({
         contextMenu
         filters
         dropdownMenu
-        columnSorting
+        columnSorting={!hasMultiRowGroup}
         copyPaste
         undo
         minSpareRows={sheet.minSpareRows || 0}
