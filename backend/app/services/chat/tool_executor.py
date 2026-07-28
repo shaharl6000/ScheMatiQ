@@ -508,10 +508,24 @@ class ToolExecutor:
               ref = refsvc.get_reference_document(session, reference_id)
               if ref:
                   reference_source = ref.filename
-      return await data_editor.update_cell(
+      result = await data_editor.update_cell(
           session_id, row_name, column, value, source_document=source_document,
           reference_source=reference_source,
       )
+      # Stream the write to the UI so cells fill in as they are written, rather
+      # than only appearing after the whole turn completes. The workspace refreshes
+      # on cell_extracted events.
+      try:
+          await websocket_manager.broadcast_to_session(
+              session_id,
+              {
+                  "type": "cell_extracted",
+                  "data": {"row_name": row_name, "column": column, "value": value},
+              },
+          )
+      except Exception:  # broadcasting is best-effort; never fail the write on it
+          pass
+      return result
 
   async def _resolve_source_document(self, session_id: str, row_name: str) -> Optional[str]:
       data_file = None

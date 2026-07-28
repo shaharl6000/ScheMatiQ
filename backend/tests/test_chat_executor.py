@@ -180,3 +180,36 @@ async def test_reprocess_strips_excerpt_from_mixed_column_list(
 
     assert captured["columns"] == ["Title"]
     assert result["columns"] == ["Title"]
+
+
+@pytest.mark.asyncio
+async def test_update_cell_streams_cell_extracted(executor, sample_session, monkeypatch):
+    """Each chat cell write broadcasts a cell_extracted event so the UI fills in
+    progressively rather than only after the whole turn completes."""
+    import app.services.chat.tool_executor as te
+
+    sent: list[dict] = []
+
+    async def fake_update_cell(*a, **k):
+        return {"status": "success"}
+
+    async def fake_resolve(self, session_id, row_name):
+        return None
+
+    async def fake_broadcast(session_id, message):
+        sent.append(message)
+
+    monkeypatch.setattr(te.data_editor, "update_cell", fake_update_cell)
+    monkeypatch.setattr(ToolExecutor, "_resolve_source_document", fake_resolve)
+    monkeypatch.setattr(te.websocket_manager, "broadcast_to_session", fake_broadcast)
+
+    await executor.execute(
+        "update_cell",
+        sample_session.id,
+        "schematiq",
+        {"row": "Acker", "column": "Year", "value": "1982"},
+    )
+
+    assert len(sent) == 1
+    assert sent[0]["type"] == "cell_extracted"
+    assert sent[0]["data"] == {"row_name": "Acker", "column": "Year", "value": "1982"}
