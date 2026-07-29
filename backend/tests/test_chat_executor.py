@@ -180,3 +180,26 @@ async def test_reprocess_strips_excerpt_from_mixed_column_list(
 
     assert captured["columns"] == ["Title"]
     assert result["columns"] == ["Title"]
+
+
+@pytest.mark.asyncio
+async def test_fill_tool_delegates_to_background_service(executor, sample_session, monkeypatch):
+    """The chat tool starts the background fill service (returns immediately)
+    rather than looping synchronously in the chat turn."""
+    import app.services.chat.tool_executor as te
+
+    captured: dict = {}
+
+    async def fake_start(session_id, column, reference_id):
+        captured.update(
+            {"session_id": session_id, "column": column, "reference_id": reference_id}
+        )
+        return {"status": "started", "fill_id": "f1", "total": 3}
+
+    monkeypatch.setattr(te.reference_fill_service, "start_fill", fake_start)
+    result = await executor.execute(
+        "fill_column_from_reference", sample_session.id, "schematiq",
+        {"column": "Year", "reference_id": "r1"},
+    )
+    assert result["status"] == "started"
+    assert captured == {"session_id": sample_session.id, "column": "Year", "reference_id": "r1"}
