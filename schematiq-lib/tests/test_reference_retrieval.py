@@ -143,3 +143,58 @@ def test_paper_processor_gates_on_reference_size():
     pp_none = PaperProcessor(llm=None)
     assert pp_none.prompt_builder.reference_retriever is None
     assert pp_none.prompt_builder.reference_context is None
+
+
+def test_oversized_single_record_is_split_not_one_giant_chunk():
+    """A genuinely prose reference with no blank lines collapses to one record.
+    It must still be split into bounded chunks rather than one chunk = the whole
+    file. Regression: without this the whole reference was sent to the model,
+    exceeding the token limit."""
+    from schematiq.value_extraction.utils.reference_retrieval import (
+        chunk_reference, _looks_tabular,
+    )
+
+    text = " ".join(f"word{i}" for i in range(3000))  # one long line, no blank lines
+    assert not _looks_tabular(text.splitlines())  # genuinely prose, exercises _split_record
+    chunks = chunk_reference(text, max_words=120)
+    assert len(chunks) > 1
+    assert max(len(c.text.split()) for c in chunks) <= 120
+
+
+def test_quoted_delimited_file_detected_tabular_and_header_replicated():
+    """A CSV whose fields contain quoted delimiters (e.g. "Doe, Jane") must be
+    detected as tabular via csv parsing, not misread as prose by naive delimiter
+    counting. Detection restores header replication so every retrieved chunk --
+    including deep rows -- carries the column names the model needs. Regression
+    for reference cells coming back N/A."""
+    from schematiq.value_extraction.utils.reference_retrieval import (
+        chunk_reference, _looks_tabular, ReferenceRetriever, build_reference_query,
+    )
+
+    header = "judge_name,appointing_president,court,notes"
+    rows = []
+    for i in range(1000):
+        # Quoted embedded commas: naive counting sees an inconsistent column
+        # count and (before the fix) falls back to the prose path.
+        if i % 2 == 0:
+            rows.append(f'"Judge, Number {i}",Ronald Reagan,"District, West",n{i}')
+        else:
+            rows.append(f"Judge {i},Jimmy Carter,Ninth Circuit,n{i}")
+    text = header + "\n" + "\n".join(rows)
+
+    assert _looks_tabular(text.splitlines())  # quoted commas no longer fool detection
+    chunks = chunk_reference(text, max_words=120)
+    assert len(chunks) > 1
+    assert all(c.text.startswith(header) for c in chunks)  # header on every chunk
+
+    retriever = ReferenceRetriever(text)
+    # A deep row (not near the top of the file) still retrieves a small slice
+    # that carries the header and the row's appointing value.
+    query = build_reference_query(
+        "Judge, Number 900",
+        [{"column": "appointing_president", "definition": "who appointed"}],
+    )
+    joined = "\n\n".join(retriever.retrieve(query, k=5))
+    assert "appointing_president" in joined  # header travelled with the row
+    assert "Judge, Number 900" in joined and "Reagan" in joined
+    assert len(joined) < len(text) / 10  # a small slice, not the whole file
