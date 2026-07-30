@@ -47,6 +47,15 @@ schematiq_runner = ScheMatiQRunner(
     uniprot_enrichment_service=uniprot_enrichment_service,
 )
 
+from app.services.reference_fill_service import ReferenceFillService
+
+reference_fill_service = ReferenceFillService(
+    websocket_manager=websocket_manager,
+    session_manager=session_manager,
+    data_editor=data_editor,
+    schematiq_runner=schematiq_runner,
+)
+
 CHAT_MODEL = "gemini-3.5-flash"
 WORK_DIR = Path("./schematiq_work")
 

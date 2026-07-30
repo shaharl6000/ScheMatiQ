@@ -56,6 +56,7 @@ class DataEditor:
         self, session_id: str, row_name: str, column: str, value: Any,
         restore: Any = None, source_document: str = None,
         row_index: Optional[int] = None, reference_source: Optional[str] = None,
+        update_all: bool = False,
     ) -> dict:
         """
         Update a specific cell value in the session's data file.
@@ -127,7 +128,12 @@ class DataEditor:
                     current_row_name = row.get("row_name") or row.get("_row_name")
                     if current_row_name != row_name:
                         continue
-                    if source_document:
+                    # update_all fills every row for this unit (a value that is a
+                    # property of the unit, e.g. a reference lookup), so it ignores
+                    # the source_document disambiguator and does not stop at the
+                    # first match — otherwise only the first of several rows sharing
+                    # the row_name gets written and the rest stay blank.
+                    if source_document and not update_all:
                         current_src = _resolve_source_document(row)
                         if current_src and current_src != source_document:
                             continue
@@ -142,7 +148,8 @@ class DataEditor:
                     previous_value = row_previous
                 file_updated = True
                 updated_any = True
-                break
+                if not update_all:
+                    break
 
             if file_updated:
                 with open(data_file, "w", encoding="utf-8") as f:
