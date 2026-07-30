@@ -117,3 +117,23 @@ async def delete_reference_document(session_id: str, reference_id: str) -> dict:
     session_manager.update_session(session)
     await _broadcast_updated(session_id, session)
     return {"status": "success", "removed": reference_id}
+
+
+class FillColumnRequest(BaseModel):
+    column: str
+    reference_id: str
+
+
+@router.post("/{session_id}/fill-column")
+async def fill_column_from_reference(session_id: str, body: FillColumnRequest) -> dict:
+    """Start a background job that fills `column` for every row from a reference,
+    running the model once per row and streaming cells as they complete. Returns
+    immediately with the operation id; progress arrives over the WebSocket."""
+    from app.services.chat.deps import reference_fill_service
+
+    try:
+        return await reference_fill_service.start_fill(
+            session_id, body.column, body.reference_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -143,3 +143,35 @@ def test_paper_processor_gates_on_reference_size():
     pp_none = PaperProcessor(llm=None)
     assert pp_none.prompt_builder.reference_retriever is None
     assert pp_none.prompt_builder.reference_context is None
+
+
+def test_oversized_single_record_is_split_not_one_giant_chunk():
+    """A delimited file misread as prose collapses to one record (no blank lines).
+    It must still be split into bounded chunks rather than one chunk = whole file.
+    Regression: without this the whole reference was sent to the model, exceeding
+    the token limit."""
+    from schematiq.value_extraction.utils.reference_retrieval import (
+        chunk_reference, ReferenceRetriever, build_reference_query,
+    )
+
+    header = "judge_name,appointing_president,court,notes"
+    rows = []
+    for i in range(1000):
+        # Quoted embedded commas -> inconsistent delimiter counts -> not detected
+        # as tabular -> prose path -> (before the fix) one giant record.
+        if i % 2 == 0:
+            rows.append(f'"Judge, Number {i}",Ronald Reagan,"District, West",n{i}')
+        else:
+            rows.append(f"Judge {i},Jimmy Carter,Ninth Circuit,n{i}")
+    text = header + "\n" + "\n".join(rows)
+
+    chunks = chunk_reference(text, max_words=120)
+    assert len(chunks) > 1
+    assert max(len(c.text.split()) for c in chunks) <= 120
+
+    retriever = ReferenceRetriever(text)
+    query = build_reference_query(
+        "Judge, Number 4", [{"column": "appointing_president", "definition": "who appointed"}]
+    )
+    joined = "\n\n".join(retriever.retrieve(query, k=5))
+    assert len(joined) < len(text) / 10  # a small slice, not the whole file

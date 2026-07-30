@@ -110,6 +110,14 @@ RELEASE_CONFIG = {
 # Convenience: whether LLM config UI should be shown
 ALLOW_LLM_CONFIG = DEVELOPER_MODE
 
+# Model used for per-row "fill column from reference" lookups. This is a narrow
+# extraction task (pull one value out of a reference excerpt), not open-ended
+# chat, so it defaults to the lightweight value-extraction model rather than the
+# stronger chat model. Override via the REFERENCE_FILL_MODEL env var.
+REFERENCE_FILL_MODEL = os.environ.get(
+    "REFERENCE_FILL_MODEL", ModelNames.DEFAULT_RELEASE_EXTRACTION
+)
+
 # Effective values (resolved once at startup)
 MAX_DOCUMENTS = int(os.environ.get("MAX_DOCUMENTS", str(
     RELEASE_CONFIG["max_documents"] if not DEVELOPER_MODE else 10_000

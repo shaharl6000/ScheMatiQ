@@ -24,6 +24,7 @@ from .deps import (
     load_user_llm_config,
     observation_unit_manager,
     reextraction_service,
+    reference_fill_service,
     schema_manager,
     schematiq_runner,
     truncate_result,
@@ -80,6 +81,12 @@ class ToolExecutor:
           return f"Estimated cost: ${cost:.4f}, {calls} API calls."
       if tool_name in ("reextract", "reprocess", "continue_discovery"):
           return "This operation runs the backbone LLM over project documents. Confirm to proceed."
+      if tool_name == "fill_column_from_reference":
+          return (
+              "This runs the model once per row to fill "
+              f"'{args.get('column')}' from the reference, in the background. "
+              "Confirm to proceed."
+          )
       return "This is an expensive operation. Confirm to proceed."
 
   async def _handle_get_status(
@@ -264,7 +271,7 @@ class ToolExecutor:
       clipped = len(content) > READ_REFERENCE_CHAT_BUDGET
       if clipped:
           content = content[:READ_REFERENCE_CHAT_BUDGET]
-      return {
+      result = {
           "status": "success",
           "id": ref.id,
           "filename": ref.filename,
@@ -272,6 +279,24 @@ class ToolExecutor:
           "content_clipped": clipped,
           "content": content,
       }
+      if clipped:
+          result["hint"] = (
+              f"Only the first {READ_REFERENCE_CHAT_BUDGET} of {ref.char_count} "
+              "characters are shown. Do NOT fill a whole column from this preview: "
+              "rows not shown here would be guesses. To populate a column for all "
+              "rows from the full reference, call fill_column_from_reference."
+          )
+      return result
+
+  async def _handle_fill_column_from_reference(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Delegate to the background fill service: it runs one model call per row and
+      # streams cells as they complete, returning immediately so a whole-column
+      # fill never blocks (or times out) the chat turn.
+      return await reference_fill_service.start_fill(
+          session_id, args.get("column"), args.get("reference_id")
+      )
 
   async def _handle_add_column(
       self, session_id: str, session_mode: str, args: dict[str, Any]
