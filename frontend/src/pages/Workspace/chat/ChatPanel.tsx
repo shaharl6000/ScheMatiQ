@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { chatAPI, referenceAPI, type ReferenceDocumentInfo } from '@/services/api';
-import type { ChatToolInfo, PaginatedData, SchemaData, ScheMatiQStatus } from '@/types';
+import webSocketService from '@/services/websocket';
+import type { ChatToolInfo, PaginatedData, SchemaData, ScheMatiQStatus, WebSocketMessage } from '@/types';
 
 import {
   CHAT_MUTATION_TOOLS,
@@ -84,6 +85,7 @@ export function ChatPanel({
   const [uploadingReference, setUploadingReference] = useState(false);
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [fillRunning, setFillRunning] = useState<{ column: string } | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -216,6 +218,35 @@ export function ChatPanel({
   const appendMessages = useCallback((next: WorkspaceMessage[]) => {
     setMessages((current) => [...current, ...next]);
   }, []);
+
+  // A column fill runs in the background after the chat turn ends, streaming cells
+  // into the table. Show a spinner while it runs, then post the model's recap as an
+  // assistant message so the user learns what was filled vs left empty.
+  useEffect(() => {
+    if (!sessionId) return undefined;
+    const handler = (message: WebSocketMessage) => {
+      if (message.type === 'reference_fill_started') {
+        const data = (message.data ?? {}) as unknown as { column?: string };
+        setFillRunning({ column: data.column ?? '' });
+      } else if (message.type === 'reference_fill_completed') {
+        const data = (message.data ?? {}) as unknown as {
+          column?: string; message?: string; filled?: number; total?: number;
+        };
+        setFillRunning(null);
+        appendMessages([
+          {
+            id: `${Date.now()}-fill-summary`,
+            role: 'assistant',
+            content:
+              data.message
+              || `Finished filling '${data.column ?? ''}' (${data.filled ?? 0} of ${data.total ?? 0} rows).`,
+          },
+        ]);
+      }
+    };
+    webSocketService.addMessageHandler(handler);
+    return () => webSocketService.removeMessageHandler(handler);
+  }, [sessionId, appendMessages]);
 
   const applyChatResponse = useCallback((response: Awaited<ReturnType<typeof chatAPI.sendMessage>>) => {
     setChatId(response.chat_id);
@@ -452,6 +483,19 @@ export function ChatPanel({
               <ChatMessageBody message={item.message} />
             </div>
           ),
+        )}
+
+        {fillRunning && (
+          <div className="workspace-chat-message" data-role="assistant">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>
+                {fillRunning.column
+                  ? `Filling '${fillRunning.column}' in the background…`
+                  : 'Filling column in the background…'}
+              </span>
+            </div>
+          </div>
         )}
 
         {pendingAction && (
