@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import threading
 import time
@@ -27,9 +28,26 @@ from schematiq.core.llm_call_tracker import QuotaExceededError
 
 logger = logging.getLogger(__name__)
 
-# Reference text above this size is retrieved per row; below it, the whole
-# reference is handed to each per-row model call.
-REFERENCE_FULL_INJECT_MAX_CHARS = 12000
+# If the whole reference fits this many chars it is injected verbatim (no retrieval)
+# — sized to the fill model's context window with margin. Default ~2M chars ≈ a few
+# hundred K tokens, safe for a ~1M-token model (Gemini Flash / Flash-Lite, both 1M).
+# Raise it (and point REFERENCE_FILL_MODEL at a larger-window model) to inject bigger
+# references whole.
+REFERENCE_CONTEXT_BUDGET_CHARS = int(
+    os.getenv("REFERENCE_CONTEXT_BUDGET_CHARS", "2000000")
+)
+# When the reference is larger than the window we retrieve per row. This is how much
+# retrieved content (top-ranked rows, header de-duplicated) to hand the model each
+# time. Far more than a fixed handful — enough to surface the right row even when the
+# join key is a common value whose target ranks deep — but bounded so we do not flood
+# the model (and inflate latency) with the whole file. Raise it to trade cost/latency
+# for recall on very large references.
+REFERENCE_RAG_BUDGET_CHARS = int(
+    os.getenv("REFERENCE_RAG_BUDGET_CHARS", "400000")
+)
+# Upper bound on chunks pulled from the retriever; the char budget above is the real
+# limit, this is just a ceiling so we never rank-sort an unbounded list.
+REFERENCE_RAG_MAX_CHUNKS = int(os.getenv("REFERENCE_RAG_MAX_CHUNKS", "4000"))
 _NO_VALUE_SENTINELS = {"", "N/A", "NA", "NONE", "NULL", "UNKNOWN"}
 _MAX_PAGE_ITERATIONS = 200  # safety valve for the row pager
 
@@ -55,6 +73,36 @@ def _retrieval_diagnostic(unit: str, context: str) -> str:
         window = context[:160]
     window = window.replace("\n", " ⏎ ")
     return f"unit tokens in context: {len(present)}/{len(tokens)} {present} | window: {window}"
+
+
+def _join_reference_passages(passages: list, char_budget: int) -> str:
+    """Join retrieved chunks into a context that fills the char budget, keeping a
+    shared table header only once.
+
+    Tabular chunks each begin with the same replicated header line, so a naive join
+    repeats that (often large) header once per chunk and burns most of the budget on
+    duplication. When every passage shares the same first line we emit it once, then
+    append row bodies (highest-ranked first) until the budget is reached. For prose
+    (no shared header) we join and stop at the budget the same way. This lets us hand
+    the model as many relevant rows as the window allows instead of a fixed few.
+    """
+    if not passages:
+        return ""
+    header = passages[0].split("\n", 1)[0]
+    tabular = bool(header) and all(p.startswith(header) for p in passages)
+    prefix = (header + "\n") if tabular else ""
+    sep = "\n" if tabular else "\n\n"
+    parts: list = []
+    used = len(prefix)
+    for passage in passages:
+        body = passage[len(header):].lstrip("\n") if tabular else passage
+        if not body:
+            continue
+        if parts and used + len(body) + len(sep) > char_budget:
+            break
+        parts.append(body)
+        used += len(body) + len(sep)
+    return prefix + sep.join(parts)
 
 
 @dataclass
@@ -149,16 +197,29 @@ class ReferenceFillService:
             "reference fill started: id=%s column=%r reference=%r rows=%d",
             fill_id, column, ref.filename, len(rows),
         )
+        message = (
+            f"Filling '{column}' for {len(rows)} rows from '{ref.filename}' in the "
+            "background. Cells will appear as each row completes."
+        )
+        if len(reference_text) > REFERENCE_CONTEXT_BUDGET_CHARS:
+            # The reference does not fit the model context window, so we retrieve the
+            # most relevant rows per cell instead of reading all of it. Say so, and
+            # suggest narrowing — a smaller, focused reference is read in full.
+            message += (
+                f" Note: this reference is large ({len(reference_text):,} characters) "
+                "and does not fit the model's context window, so I'm retrieving the "
+                "most relevant rows for each cell rather than reading all of it. If a "
+                "value comes back empty, narrowing the reference to the columns/rows "
+                "you need can improve accuracy."
+            )
         return {
             "status": "started",
             "fill_id": fill_id,
             "column": column,
             "reference": ref.filename,
             "total": len(rows),
-            "message": (
-                f"Filling '{column}' for {len(rows)} rows from '{ref.filename}' in the "
-                "background. Cells will appear as each row completes."
-            ),
+            "mode": "retrieval" if len(reference_text) > REFERENCE_CONTEXT_BUDGET_CHARS else "full",
+            "message": message,
         }
 
     def request_stop(self, fill_id: str) -> dict[str, Any]:
@@ -193,7 +254,7 @@ class ReferenceFillService:
 
         retriever = (
             ReferenceRetriever(reference_text)
-            if len(reference_text) > REFERENCE_FULL_INJECT_MAX_CHARS
+            if len(reference_text) > REFERENCE_CONTEXT_BUDGET_CHARS
             else None
         )
         try:
@@ -219,8 +280,12 @@ class ReferenceFillService:
                     query = build_reference_query(
                         unit, [{"column": op.column, "definition": column_definition}]
                     )
-                    passages = retriever.retrieve(query, k=5)
-                    context = "\n\n".join(passages) if passages else ""
+                    passages = retriever.retrieve(
+                        query, k=REFERENCE_RAG_MAX_CHUNKS, rel_threshold=0.0
+                    )
+                    context = _join_reference_passages(
+                        passages, REFERENCE_RAG_BUDGET_CHARS
+                    )
                 else:
                     context = reference_text
 
