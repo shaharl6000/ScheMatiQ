@@ -417,8 +417,17 @@ class ReferenceFillService:
             f"punctuation.{allowed_instruction} If the reference does not contain it, "
             "return exactly: N/A"
         )
+        from google.genai import types
+
+        # Deterministic decoding: this is a narrow extraction, not open generation.
+        # At the default (sampled) temperature the model intermittently bails to N/A
+        # for a row whose data is right there in the context, so the same unit gets a
+        # value in one table row and a blank in another. temperature=0 makes the
+        # answer reproducible and removes that flakiness.
         response = await client.aio.models.generate_content(
-            model=REFERENCE_FILL_MODEL, contents=prompt
+            model=REFERENCE_FILL_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0),
         )
         return (getattr(response, "text", None) or "").strip()
 
