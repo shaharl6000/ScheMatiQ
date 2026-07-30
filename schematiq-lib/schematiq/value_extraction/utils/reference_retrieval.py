@@ -20,6 +20,7 @@ Design goals:
 
 from __future__ import annotations
 
+import csv
 import math
 import re
 from dataclasses import dataclass, field
@@ -37,7 +38,14 @@ def _tokenize(text: str) -> List[str]:
 
 
 def _looks_tabular(lines: List[str]) -> bool:
-    """Heuristic: a delimited header plus rows with a consistent column count.
+    """Heuristic: a delimited header plus rows with a consistent field count.
+
+    Field counts come from ``csv.reader`` rather than a raw delimiter count, so a
+    field that legitimately contains the delimiter inside quotes (e.g.
+    ``"Doe, Jane"``) is parsed as one field instead of inflating the count. Naive
+    counting makes such rows look inconsistent, misclassifies the whole file as
+    prose, and drops header replication — which is what left every retrieved row
+    without its column names.
 
     Deliberately conservative — if unsure, we treat the text as prose, which is
     always safe (chunking still works, just without header replication).
@@ -45,15 +53,38 @@ def _looks_tabular(lines: List[str]) -> bool:
     non_empty = [ln for ln in lines if ln.strip()]
     if len(non_empty) < 3:
         return False
+    sample = non_empty[:20]
     for delim in (",", "\t", "|"):
-        counts = [ln.count(delim) for ln in non_empty[:20]]
-        if counts[0] >= 1 and sum(c == counts[0] for c in counts) >= max(3, int(0.7 * len(counts))):
+        try:
+            counts = [len(row) for row in csv.reader(sample, delimiter=delim)]
+        except csv.Error:
+            continue
+        if not counts:
+            continue
+        # A real table has >= 2 fields per line (>= 1 delimiter) and a field
+        # count that is stable across most of the sampled lines.
+        if counts[0] >= 2 and sum(c == counts[0] for c in counts) >= max(3, int(0.7 * len(counts))):
             return True
     return False
 
 
 def _word_count(text: str) -> int:
     return len(text.split())
+
+
+def _split_record(record: str, max_words: int) -> List[str]:
+    """Split one record into word-bounded pieces no longer than ``max_words``.
+
+    A record is normally a single row or paragraph. But a delimited file that is
+    misdetected as prose collapses to one record (there are no blank lines to
+    split on), which would otherwise become a single chunk containing the whole
+    file and blow past the model's token limit downstream. Splitting over-long
+    records keeps every chunk bounded regardless of tabular/prose detection.
+    """
+    words = record.split()
+    if len(words) <= max_words:
+        return [record]
+    return [" ".join(words[k:k + max_words]) for k in range(0, len(words), max_words)]
 
 
 @dataclass
@@ -100,6 +131,11 @@ def chunk_reference(
     if not records:
         # Header-only tabular file, or nothing usable.
         return [ReferenceChunk(text=header, index=0)] if header else []
+
+    # Split any record longer than the budget so a single oversized record (e.g.
+    # a delimited file misread as prose, making the whole file one record) cannot
+    # become one giant chunk.
+    records = [piece for rec in records for piece in _split_record(rec, max_words)]
 
     header_words = _word_count(header)
     chunks: List[ReferenceChunk] = []
