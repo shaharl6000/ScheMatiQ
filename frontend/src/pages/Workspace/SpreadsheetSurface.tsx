@@ -667,10 +667,28 @@ export function SpreadsheetSurface({
         if (!editable.includes(key)) continue;
 
         if (!existing && key === 'name' && String(newValue || '').trim()) {
+          // A brand-new column is created from the spare schema row. Other cells
+          // on that row (definition/rationale/allowed_values) may already hold
+          // values the user typed before the name -- e.g. when filling the row
+          // right-to-left, where the name is entered last. Those edits landed on
+          // a still-non-existing row and were skipped by the `!existing` guard
+          // below, so read them back from the live grid and include them in the
+          // create request. Otherwise the subsequent onRefresh() re-renders from
+          // the backend (name only) and the typed values are lost.
+          const hot = hotTableRef.current?.hotInstance;
+          const readRowCell = (field: string): string =>
+            hot ? String(hot.getDataAtRowProp(rowIndex, field) ?? '') : '';
+          const pendingRationale = readRowCell('rationale').trim();
+          const pendingAllowedValues = parseAllowedValues(readRowCell('allowed_values'));
+
           schemaAPI.addColumn(sessionId, {
             name: String(newValue).trim(),
-            definition: '',
-            rationale: '',
+            definition: readRowCell('definition').trim(),
+            rationale: pendingRationale || undefined,
+            allowed_values:
+              pendingAllowedValues && pendingAllowedValues.length > 0
+                ? pendingAllowedValues
+                : undefined,
           })
             .then(() => {
               toast({ title: 'Schema column added' });
