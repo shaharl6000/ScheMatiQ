@@ -178,7 +178,7 @@ def _all_tools() -> list[ToolSpec]:
                 },
                 "required": ["column", "reference_id"],
             },
-            cost_class="expensive",
+            cost_class="cheap",  # delegates to a background job; no inline cost, so no confirmation gate
             handler="fill_column_from_reference",
         ),
         ToolSpec(

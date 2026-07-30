@@ -165,9 +165,11 @@ class ReferenceFillService:
         if not rows:
             raise ValueError("No rows to fill.")
 
-        column_definition = next(
-            (c.definition for c in session.columns if c.name == column), None
+        column_obj = next(
+            (c for c in session.columns if c.name == column), None
         )
+        column_definition = column_obj.definition if column_obj else None
+        allowed_values = column_obj.allowed_values if column_obj else None
         fill_id = f"fill-{session_id[:8]}-{uuid.uuid4().hex[:8]}"
         op = FillOperation(
             fill_id=fill_id,
@@ -189,7 +191,7 @@ class ReferenceFillService:
             self._stop[fill_id] = False
 
         task = asyncio.create_task(
-            self._run_fill(op, rows, reference_text, column_definition)
+            self._run_fill(op, rows, reference_text, column_definition, allowed_values)
         )
         self._tasks[fill_id] = task
 
@@ -246,6 +248,7 @@ class ReferenceFillService:
         rows: list[dict[str, Any]],
         reference_text: str,
         column_definition: Optional[str],
+        allowed_values: Optional[list] = None,
     ) -> None:
         from schematiq.value_extraction.utils.reference_retrieval import (
             ReferenceRetriever,
@@ -301,7 +304,8 @@ class ReferenceFillService:
                 )
                 try:
                     value = await self._extract_value_for_row(
-                        client, unit, op.column, column_definition, context
+                        client, unit, op.column, column_definition, context,
+                        allowed_values,
                     )
                 except Exception as exc:  # a single row's model error must not abort the run
                     logger.warning("reference fill row %r failed: %s", unit, exc)
@@ -386,19 +390,32 @@ class ReferenceFillService:
         column: str,
         column_definition: Optional[str],
         context: str,
+        allowed_values: Optional[list] = None,
     ) -> str:
         from app.core.config import REFERENCE_FILL_MODEL
 
         definition_line = f" (defined as: {column_definition})" if column_definition else ""
+        # Mirror the canonical value-extraction prompt: when the column is categorical
+        # the answer must be snapped to its closed set, not free-form (otherwise the
+        # model returns near-misses like "Republican" for an "Other Republican"
+        # category, or invents labels).
+        allowed_line = f"\nallowed_values: {allowed_values}" if allowed_values else ""
+        allowed_instruction = (
+            " The value MUST be exactly one of allowed_values, copied verbatim — do not "
+            "invent, rephrase, merge, or abbreviate a category."
+            if allowed_values
+            else ""
+        )
         prompt = (
             "You are filling a single cell in a table using an external reference "
             "document.\n\n"
             f"Row (observation unit): {unit}\n"
-            f"Column to fill: {column}{definition_line}\n\n"
+            f"Column to fill: {column}{definition_line}{allowed_line}\n\n"
             "Reference excerpts:\n"
             f"{context}\n\n"
             f"Return ONLY the value of '{column}' for {unit}, with no extra words or "
-            "punctuation. If the reference does not contain it, return exactly: N/A"
+            f"punctuation.{allowed_instruction} If the reference does not contain it, "
+            "return exactly: N/A"
         )
         response = await client.aio.models.generate_content(
             model=REFERENCE_FILL_MODEL, contents=prompt
