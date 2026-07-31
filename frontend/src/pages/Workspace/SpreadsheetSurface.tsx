@@ -111,6 +111,20 @@ export function SpreadsheetSurface({
   const lastGridSizeRef = useRef({ width: 0, height: 0 });
   const [gridSize, setGridSize] = useState({ width: 0, height: 0 });
 
+  // Filter preservation. The @handsontable/react wrapper re-pushes every
+  // (non-init-only) prop through updateSettings on each React re-render, and
+  // updateSettings with a `filters`/`columns` key re-initializes the filters
+  // plugin -- silently dropping both the active row trimming AND the stored
+  // conditions. So a filter set from the column dropdown vanishes on the next
+  // unrelated re-render (selection change, grounding, toast, refresh poll),
+  // making the filter menu look like it does nothing. We therefore keep our
+  // own copy of the active filter conditions and re-apply them whenever a
+  // settings update wipes the plugin. isRestoringFilterRef guards against
+  // re-entrancy (our re-apply triggers afterFilter -> applyGroupMerges ->
+  // updateSettings -> afterUpdateSettings again).
+  const filterConditionsRef = useRef<any[]>([]);
+  const isRestoringFilterRef = useRef(false);
+
   const applyGridSize = useCallback((width: number, height: number) => {
     const nextWidth = Math.max(320, Math.floor(width));
     const nextHeight = Math.max(260, Math.floor(height));
@@ -438,6 +452,60 @@ export function SpreadsheetSurface({
       hot.updateSettings({ mergeCells: ranges.length ? ranges : true });
     } catch { /* plugin may be mid-teardown */ }
   }, [activeSheet, groupColIndex, groupKeyAtVisual, groupKeys.length, hotTableRef]);
+
+  // Remember the user's active filter conditions so they can be re-applied
+  // after Handsontable wipes them on a settings re-push (see filterConditionsRef
+  // note above). An empty stack means the user cleared the filter -- we store
+  // that too, so a later re-render does not resurrect a filter they removed.
+  const captureFilterConditions = useCallback((conditionsStack: any[]) => {
+    if (isRestoringFilterRef.current) return;
+    filterConditionsRef.current = Array.isArray(conditionsStack) && conditionsStack.length
+      ? JSON.parse(JSON.stringify(conditionsStack))
+      : [];
+  }, []);
+
+  // Re-apply the remembered filter if a settings update has just cleared it.
+  // Runs on afterUpdateSettings, which fires at the end of every wrapper-driven
+  // updateSettings. The guards make it a no-op unless the plugin was actually
+  // wiped while we hold conditions to restore, so benign updates (resize, merge
+  // recompute) and explicit user clears are left untouched.
+  const restoreFilterIfWiped = useCallback(() => {
+    if (isRestoringFilterRef.current) return;
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+    const saved = filterConditionsRef.current;
+    if (!saved || saved.length === 0) return;
+    let filtersPlugin: any;
+    try { filtersPlugin = hot.getPlugin('filters'); } catch { return; }
+    if (!filtersPlugin || !filtersPlugin.enabled) return;
+    const collection = filtersPlugin.conditionCollection;
+    // Only restore when the plugin has lost its conditions (the wipe we are
+    // compensating for). If conditions are still present the filter survived
+    // and re-applying would be redundant (and risk a loop).
+    if (!collection || typeof collection.isEmpty !== 'function' || !collection.isEmpty()) return;
+    isRestoringFilterRef.current = true;
+    try {
+      saved.forEach((entry: any) => {
+        const { column, conditions, operation } = entry || {};
+        if (column == null || !Array.isArray(conditions)) return;
+        conditions.forEach((condition: any) => {
+          filtersPlugin.addCondition(column, condition.name, condition.args, operation);
+        });
+      });
+      filtersPlugin.filter();
+    } catch {
+      /* plugin may be mid-teardown; leave the grid as-is */
+    } finally {
+      isRestoringFilterRef.current = false;
+    }
+  }, [hotTableRef]);
+
+  // afterFilter runs on every filter change (including the group-merge recompute
+  // it already drove). Capture the conditions first, then keep the merge behavior.
+  const handleAfterFilter = useCallback((conditionsStack: any[]) => {
+    captureFilterConditions(conditionsStack);
+    applyGroupMerges();
+  }, [applyGroupMerges, captureFilterConditions]);
 
   // Renderer for the active grouping column: plain text plus a count badge on
   // the group's first row. With cells merged, only the top row of a group is
@@ -969,7 +1037,8 @@ export function SpreadsheetSurface({
           applyGroupMerges();
         }}
         afterColumnSort={applyGroupMerges}
-        afterFilter={applyGroupMerges}
+        afterFilter={handleAfterFilter}
+        afterUpdateSettings={restoreFilterIfWiped}
         beforeRemoveRow={handleBeforeRemoveRow}
         beforeRemoveCol={handleBeforeRemoveCol}
         afterChange={(changes, source) => {
