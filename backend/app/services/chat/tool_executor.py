@@ -533,10 +533,21 @@ class ToolExecutor:
               ref = refsvc.get_reference_document(session, reference_id)
               if ref:
                   reference_source = ref.filename
-      return await data_editor.update_cell(
+      result = await data_editor.update_cell(
           session_id, row_name, column, value, source_document=source_document,
           reference_source=reference_source,
       )
+      # Stream the write so the cell appears in the table as it is written, rather
+      # than only after the whole chat turn completes (the workspace refreshes on
+      # cell_extracted). Best-effort — a streaming hiccup must never fail the write.
+      try:
+          await websocket_manager.broadcast_to_session(
+              session_id,
+              {"type": "cell_extracted", "data": {"row": row_name, "column": column}},
+          )
+      except Exception:  # streaming is best-effort
+          pass
+      return result
 
   async def _resolve_source_document(self, session_id: str, row_name: str) -> Optional[str]:
       data_file = None
