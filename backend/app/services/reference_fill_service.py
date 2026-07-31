@@ -21,7 +21,7 @@ import re
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from app.core.config import LLM_CALL_GLOBAL_LIMIT
@@ -53,15 +53,14 @@ REFERENCE_RAG_MAX_CHUNKS = int(os.getenv("REFERENCE_RAG_MAX_CHUNKS", "4000"))
 # outcomes, so use a capable chat-class model (not the lite per-row extractor).
 REFERENCE_SUMMARY_MODEL = os.getenv("REFERENCE_SUMMARY_MODEL", "gemini-3.5-flash")
 # How many per-row model calls may be in flight at once. The rows are independent,
-# so we fan them out instead of awaiting one at a time. Bounded to stay within API
-# rate limits and to keep quota over-run (past the global limit) small.
-# Bounded so we stay within API rate limits — and low by default because other
-# jobs/users may be calling the same API concurrently and share that limit.
+# so we fan them out instead of awaiting one at a time. Low by default because other
+# jobs/users may share the same API rate limit, and it also keeps any over-run past
+# the global quota small.
 REFERENCE_FILL_CONCURRENCY = int(os.getenv("REFERENCE_FILL_CONCURRENCY", "4"))
 # Retries per row on a transient model-call error (rate limit / 5xx / timeout),
 # with exponential backoff + jitter. Prevents a concurrency burst from silently
 # dropping rows that a retry would have filled.
-REFERENCE_FILL_MAX_RETRIES = int(os.getenv("REFERENCE_FILL_MAX_RETRIES", "4"))
+REFERENCE_FILL_MAX_RETRIES = max(1, int(os.getenv("REFERENCE_FILL_MAX_RETRIES", "4")))
 # Base backoff in seconds; a rate limit needs a real pause (several seconds),
 # especially when other jobs share the quota. Grows exponentially, capped at 30s.
 REFERENCE_FILL_RETRY_BASE_SECONDS = float(
@@ -354,7 +353,8 @@ class ReferenceFillService:
                         "reference fill %s row %d/%d unit=%r -> model answered %r",
                         op.fill_id, index + 1, op.total, unit, answer,
                     )
-                    if answer and answer.upper() not in _NO_VALUE_SENTINELS:
+                    valid = bool(answer) and answer.upper() not in _NO_VALUE_SENTINELS
+                    if valid:
                         try:
                             # Write every row sharing this unit's name (update_all), not
                             # just the first match — a reference lookup is a property of
@@ -367,10 +367,10 @@ class ReferenceFillService:
                             await self._broadcast_cell(op.session_id, unit, op.column, answer)
                         except Exception as exc:  # one row's write must not abort the run
                             logger.warning("reference fill write for %r failed: %s", unit, exc)
-                            answer = ""
+                            valid = False
                     records[index] = {
                         "unit": unit,
-                        "answer": answer if (answer and answer.upper() not in _NO_VALUE_SENTINELS) else None,
+                        "answer": answer if valid else None,
                         "found_in_context": found,
                     }
 
