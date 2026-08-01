@@ -111,20 +111,6 @@ export function SpreadsheetSurface({
   const lastGridSizeRef = useRef({ width: 0, height: 0 });
   const [gridSize, setGridSize] = useState({ width: 0, height: 0 });
 
-  // Filter preservation. The @handsontable/react wrapper re-pushes every
-  // (non-init-only) prop through updateSettings on each React re-render, and
-  // updateSettings with a `filters`/`columns` key re-initializes the filters
-  // plugin -- silently dropping both the active row trimming AND the stored
-  // conditions. So a filter set from the column dropdown vanishes on the next
-  // unrelated re-render (selection change, grounding, toast, refresh poll),
-  // making the filter menu look like it does nothing. We therefore keep our
-  // own copy of the active filter conditions and re-apply them whenever a
-  // settings update wipes the plugin. isRestoringFilterRef guards against
-  // re-entrancy (our re-apply triggers afterFilter -> applyGroupMerges ->
-  // updateSettings -> afterUpdateSettings again).
-  const filterConditionsRef = useRef<any[]>([]);
-  const isRestoringFilterRef = useRef(false);
-
   const applyGridSize = useCallback((width: number, height: number) => {
     const nextWidth = Math.max(320, Math.floor(width));
     const nextHeight = Math.max(260, Math.floor(height));
@@ -453,59 +439,34 @@ export function SpreadsheetSurface({
     } catch { /* plugin may be mid-teardown */ }
   }, [activeSheet, groupColIndex, groupKeyAtVisual, groupKeys.length, hotTableRef]);
 
-  // Remember the user's active filter conditions so they can be re-applied
-  // after Handsontable wipes them on a settings re-push (see filterConditionsRef
-  // note above). An empty stack means the user cleared the filter -- we store
-  // that too, so a later re-render does not resurrect a filter they removed.
-  const captureFilterConditions = useCallback((conditionsStack: any[]) => {
-    if (isRestoringFilterRef.current) return;
-    filterConditionsRef.current = Array.isArray(conditionsStack) && conditionsStack.length
-      ? JSON.parse(JSON.stringify(conditionsStack))
-      : [];
-  }, []);
-
-  // Re-apply the remembered filter if a settings update has just cleared it.
-  // Runs on afterUpdateSettings, which fires at the end of every wrapper-driven
-  // updateSettings. The guards make it a no-op unless the plugin was actually
-  // wiped while we hold conditions to restore, so benign updates (resize, merge
-  // recompute) and explicit user clears are left untouched.
-  const restoreFilterIfWiped = useCallback(() => {
-    if (isRestoringFilterRef.current) return;
+  // Keep the column filter alive across React re-renders.
+  //
+  // The @handsontable/react (v16) wrapper re-pushes every non-init-only prop
+  // through updateSettings on every re-render. updateSettings with a `filters`
+  // key re-initializes the filters plugin, wiping the active filter -- both the
+  // trimmed rows AND the "Filter by value" list, which then collapses to only
+  // the currently-visible values so excluded ones can never be re-selected. Any
+  // unrelated re-render (selection, grounding, toast, refresh poll) triggers it,
+  // so a filter set from the dropdown appears to do nothing / cannot be undone.
+  //
+  // `filters`/`dropdownMenu` must stay declared as props so they are enabled at
+  // construction (enabling them later via updateSettings leaves the value
+  // component half-initialized). Instead we register them as init-only after the
+  // instance mounts: the wrapper reads `_initOnlySettings` from getSettings() and
+  // skips re-pushing any init-only prop whose value is unchanged, so the plugin
+  // is configured once and never torn down on subsequent renders. The list is
+  // wrapper-facing metadata that Handsontable's core never reads at runtime.
+  const markFilterSettingsInitOnly = useCallback(() => {
     const hot = hotTableRef.current?.hotInstance;
     if (!hot) return;
-    const saved = filterConditionsRef.current;
-    if (!saved || saved.length === 0) return;
-    let filtersPlugin: any;
-    try { filtersPlugin = hot.getPlugin('filters'); } catch { return; }
-    if (!filtersPlugin || !filtersPlugin.enabled) return;
-    const collection = filtersPlugin.conditionCollection;
-    // Only restore when the plugin has lost its conditions (the wipe we are
-    // compensating for). If conditions are still present the filter survived
-    // and re-applying would be redundant (and risk a loop).
-    if (!collection || typeof collection.isEmpty !== 'function' || !collection.isEmpty()) return;
-    isRestoringFilterRef.current = true;
     try {
-      saved.forEach((entry: any) => {
-        const { column, conditions, operation } = entry || {};
-        if (column == null || !Array.isArray(conditions)) return;
-        conditions.forEach((condition: any) => {
-          filtersPlugin.addCondition(column, condition.name, condition.args, operation);
-        });
-      });
-      filtersPlugin.filter();
-    } catch {
-      /* plugin may be mid-teardown; leave the grid as-is */
-    } finally {
-      isRestoringFilterRef.current = false;
-    }
+      const settings = hot.getSettings() as { _initOnlySettings?: string[] };
+      if (!Array.isArray(settings._initOnlySettings)) settings._initOnlySettings = [];
+      for (const key of ['filters', 'dropdownMenu']) {
+        if (!settings._initOnlySettings.includes(key)) settings._initOnlySettings.push(key);
+      }
+    } catch { /* instance may be mid-teardown */ }
   }, [hotTableRef]);
-
-  // afterFilter runs on every filter change (including the group-merge recompute
-  // it already drove). Capture the conditions first, then keep the merge behavior.
-  const handleAfterFilter = useCallback((conditionsStack: any[]) => {
-    captureFilterConditions(conditionsStack);
-    applyGroupMerges();
-  }, [applyGroupMerges, captureFilterConditions]);
 
   // Renderer for the active grouping column: plain text plus a count badge on
   // the group's first row. With cells merged, only the top row of a group is
@@ -1035,10 +996,10 @@ export function SpreadsheetSurface({
         afterInit={() => {
           syncHotTableDimensions();
           applyGroupMerges();
+          markFilterSettingsInitOnly();
         }}
         afterColumnSort={applyGroupMerges}
-        afterFilter={handleAfterFilter}
-        afterUpdateSettings={restoreFilterIfWiped}
+        afterFilter={applyGroupMerges}
         beforeRemoveRow={handleBeforeRemoveRow}
         beforeRemoveCol={handleBeforeRemoveCol}
         afterChange={(changes, source) => {
