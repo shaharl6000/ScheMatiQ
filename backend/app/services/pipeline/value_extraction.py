@@ -256,6 +256,8 @@ async def process_suggested_values(
 
         threshold = col.auto_expand_threshold if col.auto_expand_threshold is not None else 2
 
+        existing_pending = {pv.value for pv in (col.pending_values or [])}
+
         auto_added = []
         pending = []
 
@@ -272,7 +274,8 @@ async def process_suggested_values(
                 col.allowed_values.append(value)
                 auto_added.append(value)
                 logger.info("  Auto-added '%s' to %s (appeared in %d docs, threshold=%d)", value, col.name, doc_count, threshold)
-            else:
+            elif value not in existing_pending:
+                existing_pending.add(value)
                 pending.append(PendingValue(
                     value=value,
                     document_count=doc_count,
