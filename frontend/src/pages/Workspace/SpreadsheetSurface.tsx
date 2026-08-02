@@ -439,6 +439,35 @@ export function SpreadsheetSurface({
     } catch { /* plugin may be mid-teardown */ }
   }, [activeSheet, groupColIndex, groupKeyAtVisual, groupKeys.length, hotTableRef]);
 
+  // Keep the column filter alive across React re-renders.
+  //
+  // The @handsontable/react (v16) wrapper re-pushes every non-init-only prop
+  // through updateSettings on every re-render. updateSettings with a `filters`
+  // key re-initializes the filters plugin, wiping the active filter -- both the
+  // trimmed rows AND the "Filter by value" list, which then collapses to only
+  // the currently-visible values so excluded ones can never be re-selected. Any
+  // unrelated re-render (selection, grounding, toast, refresh poll) triggers it,
+  // so a filter set from the dropdown appears to do nothing / cannot be undone.
+  //
+  // `filters`/`dropdownMenu` must stay declared as props so they are enabled at
+  // construction (enabling them later via updateSettings leaves the value
+  // component half-initialized). Instead we register them as init-only after the
+  // instance mounts: the wrapper reads `_initOnlySettings` from getSettings() and
+  // skips re-pushing any init-only prop whose value is unchanged, so the plugin
+  // is configured once and never torn down on subsequent renders. The list is
+  // wrapper-facing metadata that Handsontable's core never reads at runtime.
+  const markFilterSettingsInitOnly = useCallback(() => {
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+    try {
+      const settings = hot.getSettings() as { _initOnlySettings?: string[] };
+      if (!Array.isArray(settings._initOnlySettings)) settings._initOnlySettings = [];
+      for (const key of ['filters', 'dropdownMenu']) {
+        if (!settings._initOnlySettings.includes(key)) settings._initOnlySettings.push(key);
+      }
+    } catch { /* instance may be mid-teardown */ }
+  }, [hotTableRef]);
+
   // Renderer for the active grouping column: plain text plus a count badge on
   // the group's first row. With cells merged, only the top row of a group is
   // visible for this column, so the badge lands on the spanning cell.
@@ -967,6 +996,7 @@ export function SpreadsheetSurface({
         afterInit={() => {
           syncHotTableDimensions();
           applyGroupMerges();
+          markFilterSettingsInitOnly();
         }}
         afterColumnSort={applyGroupMerges}
         afterFilter={applyGroupMerges}
