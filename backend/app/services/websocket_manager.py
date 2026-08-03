@@ -9,6 +9,12 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Cap on buffered cell events held per session while no client is connected.
+# Bounds memory for long extraction runs that never attach a client. The grid
+# refetches full state on connect, so dropping the oldest buffered cells only
+# loses transient animation, never persisted data.
+MAX_BUFFERED_CELL_EVENTS = 500
+
 
 def _json_serial(obj):
     """JSON serializer for objects not serializable by default json code."""
@@ -269,9 +275,12 @@ class WebSocketManager:
             has_conns = session_id in self.connections and len(self.connections[session_id]) > 0
             if not has_conns:
                 # Buffer the event for later delivery
-                if session_id not in self.pending_cell_events:
-                    self.pending_cell_events[session_id] = []
-                self.pending_cell_events[session_id].append(message)
+                buffer = self.pending_cell_events.setdefault(session_id, [])
+                buffer.append(message)
+                # Bound the buffer so a long run with no client attached cannot
+                # grow it without limit. Keep only the most recent events.
+                if len(buffer) > MAX_BUFFERED_CELL_EVENTS:
+                    del buffer[:-MAX_BUFFERED_CELL_EVENTS]
                 cell_info = message.get('data', {})
                 logger.debug(f"Buffered cell event: {cell_info.get('row_name')}/{cell_info.get('column')} (will flush when connected)")
                 return
