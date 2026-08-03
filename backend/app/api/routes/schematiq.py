@@ -8,6 +8,7 @@ import io
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
 from typing import Any, List, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
@@ -73,7 +74,7 @@ def _resolve_docs_path(path: str, session_id: Optional[str] = None) -> Optional[
     
     # Add session-specific path if session_id provided
     if session_id:
-        candidates.insert(1, Path("./data") / session_id / "pending_documents")
+        candidates.insert(1, Path(DEFAULT_DATA_DIR) / session_id / "pending_documents")
     
     for candidate in candidates:
         if candidate.exists() and candidate.is_dir():
@@ -174,7 +175,7 @@ async def estimate_schematiq_cost(session_id: str):
             raise HTTPException(status_code=404, detail="Session not found")
         
         # Load the saved config for this session
-        config_file = Path("./schematiq_work") / session_id / "config.json"
+        config_file = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "config.json"
         if not config_file.exists():
             raise HTTPException(
                 status_code=400,
@@ -196,7 +197,7 @@ async def estimate_schematiq_cost(session_id: str):
                     documents.extend(_load_documents_from_path(resolved))
         
         # Also check for uploaded documents in data directory
-        upload_dir = Path("./data") / session_id / "pending_documents"
+        upload_dir = Path(DEFAULT_DATA_DIR) / session_id / "pending_documents"
         if upload_dir.exists() and not documents:
             documents.extend(_load_documents_from_path(upload_dir))
         
@@ -760,7 +761,7 @@ async def export_complete_schematiq_data(
         data = await schematiq_runner.get_data(session_id, page=0, page_size=10000)
         
         # Load ScheMatiQ configuration if available
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         schematiq_config_file = session_dir / "schematiq_config.json"
         llm_configuration = None
         
@@ -1155,7 +1156,7 @@ async def export_schematiq_schema_only(
             raise HTTPException(status_code=404, detail="Session not found")
         
         # Load ScheMatiQ configuration if available
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         schematiq_config_file = session_dir / "schematiq_config.json"
         llm_configuration = None
         
