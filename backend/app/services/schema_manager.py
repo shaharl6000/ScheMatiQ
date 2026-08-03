@@ -17,7 +17,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import schematiq_thread_pool, concurrency_limiter, find_session_data_file
-from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, DEVELOPER_MODE, RELEASE_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
         
     def _get_value_extraction_llm_from_session(self, session_id: str):
         """Get value extraction LLM configuration from session, including API key."""
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
 
         # Priority 0: Check user_llm_config.json (user-provided config from frontend)
         # This is checked FIRST even in release mode, because it contains the user's API key.
@@ -190,7 +190,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     schema_data["observation_unit"]["example_names"] = session.observation_unit.example_names
 
             # Save temporary schema file
-            session_dir = Path("./data") / session_id
+            session_dir = Path(DEFAULT_DATA_DIR) / session_id
             schema_file = session_dir / f"temp_schema_{column_name}.json"
             with open(schema_file, 'w') as f:
                 json.dump(schema_data, f, indent=2)
@@ -394,7 +394,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
             # Create schema for value extraction — must use "schema" key (list of columns)
             # so that Schema.from_dict() can parse it correctly
-            session_dir = Path("./data") / session_id
+            session_dir = Path(DEFAULT_DATA_DIR) / session_id
             column_entry = {
                 "column": column.name,
                 "definition": column.definition or f"New data field: {column.name}",
@@ -431,7 +431,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
             if documents_path:
                 docs_directories = [Path(documents_path)]
             else:
-                schematiq_dir = Path("./schematiq_work") / session_id
+                schematiq_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
                 candidate_dirs = [
                     session_dir / "documents",
                     session_dir / "pending_documents",
@@ -712,20 +712,20 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
         # Find ALL data files (same pattern as unit_view_service._get_all_data_files)
         data_files = []
-        schematiq_extracted = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
+        schematiq_extracted = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "extracted_data.jsonl"
         if schematiq_extracted.exists():
             data_files.append(schematiq_extracted)
         if not data_files:
-            schematiq_data = Path("./schematiq_work") / session_id / "data.jsonl"
+            schematiq_data = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "data.jsonl"
             if schematiq_data.exists():
                 data_files.append(schematiq_data)
-        load_data = Path("./data") / session_id / "data.jsonl"
+        load_data = Path(DEFAULT_DATA_DIR) / session_id / "data.jsonl"
         if load_data.exists() and load_data.resolve() not in [f.resolve() for f in data_files]:
             data_files.append(load_data)
 
         if not data_files:
             # Create new data file in default location
-            session_dir = Path("./data") / session_id
+            session_dir = Path(DEFAULT_DATA_DIR) / session_id
             session_dir.mkdir(parents=True, exist_ok=True)
             data_file = session_dir / "data.jsonl"
             with open(data_file, 'w') as f:
@@ -818,7 +818,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
             )
             
             # Create comprehensive schema context for better LLM understanding
-            session_dir = Path("./data") / session_id
+            session_dir = Path(DEFAULT_DATA_DIR) / session_id
             comprehensive_schema = {
                 "query": session.schema_query or "Extract structured information",
                 "context": f"Processing session: {session.metadata.source}",
@@ -962,7 +962,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     enhanced_schema["observation_unit"]["example_names"] = session.observation_unit.example_names
 
             # Save enhanced schema file
-            session_dir = Path("./data") / session_id
+            session_dir = Path(DEFAULT_DATA_DIR) / session_id
             enhanced_schema_file = session_dir / f"enhanced_schema_{column_name}.json"
             with open(enhanced_schema_file, 'w') as f:
                 json.dump(enhanced_schema, f, indent=2)
