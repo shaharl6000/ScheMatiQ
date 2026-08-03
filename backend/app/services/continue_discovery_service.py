@@ -950,6 +950,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         # Set session context for logging
         set_session_context(operation.session_id)
         LLMCallTracker.get_instance().set_stage("continue_discovery")
+        # Snapshot the shared tracker's stage counter so we record only this run's
+        # calls (same pattern as _run_reextraction; the singleton may hold counts
+        # from an earlier run). The delta is recorded in the ``finally`` below.
+        llm_calls_before = LLMCallTracker.get_instance().get_counts().get("continue_discovery", 0)
 
         logger.info(f"_run_continue_discovery started for operation {operation_id}")
 
@@ -1345,6 +1349,23 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 }
             )
         finally:
+            # Record this run's LLM calls toward the global quota. Continue-
+            # discovery is not part of the main pipeline, so without this its
+            # calls never reach the persistent usage store and never count
+            # against LLM_CALL_GLOBAL_LIMIT. The deferred import breaks the
+            # module-load cycle (chat.deps imports this service) and reuses the
+            # single shared runner instance.
+            try:
+                llm_calls_after = LLMCallTracker.get_instance().get_counts().get("continue_discovery", 0)
+                delta = max(0, llm_calls_after - llm_calls_before)
+                if delta > 0:
+                    from app.services.chat.deps import schematiq_runner
+                    record_id = f"continue_discovery-{operation.session_id[:8]}-{int(datetime.now().timestamp())}"
+                    await asyncio.to_thread(
+                        schematiq_runner.record_external_usage, record_id, {"continue_discovery": delta}
+                    )
+            except Exception as exc:
+                logger.debug("Could not record continue-discovery LLM usage: %s", exc)
             await concurrency_limiter.release(operation.session_id)
             # Only cleanup on stopped — failed operations persist for polling,
             # successful operations persist for the confirm/extraction step.

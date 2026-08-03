@@ -1119,6 +1119,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         set_session_context(operation.session_id)
         LLMCallTracker.get_instance().set_stage("reextraction")
+        # Snapshot the shared tracker's stage counter so we record only the calls
+        # this run makes. The tracker is a process-global singleton and may
+        # already hold counts from an earlier run; the delta is recorded in the
+        # ``finally`` block below.
+        llm_calls_before = LLMCallTracker.get_instance().get_counts().get("reextraction", 0)
         logger.debug(f"_run_reextraction started for operation {operation_id}")
 
         try:
@@ -1432,6 +1437,24 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
             raise
         finally:
+            # Record this run's LLM calls toward the global quota. Re-extraction
+            # sets the tracker stage but is not part of the main pipeline, so
+            # without this its calls never reach the persistent usage store and
+            # never count against LLM_CALL_GLOBAL_LIMIT. Chat and reference-fill
+            # already record their own out-of-pipeline calls the same way. The
+            # deferred import breaks the module-load cycle (chat.deps imports this
+            # service) and reuses the single shared runner instance.
+            try:
+                llm_calls_after = LLMCallTracker.get_instance().get_counts().get("reextraction", 0)
+                delta = max(0, llm_calls_after - llm_calls_before)
+                if delta > 0:
+                    from app.services.chat.deps import schematiq_runner
+                    record_id = f"reextraction-{operation.session_id[:8]}-{int(datetime.now().timestamp())}"
+                    await asyncio.to_thread(
+                        schematiq_runner.record_external_usage, record_id, {"reextraction": delta}
+                    )
+            except Exception as exc:
+                logger.debug("Could not record re-extraction LLM usage: %s", exc)
             await concurrency_limiter.release(operation.session_id)
             self._cleanup_operation(operation_id)
 
