@@ -288,6 +288,11 @@ async def run_schema_discovery(
 
         if is_stop_requested(session_id):
             logger.warning("Stop requested after schema merge - saving partial schema")
+            # Promote the just-merged schema and persist it before breaking, so the
+            # returned schema includes this batch and the log message above is truthful.
+            current_schema = merged_schema
+            if work_dir:
+                _save_partial_schema(current_schema, query, work_dir / session_id)
             break
 
         # Identify NEW columns added in this iteration
