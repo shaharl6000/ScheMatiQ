@@ -13,7 +13,7 @@ from datetime import datetime
 
 from app.core.config import (
     MAX_DOCUMENTS, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT, LLM_CALL_LIMIT_WINDOW_DAYS,
-    LLM_USAGE_SYNC_TTL_SECONDS, LLM_CALL_WARN_THRESHOLD, DEFAULT_SCHEMATIQ_WORK_DIR,
+    LLM_USAGE_SYNC_TTL_SECONDS, LLM_CALL_WARN_THRESHOLD, DEFAULT_SCHEMATIQ_WORK_DIR, DEFAULT_DATA_DIR,
 )
 from app.core.logging_utils import set_session_context
 from app.services import schematiq_thread_pool, concurrency_limiter
@@ -1178,7 +1178,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         """Move processed documents from pending_documents/ to documents/ as plain text."""
         from app.services.document_preprocessor import commit_document_to_documents_dir
 
-        data_session_dir = Path("./data") / session_id
+        data_session_dir = Path(DEFAULT_DATA_DIR) / session_id
         pending_dir = data_session_dir / "pending_documents"
         completed_docs_dir = data_session_dir / "documents"
         if pending_dir.exists():
