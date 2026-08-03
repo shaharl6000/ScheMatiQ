@@ -11,6 +11,7 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from app.services import session_manager, websocket_manager
@@ -70,6 +71,26 @@ async def list_reference_documents(session_id: str) -> ReferenceDocumentList:
         session_id=session_id,
         reference_documents=[_to_info(r) for r in refsvc.list_reference_documents(session)],
     )
+
+
+@router.get("/{session_id}/{reference_id}/content", response_class=PlainTextResponse)
+async def get_reference_document_content(
+    session_id: str, reference_id: str
+) -> PlainTextResponse:
+    """Return a reference document's extracted plain text.
+
+    Used by the source panel to render a reference document inline and highlight
+    the passage a reference-sourced cell was filled from. The text is loaded from
+    the storage backend (or inline ``content`` for legacy documents).
+    """
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    ref = refsvc.get_reference_document(session, reference_id)
+    if not ref:
+        raise HTTPException(status_code=404, detail="Reference document not found")
+    text = await refsvc.load_reference_text(session_id, ref)
+    return PlainTextResponse(content=text or "")
 
 
 @router.post("/{session_id}/upload", response_model=ReferenceDocumentInfo)

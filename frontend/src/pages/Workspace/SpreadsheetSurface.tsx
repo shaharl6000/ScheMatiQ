@@ -71,8 +71,11 @@ export function SpreadsheetSurface({
   hotTableRef: MutableRefObject<HotTableClass | null>;
   onSelectionChange: (selection: SheetSelection) => void;
   // Reports all grounding excerpts of the newly selected data cell (or null when
-  // the cell has no grounding), so the source panel can highlight them.
-  onGroundingHighlight?: (texts: string[] | null) => void;
+  // the cell has no grounding), so the source panel can highlight them. The
+  // second argument lists the distinct excerpt sources (reference filenames
+  // and/or the source-document name); the panel prefers a source that matches an
+  // attached reference so a reference-sourced value highlights inside it.
+  onGroundingHighlight?: (texts: string[] | null, sources?: string[]) => void;
   // Fires on each mouse click of a grounded data cell, so the source panel can
   // re-scroll to the highlight even when the same cell is clicked again.
   onGroundingScrollRequest?: () => void;
@@ -1010,7 +1013,7 @@ export function SpreadsheetSurface({
         afterSelectionEnd={(row: number, col: number, row2: number, col2: number) => {
           if (row < 0 || col < 0 || row2 < 0 || col2 < 0) {
             onSelectionChange(null);
-            onGroundingHighlight?.(null);
+            onGroundingHighlight?.(null, []);
             return;
           }
           const fromRow = Math.min(row, row2);
@@ -1028,6 +1031,7 @@ export function SpreadsheetSurface({
           // first is scrolled into view).
           if (onGroundingHighlight) {
             let excerptTexts: string[] | null = null;
+            let excerptSources: string[] = [];
             if (activeSheet === 'data') {
               const column = sheet.columns[fromCol];
               const hot = hotTableRef.current?.hotInstance;
@@ -1036,12 +1040,22 @@ export function SpreadsheetSurface({
                 column && physicalRow != null && physicalRow >= 0
                   ? dataGrounding[physicalRow]?.[column.key]
                   : null;
-              const texts = (grounding?.excerpts ?? [])
+              const excerpts = grounding?.excerpts ?? [];
+              const texts = excerpts
                 .map((e) => e.text)
                 .filter((t): t is string => Boolean(t && t.trim()));
               excerptTexts = texts.length > 0 ? texts : null;
+              // Distinct sources, order-preserving; the panel matches these
+              // against attached reference filenames to route highlighting.
+              excerptSources = Array.from(
+                new Set(
+                  excerpts
+                    .map((e) => e.source)
+                    .filter((s): s is string => Boolean(s && s.trim())),
+                ),
+              );
             }
-            onGroundingHighlight(excerptTexts);
+            onGroundingHighlight(excerptTexts, excerptSources);
           }
         }}
         afterOnCellMouseDown={(event, coords) => {

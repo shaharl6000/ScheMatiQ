@@ -45,6 +45,7 @@ from ..config.prompts import (
 )
 from ..utils.schema_builder import build_extraction_response_schema
 from ..utils.reference_retrieval import ReferenceRetriever
+from ..utils.reference_grounder import ReferenceGrounder
 from ..utils.excerpt_grounder import ExcerptGrounder
 
 # Type alias for warning callback: (paper_title, warning_type, message) -> None
@@ -107,6 +108,10 @@ class PaperProcessor:
         self.json_parser = JSONResponseParser()
         self.unit_parser = UnitIdentificationParser()
         self.text_processor = TextProcessor()
+        # Grounder that re-attributes reference-derived excerpts to the reference
+        # document they came from (built from the full blob, before the small/large
+        # split below reassigns reference_context). Inactive when no reference.
+        self.reference_grounder = ReferenceGrounder(reference_context)
         # Small reference -> inject whole (cheap, no retrieval). Large reference ->
         # index once and retrieve per unit so we never blow the context window.
         reference_retriever = None
@@ -363,6 +368,12 @@ class PaperProcessor:
                     )
                     for exc in excerpts
                 ]
+        # Excerpts pulled from the external reference are stamped above with the
+        # source-document filename; re-attribute those to the reference document
+        # they actually came from (and narrow tabular matches to a single row) so
+        # they highlight in the reference viewer rather than failing to match the
+        # source document. No-op when no reference is attached.
+        self.reference_grounder.reattribute(data)
         return data
 
     def _should_skip_truncation(self) -> bool:

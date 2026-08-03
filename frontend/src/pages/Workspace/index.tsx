@@ -45,7 +45,7 @@ import SkippedDocumentsBanner from '@/components/DataTable/SkippedDocumentsBanne
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
-import api, { configAPI, loadAPI, schematiqAPI, unitsAPI } from '@/services/api';
+import api, { configAPI, loadAPI, referenceAPI, schematiqAPI, unitsAPI, type ReferenceDocumentInfo } from '@/services/api';
 import type {
   CostEstimate,
   DataRow,
@@ -160,6 +160,13 @@ function Workspace() {
   // Grounding excerpts of the currently selected data cell, highlighted in the
   // source panel so the user can see every place the value came from.
   const [groundingHighlights, setGroundingHighlights] = useState<string[] | null>(null);
+  // Distinct sources of the selected cell's grounding excerpts. When one matches
+  // an attached reference document, the source panel opens that reference and
+  // highlights the passage there instead of the row's source document.
+  const [groundingSources, setGroundingSources] = useState<string[]>([]);
+  // Reference documents attached to this session, used to route grounding: an
+  // excerpt whose source matches one of these opens the reference in the panel.
+  const [referenceDocuments, setReferenceDocuments] = useState<ReferenceDocumentInfo[]>([]);
   // Bumped on each grounded-cell click so the source panel re-scrolls to the
   // highlight even when the excerpt set is unchanged (same cell clicked again).
   const [groundingScrollNonce, setGroundingScrollNonce] = useState(0);
@@ -510,6 +517,28 @@ function Workspace() {
     refresh();
   }, [refresh, sessionId]);
 
+  // Keep the attached-reference list current so grounding can route a cell whose
+  // excerpt source is a reference filename to the reference viewer. Cheap (metadata
+  // only); refreshed when the source panel opens and after source-file re-attach.
+  useEffect(() => {
+    if (!sessionId) {
+      setReferenceDocuments([]);
+      return;
+    }
+    let cancelled = false;
+    referenceAPI
+      .list(sessionId)
+      .then((refs) => {
+        if (!cancelled) setReferenceDocuments(refs);
+      })
+      .catch(() => {
+        if (!cancelled) setReferenceDocuments([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, showSourcePanel, sourceDocReloadToken]);
+
   const estimateCurrentCost = useCallback(async () => {
     if (!sessionId) return;
     if (sessionMode === 'load') {
@@ -537,7 +566,15 @@ function Workspace() {
   // Dedupe like updateSheetSelection: HotTable re-emits afterSelectionEnd on
   // every re-render, so returning the previous value for an unchanged excerpt
   // set is required to avoid an infinite render loop.
-  const handleGroundingHighlight = useCallback((texts: string[] | null) => {
+  const handleGroundingHighlight = useCallback((texts: string[] | null, sources?: string[]) => {
+    const nextSources = sources ?? [];
+    setGroundingSources((current) => {
+      if (current.length === nextSources.length
+        && current.every((s, i) => s === nextSources[i])) {
+        return current;
+      }
+      return nextSources;
+    });
     setGroundingHighlights((current) => {
       if (current === texts) return current;
       if (!current || !texts) return texts;
@@ -751,6 +788,26 @@ function Workspace() {
       (Array.isArray(row.papers) ? row.papers[0] : undefined);
     return raw ? String(raw).trim() : null;
   }, [activeSheet, sheetSelection, alignedDocData, alignedUnitData, dataView]);
+
+  // When any of the selected cell's grounding sources is an attached reference
+  // document (rather than the row's source document), resolve that reference so
+  // the panel can open and highlight the passage inside it. A reference match is
+  // preferred over the source document because verifying reference-filled values
+  // in the reference is the whole point of this view. Matches by filename with a
+  // basename fallback.
+  const selectedReferenceDoc = useMemo<ReferenceDocumentInfo | null>(() => {
+    if (groundingSources.length === 0 || referenceDocuments.length === 0) return null;
+    const basename = (name: string) => name.split(/[\\/]/).pop() ?? name;
+    for (const raw of groundingSources) {
+      const target = raw.trim();
+      if (!target) continue;
+      const match =
+        referenceDocuments.find((r) => r.filename === target) ??
+        referenceDocuments.find((r) => basename(r.filename) === basename(target));
+      if (match) return match;
+    }
+    return null;
+  }, [groundingSources, referenceDocuments]);
 
   const handleAttachSourceDocs = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
@@ -993,6 +1050,7 @@ function Workspace() {
                   <DocumentPreview
                     sessionId={sessionId}
                     documentName={selectedSourceDoc}
+                    referenceDoc={selectedReferenceDoc}
                     emptyHint="Select a row to see its source document."
                     reloadToken={sourceDocReloadToken}
                     highlightTexts={groundingHighlights}
