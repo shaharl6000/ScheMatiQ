@@ -10,6 +10,7 @@ import random
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+from app.core.config import DEFAULT_DATA_DIR
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -93,7 +94,7 @@ async def load_template(template_name: str):
         )
 
         # Save template content as uploaded file
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
 
         # Write template content to file
@@ -260,7 +261,7 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
 
             # Create a parsed schema file with the extracted LLM configuration
             if metadata.get('llm_config'):
-                session_dir = Path("./data") / session_id
+                session_dir = Path(DEFAULT_DATA_DIR) / session_id
                 parsed_schema_file = session_dir / "parsed_schema.json"
                 
                 schema_data = {
@@ -504,7 +505,7 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
         result = await parser.parse_file(session_id, mapping)
         
         # Load parsed schema
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         schema_file = session_dir / "parsed_schema.json"
         
         if schema_file.exists():
@@ -1298,7 +1299,7 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
             logger.debug(f"Using user-provided LLM config: {config_for_log}, {api_key_info}")
 
             # Store the user configuration in session directory for processing
-            session_dir = Path("./data") / session_id
+            session_dir = Path(DEFAULT_DATA_DIR) / session_id
             session_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
             user_config_file = session_dir / "user_llm_config.json"
 
@@ -1495,7 +1496,7 @@ async def export_complete_data(session_id: str, format: str = "json"):
             export_data["observation_unit"] = session.observation_unit.model_dump()
 
         # Include documents_batch_size from schematiq_config if available
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         schematiq_config_file = session_dir / "schematiq_config.json"
         if schematiq_config_file.exists():
             try:
@@ -1568,7 +1569,7 @@ async def export_complete_data(session_id: str, format: str = "json"):
                     }
                     
                     # Include LLM configuration if available from parsed schema
-                    session_dir = Path("./data") / session_id
+                    session_dir = Path(DEFAULT_DATA_DIR) / session_id
                     parsed_schema_file = session_dir / "parsed_schema.json"
                     
                     if parsed_schema_file.exists():

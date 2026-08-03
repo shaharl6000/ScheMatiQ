@@ -10,6 +10,7 @@ import json
 import asyncio
 import logging
 from pathlib import Path
+from app.core.config import DEFAULT_DATA_DIR
 
 from app.models.session import ColumnInfo
 from app.models.modification import ModificationAction
@@ -375,7 +376,7 @@ async def add_column(
 
         # Save user-provided LLM config if provided (for value extraction)
         if add_request.llm_config:
-            session_dir = Path("./data") / session_id
+            session_dir = Path(DEFAULT_DATA_DIR) / session_id
             session_dir.mkdir(parents=True, exist_ok=True)
             user_config_file = session_dir / "user_llm_config.json"
             with open(user_config_file, 'w') as f:
@@ -586,7 +587,7 @@ async def create_schema_backup(session_id: str):
         }
         
         # Save backup file
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         session_dir.mkdir(exist_ok=True)
         backup_file = session_dir / f"schema_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
@@ -1020,7 +1021,7 @@ async def start_reextraction(
 
         # Save user-provided LLM config if provided
         if request.llm_config:
-            session_dir = Path("./data") / session_id
+            session_dir = Path(DEFAULT_DATA_DIR) / session_id
             session_dir.mkdir(parents=True, exist_ok=True)
             user_config_file = session_dir / "user_llm_config.json"
             with open(user_config_file, 'w') as f:
@@ -1136,7 +1137,7 @@ async def upload_missing_papers(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         docs_dir = session_dir / "documents"
         docs_dir.mkdir(parents=True, exist_ok=True)
 
