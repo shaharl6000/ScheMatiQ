@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import aiofiles
 import aiofiles.os
 
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, DEFAULT_SESSIONS_DIR
 from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, TemplateInfo, InitialSchemaInfo
 
 logger = logging.getLogger(__name__)
@@ -27,9 +28,9 @@ class LocalStorageBackend(StorageInterface):
 
     def __init__(
         self,
-        sessions_dir: str = "./sessions",
-        data_dir: str = "./data",
-        schematiq_work_dir: str = "./schematiq_work",
+        sessions_dir: str = DEFAULT_SESSIONS_DIR,
+        data_dir: str = DEFAULT_DATA_DIR,
+        schematiq_work_dir: str = DEFAULT_SCHEMATIQ_WORK_DIR,
         datasets_dir: str = "../research/data",
         templates_dir: str = "./templates",
         initial_schemas_dir: str = "./initial_schemas"
