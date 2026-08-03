@@ -640,55 +640,109 @@ export function SpreadsheetSurface({
   const handleChanges = useCallback((changes: any[] | null, source: string) => {
     if (!changes || source === 'loadData' || !sessionId) return;
 
-    for (const change of changes) {
-      const [rowIndex, prop, oldValue, newValue] = change;
-      if (oldValue === newValue || prop == null) continue;
-      const key = String(prop);
+    // --- Data sheet: batch every cell edit/clear in this change set into a
+    // single request group and a single summary toast. Handsontable delivers a
+    // whole column-clear or multi-cell delete as one `afterChange` call with N
+    // entries; firing a toast + refresh per entry produced the "Cell updated"
+    // spam and the flicker from N racing refreshes.
+    //
+    // It also reports *visual* row indices, but `data.rows` is in physical
+    // order. Grouping applies mergeCells and filters/sorting may be active, so
+    // visual != physical; resolving the row without converting targeted the
+    // wrong record (or an empty spare row) and made clears fail with
+    // "Row ... not found" for some cells. Convert once via the live instance.
+    if (activeSheet === 'data') {
+      const hot = hotTableRef.current?.hotInstance;
+      const toPhysicalRow = (visualRow: number): number =>
+        hot && typeof hot.toPhysicalRow === 'function' ? hot.toPhysicalRow(visualRow) : visualRow;
 
-      if (activeSheet === 'data') {
+      type CellUpdate = {
+        rowName: string;
+        sourceDocument?: string;
+        rowIndexId?: number;
+        column: string;
+        value: string;
+      };
+      const updates: CellUpdate[] = [];
+      let unidentified = 0;
+
+      for (const change of changes) {
+        const [visualRowIndex, prop, oldValue, newValue] = change;
+        if (oldValue === newValue || prop == null) continue;
+        const key = String(prop);
         if (key.startsWith('_')) continue;
-        const sourceRow: DataRow | undefined = data.rows[rowIndex];
+
+        const sourceRow: DataRow | undefined = data.rows[toPhysicalRow(visualRowIndex)];
         const rowName = sourceRow?.row_name || sourceRow?._unit_name || '';
         const rowIndexId = sourceRow?._row_index;
         const sourceDocument = sourceRow?._source_document || sourceRow?._parent_document;
         if (!rowName && rowIndexId == null) {
+          unidentified += 1;
+          continue;
+        }
+
+        updates.push({ rowName, sourceDocument, rowIndexId, column: key, value: String(newValue ?? '') });
+      }
+
+      if (updates.length === 0) {
+        if (unidentified > 0) {
           toast({
             title: 'Cell update failed',
             description: 'Could not identify which row to update.',
             variant: 'destructive',
           });
           onRefreshData();
-          continue;
+        }
+        return;
+      }
+
+      // Apply every edit to React state up front so the grid does not revert
+      // while the writes are in flight.
+      updates.forEach((u) =>
+        onOptimisticCellEdit(
+          { rowName: u.rowName, sourceDocument: u.sourceDocument, rowIndex: u.rowIndexId },
+          u.column,
+          u.value,
+        ),
+      );
+
+      const allCleared = updates.every((u) => u.value.trim() === '');
+
+      Promise.allSettled(
+        updates.map((u) =>
+          schematiqAPI.updateCell(sessionId, u.rowName, u.column, u.value, u.sourceDocument, u.rowIndexId),
+        ),
+      ).then((results) => {
+        const failed = results.filter((r) => r.status === 'rejected').length;
+        const succeeded = updates.length - failed;
+
+        if (failed > 0) {
+          toast({
+            title: 'Some cells could not be saved',
+            description: `${failed} of ${updates.length} update${updates.length > 1 ? 's' : ''} failed.`,
+            variant: 'destructive',
+          });
+        } else if (updates.length === 1) {
+          const u = updates[0];
+          const rowLabel = u.rowName || (u.rowIndexId != null ? `Row ${u.rowIndexId + 1}` : 'Row');
+          toast({
+            title: allCleared ? 'Cell cleared' : 'Cell updated',
+            description: `${rowLabel} / ${u.column}`,
+          });
+        } else {
+          toast({ title: allCleared ? `${succeeded} cells cleared` : `${succeeded} cells updated` });
         }
 
-        onOptimisticCellEdit(
-          { rowName, sourceDocument, rowIndex: rowIndexId },
-          key,
-          String(newValue ?? ''),
-        );
+        onRefreshData();
+      });
 
-        schematiqAPI.updateCell(
-          sessionId,
-          rowName,
-          key,
-          String(newValue ?? ''),
-          sourceDocument,
-          rowIndexId
-        )
-          .then(() => {
-            const rowLabel = rowName || (rowIndexId != null ? `Row ${rowIndexId + 1}` : 'Row');
-            toast({ title: 'Cell updated', description: `${rowLabel} / ${key}` });
-            onRefreshData();
-          })
-          .catch((err: any) => {
-            toast({
-              title: 'Cell update failed',
-              description: err?.response?.data?.detail || err?.message || 'Could not update cell',
-              variant: 'destructive',
-            });
-            onRefreshData();
-          });
-      }
+      return;
+    }
+
+    for (const change of changes) {
+      const [rowIndex, prop, oldValue, newValue] = change;
+      if (oldValue === newValue || prop == null) continue;
+      const key = String(prop);
 
       if (activeSheet === 'schema') {
         const existing = schemaColumns[rowIndex];
@@ -825,7 +879,7 @@ export function SpreadsheetSurface({
           });
       }
     }
-  }, [activeSheet, data.rows, observationUnitRows, onEditFollowUp, onOptimisticCellEdit, onRefresh, onRefreshData, schemaColumns, sessionId, toast]);
+  }, [activeSheet, data.rows, hotTableRef, observationUnitRows, onEditFollowUp, onOptimisticCellEdit, onRefresh, onRefreshData, schemaColumns, sessionId, toast]);
 
   const handleBeforeRemoveRow = useCallback(
     (_index: number, _amount: number, physicalRows: number[], _source?: string): boolean | void => {
@@ -940,6 +994,118 @@ export function SpreadsheetSurface({
     [activeSheet, onRefresh, schemaColumns, sessionId, sheet.columns, toast],
   );
 
+  // Resolve the schema-column names covered by the current grid selection,
+  // excluding the fixed provenance columns (_row_name / _source_document).
+  // Shared by the "Delete column" menu item and the Delete-key shortcut.
+  const selectedSchemaColumnNames = useCallback(
+    (hot: any): string[] => {
+      const selection: number[][] = typeof hot?.getSelected === 'function' ? hot.getSelected() || [] : [];
+      const cols = new Set<number>();
+      for (const range of selection) {
+        const [, c1, , c2] = range;
+        const from = Math.min(c1, c2);
+        const to = Math.max(c1, c2);
+        for (let c = from; c <= to; c += 1) if (c >= 0) cols.add(c);
+      }
+      const keys = Array.from(cols)
+        .map((c) => sheet.columns[c]?.key)
+        .filter((key): key is string => Boolean(key) && !key.startsWith('_'));
+      // Keep only keys that are real schema columns (never provenance/grouping).
+      return keys.filter((key) => schemaColumns.some((col) => col.name === key));
+    },
+    [schemaColumns, sheet.columns],
+  );
+
+  // Delete one or more schema columns (header + values, from both the Schema
+  // and Data views) via the schema API, then refresh. Shared by the context
+  // menu item and the Delete-key shortcut.
+  const deleteSchemaColumns = useCallback(
+    (names: string[]) => {
+      if (names.length === 0 || !sessionId) return;
+      Promise.allSettled(names.map((name) => schemaAPI.deleteColumn(sessionId, name)))
+        .then((results) => {
+          const failed = results.filter((r) => r.status === 'rejected').length;
+          if (failed > 0) {
+            toast({
+              title: 'Column delete failed',
+              description: `${failed} of ${names.length} column${names.length > 1 ? 's' : ''} could not be deleted.`,
+              variant: 'destructive',
+            });
+          } else {
+            toast({
+              title: names.length > 1 ? 'Columns deleted' : 'Column deleted',
+              description: names.join(', '),
+            });
+          }
+          // Deleting a column does not invalidate the remaining columns'
+          // extracted values, so it must not flag a re-extract.
+          onRefresh();
+        });
+    },
+    [onRefresh, sessionId, toast],
+  );
+
+  // Excel-style: when one or more whole columns are selected (by clicking the
+  // column header) and the user presses Delete/Backspace, remove the column(s)
+  // entirely rather than clearing cell contents. A partial (cell-level)
+  // selection keeps the default behaviour, which clears contents and routes
+  // through handleChanges.
+  const handleBeforeKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if (activeSheet !== 'data') return;
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      const hot = hotTableRef.current?.hotInstance as any;
+      if (!hot?.selection?.isSelectedByColumnHeader?.()) return;
+      const names = selectedSchemaColumnNames(hot);
+      if (names.length === 0) return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      deleteSchemaColumns(names);
+    },
+    [activeSheet, deleteSchemaColumns, hotTableRef, selectedSchemaColumnNames],
+  );
+
+  // Context menu. Handsontable disables its native "Remove column" whenever the
+  // data source is an array of objects *or* a `columns` option is set (both are
+  // true here), so column deletion was unreachable from the UI. The Data sheet
+  // therefore gets an explicit menu with a custom, working "Delete column" that
+  // deletes the underlying schema column (header + values) via the schema API,
+  // plus a "Clear cell(s)" item that is not header-gated like the native
+  // "Clear column". Other sheets keep the default menu.
+  const contextMenuConfig = useMemo(() => {
+    if (activeSheet !== 'data') return true;
+    return {
+      items: {
+        delete_schema_column: {
+          name(this: any): string {
+            return selectedSchemaColumnNames(this).length > 1 ? 'Delete columns' : 'Delete column';
+          },
+          disabled(this: any): boolean {
+            return !sessionId || selectedSchemaColumnNames(this).length === 0;
+          },
+          callback(this: any): void {
+            deleteSchemaColumns(selectedSchemaColumnNames(this));
+          },
+        },
+        clear_selected_cells: {
+          name: 'Clear cell(s)',
+          disabled(this: any): boolean {
+            const selection = typeof this?.getSelected === 'function' ? this.getSelected() : null;
+            return !selection || selection.length === 0;
+          },
+          callback(this: any): void {
+            // Routes through afterChange -> handleChanges, which persists the
+            // empties and shows a single summary toast.
+            if (typeof this?.emptySelectedCells === 'function') this.emptySelectedCells('edit');
+          },
+        },
+        sep_1: { name: '---------' },
+        copy: {},
+        cut: {},
+      },
+    };
+  }, [activeSheet, deleteSchemaColumns, selectedSchemaColumnNames, sessionId]);
+
   if (!sessionId) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -985,7 +1151,7 @@ export function SpreadsheetSurface({
         stretchH="none"
         manualColumnResize
         manualRowResize
-        contextMenu
+        contextMenu={contextMenuConfig}
         filters
         dropdownMenu
         columnSorting={!hasMultiRowGroup}
@@ -1002,6 +1168,7 @@ export function SpreadsheetSurface({
         afterFilter={applyGroupMerges}
         beforeRemoveRow={handleBeforeRemoveRow}
         beforeRemoveCol={handleBeforeRemoveCol}
+        beforeKeyDown={handleBeforeKeyDown}
         afterChange={(changes, source) => {
           handleChanges(changes, source);
           if (source !== 'loadData') onEditEnd();
