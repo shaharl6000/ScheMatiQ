@@ -204,8 +204,11 @@ class WebSocketManager:
         async with self._lock:
             ws_set = self.connections.get(session_id)
             if not ws_set:
-                logger.warning(f"No connections for session {session_id}")
-                logger.warning(f"Active sessions: {list(self.connections.keys())}")
+                # No active client for this session (e.g. the user navigated away
+                # while the pipeline keeps broadcasting). This is normal, so log
+                # at debug to avoid flooding production logs. The sibling
+                # broadcast_* methods already return silently in this case.
+                logger.debug(f"No connections for session {session_id}")
                 return
             snapshot = list(ws_set)
 
