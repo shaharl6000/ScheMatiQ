@@ -98,22 +98,34 @@ _APP_DIR = _MODULE_DIR.parent              # app/
 _BACKEND_DIR = _APP_DIR.parent             # backend/
 
 
+def dev_instance_dirs(subdir: str) -> List[Path]:
+    """dev.sh isolation dirs: ``.dev-data/instance-*/<subdir>`` (sorted, deduped).
+
+    Returns an empty list when there is no ``.dev-data`` root (Docker / prod).
+    """
+    dev_root = _BACKEND_DIR.parent / ".dev-data"
+    if not dev_root.is_dir():
+        return []
+    seen: set[Path] = set()
+    dirs: List[Path] = []
+    for instance_dir in sorted(dev_root.glob(f"instance-*/{subdir}")):
+        resolved = instance_dir.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            dirs.append(instance_dir)
+    return dirs
+
+
 def candidate_work_dirs() -> List[Path]:
     """Search order for schematiq_work — CWD first (dev.sh / Docker), then fallbacks."""
     seen: set[Path] = set()
     dirs: List[Path] = []
-    for raw in (Path.cwd() / "schematiq_work", _BACKEND_DIR / "schematiq_work"):
+    for raw in (Path.cwd() / "schematiq_work", _BACKEND_DIR / "schematiq_work",
+                *dev_instance_dirs("schematiq_work")):
         resolved = raw.resolve()
         if resolved not in seen:
             seen.add(resolved)
             dirs.append(raw)
-    dev_root = _BACKEND_DIR.parent / ".dev-data"
-    if dev_root.is_dir():
-        for instance_work in sorted(dev_root.glob("instance-*/schematiq_work")):
-            resolved = instance_work.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                dirs.append(instance_work)
     return dirs
 
 
@@ -121,18 +133,12 @@ def candidate_data_dirs() -> List[Path]:
     """Search order for session data/ — CWD first (dev.sh / Docker), then fallbacks."""
     seen: set[Path] = set()
     dirs: List[Path] = []
-    for raw in (Path.cwd() / "data", _BACKEND_DIR / "data", _APP_DIR / "data"):
+    for raw in (Path.cwd() / "data", _BACKEND_DIR / "data", _APP_DIR / "data",
+                *dev_instance_dirs("data")):
         resolved = raw.resolve()
         if resolved not in seen:
             seen.add(resolved)
             dirs.append(raw)
-    dev_root = _BACKEND_DIR.parent / ".dev-data"
-    if dev_root.is_dir():
-        for instance_data in sorted(dev_root.glob("instance-*/data")):
-            resolved = instance_data.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                dirs.append(instance_data)
     return dirs
 
 

@@ -36,20 +36,9 @@ class UnitViewService:
 
     def _dev_instance_work_dirs(self) -> List[Path]:
         """schematiq_work dirs from dev.sh isolation (.dev-data/instance-N/)."""
-        from app.services.data_utils import _BACKEND_DIR
+        from app.services.data_utils import dev_instance_dirs
 
-        dev_root = _BACKEND_DIR.parent / ".dev-data"
-        if not dev_root.is_dir():
-            return []
-
-        seen: set[Path] = set()
-        dirs: List[Path] = []
-        for instance_work in sorted(dev_root.glob("instance-*/schematiq_work")):
-            resolved = instance_work.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                dirs.append(instance_work)
-        return dirs
+        return dev_instance_dirs("schematiq_work")
 
     def _candidate_work_dirs(self) -> List[Path]:
         """Work dirs to search — CWD-relative, module-relative, and dev.sh instances."""
@@ -66,20 +55,9 @@ class UnitViewService:
 
     def _dev_instance_data_dirs(self) -> List[Path]:
         """data dirs from dev.sh isolation (.dev-data/instance-N/data)."""
-        from app.services.data_utils import _BACKEND_DIR
+        from app.services.data_utils import dev_instance_dirs
 
-        dev_root = _BACKEND_DIR.parent / ".dev-data"
-        if not dev_root.is_dir():
-            return []
-
-        seen: set[Path] = set()
-        dirs: List[Path] = []
-        for instance_data in sorted(dev_root.glob("instance-*/data")):
-            resolved = instance_data.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                dirs.append(instance_data)
-        return dirs
+        return dev_instance_dirs("data")
 
     def _candidate_data_dirs(self) -> List[Path]:
         """Data dirs to search — CWD-relative, module-relative, and dev.sh instances."""
