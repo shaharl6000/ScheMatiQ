@@ -1279,3 +1279,37 @@
     display: none;
   }
 }
+
+/* Chat "thinking" indicator: the ScheMatiQ mark breathes (grows/shrinks with a
+   brightness and color-saturation shift) while an agent turn is in flight, so
+   it reads as clearly alive and is easy to notice. */
+@keyframes schematiq-thinking {
+  0%, 100% {
+    transform: scale(0.82);
+    opacity: 0.5;
+    filter: saturate(0.6);
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+    filter: saturate(1.35);
+  }
+}
+
+.workspace-chat-thinking-logo {
+  transform-origin: center;
+  animation: schematiq-thinking 1.5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* Respect users who prefer reduced motion: fall back to a gentle fade only. */
+@media (prefers-reduced-motion: reduce) {
+  .workspace-chat-thinking-logo {
+    animation: schematiq-thinking-fade 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes schematiq-thinking-fade {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
