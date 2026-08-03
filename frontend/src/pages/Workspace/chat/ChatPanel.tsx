@@ -97,7 +97,7 @@ export function ChatPanel({
       top: container.scrollHeight,
       behavior: 'smooth',
     });
-  }, [messages, pendingAction]);
+  }, [messages, pendingAction, busy]);
 
   const loadTools = useCallback(async () => {
     const tools = await chatAPI.getTools(sessionId, sessionMode);
@@ -483,6 +483,20 @@ export function ChatPanel({
               <ChatMessageBody message={item.message} />
             </div>
           ),
+        )}
+
+        {busy && (
+          <div className="workspace-chat-message" data-role="assistant">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <img
+                src="/icon.png"
+                alt=""
+                aria-hidden="true"
+                className="workspace-chat-thinking-logo h-5 w-5"
+              />
+              <span>Thinking…</span>
+            </div>
+          </div>
         )}
 
         {fillRunning && (
