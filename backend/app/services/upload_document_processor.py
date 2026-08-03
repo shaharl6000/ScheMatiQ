@@ -23,7 +23,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import schematiq_thread_pool, concurrency_limiter
-from app.core.config import DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.config import DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEVELOPER_MODE, RELEASE_CONFIG, DEFAULT_DATA_DIR
 
 # Max seconds to wait for build_table_jsonl to observe should_stop() after user stop
 MAX_UPLOAD_EXTRACTION_STOP_WAIT = 120.0
@@ -120,7 +120,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             await self.broadcast_progress(session_id, "Initializing document processing", 0.0, "processing_documents")
             
             # Get paths and configuration
-            session_dir = Path("./data") / session_id
+            session_dir = Path(DEFAULT_DATA_DIR) / session_id
             pending_dir = session_dir / "pending_documents"
             docs_dir = session_dir / "documents"
 
@@ -488,7 +488,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             session_id: The session ID
             session: The session object (optional, used to get cloud_dataset for document_directory)
         """
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         original_data_file = session_dir / "data.jsonl"
         additional_data_file = session_dir / "additional_data.jsonl"
 
@@ -1109,7 +1109,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
     
     def _get_llm_config_for_extraction(self, extracted_schema: Dict[str, Any], session_id: str) -> Dict[str, Any]:
         """Get LLM configuration for value extraction, prioritizing user selection."""
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         
         # First priority: User-provided LLM configuration
         user_config_file = session_dir / "user_llm_config.json"

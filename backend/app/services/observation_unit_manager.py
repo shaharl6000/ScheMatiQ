@@ -11,6 +11,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
 from app.models.session import SessionStatus
 from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
@@ -65,8 +66,8 @@ class ObservationUnitManager:
         units = []
 
         # Check schematiq_work directory first (primary location for extracted data)
-        schematiq_work_dir = Path("./schematiq_work") / session_id
-        data_dir = Path("./data") / session_id
+        schematiq_work_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
+        data_dir = Path(DEFAULT_DATA_DIR) / session_id
 
         # Try schematiq_work/extracted_data.jsonl first, then data/data.jsonl
         jsonl_file = schematiq_work_dir / "extracted_data.jsonl"
@@ -137,8 +138,8 @@ class ObservationUnitManager:
             raise ValueError(f"Session {session_id} not found")
 
         # Check schematiq_work directory first (primary location for extracted data)
-        schematiq_work_dir = Path("./schematiq_work") / session_id
-        data_dir = Path("./data") / session_id
+        schematiq_work_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
+        data_dir = Path(DEFAULT_DATA_DIR) / session_id
         removed = False
         updated_rows = []
 
@@ -247,7 +248,7 @@ class ObservationUnitManager:
         if not session:
             raise ValueError(f"Session {session_id} not found")
 
-        data_dir = Path("./data") / session_id
+        data_dir = Path(DEFAULT_DATA_DIR) / session_id
         data_dir.mkdir(parents=True, exist_ok=True)
 
         # Check if unit already exists
@@ -407,7 +408,7 @@ class ObservationUnitManager:
             session_id: Session identifier
             observation_unit: Updated ObservationUnitInfo
         """
-        schematiq_work_dir = Path("./schematiq_work") / session_id
+        schematiq_work_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
         schema_file = schematiq_work_dir / "discovered_schema.json"
 
         if schema_file.exists():

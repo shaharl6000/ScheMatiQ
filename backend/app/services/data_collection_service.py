@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from app.core.config import DATA_COLLECTION_ENABLED, MAX_DOCUMENTS
+from app.core.config import DATA_COLLECTION_ENABLED, DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, MAX_DOCUMENTS
 from app.utils.csv_helpers import format_excerpt_for_csv
 
 logger = logging.getLogger(__name__)
@@ -155,7 +155,7 @@ class DataCollectionService:
         # Log LLM usage to separate "LLM Usage" tab
         if self._sheets_logger:
             try:
-                llm_stats_file = Path("./schematiq_work") / session_id / "llm_call_stats.json"
+                llm_stats_file = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "llm_call_stats.json"
                 if llm_stats_file.exists():
                     llm_stats = json.loads(llm_stats_file.read_text(encoding="utf-8"))
                     self._sheets_logger.log_llm_usage(
@@ -182,7 +182,7 @@ class DataCollectionService:
         # Read LLM call count from session stats file
         llm_calls = 0
         try:
-            llm_stats_file = Path("./schematiq_work") / session_id / "llm_call_stats.json"
+            llm_stats_file = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "llm_call_stats.json"
             if llm_stats_file.exists():
                 llm_stats = json.loads(llm_stats_file.read_text(encoding="utf-8"))
                 llm_calls = llm_stats.get("total_calls", 0)
@@ -438,11 +438,11 @@ class DataCollectionService:
         results = []
 
         candidate_dirs = [
-            Path("./data") / session_id / "documents",
-            Path("./data") / session_id / "pending_documents",
+            Path(DEFAULT_DATA_DIR) / session_id / "documents",
+            Path(DEFAULT_DATA_DIR) / session_id / "pending_documents",
         ]
         # Supabase datasets: schematiq_work/{id}/datasets/{dataset_name}/
-        datasets_root = Path("./schematiq_work") / session_id / "datasets"
+        datasets_root = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "datasets"
         if datasets_root.exists():
             for sub in sorted(datasets_root.iterdir()):
                 if sub.is_dir():
@@ -581,7 +581,7 @@ class DataCollectionService:
 
     def _read_and_sanitize_config(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Read ScheMatiQ config, strip secrets."""
-        config_path = Path("./schematiq_work") / session_id / "schematiq_config.json"
+        config_path = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "schematiq_config.json"
         if not config_path.exists():
             return None
         try:
