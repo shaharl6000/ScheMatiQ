@@ -4,6 +4,7 @@ import logging
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
+from app.core.config import DEFAULT_DATA_DIR
 from app.models.schematiq import ScheMatiQConfig
 from app.storage import get_storage
 
@@ -52,7 +53,7 @@ async def resolve_docs_paths(config: ScheMatiQConfig, session_id: str, work_dir:
     # populated — otherwise the pipeline would miss documents, run in
     # schema-only mode, and silently skip value extraction. Filename-level
     # de-duplication across these dirs is handled by the pipeline loader.
-    session_data_dir = Path("./data") / session_id
+    session_data_dir = Path(DEFAULT_DATA_DIR) / session_id
     local_doc_dirs: List[str] = []
     for candidate in (session_data_dir / "pending_documents", session_data_dir / "documents"):
         if candidate.exists() and any(

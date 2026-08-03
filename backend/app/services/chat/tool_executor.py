@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from app.core.config import DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT
+from app.core.config import DEFAULT_DATA_DIR, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT
 from app.core.logging_utils import set_session_context
 from app.models.modification import ModificationAction
 from app.models.session import ColumnInfo, SessionType
@@ -554,7 +554,7 @@ class ToolExecutor:
       for candidate in (
           WORK_DIR / session_id / "extracted_data.jsonl",
           WORK_DIR / session_id / "data.jsonl",
-          Path("./data") / session_id / "data.jsonl",
+          Path(DEFAULT_DATA_DIR) / session_id / "data.jsonl",
       ):
           if candidate.exists():
               data_file = candidate
