@@ -19,7 +19,7 @@ from app.models.session import (
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.services import schematiq_thread_pool, concurrency_limiter
+from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
 from app.services.data_utils import row_name_of
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
@@ -1118,12 +1118,25 @@ class ReextractionService(WebSocketBroadcasterMixin):
             return
 
         set_session_context(operation.session_id)
-        LLMCallTracker.get_instance().set_stage("reextraction")
-        # Snapshot the shared tracker's stage counter so we record only the calls
-        # this run makes. The tracker is a process-global singleton and may
-        # already hold counts from an earlier run; the delta is recorded in the
-        # ``finally`` block below.
-        llm_calls_before = LLMCallTracker.get_instance().get_counts().get("reextraction", 0)
+
+        # Held for the entire run (released in the ``finally`` below).
+        # LLMCallTracker.get_instance() is a process-global singleton with no
+        # per-session scoping: set_stage() and _counts are shared by every
+        # concurrent caller. MAX_CONCURRENT_SESSIONS (default 5) means another
+        # reextraction/continue-discovery run could otherwise overlap this one
+        # and both mislabel calls and corrupt the before/after delta below.
+        # See llm_call_tracker_lock's definition for details.
+        await llm_call_tracker_lock.acquire()
+        try:
+            LLMCallTracker.get_instance().set_stage("reextraction")
+            # Snapshot the shared tracker's stage counter so we record only the calls
+            # this run makes. The tracker is a process-global singleton and may
+            # already hold counts from an earlier run; the delta is recorded in the
+            # ``finally`` block below.
+            llm_calls_before = LLMCallTracker.get_instance().get_counts().get("reextraction", 0)
+        except Exception:
+            llm_call_tracker_lock.release()
+            raise
         logger.debug(f"_run_reextraction started for operation {operation_id}")
 
         try:
@@ -1455,6 +1468,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     )
             except Exception as exc:
                 logger.debug("Could not record re-extraction LLM usage: %s", exc)
+            finally:
+                llm_call_tracker_lock.release()
             await concurrency_limiter.release(operation.session_id)
             self._cleanup_operation(operation_id)
 

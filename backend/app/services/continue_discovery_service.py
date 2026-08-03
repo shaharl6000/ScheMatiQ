@@ -26,7 +26,7 @@ from app.models.session import (
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.services import schematiq_thread_pool, concurrency_limiter
+from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, MAX_DOCUMENTS
 from app.core.logging_utils import set_session_context
@@ -949,11 +949,24 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
         # Set session context for logging
         set_session_context(operation.session_id)
-        LLMCallTracker.get_instance().set_stage("continue_discovery")
-        # Snapshot the shared tracker's stage counter so we record only this run's
-        # calls (same pattern as _run_reextraction; the singleton may hold counts
-        # from an earlier run). The delta is recorded in the ``finally`` below.
-        llm_calls_before = LLMCallTracker.get_instance().get_counts().get("continue_discovery", 0)
+
+        # Held for the entire run (released in the ``finally`` below).
+        # LLMCallTracker.get_instance() is a process-global singleton with no
+        # per-session scoping: set_stage() and _counts are shared by every
+        # concurrent caller. MAX_CONCURRENT_SESSIONS (default 5) means another
+        # reextraction/continue-discovery run could otherwise overlap this one
+        # and both mislabel calls and corrupt the before/after delta below.
+        # See llm_call_tracker_lock's definition for details.
+        await llm_call_tracker_lock.acquire()
+        try:
+            LLMCallTracker.get_instance().set_stage("continue_discovery")
+            # Snapshot the shared tracker's stage counter so we record only this run's
+            # calls (same pattern as _run_reextraction; the singleton may hold counts
+            # from an earlier run). The delta is recorded in the ``finally`` below.
+            llm_calls_before = LLMCallTracker.get_instance().get_counts().get("continue_discovery", 0)
+        except Exception:
+            llm_call_tracker_lock.release()
+            raise
 
         logger.info(f"_run_continue_discovery started for operation {operation_id}")
 
@@ -1366,6 +1379,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     )
             except Exception as exc:
                 logger.debug("Could not record continue-discovery LLM usage: %s", exc)
+            finally:
+                llm_call_tracker_lock.release()
             await concurrency_limiter.release(operation.session_id)
             # Only cleanup on stopped — failed operations persist for polling,
             # successful operations persist for the confirm/extraction step.
