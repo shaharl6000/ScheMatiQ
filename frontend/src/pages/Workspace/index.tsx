@@ -46,6 +46,7 @@ import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
 import api, { configAPI, loadAPI, schematiqAPI, unitsAPI } from '@/services/api';
+import { rememberProject } from '@/utils/recentProjects';
 import type {
   CostEstimate,
   DataRow,
@@ -382,6 +383,14 @@ function Workspace() {
     setProjectDialogOpen(!sessionId);
     setSessionMode(requestedMode);
   }, [requestedMode, sessionId]);
+
+  // Record every project opened in this browser so the New Project dialog can
+  // offer a per-browser "recent projects" list. There is no server-side user
+  // scoping, so this is intentionally local: it never surfaces other people's
+  // projects. Ids that no longer resolve are pruned when the list is fetched.
+  useEffect(() => {
+    if (sessionId) rememberProject(sessionId);
+  }, [sessionId]);
 
   // Mark the body while the Workspace is mounted so global toasts can be lifted
   // above the fixed bottombar (see Workspace.css). Scoped to this route only so
