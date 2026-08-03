@@ -33,6 +33,39 @@ class WebSocketService {
   private activeSessionId: string | null = null;
   private activeEndpoint: 'progress' | 'logs' = 'progress';
 
+  constructor() {
+    // Auto-recover after the reconnect budget is exhausted. Once the browser
+    // regains connectivity or the tab is foregrounded, a still-needed session
+    // reconnects instead of staying dead until a page reload. The singleton
+    // lives for the page lifetime, so these listeners are never removed.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', this.handleConnectivityRestored);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.handleConnectivityRestored);
+    }
+  }
+
+  private handleConnectivityRestored = () => {
+    // Only act when a holder still needs the socket and it is fully down.
+    if (this.refCount <= 0 || !this.activeSessionId || this.socket) {
+      return;
+    }
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      return;
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return;
+    }
+    // Reset the backoff and cancel any pending timer so recovery is immediate.
+    this.reconnectAttempts = 0;
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    this.openSocket(this.activeSessionId, this.activeEndpoint);
+  };
+
   connect(sessionId: string, endpoint: 'progress' | 'logs' = 'progress') {
     const key = `${endpoint}/${sessionId}`;
 
