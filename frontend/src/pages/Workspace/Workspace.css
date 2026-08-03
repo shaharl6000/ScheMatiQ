@@ -1290,7 +1290,7 @@
     filter: saturate(0.6);
   }
   50% {
-    transform: scale(1.18);
+    transform: scale(1.1);
     opacity: 1;
     filter: saturate(1.35);
   }
@@ -1298,7 +1298,7 @@
 
 .workspace-chat-thinking-logo {
   transform-origin: center;
-  animation: schematiq-thinking 1.1s ease-in-out infinite;
+  animation: schematiq-thinking 1.5s ease-in-out infinite;
   will-change: transform, opacity;
 }
 
