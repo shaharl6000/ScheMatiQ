@@ -9,7 +9,7 @@ from typing import Any
 
 from schematiq.core.model_specs import ModelNames
 
-from app.core.config import DEFAULT_SCHEMATIQ_WORK_DIR, RELEASE_CONFIG
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, RELEASE_CONFIG
 from app.services import (
     session_manager,
     websocket_manager,
@@ -71,7 +71,7 @@ def get_default_llm_config() -> dict[str, Any]:
 
 
 def load_user_llm_config(session_id: str) -> dict[str, Any]:
-    user_config_file = Path("./data") / session_id / "user_llm_config.json"
+    user_config_file = Path(DEFAULT_DATA_DIR) / session_id / "user_llm_config.json"
     if user_config_file.exists():
         with open(user_config_file, encoding="utf-8") as handle:
             return json.load(handle)

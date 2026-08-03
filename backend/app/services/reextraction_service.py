@@ -22,7 +22,7 @@ from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
 from app.services.data_utils import row_name_of
 from app.storage.factory import get_storage
-from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, DEVELOPER_MODE, RELEASE_CONFIG
 from app.core.logging_utils import set_session_context
 
 # ScheMatiQ library imports
@@ -159,7 +159,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Merge partial results (safe — task is done and didn't complete naturally)
         try:
-            session_dir = Path("./data") / operation.session_id
+            session_dir = Path(DEFAULT_DATA_DIR) / operation.session_id
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
             if output_file.exists():
                 logger.info(f"Merging partial results from {output_file}")
@@ -387,8 +387,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     def _get_session_document_dirs(self, session_id: str) -> List[Path]:
         """Directories that may hold source documents for a session."""
-        data_session_dir = Path("./data") / session_id
-        schematiq_session_dir = Path("./schematiq_work") / session_id
+        data_session_dir = Path(DEFAULT_DATA_DIR) / session_id
+        schematiq_session_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
         docs_dir = data_session_dir / "documents"
         pending_dir = data_session_dir / "pending_documents"
 
@@ -466,8 +466,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             session_cloud_dataset = session.metadata.cloud_dataset
             logger.debug(f"Session has cloud_dataset fallback: {session_cloud_dataset}")
 
-        data_session_dir = Path("./data") / session_id
-        schematiq_session_dir = Path("./schematiq_work") / session_id
+        data_session_dir = Path(DEFAULT_DATA_DIR) / session_id
+        schematiq_session_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
 
         # Find data files from all possible locations (same logic as schematiq_runner.get_extracted_data)
         data_files = []
@@ -713,7 +713,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             local_files: List of local document filenames
             total_rows: Total number of rows in data.jsonl
         """
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         data_file = session_dir / "data.jsonl"
 
         if not data_file.exists():
@@ -770,7 +770,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             List of successfully downloaded paper names
         """
         storage = get_storage()
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
         docs_dir = session_dir / "documents"
         docs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -959,8 +959,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
         # where the error fires before the WebSocket connects.
         if not session.observation_unit:
             inferred_unit_name = None
-            data_dir = Path("./data") / session_id
-            schematiq_dir = Path("./schematiq_work") / session_id
+            data_dir = Path(DEFAULT_DATA_DIR) / session_id
+            schematiq_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
 
             # Strategy 1: Check _metadata.observation_unit in raw ScheMatiQ pipeline output
             for data_file in [schematiq_dir / "extracted_data.jsonl", data_dir / "data.jsonl"]:
@@ -1065,14 +1065,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         known_units: Dict[str, List[str]] = {}
         reextract_data_files = []
-        schematiq_extracted = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
+        schematiq_extracted = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "extracted_data.jsonl"
         if schematiq_extracted.exists():
             reextract_data_files.append(schematiq_extracted)
         if not reextract_data_files:
-            schematiq_data = Path("./schematiq_work") / session_id / "data.jsonl"
+            schematiq_data = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "data.jsonl"
             if schematiq_data.exists():
                 reextract_data_files.append(schematiq_data)
-        load_data = Path("./data") / session_id / "data.jsonl"
+        load_data = Path(DEFAULT_DATA_DIR) / session_id / "data.jsonl"
         if load_data.exists() and load_data.resolve() not in [
             f.resolve() for f in reextract_data_files
         ]:
@@ -1148,8 +1148,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             if not session:
                 raise ValueError(f"Session {operation.session_id} not found")
 
-            data_dir = Path("./data") / operation.session_id
-            schematiq_dir = Path("./schematiq_work") / operation.session_id
+            data_dir = Path(DEFAULT_DATA_DIR) / operation.session_id
+            schematiq_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / operation.session_id
             session_dir = data_dir  # Keep for schema/output file paths
             docs_dir = data_dir / "documents"
             pending_dir = data_dir / "pending_documents"
@@ -1928,7 +1928,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     def _get_llm_from_session(self, session_id: str):
         """Get LLM configuration from session, including API key."""
-        session_dir = Path("./data") / session_id
+        session_dir = Path(DEFAULT_DATA_DIR) / session_id
 
         # Priority 0: Check user_llm_config.json (user-provided config from frontend)
         # This is checked FIRST even in release mode, because it contains the user's API key.
@@ -2096,14 +2096,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Find data files from all possible locations
         precheck_data_files = []
-        schematiq_extracted = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
+        schematiq_extracted = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "extracted_data.jsonl"
         if schematiq_extracted.exists():
             precheck_data_files.append(schematiq_extracted)
         if not precheck_data_files:
-            schematiq_data = Path("./schematiq_work") / session_id / "data.jsonl"
+            schematiq_data = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "data.jsonl"
             if schematiq_data.exists():
                 precheck_data_files.append(schematiq_data)
-        data_dir_file = Path("./data") / session_id / "data.jsonl"
+        data_dir_file = Path(DEFAULT_DATA_DIR) / session_id / "data.jsonl"
         if data_dir_file.exists() and data_dir_file not in precheck_data_files:
             precheck_data_files.append(data_dir_file)
 
