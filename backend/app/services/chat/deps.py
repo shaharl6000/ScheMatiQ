@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from schematiq.core.model_specs import ModelNames
+
 from app.core.config import RELEASE_CONFIG
 from app.services import (
     session_manager,
@@ -56,7 +58,7 @@ reference_fill_service = ReferenceFillService(
     schematiq_runner=schematiq_runner,
 )
 
-CHAT_MODEL = "gemini-3.5-flash"
+CHAT_MODEL = ModelNames.GEMINI_35_FLASH
 WORK_DIR = Path("./schematiq_work")
 
 
