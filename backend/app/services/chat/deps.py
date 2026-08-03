@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from app.core.config import RELEASE_CONFIG
+from app.core.config import DEFAULT_SCHEMATIQ_WORK_DIR, RELEASE_CONFIG
 from app.services import (
     session_manager,
     websocket_manager,
@@ -57,7 +57,7 @@ reference_fill_service = ReferenceFillService(
 )
 
 CHAT_MODEL = "gemini-3.5-flash"
-WORK_DIR = Path("./schematiq_work")
+WORK_DIR = Path(DEFAULT_SCHEMATIQ_WORK_DIR)
 
 
 def get_default_llm_config() -> dict[str, Any]:

@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
 from app.services.data_utils import (
     resolve_session_data_files,
     persist_session_data_file,
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class DataEditor:
     """Handles cell-level data updates in JSONL data files."""
 
-    def __init__(self, work_dir: str = "./schematiq_work", data_dir: str = "./data"):
+    def __init__(self, work_dir: str = DEFAULT_SCHEMATIQ_WORK_DIR, data_dir: str = DEFAULT_DATA_DIR):
         self.work_dir = Path(work_dir)
         self.data_dir = Path(data_dir)
 

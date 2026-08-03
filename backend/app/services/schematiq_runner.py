@@ -13,7 +13,7 @@ from datetime import datetime
 
 from app.core.config import (
     MAX_DOCUMENTS, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT, LLM_CALL_LIMIT_WINDOW_DAYS,
-    LLM_USAGE_SYNC_TTL_SECONDS, LLM_CALL_WARN_THRESHOLD,
+    LLM_USAGE_SYNC_TTL_SECONDS, LLM_CALL_WARN_THRESHOLD, DEFAULT_SCHEMATIQ_WORK_DIR,
 )
 from app.core.logging_utils import set_session_context
 from app.services import schematiq_thread_pool, concurrency_limiter
@@ -49,7 +49,7 @@ from app.services.websocket_mixin import WebSocketBroadcasterMixin
 class ScheMatiQRunner(WebSocketBroadcasterMixin):
     """Handles ScheMatiQ execution and integration."""
 
-    def __init__(self, work_dir: str = "./schematiq_work", websocket_manager=None, session_manager=None,
+    def __init__(self, work_dir: str = DEFAULT_SCHEMATIQ_WORK_DIR, websocket_manager=None, session_manager=None,
                  data_collection_service=None, pubmed_enrichment_service=None,
                  uniprot_enrichment_service=None):
         if websocket_manager is not None:
