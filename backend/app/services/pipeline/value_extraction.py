@@ -246,6 +246,9 @@ async def process_suggested_values(
 
     logger.info("Processing %d suggested values for schema evolution", sum(len(vals) for vals in suggested_values.values()))
 
+    # Count values actually auto-added in THIS run (accumulated per column below).
+    total_auto_added = 0
+
     for col in session.columns:
         if col.name not in suggested_values:
             continue
@@ -309,9 +312,9 @@ async def process_suggested_values(
             logger.info("  Added %d pending values to %s for review", len(pending), col.name)
 
         if auto_added:
+            total_auto_added += len(auto_added)
             logger.info("  Auto-expanded %s allowed_values with %d new values", col.name, len(auto_added))
 
-    total_auto_added = sum(1 for col in session.columns if col.allowed_values)
     total_pending = sum(len(col.pending_values or []) for col in session.columns)
 
     if total_auto_added > 0 or total_pending > 0:
