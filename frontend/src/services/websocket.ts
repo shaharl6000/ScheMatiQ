@@ -20,6 +20,7 @@ function getWebSocketBaseUrl(): string {
 class WebSocketService {
   private socket: WebSocket | null = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private pingInterval: NodeJS.Timeout | null = null;
   private messageHandlers: MessageHandler[] = [];
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
@@ -140,13 +141,24 @@ class WebSocketService {
   }
 
   private startPingInterval() {
-    const pingInterval = setInterval(() => {
+    // Clear any interval left over from a previous connection so reconnects do
+    // not leak timers. Each open starts exactly one ping loop, tracked on the
+    // instance so it can also be cleared from closeSocket().
+    this.clearPingInterval();
+    this.pingInterval = setInterval(() => {
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send(JSON.stringify({ type: 'ping' }));
       } else {
-        clearInterval(pingInterval);
+        this.clearPingInterval();
       }
     }, 15000); // Ping every 15 seconds (reduced from 30s to help keep connection alive)
+  }
+
+  private clearPingInterval() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
   }
 
   private scheduleReconnect() {
@@ -188,6 +200,8 @@ class WebSocketService {
   }
 
   private closeSocket() {
+    this.clearPingInterval();
+
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
