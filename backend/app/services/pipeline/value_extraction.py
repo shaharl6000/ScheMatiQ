@@ -273,6 +273,15 @@ async def process_suggested_values(
                     col.allowed_values = []
                 col.allowed_values.append(value)
                 auto_added.append(value)
+                # If this value was pending from an earlier run, it is now
+                # promoted to allowed_values. Drop the stale pending entry so the
+                # value does not linger in both lists once it crosses threshold.
+                if value in existing_pending:
+                    existing_pending.discard(value)
+                    if col.pending_values:
+                        col.pending_values = [pv for pv in col.pending_values if pv.value != value]
+                        if not col.pending_values:
+                            col.pending_values = None
                 logger.info("  Auto-added '%s' to %s (appeared in %d docs, threshold=%d)", value, col.name, doc_count, threshold)
             elif value not in existing_pending:
                 existing_pending.add(value)
@@ -282,6 +291,16 @@ async def process_suggested_values(
                     first_seen=datetime.now(),
                     documents=documents[:10]
                 ))
+            else:
+                # Already pending from an earlier run. Counts are recomputed
+                # cumulatively over all current documents on every run, so refresh
+                # the stored count/documents to the latest figures instead of
+                # leaving the first-seen values stale.
+                for pv in (col.pending_values or []):
+                    if pv.value == value:
+                        pv.document_count = doc_count
+                        pv.documents = documents[:10]
+                        break
 
         if pending:
             if col.pending_values is None:
