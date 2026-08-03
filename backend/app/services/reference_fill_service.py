@@ -26,6 +26,7 @@ from typing import Any, Optional
 
 from app.core.config import LLM_CALL_GLOBAL_LIMIT
 from schematiq.core.llm_call_tracker import QuotaExceededError
+from schematiq.core.model_specs import ModelNames
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ REFERENCE_RAG_BUDGET_CHARS = int(
 REFERENCE_RAG_MAX_CHUNKS = int(os.getenv("REFERENCE_RAG_MAX_CHUNKS", "4000"))
 # Model for the one end-of-run recap call. A recap is light reasoning over the
 # outcomes, so use a capable chat-class model (not the lite per-row extractor).
-REFERENCE_SUMMARY_MODEL = os.getenv("REFERENCE_SUMMARY_MODEL", "gemini-3.5-flash")
+REFERENCE_SUMMARY_MODEL = os.getenv("REFERENCE_SUMMARY_MODEL", ModelNames.GEMINI_35_FLASH)
 # How many per-row model calls may be in flight at once. The rows are independent,
 # so we fan them out instead of awaiting one at a time. Low by default because other
 # jobs/users may share the same API rate limit, and it also keeps any over-run past
