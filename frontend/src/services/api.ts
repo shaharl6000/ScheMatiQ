@@ -1019,6 +1019,12 @@ export const unitsAPI = {
  * @param path - API path (relative to API_BASE)
  * @param fallbackFilename - Default filename if Content-Disposition header is missing
  */
+// The chat/agent endpoints block until the full agent turn finishes, which can
+// span several LLM round-trips and tool calls. Give them a much larger timeout
+// than the 30s default so long turns are not cut off on the client. Cancel and
+// getTools stay on the default since they return quickly.
+const CHAT_REQUEST_TIMEOUT_MS = 300000; // 5 minutes
+
 export const chatAPI = {
   getTools: async (
     sessionId?: string,
@@ -1041,7 +1047,7 @@ export const chatAPI = {
       pinned_tool?: string;
     },
   ): Promise<ChatMessageResponse> => {
-    const response = await api.post(`/chat/${sessionId}/message`, payload);
+    const response = await api.post(`/chat/${sessionId}/message`, payload, { timeout: CHAT_REQUEST_TIMEOUT_MS });
     return response.data;
   },
 
@@ -1049,7 +1055,7 @@ export const chatAPI = {
     sessionId: string,
     chatId: string,
   ): Promise<ChatMessageResponse> => {
-    const response = await api.post(`/chat/${sessionId}/confirm`, { chat_id: chatId });
+    const response = await api.post(`/chat/${sessionId}/confirm`, { chat_id: chatId }, { timeout: CHAT_REQUEST_TIMEOUT_MS });
     return response.data;
   },
 
