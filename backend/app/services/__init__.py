@@ -89,6 +89,24 @@ concurrency_limiter = ConcurrencyLimiter(MAX_CONCURRENT_SESSIONS)
 logger.info("[concurrency] Concurrency limiter initialized: max %d sessions", MAX_CONCURRENT_SESSIONS)
 
 
+# ── Serializes access to the process-global LLMCallTracker singleton ─
+# Verified from schematiq-lib source (schematiq/core/llm_call_tracker.py):
+# LLMCallTracker.get_instance() returns one instance per process, and
+# _current_stage plus _counts live directly on that instance with no
+# per-session or contextvar scoping. set_stage() changes which stage
+# increment() credits for *every* concurrent caller, and get_counts() reads
+# the same shared dict. Reextraction and continue-discovery record their
+# LLM usage by snapshotting get_counts() before and after their run and
+# recording the delta (see reextraction_service.py / continue_discovery_
+# service.py). MAX_CONCURRENT_SESSIONS defaults to 5 and concurrency_limiter
+# actually permits that many simultaneous runs, so without this lock two
+# overlapping runs could both mislabel each other's calls (via set_stage)
+# and corrupt each other's before/after delta. This lock makes each
+# snapshot-run-snapshot sequence exclusive across the whole process for
+# these two services.
+llm_call_tracker_lock = asyncio.Lock()
+
+
 def find_session_data_file_sync(session_id: str) -> Optional[Path]:
     """Find the primary data file for a session, hydrating from storage when needed.
 
