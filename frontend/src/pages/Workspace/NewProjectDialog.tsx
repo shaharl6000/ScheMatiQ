@@ -40,11 +40,12 @@ import {
   type LLMProviderKey,
 } from '@/constants';
 import { cloudAPI, configAPI, loadAPI, schematiqAPI } from '@/services/api';
-import type { CostEstimate } from '@/types';
+import type { CostEstimate, VisualizationSession } from '@/types';
 import { getConfiguredProviders } from '@/utils/apiKeyStorage';
 
 import { DEFAULT_PROVIDER, SHOW_API_KEY_FIELD, WORKSPACE_DEFAULT_ADVANCED } from './constants';
 import { buildConfig, formatCost, formatFileSize } from './helpers';
+import { RecentProjects } from './RecentProjects';
 import type { DocumentSourceInput, NewProjectDialogProps } from './types';
 
 export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogProps) {
@@ -183,6 +184,14 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
     }
   }, [apiKey, files, navigate, onCreated, onOpenChange, query, toast, advanced, documentSource, selectedDatasets]);
 
+  const openExisting = useCallback((session: VisualizationSession) => {
+    onOpenChange(false);
+    // Load-type sessions carry the ?mode=load hint so the workspace skips the
+    // schematiq-first probe and its fallback round-trip.
+    const suffix = session.type === 'load' ? '?mode=load' : '';
+    navigate(`/workspace/${session.id}${suffix}`, { replace: true });
+  }, [navigate, onOpenChange]);
+
   const startProject = useCallback(async () => {
     if (!query.trim() || !hasDocuments) {
       setError(
@@ -242,6 +251,8 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
             Pick a local folder or a cloud dataset, describe the research question, estimate cost, then start extraction.
           </DialogDescription>
         </DialogHeader>
+
+        <RecentProjects open={open} onOpenProject={openExisting} />
 
         {showHelp && (
           <div
