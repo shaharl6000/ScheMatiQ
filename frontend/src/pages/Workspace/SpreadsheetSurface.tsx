@@ -55,6 +55,7 @@ export function SpreadsheetSurface({
   onGroundingHighlight,
   onGroundingScrollRequest,
   onRefresh,
+  onSchemaRefresh,
   onRefreshData,
   onOptimisticCellEdit,
   onEditFollowUp,
@@ -77,6 +78,9 @@ export function SpreadsheetSurface({
   // re-scroll to the highlight even when the same cell is clicked again.
   onGroundingScrollRequest?: () => void;
   onRefresh: () => void | Promise<void>;
+  // Schema-only refresh (no data reload) used after a column delete so the
+  // grid's data prop keeps its identity and horizontal scroll is preserved.
+  onSchemaRefresh: () => void | Promise<void>;
   // Row-data-only refresh after a Data-sheet cell edit (no status/schema churn).
   onRefreshData: () => void;
   // Apply the edited values to React state immediately so the grid does not
@@ -323,12 +327,18 @@ export function SpreadsheetSurface({
           row._source_document || row._parent_document || row.papers?.[0],
         ),
       };
-      dataColumnNames.forEach((column) => {
-        sheetRow[column] = extractDisplayValue(row.data?.[column]);
-      });
+      // Include every extracted value on the row, not just the current schema
+      // columns, so this array keeps a STABLE reference when a column is
+      // added/removed — the `columns` prop selects what to show. If this array
+      // were rebuilt on a column change, the `data` prop would change identity
+      // and Handsontable would reload the data (which resets horizontal scroll).
+      const rowData = row.data || {};
+      for (const key of Object.keys(rowData)) {
+        sheetRow[key] = extractDisplayValue(rowData[key]);
+      }
       return sheetRow;
     });
-  }, [data.rows, dataColumnNames]);
+  }, [data.rows]);
 
   const dataGrounding = useMemo(() => {
     const mapping = buildExcerptMapping(data.rows);
@@ -1111,16 +1121,18 @@ export function SpreadsheetSurface({
               description: names.join(', '),
             });
           }
-          // Deleting a column does not invalidate the remaining columns'
-          // extracted values, so it must not flag a re-extract. Return the
-          // refresh promise so the guard stays held until the grid has caught up.
-          return onRefresh();
+          // Deleting a column does not change the row data we display, so do a
+          // schema-only refresh (no data reload). Combined with the
+          // column-independent dataRows above, the grid's `data` prop keeps its
+          // identity, so only the `columns` prop changes and Handsontable drops
+          // the column in place without resetting horizontal scroll.
+          return onSchemaRefresh();
         })
         .finally(() => {
           deletingColumnsRef.current = false;
         });
     },
-    [onRefresh, sessionId, toast],
+    [onSchemaRefresh, sessionId, toast],
   );
 
   // Excel-style: when one or more whole columns are selected (by clicking the
@@ -1255,7 +1267,7 @@ export function SpreadsheetSurface({
     >
       <HotTable
         ref={hotTableRef}
-        key={`${activeSheet}-${sheet.columns.length}-${formatVersion}-${activeSheet === 'data' ? dataView : 'x'}`}
+        key={`${activeSheet}-${formatVersion}-${activeSheet === 'data' ? dataView : 'x'}`}
         className="workspace-hot"
         theme="ht-theme-main"
         data={sheet.rows}

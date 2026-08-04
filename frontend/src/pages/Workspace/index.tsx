@@ -74,7 +74,6 @@ import {
 import { NewProjectDialog } from './NewProjectDialog';
 import { PendingRerunBanner } from './PendingRerunBanner';
 import { ProjectDetailsDialog } from './ProjectDetailsDialog';
-import ReportIssueDialog from '@/components/ReportIssueDialog/ReportIssueDialog';
 import { SpreadsheetChrome } from './SpreadsheetChrome';
 import { useAddDocuments } from './hooks/useAddDocuments';
 import { useReextraction } from './hooks/useReextraction';
@@ -114,7 +113,6 @@ function Workspace() {
   const [sessionMode, setSessionMode] = useState<WorkspaceSessionMode>(requestedMode);
   const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
   const [status, setStatus] = useState<ScheMatiQStatus | null>(null);
   const [session, setSession] = useState<VisualizationSession | null>(null);
   const [schema, setSchema] = useState<SchemaData | null>(null);
@@ -228,6 +226,24 @@ function Workspace() {
   const refreshAfterEdit = useCallback(() => refreshData({ silent: true, force: true }), [refreshData]);
 
   const refreshSilent = useCallback(() => refreshData({ silent: true }), [refreshData]);
+
+  // Refresh only the schema (column list) without reloading the row data, so an
+  // action that changes columns but not the data — a column delete — does not
+  // change the grid's data identity and reset its scroll position.
+  const refreshSchemaOnly = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      if (sessionMode === 'load') {
+        const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
+        if (loadSession) setSchema(schemaFromLoadSession(loadSession));
+      } else {
+        const nextSchema = await schematiqAPI.getSchema(sessionId).catch(() => null);
+        if (nextSchema) setSchema(nextSchema);
+      }
+    } catch {
+      /* keep the current schema on a transient error */
+    }
+  }, [sessionId, sessionMode]);
 
   const applyOptimisticCellEdits = useCallback((
     edits: {
@@ -817,6 +833,7 @@ function Workspace() {
         onGroundingHighlight={handleGroundingHighlight}
         onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
         onRefresh={() => refresh({ silent: true })}
+        onSchemaRefresh={refreshSchemaOnly}
         onRefreshData={refreshAfterEdit}
         onOptimisticCellEdit={applyOptimisticCellEdits}
         onEditFollowUp={notifyEditFollowUp}
@@ -874,7 +891,6 @@ function Workspace() {
         onRunPendingEdits={runPendingEdits}
         onAddDocuments={() => setActiveSheet('documents')}
         onApplyFormat={applyTableFormat}
-        onReportIssue={() => setReportOpen(true)}
         rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
       />
 
@@ -1230,14 +1246,6 @@ function Workspace() {
         documents={documents}
         config={config}
         costEstimate={costEstimate}
-      />
-
-      <ReportIssueDialog
-        open={reportOpen}
-        onOpenChange={setReportOpen}
-        sessionId={sessionId}
-        sessionMode={sessionMode}
-        activeSheet={activeSheet}
       />
 
       <Dialog
