@@ -117,6 +117,7 @@ export function SpreadsheetSurface({
   }, []);
   const lastGridSizeRef = useRef({ width: 0, height: 0 });
   const [gridSize, setGridSize] = useState({ width: 0, height: 0 });
+  const scrollResyncTimerRef = useRef<number | undefined>(undefined);
 
   const applyGridSize = useCallback((width: number, height: number) => {
     const nextWidth = Math.max(320, Math.floor(width));
@@ -151,6 +152,36 @@ export function SpreadsheetSurface({
     hot.refreshDimensions();
     applyGridSize(width, height);
   }, [applyGridSize, hotTableRef]);
+
+  // At the far-right edge of horizontal scroll, Handsontable's sticky header
+  // clone (ht_clone_top) and the body's own scroll container occasionally
+  // settle on slightly different maximum-scroll offsets -- the body hits its
+  // scrollLeft ceiling first, but the header clone (positioned by its own
+  // internal offset bookkeeping, not by scrollLeft directly) overshoots by a
+  // few pixels, so its column borders end up past the body's. It only shows
+  // up once you're pinned to the end of the scroll range; the fix is to force
+  // Handsontable to recompute and repaint both overlays' offsets once
+  // scrolling settles, which resyncs them to the true clamped position. A
+  // short debounce (not every scroll tick) keeps this from adding render
+  // cost during active scrolling. See handsontable/handsontable#7306, #4426.
+  const resyncAfterScroll = useCallback(() => {
+    if (scrollResyncTimerRef.current !== undefined) {
+      window.clearTimeout(scrollResyncTimerRef.current);
+    }
+    scrollResyncTimerRef.current = window.setTimeout(() => {
+      const hot = hotTableRef.current?.hotInstance;
+      if (!hot || hot.isDestroyed) return;
+      hot.render();
+    }, 80);
+  }, [hotTableRef]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollResyncTimerRef.current !== undefined) {
+        window.clearTimeout(scrollResyncTimerRef.current);
+      }
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const element = gridContainerEl;
@@ -1309,6 +1340,7 @@ export function SpreadsheetSurface({
         }}
         afterColumnSort={applyGroupMerges}
         afterFilter={applyGroupMerges}
+        afterScrollHorizontally={resyncAfterScroll}
         beforeRemoveRow={handleBeforeRemoveRow}
         beforeRemoveCol={handleBeforeRemoveCol}
         beforeKeyDown={handleBeforeKeyDown}
