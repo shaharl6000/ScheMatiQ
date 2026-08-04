@@ -152,6 +152,47 @@ export function SpreadsheetSurface({
     applyGridSize(width, height);
   }, [applyGridSize, hotTableRef]);
 
+  // Keep the column headers lined up with their columns at the right end of the
+  // horizontal scroll range.
+  //
+  // Handsontable draws the headers in a separate overlay table (.ht_clone_top)
+  // and mirrors the master table's scroll position onto it with a plain
+  // `headerHolder.scrollLeft = master.scrollLeft` assignment
+  // (Overlays.syncScrollPositions). The browser clamps that assignment to the
+  // overlay's own maximum scrollLeft, and the overlay sizes its viewport itself
+  // in TopOverlay.adjustRootElementSize as
+  // `min(workspaceWidth - (hasVerticalScroll() ? scrollbarWidth : 0), rootScrollWidth)`.
+  // When that vertical-scroll check disagrees with the master's real viewport the
+  // overlay viewport ends up one scrollbar wider than the master's, so it runs out
+  // of scroll range one scrollbar early: alignment is exact everywhere until the
+  // last ~15px of the range, and once scrolled fully right every header sits
+  // ~15px to the right of the column it belongs to.
+  //
+  // Give the overlay the same maximum by extending its hider (the scrollable
+  // content) by exactly that overhang, then re-apply the master's scroll
+  // position. Both numbers are recomputed from the live DOM on every call, so
+  // this is a no-op whenever Handsontable sizes the overlay correctly (overhang
+  // 0 means the target width is the width Handsontable itself assigns).
+  const syncHeaderOverlayScroll = useCallback(() => {
+    const root = hotTableRef.current?.hotInstance?.rootElement;
+    if (!root) return;
+
+    const masterHolder = root.querySelector<HTMLElement>('.ht_master .wtHolder');
+    const headerHolder = root.querySelector<HTMLElement>('.ht_clone_top .wtHolder');
+    const masterHider = root.querySelector<HTMLElement>('.ht_master .wtHider');
+    const headerHider = root.querySelector<HTMLElement>('.ht_clone_top .wtHider');
+    if (!masterHolder || !headerHolder || !masterHider || !headerHider) return;
+
+    const overhang = Math.max(0, headerHolder.clientWidth - masterHolder.clientWidth);
+    const targetHiderWidth = masterHider.offsetWidth + overhang;
+    if (Math.abs(headerHider.offsetWidth - targetHiderWidth) >= 1) {
+      headerHider.style.width = `${targetHiderWidth}px`;
+    }
+    if (headerHolder.scrollLeft !== masterHolder.scrollLeft) {
+      headerHolder.scrollLeft = masterHolder.scrollLeft;
+    }
+  }, [hotTableRef]);
+
   useLayoutEffect(() => {
     const element = gridContainerEl;
     if (!element) return undefined;
@@ -1306,7 +1347,12 @@ export function SpreadsheetSurface({
           syncHotTableDimensions();
           applyGroupMerges();
           markFilterSettingsInitOnly();
+          syncHeaderOverlayScroll();
         }}
+        // Runs after Handsontable has drawn and (mis)clamped the header overlay's
+        // scroll position, so the compensation above lands on final values.
+        afterScrollHorizontally={syncHeaderOverlayScroll}
+        afterViewRender={syncHeaderOverlayScroll}
         afterColumnSort={applyGroupMerges}
         afterFilter={applyGroupMerges}
         beforeRemoveRow={handleBeforeRemoveRow}
