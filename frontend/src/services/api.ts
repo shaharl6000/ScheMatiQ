@@ -124,6 +124,7 @@ export const supportAPI = {
     session_id?: string;
     description: string;
     project_json?: string;
+    screenshots?: { name?: string; mime: string; data_b64: string }[];
     client_context?: Record<string, unknown>;
   }): Promise<{ status: string }> => {
     const response = await api.post('/support/report', data);

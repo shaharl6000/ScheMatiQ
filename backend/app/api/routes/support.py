@@ -5,6 +5,7 @@ SUPPORT_EMAIL_TO via the shared Gmail sender, attaching the project's complete
 export JSON when the client supplies it. Fire-and-forget: always returns 200.
 """
 
+import base64
 import io
 import logging
 import zipfile
@@ -31,11 +32,18 @@ _MAX_ATTACHMENT_BYTES = int(_GMAIL_MAX_ENCODED_BYTES * 3 / 4) - 512 * 1024  # ~1
 # Set default CC recipients here (or load from config)
 
 
+class ScreenshotAttachment(BaseModel):
+    name: Optional[str] = Field(None, max_length=300)
+    mime: str = Field(..., max_length=100)   # e.g. "image/png"
+    data_b64: str = Field(...)               # base64-encoded image bytes
+
+
 class IssueReportRequest(BaseModel):
     session_id: Optional[str] = Field(None, max_length=200)
     description: str = Field(..., min_length=1, max_length=5000)
     project_json: Optional[str] = Field(None)          # full export JSON as text
     client_context: Optional[Dict[str, Any]] = Field(None)
+    screenshots: Optional[List[ScreenshotAttachment]] = Field(None)
 
 
 def _build_context_rows(
@@ -109,7 +117,39 @@ def _build_bundle_zip(
     return buf.getvalue()
 
 
-@router.post("/report", summary="Submit a user issue report")
+def _decode_screenshots(
+    screenshots: Optional[List[ScreenshotAttachment]],
+    budget: int,
+) -> Tuple[List[Tuple[str, bytes, str]], int]:
+    """Decode user screenshots into ``(name, bytes, subtype)`` within a byte budget.
+
+    Only image/* mimes are accepted. Returns the decoded list plus a count of
+    screenshots skipped because they did not fit the remaining budget. Never raises.
+    """
+    out: List[Tuple[str, bytes, str]] = []
+    skipped = 0
+    used = 0
+    for i, shot in enumerate(screenshots or []):
+        try:
+            mime = (shot.mime or "").lower().strip()
+            if not mime.startswith("image/"):
+                continue
+            subtype = mime.split("/", 1)[1] or "png"
+            data = base64.b64decode(shot.data_b64 or "", validate=False)
+            if not data:
+                continue
+            if used + len(data) > budget:
+                skipped += 1
+                continue
+            used += len(data)
+            name = Path(shot.name or "").name or f"screenshot_{i + 1}.{subtype}"
+            out.append((name, data, subtype))
+        except Exception as e:
+            logger.debug("[support] Skipped a screenshot: %s", e)
+    return out, skipped
+
+
+
 async def submit_issue_report(request: IssueReportRequest):
     """Email a user's issue report. Always returns 200; email is best-effort."""
     try:
@@ -160,6 +200,19 @@ async def submit_issue_report(request: IssueReportRequest):
                     f"{_MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB)."
                 )
 
+        # Screenshots the user attached to illustrate the bug. They share the
+        # attachment budget with the project bundle so the message stays under
+        # Gmail's size cap; anything that does not fit is skipped with a note.
+        used = len(attachment_bytes) if attachment_bytes else 0
+        shots, skipped_shots = _decode_screenshots(
+            request.screenshots, _MAX_ATTACHMENT_BYTES - used
+        )
+        if shots:
+            context_rows.append(("Attached images", len(shots)))
+        if skipped_shots:
+            note_extra = f"{skipped_shots} image(s) omitted (attachment size limit)."
+            attachment_note = (attachment_note + " " + note_extra).strip()
+
         send_issue_report(
             description=request.description,
             session_id=session_id,
@@ -168,6 +221,7 @@ async def submit_issue_report(request: IssueReportRequest):
             attachment_name=attachment_name,
             attachment_subtype=attachment_subtype,
             attachment_note=attachment_note,
+            screenshots=shots,
         )
         logger.info("[support] Issue report queued for session %s", session_id or "(none)")
     except Exception as e:

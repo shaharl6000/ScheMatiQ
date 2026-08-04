@@ -14,6 +14,7 @@ import re
 import threading
 from datetime import datetime, timezone
 from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import List, Optional, Tuple, Union
@@ -27,6 +28,10 @@ from app.core.config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Attachment subtypes that should be sent as real image parts (image/<subtype>)
+# so mail clients like Gmail render an inline preview instead of a generic file.
+_IMAGE_SUBTYPES = {"png", "jpeg", "jpg", "gif", "webp"}
 
 # Track whether we already sent the quota alert (avoid spamming)
 _quota_alert_sent = False
@@ -76,6 +81,7 @@ def _send_email(
     recipient: Optional[str] = None,
     cc: Optional[Union[List[str], str]] = None,
     attachment: Optional[Tuple[str, bytes, str]] = None,
+    attachments: Optional[List[Tuple[str, bytes, str]]] = None,
 ) -> None:
     """Send an email via Gmail API in a background thread. Never raises."""
     to_addr = recipient if recipient is not None else ALERT_EMAIL_TO
@@ -99,8 +105,11 @@ def _send_email(
                 logger.error("[email-alert] Gmail service creation returned None — skipping send")
                 return
 
+            all_attachments: List[Tuple[str, bytes, str]] = list(attachments or [])
             if attachment is not None:
-                filename, content, mime_subtype = attachment
+                all_attachments.append(attachment)
+
+            if all_attachments:
                 msg = MIMEMultipart("mixed")
                 msg["Subject"] = subject
                 msg["To"] = to_addr
@@ -109,9 +118,15 @@ def _send_email(
                 body = MIMEMultipart("alternative")
                 body.attach(MIMEText(html_body, "html"))
                 msg.attach(body)
-                part = MIMEApplication(content, _subtype=mime_subtype)
-                part.add_header("Content-Disposition", "attachment", filename=filename)
-                msg.attach(part)
+                for filename, content, mime_subtype in all_attachments:
+                    subtype = (mime_subtype or "octet-stream").lower()
+                    if subtype in _IMAGE_SUBTYPES:
+                        # Real image parts (image/png etc.) so Gmail previews them inline.
+                        part = MIMEImage(content, _subtype=("jpeg" if subtype == "jpg" else subtype))
+                    else:
+                        part = MIMEApplication(content, _subtype=subtype)
+                    part.add_header("Content-Disposition", "attachment", filename=filename)
+                    msg.attach(part)
             else:
                 msg = MIMEMultipart("alternative")
                 msg["Subject"] = subject
@@ -231,6 +246,7 @@ def send_issue_report(
     project_json_bytes: Optional[bytes] = None,
     project_json_name: str = "project.json",
     attachment_note: str = "",
+    screenshots: Optional[List[Tuple[str, bytes, str]]] = None,
     cc: Optional[Union[List[str], str]] = None,
 ) -> None:
     """Email a user-submitted issue report to SUPPORT_EMAIL_TO. Never raises.
@@ -279,6 +295,12 @@ def send_issue_report(
     elif project_json_bytes:
         attachment = (project_json_name, project_json_bytes, "json")
 
+    all_attachments: List[Tuple[str, bytes, str]] = []
+    if attachment is not None:
+        all_attachments.append(attachment)
+    if screenshots:
+        all_attachments.extend(screenshots)
+
     # If CC is not explicitly passed, fall back to global SUPPORT_CC_EMAILS
     target_cc = cc if cc is not None else SUPPORT_CC_EMAILS
 
@@ -287,5 +309,5 @@ def send_issue_report(
         html_body,
         recipient=SUPPORT_EMAIL_TO,
         cc=target_cc,
-        attachment=attachment,
+        attachments=all_attachments,
     )
