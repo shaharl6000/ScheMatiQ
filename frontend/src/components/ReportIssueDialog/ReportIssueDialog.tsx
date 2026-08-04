@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { Loader2, CheckCircle2, Paperclip, ImagePlus, X } from 'lucide-react';
+import { Loader2, CheckCircle2, Paperclip, ImagePlus, MonitorUp, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -56,6 +56,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reset = useCallback(() => {
@@ -90,6 +91,63 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
   const removeShot = useCallback((id: string) => {
     setShots((prev) => prev.filter((s) => s.id !== id));
   }, []);
+
+  // Grab a single frame of a screen/window the user picks. The browser cannot
+  // screenshot silently, so getDisplayMedia shows a native "choose what to
+  // share" prompt; we capture one frame from that stream and stop it right away.
+  const captureScreen = useCallback(async () => {
+    if (shots.length >= MAX_SHOTS) return;
+    const media = navigator.mediaDevices as
+      | (MediaDevices & { getDisplayMedia?: (c?: unknown) => Promise<MediaStream> })
+      | undefined;
+    if (!media?.getDisplayMedia) return;
+
+    let stream: MediaStream | null = null;
+    try {
+      setCapturing(true);
+      stream = await media.getDisplayMedia({ video: true, audio: false });
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.muted = true;
+      await new Promise<void>((resolve, reject) => {
+        video.onloadedmetadata = () => resolve();
+        video.onerror = () => reject(new Error('video error'));
+      });
+      await video.play();
+      // Let one frame paint before we read it.
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      video.pause();
+
+      const dataUrl = canvas.toDataURL('image/png');
+      if (dataUrl && dataUrl.startsWith('data:image/')) {
+        setShots((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: `capture-${Date.now()}.png`,
+            mime: 'image/png',
+            dataUrl,
+          },
+        ].slice(0, MAX_SHOTS));
+      }
+    } catch {
+      // User dismissed the share prompt or capture failed — no-op.
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+      setCapturing(false);
+    }
+  }, [shots.length]);
+
+  const canCapture =
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices &&
+    'getDisplayMedia' in navigator.mediaDevices;
 
   const handleSubmit = useCallback(async () => {
     const text = description.trim();
@@ -177,16 +235,34 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
             />
 
             <div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={shots.length >= MAX_SHOTS}
-              >
-                <ImagePlus className="mr-2 h-4 w-4" />
-                Add image
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={shots.length >= MAX_SHOTS}
+                >
+                  <ImagePlus className="mr-2 h-4 w-4" />
+                  Add image
+                </Button>
+                {canCapture && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={captureScreen}
+                    disabled={shots.length >= MAX_SHOTS || capturing}
+                  >
+                    {capturing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <MonitorUp className="mr-2 h-4 w-4" />
+                    )}
+                    Capture screen
+                  </Button>
+                )}
+              </div>
               <p className="mt-1.5 text-xs text-muted-foreground">
                 We recommend attaching a screenshot of the problem ({shots.length}/{MAX_SHOTS}).
               </p>
