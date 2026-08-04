@@ -31,6 +31,19 @@ interface Shot {
 const MAX_SHOTS = 5;
 const MAX_EACH_BYTES = 8 * 1024 * 1024; // 8 MB per image
 
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif)$/i;
+
+// Dropped files sometimes arrive with an empty File.type, so fall back to the
+// filename extension when deciding whether something is an image.
+const isImageFile = (f: File): boolean =>
+  (f.type.startsWith('image/') || IMAGE_EXT_RE.test(f.name)) && f.size <= MAX_EACH_BYTES;
+
+const guessMime = (f: File): string => {
+  if (f.type) return f.type;
+  const ext = (f.name.match(IMAGE_EXT_RE)?.[1] || 'png').toLowerCase();
+  return `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+};
+
 const readImage = (file: File): Promise<Shot | null> =>
   new Promise((resolve) => {
     const reader = new FileReader();
@@ -38,7 +51,7 @@ const readImage = (file: File): Promise<Shot | null> =>
       resolve({
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         name: file.name || 'screenshot.png',
-        mime: file.type || 'image/png',
+        mime: guessMime(file),
         dataUrl: String(reader.result || ''),
       });
     reader.onerror = () => resolve(null);
@@ -79,9 +92,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
   }, [onOpenChange, reset]);
 
   const addFiles = useCallback(async (files: File[]) => {
-    const images = files.filter(
-      (f) => f.type.startsWith('image/') && f.size <= MAX_EACH_BYTES,
-    );
+    const images = files.filter(isImageFile);
     if (images.length === 0) return;
     const read = (await Promise.all(images.map(readImage))).filter(
       (s): s is Shot => s !== null,
@@ -100,18 +111,19 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
     Array.from(e.dataTransfer?.types || []).includes('Files');
 
   const onDragEnter = useCallback((e: React.DragEvent) => {
-    if (!isFileDrag(e)) return;
+    // Always prevent default so the browser does not try to open the file.
     e.preventDefault();
     dragDepth.current += 1;
-    setDragActive(true);
+    if (isFileDrag(e)) setDragActive(true);
   }, []);
 
   const onDragOver = useCallback((e: React.DragEvent) => {
-    if (isFileDrag(e)) e.preventDefault();
-  }, []);
+    // A drop event only fires if dragover cancels the default, so do it always.
+    e.preventDefault();
+    if (!dragActive && isFileDrag(e)) setDragActive(true);
+  }, [dragActive]);
 
   const onDragLeave = useCallback((e: React.DragEvent) => {
-    if (!isFileDrag(e)) return;
     e.preventDefault();
     dragDepth.current -= 1;
     if (dragDepth.current <= 0) {
@@ -121,7 +133,6 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
   }, []);
 
   const onDrop = useCallback((e: React.DragEvent) => {
-    if (!isFileDrag(e)) return;
     e.preventDefault();
     dragDepth.current = 0;
     setDragActive(false);
