@@ -75,9 +75,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         <SelectTrigger>
           <SelectValue placeholder={placeholder}>
             {selectedModel && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 {getModelIcon(selectedModel)}
-                <span>{selectedModel.label}</span>
+                <span className="truncate">{selectedModel.label}</span>
               </div>
             )}
           </SelectValue>

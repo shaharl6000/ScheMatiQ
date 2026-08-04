@@ -39,6 +39,7 @@ class ModelNames:
     GEMINI_31_FLASH_LITE = "gemini-3.1-flash-lite"
     GEMINI_35_FLASH = "gemini-3.5-flash"
     GEMINI_35_FLASH_LITE = "gemini-3.5-flash-lite"
+    GEMINI_36_FLASH = "gemini-3.6-flash"
     GEMINI_31_PRO_PREVIEW = "gemini-3.1-pro-preview"
     GEMINI_15_FLASH = "gemini-1.5-flash"
 
@@ -61,7 +62,7 @@ class ModelNames:
     TIKTOKEN_ENCODING_MODEL = "gpt-4o"
 
     # Role-based defaults
-    DEFAULT_SCHEMA_CREATION = GEMINI_35_FLASH
+    DEFAULT_SCHEMA_CREATION = GEMINI_36_FLASH
     DEFAULT_VALUE_EXTRACTION = GEMINI_35_FLASH_LITE
     DEFAULT_RELEASE_EXTRACTION = GEMINI_35_FLASH_LITE
     DEFAULT_EVALUATION = GEMINI_15_FLASH
@@ -78,6 +79,7 @@ MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
         ModelNames.GEMINI_25_PRO: ModelSpec(1_048_576, 65_535, supports_thinking=True),
         ModelNames.GEMINI_31_FLASH_LITE: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
         ModelNames.GEMINI_35_FLASH: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
+        ModelNames.GEMINI_36_FLASH: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
         ModelNames.GEMINI_35_FLASH_LITE: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
         ModelNames.GEMINI_31_PRO_PREVIEW: ModelSpec(1_000_000, 64_000, supports_thinking=True, uses_thinking_level=True),
         "_default": ModelSpec(1_000_000, 32_000, supports_thinking=False),

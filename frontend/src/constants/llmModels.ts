@@ -109,13 +109,22 @@ export const LLM_MODELS: LLMModelDefinition[] = [
     contextWindow: 1000000,
   },
   {
+    id: 'gemini-3.6-flash',
+    provider: 'gemini',
+    label: 'Gemini 3.6 Flash',
+    description: 'Latest Flash: better token efficiency and agentic planning at lower cost than 3.5 Flash',
+    cost: 'medium',
+    speed: 'fast',
+    isDefault: true,
+    contextWindow: 1000000,
+  },
+  {
     id: 'gemini-3.5-flash',
     provider: 'gemini',
     label: 'Gemini 3.5 Flash',
     description: 'Frontier intelligence for schema discovery and agentic tasks',
     cost: 'medium',
     speed: 'fast',
-    isDefault: true,
     contextWindow: 1000000,
   },
   {
@@ -132,7 +141,7 @@ export const LLM_MODELS: LLMModelDefinition[] = [
 ];
 
 // ── Default model constants ─────────────────────────────────────────
-export const DEFAULT_SCHEMA_MODEL = 'gemini-3.5-flash';
+export const DEFAULT_SCHEMA_MODEL = 'gemini-3.6-flash';
 export const DEFAULT_EXTRACTION_MODEL = 'gemini-3.5-flash-lite';
 export const DEFAULT_RELEASE_EXTRACTION_MODEL = 'gemini-3.5-flash-lite';
 
