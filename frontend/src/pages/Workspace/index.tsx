@@ -229,13 +229,40 @@ function Workspace() {
 
   const refreshSilent = useCallback(() => refreshData({ silent: true }), [refreshData]);
 
-  const applyOptimisticCellEdit = useCallback((
-    identity: { rowName: string; sourceDocument?: string; rowIndex?: number },
-    column: string,
-    value: string,
+  // Refresh only the schema (column list) without reloading the row data, so an
+  // action that changes columns but not the data — a column delete — does not
+  // change the grid's data identity and reset its scroll position.
+  const refreshSchemaOnly = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      if (sessionMode === 'load') {
+        const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
+        if (loadSession) setSchema(schemaFromLoadSession(loadSession));
+      } else {
+        const nextSchema = await schematiqAPI.getSchema(sessionId).catch(() => null);
+        if (nextSchema) setSchema(nextSchema);
+      }
+    } catch {
+      /* keep the current schema on a transient error */
+    }
+  }, [sessionId, sessionMode]);
+
+  const applyOptimisticCellEdits = useCallback((
+    edits: {
+      identity: { rowName: string; sourceDocument?: string; rowIndex?: number };
+      column: string;
+      value: string;
+    }[],
   ) => {
+    if (edits.length === 0) return;
     deferredDataRef.current = null;
-    const patch = (current: PaginatedData) => patchDataCell(current, identity, column, value);
+    // Fold every edit into ONE functional update so a whole afterChange batch
+    // produces a single state transition. Doing N separate setData calls inside
+    // Handsontable's synchronous afterChange (a non-React event) drove a render
+    // cascade that exceeded React's update depth for multi-cell clears; a single
+    // atomic patch makes a multi-cell clear behave like the single-cell path.
+    const patch = (current: PaginatedData) =>
+      edits.reduce((acc, e) => patchDataCell(acc, e.identity, e.column, e.value), current);
     setData(patch);
     setUnitData(patch);
   }, []);
@@ -260,10 +287,13 @@ function Workspace() {
       if (!silent) setDataLoading(true);
       try {
         const [nextData, nextDocuments] = await Promise.all([
-          fetchData().catch(() => emptyData),
+          // Keep the current rows if the fetch fails (null) rather than blanking
+          // the grid with emptyData — e.g. a transient error during a
+          // structural refresh right after a column delete.
+          fetchData().catch(() => null),
           fetchDocuments().catch(() => null),
         ]);
-        applyData(nextData, options);
+        if (nextData) applyData(nextData, options);
         setDocuments(nextDocuments);
       } finally {
         if (!silent) setDataLoading(false);
@@ -804,9 +834,10 @@ function Workspace() {
         onSelectionChange={updateSheetSelection}
         onGroundingHighlight={handleGroundingHighlight}
         onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
-        onRefresh={() => void refresh({ silent: true })}
+        onRefresh={() => refresh({ silent: true })}
+        onSchemaRefresh={refreshSchemaOnly}
         onRefreshData={refreshAfterEdit}
-        onOptimisticCellEdit={applyOptimisticCellEdit}
+        onOptimisticCellEdit={applyOptimisticCellEdits}
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
         layoutRevision={gridLayoutRevision}

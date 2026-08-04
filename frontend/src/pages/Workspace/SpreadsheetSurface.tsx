@@ -55,6 +55,7 @@ export function SpreadsheetSurface({
   onGroundingHighlight,
   onGroundingScrollRequest,
   onRefresh,
+  onSchemaRefresh,
   onRefreshData,
   onOptimisticCellEdit,
   onEditFollowUp,
@@ -76,15 +77,21 @@ export function SpreadsheetSurface({
   // Fires on each mouse click of a grounded data cell, so the source panel can
   // re-scroll to the highlight even when the same cell is clicked again.
   onGroundingScrollRequest?: () => void;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
+  // Schema-only refresh (no data reload) used after a column delete so the
+  // grid's data prop keeps its identity and horizontal scroll is preserved.
+  onSchemaRefresh: () => void | Promise<void>;
   // Row-data-only refresh after a Data-sheet cell edit (no status/schema churn).
   onRefreshData: () => void;
-  // Apply the edited value to React state immediately so the grid does not
-  // revert when a background refresh re-renders before the PUT completes.
+  // Apply the edited values to React state immediately so the grid does not
+  // revert when a background refresh re-renders before the PUT completes. Takes
+  // the whole batch so a multi-cell change is one atomic state update.
   onOptimisticCellEdit: (
-    identity: { rowName: string; sourceDocument?: string; rowIndex?: number },
-    column: string,
-    value: string,
+    edits: {
+      identity: { rowName: string; sourceDocument?: string; rowIndex?: number };
+      column: string;
+      value: string;
+    }[],
   ) => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
   onEditEnd: () => void;
@@ -320,12 +327,18 @@ export function SpreadsheetSurface({
           row._source_document || row._parent_document || row.papers?.[0],
         ),
       };
-      dataColumnNames.forEach((column) => {
-        sheetRow[column] = extractDisplayValue(row.data?.[column]);
-      });
+      // Include every extracted value on the row, not just the current schema
+      // columns, so this array keeps a STABLE reference when a column is
+      // added/removed — the `columns` prop selects what to show. If this array
+      // were rebuilt on a column change, the `data` prop would change identity
+      // and Handsontable would reload the data (which resets horizontal scroll).
+      const rowData = row.data || {};
+      for (const key of Object.keys(rowData)) {
+        sheetRow[key] = extractDisplayValue(rowData[key]);
+      }
       return sheetRow;
     });
-  }, [data.rows, dataColumnNames]);
+  }, [data.rows]);
 
   const dataGrounding = useMemo(() => {
     const mapping = buildExcerptMapping(data.rows);
@@ -462,7 +475,15 @@ export function SpreadsheetSurface({
     try {
       const settings = hot.getSettings() as { _initOnlySettings?: string[] };
       if (!Array.isArray(settings._initOnlySettings)) settings._initOnlySettings = [];
-      for (const key of ['filters', 'dropdownMenu']) {
+      // `contextMenu` is included for the same reason: it is now an object
+      // config (custom Data-sheet items), and letting the wrapper re-push it on
+      // every re-render re-initializes the context-menu plugin. A clear (which
+      // re-renders without changing the grid `key`, so the grid is not
+      // remounted) then re-inits the menu on each optimistic-edit render, which
+      // cascades into a "Maximum update depth exceeded" loop. Marking it
+      // init-only configures the menu once at construction; the config is a
+      // stable reference and the grid remounts on sheet/column changes anyway.
+      for (const key of ['filters', 'dropdownMenu', 'contextMenu']) {
         if (!settings._initOnlySettings.includes(key)) settings._initOnlySettings.push(key);
       }
     } catch { /* instance may be mid-teardown */ }
@@ -637,58 +658,166 @@ export function SpreadsheetSurface({
     };
   }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel, schemaColumns, dataView, renderGroupCell]);
 
+  // Coalesce cell edit/clear toasts. Handsontable can split one visual clear
+  // into several afterChange batches (e.g. a 1-cell batch plus the rest), which
+  // otherwise produces both a per-cell "Cell cleared" toast and a "N cells
+  // cleared" summary. Accumulate across a short window and show a single toast:
+  // the detailed one when exactly one cell changed in total, the summary
+  // otherwise.
+  const editToastRef = useRef<{
+    cleared: number;
+    updated: number;
+    failed: number;
+    total: number;
+    single: { cleared: boolean; label: string; column: string } | null;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ cleared: 0, updated: 0, failed: 0, total: 0, single: null, timer: null });
+
+  const flushEditToast = useCallback(() => {
+    const a = editToastRef.current;
+    if (a.timer) { clearTimeout(a.timer); a.timer = null; }
+    const { cleared, updated, failed, total, single } = a;
+    editToastRef.current = { cleared: 0, updated: 0, failed: 0, total: 0, single: null, timer: null };
+    if (total === 0) return;
+    if (failed > 0) {
+      toast({
+        title: 'Some cells could not be saved',
+        description: `${failed} of ${total} update${total > 1 ? 's' : ''} failed.`,
+        variant: 'destructive',
+      });
+    } else if (total === 1 && single) {
+      toast({
+        title: single.cleared ? 'Cell cleared' : 'Cell updated',
+        description: `${single.label} / ${single.column}`,
+      });
+    } else {
+      const allCleared = updated === 0;
+      toast({ title: allCleared ? `${cleared} cells cleared` : `${cleared + updated} cells updated` });
+    }
+  }, [toast]);
+
+  const queueEditToast = useCallback(
+    (batch: {
+      succeeded: number;
+      failed: number;
+      allCleared: boolean;
+      single: { cleared: boolean; label: string; column: string } | null;
+    }) => {
+      const a = editToastRef.current;
+      a.total += batch.succeeded + batch.failed;
+      a.failed += batch.failed;
+      if (batch.allCleared) a.cleared += batch.succeeded;
+      else a.updated += batch.succeeded;
+      // Keep the detailed label only while the whole interaction is a single cell.
+      if (a.total === 1 && batch.single) a.single = batch.single;
+      else a.single = null;
+      if (a.timer) clearTimeout(a.timer);
+      a.timer = setTimeout(flushEditToast, 250);
+    },
+    [flushEditToast],
+  );
+
   const handleChanges = useCallback((changes: any[] | null, source: string) => {
     if (!changes || source === 'loadData' || !sessionId) return;
 
-    for (const change of changes) {
-      const [rowIndex, prop, oldValue, newValue] = change;
-      if (oldValue === newValue || prop == null) continue;
-      const key = String(prop);
+    // --- Data sheet: batch every cell edit/clear in this change set into a
+    // single request group and a single summary toast. Handsontable delivers a
+    // whole column-clear or multi-cell delete as one `afterChange` call with N
+    // entries; firing a toast + refresh per entry produced the "Cell updated"
+    // spam and the flicker from N racing refreshes.
+    //
+    // It also reports *visual* row indices, but `data.rows` is in physical
+    // order. Grouping applies mergeCells and filters/sorting may be active, so
+    // visual != physical; resolving the row without converting targeted the
+    // wrong record (or an empty spare row) and made clears fail with
+    // "Row ... not found" for some cells. Convert once via the live instance.
+    if (activeSheet === 'data') {
+      const hot = hotTableRef.current?.hotInstance;
+      const toPhysicalRow = (visualRow: number): number =>
+        hot && typeof hot.toPhysicalRow === 'function' ? hot.toPhysicalRow(visualRow) : visualRow;
 
-      if (activeSheet === 'data') {
+      type CellUpdate = {
+        rowName: string;
+        sourceDocument?: string;
+        rowIndexId?: number;
+        column: string;
+        value: string;
+      };
+      const updates: CellUpdate[] = [];
+      let unidentified = 0;
+
+      for (const change of changes) {
+        const [visualRowIndex, prop, oldValue, newValue] = change;
+        if (oldValue === newValue || prop == null) continue;
+        const key = String(prop);
         if (key.startsWith('_')) continue;
-        const sourceRow: DataRow | undefined = data.rows[rowIndex];
+
+        const sourceRow: DataRow | undefined = data.rows[toPhysicalRow(visualRowIndex)];
         const rowName = sourceRow?.row_name || sourceRow?._unit_name || '';
         const rowIndexId = sourceRow?._row_index;
         const sourceDocument = sourceRow?._source_document || sourceRow?._parent_document;
         if (!rowName && rowIndexId == null) {
+          unidentified += 1;
+          continue;
+        }
+
+        updates.push({ rowName, sourceDocument, rowIndexId, column: key, value: String(newValue ?? '') });
+      }
+
+      if (updates.length === 0) {
+        if (unidentified > 0) {
           toast({
             title: 'Cell update failed',
             description: 'Could not identify which row to update.',
             variant: 'destructive',
           });
           onRefreshData();
-          continue;
         }
-
-        onOptimisticCellEdit(
-          { rowName, sourceDocument, rowIndex: rowIndexId },
-          key,
-          String(newValue ?? ''),
-        );
-
-        schematiqAPI.updateCell(
-          sessionId,
-          rowName,
-          key,
-          String(newValue ?? ''),
-          sourceDocument,
-          rowIndexId
-        )
-          .then(() => {
-            const rowLabel = rowName || (rowIndexId != null ? `Row ${rowIndexId + 1}` : 'Row');
-            toast({ title: 'Cell updated', description: `${rowLabel} / ${key}` });
-            onRefreshData();
-          })
-          .catch((err: any) => {
-            toast({
-              title: 'Cell update failed',
-              description: err?.response?.data?.detail || err?.message || 'Could not update cell',
-              variant: 'destructive',
-            });
-            onRefreshData();
-          });
+        return;
       }
+
+      // Apply the whole batch to React state up front, in one atomic update, so
+      // the grid does not revert while the writes are in flight. A single call
+      // (rather than one per cell) keeps a multi-cell clear from triggering a
+      // render cascade inside Handsontable's synchronous afterChange.
+      onOptimisticCellEdit(
+        updates.map((u) => ({
+          identity: { rowName: u.rowName, sourceDocument: u.sourceDocument, rowIndex: u.rowIndexId },
+          column: u.column,
+          value: u.value,
+        })),
+      );
+
+      const allCleared = updates.every((u) => u.value.trim() === '');
+
+      Promise.allSettled(
+        updates.map((u) =>
+          schematiqAPI.updateCell(sessionId, u.rowName, u.column, u.value, u.sourceDocument, u.rowIndexId),
+        ),
+      ).then((results) => {
+        const failed = results.filter((r) => r.status === 'rejected').length;
+        const succeeded = updates.length - failed;
+
+        let single: { cleared: boolean; label: string; column: string } | null = null;
+        if (updates.length === 1 && failed === 0) {
+          const u = updates[0];
+          const rowLabel = u.rowName || (u.rowIndexId != null ? `Row ${u.rowIndexId + 1}` : 'Row');
+          single = { cleared: allCleared, label: rowLabel, column: u.column };
+        }
+        // Accumulate; the debounced flush emits a single toast for the whole
+        // interaction even when Handsontable splits it across afterChange calls.
+        queueEditToast({ succeeded, failed, allCleared, single });
+
+        onRefreshData();
+      });
+
+      return;
+    }
+
+    for (const change of changes) {
+      const [rowIndex, prop, oldValue, newValue] = change;
+      if (oldValue === newValue || prop == null) continue;
+      const key = String(prop);
 
       if (activeSheet === 'schema') {
         const existing = schemaColumns[rowIndex];
@@ -825,7 +954,7 @@ export function SpreadsheetSurface({
           });
       }
     }
-  }, [activeSheet, data.rows, observationUnitRows, onEditFollowUp, onOptimisticCellEdit, onRefresh, onRefreshData, schemaColumns, sessionId, toast]);
+  }, [activeSheet, data.rows, hotTableRef, observationUnitRows, onEditFollowUp, onOptimisticCellEdit, onRefresh, onRefreshData, queueEditToast, schemaColumns, sessionId, toast]);
 
   const handleBeforeRemoveRow = useCallback(
     (_index: number, _amount: number, physicalRows: number[], _source?: string): boolean | void => {
@@ -940,6 +1069,176 @@ export function SpreadsheetSurface({
     [activeSheet, onRefresh, schemaColumns, sessionId, sheet.columns, toast],
   );
 
+  // Resolve the schema-column names covered by the current grid selection,
+  // excluding the fixed provenance columns (_row_name / _source_document).
+  // Shared by the "Delete column" menu item and the Delete-key shortcut.
+  const selectedSchemaColumnNames = useCallback(
+    (hot: any): string[] => {
+      const selection: number[][] = typeof hot?.getSelected === 'function' ? hot.getSelected() || [] : [];
+      const cols = new Set<number>();
+      for (const range of selection) {
+        const [, c1, , c2] = range;
+        const from = Math.min(c1, c2);
+        const to = Math.max(c1, c2);
+        for (let c = from; c <= to; c += 1) if (c >= 0) cols.add(c);
+      }
+      const keys = Array.from(cols)
+        .map((c) => sheet.columns[c]?.key)
+        .filter((key): key is string => Boolean(key) && !key.startsWith('_'));
+      // Keep only keys that are real schema columns (never provenance/grouping).
+      return keys.filter((key) => schemaColumns.some((col) => col.name === key));
+    },
+    [schemaColumns, sheet.columns],
+  );
+
+  // Delete one or more schema columns (header + values, from both the Schema
+  // and Data views) via the schema API, then refresh. Shared by the context
+  // menu item and the Delete-key shortcut.
+  // Guards against a double-fire of the same delete action. Without it the
+  // first call deletes the column, the second fails "column not found" (a
+  // spurious "Column delete failed" toast), and the second call's write races
+  // the refresh's getData so the grid momentarily blanks. The guard is held
+  // across the request AND the follow-up refresh so a delayed second fire
+  // during the refresh window is also dropped.
+  const deletingColumnsRef = useRef(false);
+
+  const deleteSchemaColumns = useCallback(
+    (names: string[]) => {
+      if (names.length === 0 || !sessionId || deletingColumnsRef.current) return;
+      deletingColumnsRef.current = true;
+      Promise.allSettled(names.map((name) => schemaAPI.deleteColumn(sessionId, name)))
+        .then((results) => {
+          const failed = results.filter((r) => r.status === 'rejected').length;
+          if (failed > 0) {
+            toast({
+              title: 'Column delete failed',
+              description: `${failed} of ${names.length} column${names.length > 1 ? 's' : ''} could not be deleted.`,
+              variant: 'destructive',
+            });
+          } else {
+            toast({
+              title: names.length > 1 ? 'Columns deleted' : 'Column deleted',
+              description: names.join(', '),
+            });
+          }
+          // Deleting a column does not change the row data we display, so do a
+          // schema-only refresh (no data reload). Combined with the
+          // column-independent dataRows above, the grid's `data` prop keeps its
+          // identity, so only the `columns` prop changes and Handsontable drops
+          // the column in place without resetting horizontal scroll.
+          return onSchemaRefresh();
+        })
+        .finally(() => {
+          deletingColumnsRef.current = false;
+        });
+    },
+    [onSchemaRefresh, sessionId, toast],
+  );
+
+  // Excel-style: when one or more whole columns are selected (by clicking the
+  // column header) and the user presses Delete/Backspace, remove the column(s)
+  // entirely rather than clearing cell contents. A partial (cell-level)
+  // selection keeps the default behaviour, which clears contents and routes
+  // through handleChanges.
+  const handleBeforeKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if (activeSheet !== 'data') return;
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      const hot = hotTableRef.current?.hotInstance as any;
+      if (!hot?.selection?.isSelectedByColumnHeader?.()) return;
+      const names = selectedSchemaColumnNames(hot);
+      if (names.length === 0) return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      deleteSchemaColumns(names);
+    },
+    [activeSheet, deleteSchemaColumns, hotTableRef, selectedSchemaColumnNames],
+  );
+
+  // Latest-value ref so the menu configs below can be built once (stable
+  // references) while still acting on current data. Rebuilding the dropdown
+  // config whenever `sheet`/`schemaColumns` re-memo (every data refresh) would
+  // change its reference and make the @handsontable/react wrapper re-push — and
+  // thus re-initialize — the filters plugin, wiping the active filter that
+  // `markFilterSettingsInitOnly` works to preserve.
+  const menuActionsRef = useRef<{
+    selectedNames: (hot: any) => string[];
+    deleteColumns: (names: string[]) => void;
+  }>({ selectedNames: () => [], deleteColumns: () => {} });
+  menuActionsRef.current = {
+    selectedNames: selectedSchemaColumnNames,
+    deleteColumns: deleteSchemaColumns,
+  };
+
+  // Custom Data-sheet menu items shared by the right-click context menu and the
+  // column-header dropdown. Handsontable disables its native "Remove column"
+  // whenever the grid uses an object data source *or* a `columns` option (both
+  // true here), so column deletion was unreachable from either menu. These add a
+  // working "Delete column" (removes the schema column, header + values, via the
+  // schema API) and a "Clear cell(s)" item that is not header-gated like the
+  // native "Clear column". Built with a stable identity (see menuActionsRef).
+  const customColumnMenuItems = useMemo(
+    () => ({
+      delete_schema_column: {
+        name(this: any): string {
+          return menuActionsRef.current.selectedNames(this).length > 1 ? 'Delete columns' : 'Delete column';
+        },
+        disabled(this: any): boolean {
+          return menuActionsRef.current.selectedNames(this).length === 0;
+        },
+        callback(this: any): void {
+          menuActionsRef.current.deleteColumns(menuActionsRef.current.selectedNames(this));
+        },
+      },
+      clear_selected_cells: {
+        name: 'Clear cell(s)',
+        disabled(this: any): boolean {
+          const selection = typeof this?.getSelected === 'function' ? this.getSelected() : null;
+          return !selection || selection.length === 0;
+        },
+        callback(this: any): void {
+          // Routes through afterChange -> handleChanges, which persists the
+          // empties and shows a single summary toast.
+          if (typeof this?.emptySelectedCells === 'function') this.emptySelectedCells('edit');
+        },
+      },
+    }),
+    [],
+  );
+
+  // Right-click context menu (Data sheet only; other sheets keep the default).
+  const contextMenuConfig = useMemo(() => {
+    if (activeSheet !== 'data') return true;
+    return {
+      items: {
+        ...customColumnMenuItems,
+        sep_1: { name: '---------' },
+        copy: {},
+        cut: {},
+      },
+    };
+  }, [activeSheet, customColumnMenuItems]);
+
+  // Column-header dropdown (the ▼ button). This is a *separate* menu from the
+  // context menu; the default one is what showed the greyed-out "Remove column",
+  // so the header dropdown also needs the custom items. The predefined
+  // `filter_*` keys are re-included so the "Filter by condition/value" UI is
+  // preserved.
+  const dropdownMenuConfig = useMemo(() => {
+    if (activeSheet !== 'data') return true;
+    return {
+      items: {
+        ...customColumnMenuItems,
+        sep_1: { name: '---------' },
+        filter_by_condition: {},
+        filter_operators: {},
+        filter_by_condition2: {},
+        filter_by_value: {},
+        filter_action_bar: {},
+      },
+    };
+  }, [activeSheet, customColumnMenuItems]);
+
   if (!sessionId) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -968,7 +1267,7 @@ export function SpreadsheetSurface({
     >
       <HotTable
         ref={hotTableRef}
-        key={`${activeSheet}-${sheet.columns.length}-${formatVersion}-${activeSheet === 'data' ? dataView : 'x'}`}
+        key={`${activeSheet}-${formatVersion}-${activeSheet === 'data' ? dataView : 'x'}`}
         className="workspace-hot"
         theme="ht-theme-main"
         data={sheet.rows}
@@ -995,9 +1294,9 @@ export function SpreadsheetSurface({
         // full row, so a row keeps its height at any scroll position. See
         // handsontable/handsontable#493, #1213, #5241.
         autoRowSize={true}
-        contextMenu
+        contextMenu={contextMenuConfig}
         filters
-        dropdownMenu
+        dropdownMenu={dropdownMenuConfig}
         columnSorting={!hasMultiRowGroup}
         copyPaste
         undo
@@ -1012,6 +1311,7 @@ export function SpreadsheetSurface({
         afterFilter={applyGroupMerges}
         beforeRemoveRow={handleBeforeRemoveRow}
         beforeRemoveCol={handleBeforeRemoveCol}
+        beforeKeyDown={handleBeforeKeyDown}
         afterChange={(changes, source) => {
           handleChanges(changes, source);
           if (source !== 'loadData') onEditEnd();
