@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Download,
   Italic,
+  LifeBuoy,
   Printer,
   RotateCw,
   Save,
@@ -51,6 +52,7 @@ export function SpreadsheetChrome({
   onRunPendingEdits,
   onAddDocuments,
   onApplyFormat,
+  onReportIssue,
   rerunDisabled,
 }: {
   projectTitle: string;
@@ -75,6 +77,7 @@ export function SpreadsheetChrome({
   onRunPendingEdits: () => void;
   onAddDocuments: () => void;
   onApplyFormat: (patch: Partial<TableDisplayOptions>) => void;
+  onReportIssue: () => void;
   rerunDisabled: boolean;
 }) {
   const runMenuItem = (label: string) => {
@@ -92,6 +95,7 @@ export function SpreadsheetChrome({
     if (label === 'Split view') onSplitView();
     if (label === 'Re-extract table') onRunPendingEdits();
     if (label === 'Add documents') onAddDocuments();
+    if (label === 'Report an issue') onReportIssue();
   };
 
   const isDisabled = (label: string) => {
@@ -153,6 +157,16 @@ export function SpreadsheetChrome({
           ))}
         </div>
         <div className="workspace-chrome-links">
+          <button
+            type="button"
+            className="workspace-report-issue"
+            onClick={onReportIssue}
+            title="Report an issue"
+            aria-label="Report an issue"
+          >
+            <LifeBuoy size={15} aria-hidden="true" />
+            <span>Report an issue</span>
+          </button>
           <a
             href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
             target="_blank"

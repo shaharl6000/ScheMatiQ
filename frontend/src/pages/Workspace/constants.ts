@@ -76,7 +76,7 @@ export const WORKSPACE_MENUS = [
   },
   {
     label: 'Help',
-    items: ['Keyboard shortcuts', 'About ScheMatiQ workspace'],
+    items: ['Keyboard shortcuts', 'About ScheMatiQ workspace', 'Report an issue'],
   },
 ];
 
