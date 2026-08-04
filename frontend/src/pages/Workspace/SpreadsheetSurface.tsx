@@ -1294,6 +1294,17 @@ export function SpreadsheetSurface({
         // full row, so a row keeps its height at any scroll position. See
         // handsontable/handsontable#493, #1213, #5241.
         autoRowSize={true}
+        // Handsontable virtualises columns by default: only columns currently
+        // in the horizontal viewport are kept in the DOM, and the header row
+        // (thead) and body rows are virtualised independently. Over long
+        // scroll sessions their internal offset bookkeeping drifts apart, so
+        // header cell borders (and the filter/sort dropdown arrows anchored
+        // to them) stop lining up with the body cells beneath them -- a
+        // longstanding Handsontable rendering issue (e.g.
+        // handsontable/handsontable#7306, #4426). Schema/data sheets here
+        // stay in the tens-of-columns range, so disabling column
+        // virtualization removes the desync at a negligible rendering cost.
+        renderAllColumns
         contextMenu={contextMenuConfig}
         filters
         dropdownMenu={dropdownMenuConfig}
