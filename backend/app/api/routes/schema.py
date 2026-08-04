@@ -215,7 +215,7 @@ async def edit_column(
             await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/delete-column/{session_id}/{column_name}")
+@router.delete("/delete-column/{session_id}/{column_name:path}")
 async def delete_column(session_id: str, column_name: str):
     """Delete a column from the schema and existing data."""
     try:
@@ -758,7 +758,7 @@ async def reject_suggestion(session_id: str, request: RejectSuggestionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/auto-expand-threshold/{session_id}/{column_name}")
+@router.put("/auto-expand-threshold/{session_id}/{column_name:path}")
 async def set_auto_expand_threshold(
     session_id: str,
     column_name: str,
