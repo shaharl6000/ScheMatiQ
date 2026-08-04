@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { supportAPI } from '../../services/api';
 
 interface ReportIssueDialogProps {
@@ -52,6 +53,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
   activeSheet,
 }) => {
   const [description, setDescription] = useState('');
+  const [email, setEmail] = useState('');
   const [shots, setShots] = useState<Shot[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -60,6 +62,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
 
   const reset = useCallback(() => {
     setDescription('');
+    setEmail('');
     setShots([]);
     setSubmitting(false);
     setDone(false);
@@ -116,6 +119,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
       const res = await supportAPI.reportIssue({
         session_id: sessionId,
         description: text,
+        reporter_email: email.trim() || undefined,
         project_json: projectJson,
         screenshots,
         client_context: {
@@ -175,6 +179,18 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
               rows={6}
               className="resize-none"
             />
+
+            <div>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Your email (optional)"
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Add your email if you'd like us to reply or let you know when it's fixed.
+              </p>
+            </div>
 
             <div>
               <Button

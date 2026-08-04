@@ -123,6 +123,7 @@ export const supportAPI = {
   reportIssue: async (data: {
     session_id?: string;
     description: string;
+    reporter_email?: string;
     project_json?: string;
     screenshots?: { name?: string; mime: string; data_b64: string }[];
     client_context?: Record<string, unknown>;

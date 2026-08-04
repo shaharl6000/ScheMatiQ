@@ -83,6 +83,7 @@ def _send_email(
     attachment: Optional[Tuple[str, bytes, str]] = None,
     attachments: Optional[List[Tuple[str, bytes, str]]] = None,
     wait: bool = False,
+    reply_to: Optional[str] = None,
 ) -> Optional[str]:
     """Send an email via Gmail API. Never raises.
 
@@ -121,6 +122,8 @@ def _send_email(
                 msg["To"] = to_addr
                 if cc_list:
                     msg["Cc"] = ", ".join(cc_list)
+                if reply_to:
+                    msg["Reply-To"] = reply_to
                 body = MIMEMultipart("alternative")
                 body.attach(MIMEText(html_body, "html"))
                 msg.attach(body)
@@ -139,6 +142,8 @@ def _send_email(
                 msg["To"] = to_addr
                 if cc_list:
                     msg["Cc"] = ", ".join(cc_list)
+                if reply_to:
+                    msg["Reply-To"] = reply_to
                 msg.attach(MIMEText(html_body, "html"))
 
             raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
@@ -260,6 +265,7 @@ def send_issue_report(
     screenshots: Optional[List[Tuple[str, bytes, str]]] = None,
     cc: Optional[Union[List[str], str]] = None,
     wait: bool = False,
+    reply_to: Optional[str] = None,
 ) -> Optional[str]:
     """Email a user-submitted issue report to SUPPORT_EMAIL_TO. Never raises.
 
@@ -323,4 +329,5 @@ def send_issue_report(
         cc=target_cc,
         attachments=all_attachments,
         wait=wait,
+        reply_to=reply_to,
     )

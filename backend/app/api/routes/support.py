@@ -42,6 +42,7 @@ class ScreenshotAttachment(BaseModel):
 class IssueReportRequest(BaseModel):
     session_id: Optional[str] = Field(None, max_length=200)
     description: str = Field(..., min_length=1, max_length=5000)
+    reporter_email: Optional[str] = Field(None, max_length=254)
     project_json: Optional[str] = Field(None)          # full export JSON as text
     client_context: Optional[Dict[str, Any]] = Field(None)
     screenshots: Optional[List[ScreenshotAttachment]] = Field(None)
@@ -158,6 +159,20 @@ async def submit_issue_report(request: IssueReportRequest):
         session_id = request.session_id or ""
         context_rows = _build_context_rows(session_id, request.client_context)
 
+        # Optional reporter email: show it in the report and use it as Reply-To so
+        # a reply reaches them. Guard against header injection (no CR/LF) and only
+        # trust something that at least looks like an address.
+        reporter_email = (request.reporter_email or "").strip()
+        valid_email = (
+            reporter_email
+            and "@" in reporter_email
+            and "\n" not in reporter_email
+            and "\r" not in reporter_email
+        )
+        reply_to = reporter_email if valid_email else None
+        if reporter_email:
+            context_rows.insert(0, ("Reporter email", reporter_email))
+
         project_bytes: Optional[bytes] = (
             request.project_json.encode("utf-8") if request.project_json else None
         )
@@ -225,6 +240,7 @@ async def submit_issue_report(request: IssueReportRequest):
                 attachment_subtype=attachment_subtype,
                 attachment_note=attachment_note,
                 screenshots=shots,
+                reply_to=reply_to,
                 wait=True,
             )
         )
