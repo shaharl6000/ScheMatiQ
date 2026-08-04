@@ -87,55 +87,9 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
     e.target.value = '';
   }, [addFiles]);
 
-  const onPaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    const files: File[] = [];
-    for (let i = 0; i < items.length; i += 1) {
-      if (items[i].type.startsWith('image/')) {
-        const f = items[i].getAsFile();
-        if (f) files.push(f);
-      }
-    }
-    if (files.length) {
-      e.preventDefault();
-      addFiles(files);
-    }
-  }, [addFiles]);
-
   const removeShot = useCallback((id: string) => {
     setShots((prev) => prev.filter((s) => s.id !== id));
   }, []);
-
-  // Clicking "paste a screenshot" reads the clipboard and attaches any image in
-  // it, so the user does not have to focus the box and press Cmd/Ctrl+V. Falls
-  // back to the file picker when clipboard read is unsupported or has no image.
-  const pasteFromClipboard = useCallback(async () => {
-    try {
-      const clip = navigator.clipboard as
-        | (Clipboard & { read?: () => Promise<ClipboardItem[]> })
-        | undefined;
-      if (clip?.read) {
-        const items = await clip.read();
-        const files: File[] = [];
-        for (const item of items) {
-          const type = item.types.find((t) => t.startsWith('image/'));
-          if (type) {
-            const blob = await item.getType(type);
-            const ext = type.split('/')[1] || 'png';
-            files.push(new File([blob], `pasted-${Date.now()}.${ext}`, { type }));
-          }
-        }
-        if (files.length) {
-          addFiles(files);
-          return;
-        }
-      }
-    } catch {
-      // permission denied or unsupported — fall through to the file picker
-    }
-    fileInputRef.current?.click();
-  }, [addFiles]);
 
   const handleSubmit = useCallback(async () => {
     const text = description.trim();
@@ -217,36 +171,25 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
               autoFocus
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              onPaste={onPaste}
               placeholder="Describe what happened, what you expected, and any steps to reproduce."
               rows={6}
               className="resize-none"
             />
 
             <div>
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={shots.length >= MAX_SHOTS}
-                >
-                  <ImagePlus className="mr-2 h-4 w-4" />
-                  Add image
-                </Button>
-                <button
-                  type="button"
-                  onClick={pasteFromClipboard}
-                  disabled={shots.length >= MAX_SHOTS}
-                  className="text-xs font-medium text-primary hover:underline disabled:opacity-50 disabled:no-underline"
-                >
-                  or paste a screenshot
-                </button>
-                <span className="text-xs text-muted-foreground">
-                  ({shots.length}/{MAX_SHOTS})
-                </span>
-              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={shots.length >= MAX_SHOTS}
+              >
+                <ImagePlus className="mr-2 h-4 w-4" />
+                Add image
+              </Button>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                We recommend attaching a screenshot of the problem ({shots.length}/{MAX_SHOTS}).
+              </p>
               <input
                 ref={fileInputRef}
                 type="file"
