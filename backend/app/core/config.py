@@ -107,8 +107,10 @@ RELEASE_CONFIG = {
     "llm_temperature": 0,
 }
 
-# Convenience: whether LLM config UI should be shown
-ALLOW_LLM_CONFIG = DEVELOPER_MODE
+# Whether users may choose the LLM provider/model (shown in the UI and honored
+# by the pipeline). Defaults to DEVELOPER_MODE; set ALLOW_LLM_CONFIG=true to
+# expose model selection in release mode as well.
+ALLOW_LLM_CONFIG = os.environ.get("ALLOW_LLM_CONFIG", str(DEVELOPER_MODE).lower()).lower() == "true"
 
 # Model used for per-row "fill column from reference" lookups. This is a narrow
 # extraction task (pull one value out of a reference excerpt), not open-ended

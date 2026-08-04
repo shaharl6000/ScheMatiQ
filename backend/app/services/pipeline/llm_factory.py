@@ -3,7 +3,7 @@
 import logging
 from typing import Optional
 
-from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.config import ALLOW_LLM_CONFIG, DEVELOPER_MODE, RELEASE_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def enforce_release_llm_config(backend_config: dict, is_schema_creation: bool = 
     Returns:
         The config dict, potentially with provider/model/temperature overridden
     """
-    if DEVELOPER_MODE:
+    if DEVELOPER_MODE or ALLOW_LLM_CONFIG:
         return backend_config
 
     return {
