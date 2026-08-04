@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from app.core.email_alerts import send_issue_report
@@ -213,18 +214,24 @@ async def submit_issue_report(request: IssueReportRequest):
             note_extra = f"{skipped_shots} image(s) omitted (attachment size limit)."
             attachment_note = (attachment_note + " " + note_extra).strip()
 
-        send_issue_report(
-            description=request.description,
-            session_id=session_id,
-            context_rows=context_rows,
-            attachment_bytes=attachment_bytes,
-            attachment_name=attachment_name,
-            attachment_subtype=attachment_subtype,
-            attachment_note=attachment_note,
-            screenshots=shots,
+        send_error = await run_in_threadpool(
+            lambda: send_issue_report(
+                description=request.description,
+                session_id=session_id,
+                context_rows=context_rows,
+                attachment_bytes=attachment_bytes,
+                attachment_name=attachment_name,
+                attachment_subtype=attachment_subtype,
+                attachment_note=attachment_note,
+                screenshots=shots,
+                wait=True,
+            )
         )
-        logger.info("[support] Issue report queued for session %s", session_id or "(none)")
+        if send_error:
+            logger.error("[support] Report email failed for session %s: %s", session_id or "(none)", send_error)
+            return {"status": "error", "detail": send_error}
+        logger.info("[support] Issue report sent for session %s", session_id or "(none)")
+        return {"status": "ok"}
     except Exception as e:
-        logger.error("[support] Failed to handle issue report: %s", e)
-
-    return {"status": "ok"}
+        logger.error("[support] Failed to handle issue report: %s", e, exc_info=True)
+        return {"status": "error", "detail": "internal error"}

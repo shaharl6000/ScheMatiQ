@@ -82,14 +82,20 @@ def _send_email(
     cc: Optional[Union[List[str], str]] = None,
     attachment: Optional[Tuple[str, bytes, str]] = None,
     attachments: Optional[List[Tuple[str, bytes, str]]] = None,
-) -> None:
-    """Send an email via Gmail API in a background thread. Never raises."""
+    wait: bool = False,
+) -> Optional[str]:
+    """Send an email via Gmail API. Never raises.
+
+    By default the send runs in a background thread and returns None. When
+    ``wait`` is True the send runs synchronously and returns None on success or
+    an error message string on failure (so callers can report real status).
+    """
     to_addr = recipient if recipient is not None else ALERT_EMAIL_TO
     if not to_addr:
         logger.warning(
             "[email-alert] No recipient configured (SUPPORT_EMAIL_TO / ALERT_EMAIL_TO is empty) — skipping"
         )
-        return
+        return "No recipient configured"
 
     # Normalize CC list to a clean list of strings
     cc_list: List[str] = []
@@ -98,12 +104,12 @@ def _send_email(
     elif isinstance(cc, list):
         cc_list = [c.strip() for c in cc if c.strip()]
 
-    def _send():
+    def _send() -> Optional[str]:
         try:
             service = _build_gmail_service()
             if not service:
                 logger.error("[email-alert] Gmail service creation returned None — skipping send")
-                return
+                return "Gmail service unavailable"
 
             all_attachments: List[Tuple[str, bytes, str]] = list(attachments or [])
             if attachment is not None:
@@ -143,11 +149,16 @@ def _send_email(
 
             cc_info = f" (Cc: {', '.join(cc_list)})" if cc_list else ""
             logger.info("[email-alert] Sent: %s → %s%s", subject, to_addr, cc_info)
+            return None
         except Exception as e:
             logger.error("[email-alert] Failed to send email: %s", e, exc_info=True)
+            return str(e)
 
+    if wait:
+        return _send()
     # Run as a background daemon thread to avoid blocking response handling
     threading.Thread(target=_send, daemon=True).start()
+    return None
 
 
 def send_quota_exceeded_alert(total_used: int) -> None:
@@ -248,7 +259,8 @@ def send_issue_report(
     attachment_note: str = "",
     screenshots: Optional[List[Tuple[str, bytes, str]]] = None,
     cc: Optional[Union[List[str], str]] = None,
-) -> None:
+    wait: bool = False,
+) -> Optional[str]:
     """Email a user-submitted issue report to SUPPORT_EMAIL_TO. Never raises.
 
     ``context_rows`` is a list of ``(label, value)`` pairs rendered as a table.
@@ -304,10 +316,11 @@ def send_issue_report(
     # If CC is not explicitly passed, fall back to global SUPPORT_CC_EMAILS
     target_cc = cc if cc is not None else SUPPORT_CC_EMAILS
 
-    _send_email(
+    return _send_email(
         subject,
         html_body,
         recipient=SUPPORT_EMAIL_TO,
         cc=target_cc,
         attachments=all_attachments,
+        wait=wait,
     )

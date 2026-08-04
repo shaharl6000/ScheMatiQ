@@ -55,6 +55,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
   const [shots, setShots] = useState<Shot[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reset = useCallback(() => {
@@ -62,6 +63,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
     setShots([]);
     setSubmitting(false);
     setDone(false);
+    setError(null);
   }, []);
 
   const handleOpenChange = useCallback((next: boolean) => {
@@ -105,10 +107,41 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
     setShots((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
+  // Clicking "paste a screenshot" reads the clipboard and attaches any image in
+  // it, so the user does not have to focus the box and press Cmd/Ctrl+V. Falls
+  // back to the file picker when clipboard read is unsupported or has no image.
+  const pasteFromClipboard = useCallback(async () => {
+    try {
+      const clip = navigator.clipboard as
+        | (Clipboard & { read?: () => Promise<ClipboardItem[]> })
+        | undefined;
+      if (clip?.read) {
+        const items = await clip.read();
+        const files: File[] = [];
+        for (const item of items) {
+          const type = item.types.find((t) => t.startsWith('image/'));
+          if (type) {
+            const blob = await item.getType(type);
+            const ext = type.split('/')[1] || 'png';
+            files.push(new File([blob], `pasted-${Date.now()}.${ext}`, { type }));
+          }
+        }
+        if (files.length) {
+          addFiles(files);
+          return;
+        }
+      }
+    } catch {
+      // permission denied or unsupported — fall through to the file picker
+    }
+    fileInputRef.current?.click();
+  }, [addFiles]);
+
   const handleSubmit = useCallback(async () => {
     const text = description.trim();
     if (!text || submitting) return;
     setSubmitting(true);
+    setError(null);
 
     // Grab the project export JSON (same as "Save project"). Best-effort.
     let projectJson: string | undefined;
@@ -126,7 +159,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
       .filter((s): s is { name: string; mime: string; data_b64: string } => s !== null);
 
     try {
-      await supportAPI.reportIssue({
+      const res = await supportAPI.reportIssue({
         session_id: sessionId,
         description: text,
         project_json: projectJson,
@@ -137,13 +170,16 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
           userAgent: navigator.userAgent,
         },
       });
+      setSubmitting(false);
+      if (res && res.status === 'ok') {
+        setDone(true);
+      } else {
+        setError("Your report couldn't be sent. Please try again.");
+      }
     } catch {
-      // Fire-and-forget: the backend never hard-fails, and a report is not
-      // worth blocking the user over. Show the confirmation regardless.
+      setSubmitting(false);
+      setError("Your report couldn't be sent. Please try again.");
     }
-
-    setSubmitting(false);
-    setDone(true);
   }, [description, submitting, sessionId, sessionMode, activeSheet, shots]);
 
   return (
@@ -188,7 +224,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
             />
 
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <Button
                   type="button"
                   variant="outline"
@@ -199,8 +235,16 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
                   <ImagePlus className="mr-2 h-4 w-4" />
                   Add image
                 </Button>
+                <button
+                  type="button"
+                  onClick={pasteFromClipboard}
+                  disabled={shots.length >= MAX_SHOTS}
+                  className="text-xs font-medium text-primary hover:underline disabled:opacity-50 disabled:no-underline"
+                >
+                  or paste a screenshot
+                </button>
                 <span className="text-xs text-muted-foreground">
-                  or paste a screenshot ({shots.length}/{MAX_SHOTS})
+                  ({shots.length}/{MAX_SHOTS})
                 </span>
               </div>
               <input
@@ -236,6 +280,10 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
                 </div>
               )}
             </div>
+
+            {error && (
+              <p className="text-sm font-medium text-destructive">{error}</p>
+            )}
 
             <DialogFooter>
               <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={submitting}>
