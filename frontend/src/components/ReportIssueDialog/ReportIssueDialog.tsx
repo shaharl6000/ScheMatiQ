@@ -81,7 +81,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
             <CheckCircle2 className="h-10 w-10 text-green-600" />
             <DialogTitle>Thanks, your report was sent</DialogTitle>
             <DialogDescription>
-              We included your current project so we can look into it.
+              We included your current project and its documents so we can look into it.
             </DialogDescription>
             <Button className="mt-2" onClick={() => handleOpenChange(false)}>
               Close
@@ -92,8 +92,8 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
             <DialogHeader>
               <DialogTitle>Report an issue</DialogTitle>
               <DialogDescription>
-                Tell us what happened. Your current project is attached automatically
-                so we can reproduce it.
+                Tell us what happened. Your current project and its documents are
+                attached automatically so we can reproduce it.
               </DialogDescription>
             </DialogHeader>
             <Textarea

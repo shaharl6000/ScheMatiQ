@@ -22,8 +22,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["support"])
 
-# Guard rail: skip attaching very large project JSON (Gmail caps at 25 MB).
-_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+# Gmail rejects a message larger than 25 MB *after* base64 encoding (~4/3
+# overhead). Cap the raw attachment so the encoded message stays under that,
+# leaving headroom for the body and headers.
+_GMAIL_MAX_ENCODED_BYTES = 25 * 1024 * 1024
+_MAX_ATTACHMENT_BYTES = int(_GMAIL_MAX_ENCODED_BYTES * 3 / 4) - 512 * 1024  # ~18 MB raw
 
 # Set default CC recipients here (or load from config)
 
