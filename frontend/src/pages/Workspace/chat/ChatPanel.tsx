@@ -4,9 +4,10 @@
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUp, Bot, Check, FileText, Loader2, Paperclip, X } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { ModelSelector } from '@/components/ModelSelector';
+import { getDefaultModelForProvider } from '@/constants';
 import { chatAPI, referenceAPI, type ReferenceDocumentInfo } from '@/services/api';
 import webSocketService from '@/services/websocket';
 import type { ChatToolInfo, PaginatedData, SchemaData, ScheMatiQStatus, WebSocketMessage } from '@/types';
@@ -78,6 +79,7 @@ export function ChatPanel({
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [chatId, setChatId] = useState<string | null>(null);
+  const [chatModel, setChatModel] = useState<string>(() => getDefaultModelForProvider('gemini'));
   const [pinnedTool, setPinnedTool] = useState<string | null>(null);
   const [availableTools, setAvailableTools] = useState<ChatToolInfo[]>([]);
   const [pendingAction, setPendingAction] = useState<PendingChatAction | null>(null);
@@ -346,6 +348,7 @@ export function ChatPanel({
         chat_id: chatId || undefined,
         session_mode: sessionMode,
         pinned_tool: pinnedTool || undefined,
+        model: chatModel || undefined,
       });
       applyChatResponse(response);
     } catch (err: any) {
@@ -445,7 +448,15 @@ export function ChatPanel({
           Chat
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline">gemini-3.5-flash</Badge>
+          <div className="w-[190px]">
+            <ModelSelector
+              provider="gemini"
+              value={chatModel}
+              onChange={setChatModel}
+              disabled={busy}
+              showDetails={false}
+            />
+          </div>
           <Button size="sm" variant="outline" onClick={showToolsList} disabled={busy}>
             Tools
           </Button>

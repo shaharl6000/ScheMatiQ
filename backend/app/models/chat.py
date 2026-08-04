@@ -10,6 +10,7 @@ class ChatMessageRequest(BaseModel):
     chat_id: Optional[str] = None
     session_mode: Literal["schematiq", "load"] = "schematiq"
     pinned_tool: Optional[str] = None
+    model: Optional[str] = None
 
 
 class ChatConfirmRequest(BaseModel):
