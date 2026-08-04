@@ -76,7 +76,7 @@ export function SpreadsheetSurface({
   // Fires on each mouse click of a grounded data cell, so the source panel can
   // re-scroll to the highlight even when the same cell is clicked again.
   onGroundingScrollRequest?: () => void;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
   // Row-data-only refresh after a Data-sheet cell edit (no status/schema churn).
   onRefreshData: () => void;
   // Apply the edited values to React state immediately so the grid does not
@@ -1084,9 +1084,18 @@ export function SpreadsheetSurface({
   // Delete one or more schema columns (header + values, from both the Schema
   // and Data views) via the schema API, then refresh. Shared by the context
   // menu item and the Delete-key shortcut.
+  // Guards against a double-fire of the same delete action. Without it the
+  // first call deletes the column, the second fails "column not found" (a
+  // spurious "Column delete failed" toast), and the second call's write races
+  // the refresh's getData so the grid momentarily blanks. The guard is held
+  // across the request AND the follow-up refresh so a delayed second fire
+  // during the refresh window is also dropped.
+  const deletingColumnsRef = useRef(false);
+
   const deleteSchemaColumns = useCallback(
     (names: string[]) => {
-      if (names.length === 0 || !sessionId) return;
+      if (names.length === 0 || !sessionId || deletingColumnsRef.current) return;
+      deletingColumnsRef.current = true;
       Promise.allSettled(names.map((name) => schemaAPI.deleteColumn(sessionId, name)))
         .then((results) => {
           const failed = results.filter((r) => r.status === 'rejected').length;
@@ -1103,8 +1112,12 @@ export function SpreadsheetSurface({
             });
           }
           // Deleting a column does not invalidate the remaining columns'
-          // extracted values, so it must not flag a re-extract.
-          onRefresh();
+          // extracted values, so it must not flag a re-extract. Return the
+          // refresh promise so the guard stays held until the grid has caught up.
+          return onRefresh();
+        })
+        .finally(() => {
+          deletingColumnsRef.current = false;
         });
     },
     [onRefresh, sessionId, toast],

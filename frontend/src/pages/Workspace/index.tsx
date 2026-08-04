@@ -267,10 +267,13 @@ function Workspace() {
       if (!silent) setDataLoading(true);
       try {
         const [nextData, nextDocuments] = await Promise.all([
-          fetchData().catch(() => emptyData),
+          // Keep the current rows if the fetch fails (null) rather than blanking
+          // the grid with emptyData — e.g. a transient error during a
+          // structural refresh right after a column delete.
+          fetchData().catch(() => null),
           fetchDocuments().catch(() => null),
         ]);
-        applyData(nextData, options);
+        if (nextData) applyData(nextData, options);
         setDocuments(nextDocuments);
       } finally {
         if (!silent) setDataLoading(false);
@@ -811,7 +814,7 @@ function Workspace() {
         onSelectionChange={updateSheetSelection}
         onGroundingHighlight={handleGroundingHighlight}
         onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
-        onRefresh={() => void refresh({ silent: true })}
+        onRefresh={() => refresh({ silent: true })}
         onRefreshData={refreshAfterEdit}
         onOptimisticCellEdit={applyOptimisticCellEdits}
         onEditFollowUp={notifyEditFollowUp}
