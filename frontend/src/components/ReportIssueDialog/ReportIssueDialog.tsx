@@ -182,7 +182,7 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="relative sm:max-w-[480px]"
+        className="sm:max-w-[480px]"
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
