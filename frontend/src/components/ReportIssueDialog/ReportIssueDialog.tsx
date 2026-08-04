@@ -58,7 +58,9 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
 
   const reset = useCallback(() => {
     setDescription('');
@@ -67,6 +69,8 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
     setSubmitting(false);
     setDone(false);
     setError(null);
+    setDragActive(false);
+    dragDepth.current = 0;
   }, []);
 
   const handleOpenChange = useCallback((next: boolean) => {
@@ -88,6 +92,41 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
   const onFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) addFiles(Array.from(e.target.files));
     e.target.value = '';
+  }, [addFiles]);
+
+  // Drag a file from the OS onto the dialog to attach it, same as the picker.
+  // A depth counter keeps the highlight stable while dragging over child nodes.
+  const isFileDrag = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  const onDragEnter = useCallback((e: React.DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragActive(true);
+  }, []);
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    if (isFileDrag(e)) e.preventDefault();
+  }, []);
+
+  const onDragLeave = useCallback((e: React.DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragDepth.current -= 1;
+    if (dragDepth.current <= 0) {
+      dragDepth.current = 0;
+      setDragActive(false);
+    }
+  }, []);
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragActive(false);
+    const files = e.dataTransfer?.files;
+    if (files && files.length) addFiles(Array.from(files));
   }, [addFiles]);
 
   const removeShot = useCallback((id: string) => {
@@ -142,7 +181,19 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent
+        className="relative sm:max-w-[480px]"
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        {!done && dragActive && (
+          <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary bg-background/90 text-primary">
+            <ImagePlus className="h-8 w-8" />
+            <span className="text-sm font-medium">Drop image to attach</span>
+          </div>
+        )}
         {done ? (
           <div className="flex flex-col items-center gap-3 py-6 text-center">
             <CheckCircle2 className="h-10 w-10 text-green-600" />
@@ -204,7 +255,8 @@ const ReportIssueDialog: React.FC<ReportIssueDialogProps> = ({
                 Add image
               </Button>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                We recommend attaching a screenshot of the problem ({shots.length}/{MAX_SHOTS}).
+                We recommend attaching a screenshot. Drag an image here or use Add image
+                ({shots.length}/{MAX_SHOTS}).
               </p>
               <input
                 ref={fileInputRef}
