@@ -367,7 +367,12 @@ export const schematiqAPI = {
   ): Promise<{ status: string; session_id: string; row_name: string; column: string; value: string; previous_value?: any }> => {
     const params: Record<string, string | number> = { row_name: rowName, column, value };
     if (sourceDocument) params.source_document = sourceDocument;
-    if (!rowName && rowIndex != null) params.row_index = rowIndex;
+    // Always send the stable row index when we have it. The backend matches by
+    // row_name first and only uses row_index as a fallback, so this is safe even
+    // when a name is present; it lets clears/edits still resolve when the row's
+    // stored identity key differs from the displayed name (e.g. By-Document rows
+    // keyed under _unit_name), which otherwise failed with "row not found".
+    if (rowIndex != null) params.row_index = rowIndex;
     const response = await api.put(`/schematiq/cell/${sessionId}`, null, { params });
     return response.data;
   },

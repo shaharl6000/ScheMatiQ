@@ -227,13 +227,22 @@ function Workspace() {
 
   const refreshSilent = useCallback(() => refreshData({ silent: true }), [refreshData]);
 
-  const applyOptimisticCellEdit = useCallback((
-    identity: { rowName: string; sourceDocument?: string; rowIndex?: number },
-    column: string,
-    value: string,
+  const applyOptimisticCellEdits = useCallback((
+    edits: {
+      identity: { rowName: string; sourceDocument?: string; rowIndex?: number };
+      column: string;
+      value: string;
+    }[],
   ) => {
+    if (edits.length === 0) return;
     deferredDataRef.current = null;
-    const patch = (current: PaginatedData) => patchDataCell(current, identity, column, value);
+    // Fold every edit into ONE functional update so a whole afterChange batch
+    // produces a single state transition. Doing N separate setData calls inside
+    // Handsontable's synchronous afterChange (a non-React event) drove a render
+    // cascade that exceeded React's update depth for multi-cell clears; a single
+    // atomic patch makes a multi-cell clear behave like the single-cell path.
+    const patch = (current: PaginatedData) =>
+      edits.reduce((acc, e) => patchDataCell(acc, e.identity, e.column, e.value), current);
     setData(patch);
     setUnitData(patch);
   }, []);
@@ -804,7 +813,7 @@ function Workspace() {
         onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
         onRefresh={() => void refresh({ silent: true })}
         onRefreshData={refreshAfterEdit}
-        onOptimisticCellEdit={applyOptimisticCellEdit}
+        onOptimisticCellEdit={applyOptimisticCellEdits}
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
         layoutRevision={gridLayoutRevision}
