@@ -47,6 +47,7 @@ from app.api.routes.units import router as units_router
 from app.api.routes.feedback import router as feedback_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.reference import router as reference_router
+from app.api.routes.support import router as support_router
 from app.core.config import (
     API_TITLE, API_DESCRIPTION, API_VERSION,
     ALLOWED_ORIGINS, DEFAULT_HOST, DEFAULT_PORT,
@@ -123,6 +124,7 @@ app.include_router(units_router, prefix="/api/units", tags=["units"])
 app.include_router(feedback_router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(reference_router, prefix="/api/reference", tags=["reference"])
+app.include_router(support_router, prefix="/api/support", tags=["support"])
 
 logger = logging.getLogger(__name__)
 logger.info(

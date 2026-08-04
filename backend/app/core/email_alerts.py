@@ -8,6 +8,7 @@ Disabled when credentials or ALERT_EMAIL_TO are not set — never raises.
 """
 
 import base64
+import html
 import json
 import logging
 import re
@@ -15,9 +16,12 @@ import threading
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
+from typing import Optional, Tuple
 
 from app.core.config import (
     ALERT_EMAIL_TO,
+    SUPPORT_EMAIL_TO,
     GOOGLE_OAUTH_CREDENTIALS_JSON,
     GOOGLE_SERVICE_ACCOUNT_JSON,
     GOOGLE_SERVICE_ACCOUNT_FILE,
@@ -74,10 +78,21 @@ def _build_gmail_service():
     return None
 
 
-def _send_email(subject: str, html_body: str) -> None:
-    """Send an email via Gmail API in a background thread. Never raises."""
-    if not ALERT_EMAIL_TO:
-        logger.debug("[email-alert] ALERT_EMAIL_TO not set — skipping")
+def _send_email(
+    subject: str,
+    html_body: str,
+    recipient: Optional[str] = None,
+    attachment: Optional[Tuple[str, bytes, str]] = None,
+) -> None:
+    """Send an email via Gmail API in a background thread. Never raises.
+
+    ``recipient`` overrides the default ``ALERT_EMAIL_TO``. ``attachment`` is an
+    optional ``(filename, content_bytes, mime_subtype)`` tuple; when given, the
+    message becomes a ``mixed`` multipart carrying the HTML body plus the file.
+    """
+    to_addr = recipient if recipient is not None else ALERT_EMAIL_TO
+    if not to_addr:
+        logger.debug("[email-alert] No recipient configured — skipping")
         return
 
     def _send():
@@ -87,10 +102,24 @@ def _send_email(subject: str, html_body: str) -> None:
                 logger.debug("[email-alert] Gmail service not available — skipping")
                 return
 
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["To"] = ALERT_EMAIL_TO
-            msg.attach(MIMEText(html_body, "html"))
+            if attachment is not None:
+                filename, content, mime_subtype = attachment
+                msg = MIMEMultipart("mixed")
+                msg["Subject"] = subject
+                msg["To"] = to_addr
+                body = MIMEMultipart("alternative")
+                body.attach(MIMEText(html_body, "html"))
+                msg.attach(body)
+                part = MIMEApplication(content, _subtype=mime_subtype)
+                part.add_header(
+                    "Content-Disposition", "attachment", filename=filename
+                )
+                msg.attach(part)
+            else:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = subject
+                msg["To"] = to_addr
+                msg.attach(MIMEText(html_body, "html"))
 
             raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
             service.users().messages().send(
@@ -98,7 +127,7 @@ def _send_email(subject: str, html_body: str) -> None:
                 body={"raw": raw},
             ).execute()
 
-            logger.info("[email-alert] Sent: %s → %s", subject, ALERT_EMAIL_TO)
+            logger.info("[email-alert] Sent: %s → %s", subject, to_addr)
         except Exception as e:
             logger.error("[email-alert] Failed to send email: %s", e)
 
@@ -188,3 +217,55 @@ def send_quota_warning_alert(used: int, limit: int) -> None:
     </div>
     """
     _send_email(subject, html_body)
+
+
+def send_issue_report(
+    *,
+    description: str,
+    session_id: str = "",
+    context_rows: Optional[list] = None,
+    project_json_bytes: Optional[bytes] = None,
+    project_json_name: str = "project.json",
+    attachment_note: str = "",
+) -> None:
+    """Email a user-submitted issue report to SUPPORT_EMAIL_TO. Never raises.
+
+    ``context_rows`` is a list of ``(label, value)`` pairs rendered as a table.
+    ``project_json_bytes`` is attached as a .json file when provided. Unlike the
+    quota alerts, this sends on every call (no once-per-process guard).
+    """
+    short = (session_id or "")[:8]
+    subject = f"ScheMatiQ — Issue report ({short or 'no session'})"
+
+    safe_desc = html.escape(description or "").replace("\n", "<br>")
+    rows_html = ""
+    for label, value in (context_rows or []):
+        rows_html += (
+            '<tr>'
+            f'<td style="padding: 8px 16px; border: 1px solid #ddd; font-weight: bold;">{html.escape(str(label))}</td>'
+            f'<td style="padding: 8px 16px; border: 1px solid #ddd;">{html.escape(str(value))}</td>'
+            '</tr>'
+        )
+    table_html = (
+        f'<table style="border-collapse: collapse; margin: 16px 0;">{rows_html}</table>'
+        if rows_html else ""
+    )
+    note_html = (
+        f'<p style="color: #666; font-size: 14px;">{html.escape(attachment_note)}</p>'
+        if attachment_note else ""
+    )
+
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+        <h2 style="color: #2563eb;">New issue report</h2>
+        <p style="white-space: pre-wrap;">{safe_desc}</p>
+        {table_html}
+        {note_html}
+    </div>
+    """
+
+    attachment = None
+    if project_json_bytes:
+        attachment = (project_json_name, project_json_bytes, "json")
+
+    _send_email(subject, html_body, recipient=SUPPORT_EMAIL_TO, attachment=attachment)
