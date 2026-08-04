@@ -985,6 +985,16 @@ export function SpreadsheetSurface({
         stretchH="none"
         manualColumnResize
         manualRowResize
+        // Measure each row's height across ALL of its cells, not just the ones
+        // currently in the horizontal viewport. Handsontable virtualises columns,
+        // so without this the row height tracks only the tallest *visible* cell:
+        // scrolling right past a long wrapped cell shrinks the row, scrolling a
+        // different long cell into view grows it, and the whole grid shifts
+        // vertically as you scroll horizontally (the row you started on drifts
+        // out of place). AutoRowSize caches a stable per-row height from the
+        // full row, so a row keeps its height at any scroll position. See
+        // handsontable/handsontable#493, #1213, #5241.
+        autoRowSize={true}
         contextMenu
         filters
         dropdownMenu
