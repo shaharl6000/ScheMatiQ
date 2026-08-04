@@ -130,6 +130,10 @@ GOOGLE_OAUTH_CREDENTIALS_JSON = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON", 
 GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "")
 GOOGLE_SHEETS_SPREADSHEET_ID = os.environ.get("GOOGLE_SHEETS_SPREADSHEET_ID", "")
 GOOGLE_SHEETS_LLM_USAGE_ID = os.environ.get("GOOGLE_SHEETS_LLM_USAGE_ID", "")
+SUPPORT_EMAIL_OAUTH_CREDENTIALS_JSON = os.getenv("SUPPORT_EMAIL_OAUTH_CREDENTIALS_JSON")
+SUPPORT_EMAIL_TO = os.getenv("SUPPORT_EMAIL_TO", "")
+SUPPORT_CC_EMAILS = os.getenv("SUPPORT_CC_EMAILS", "")
+
 DATA_COLLECTION_ENABLED = (
     not DEVELOPER_MODE
     and bool(GOOGLE_DRIVE_FOLDER_ID)
@@ -158,6 +162,14 @@ LLM_CALL_WARN_THRESHOLD = float(os.environ.get("LLM_CALL_WARN_THRESHOLD", "0.8")
 # Uses the same Google OAuth credentials as Google Sheets (no extra passwords).
 # Set ALERT_EMAIL_TO to enable; leave empty to disable.
 ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO", "")          # recipient(s), comma-separated
+
+# Recipients for user-submitted issue reports. Add addresses to this list to
+# fan the reports out to more people. The SUPPORT_EMAIL_TO env var (comma-
+# separated) overrides the list when set.
+SUPPORT_EMAIL_RECIPIENTS = [
+    "eliya.habba@mail.huji.ac.il",
+]
+SUPPORT_EMAIL_TO = os.environ.get("SUPPORT_EMAIL_TO", "") or ", ".join(SUPPORT_EMAIL_RECIPIENTS)
 
 # ── Concurrency Configuration ────────────────────────────────────
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "5"))

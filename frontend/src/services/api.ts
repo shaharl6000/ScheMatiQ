@@ -101,6 +101,37 @@ export const feedbackAPI = {
   },
 };
 
+// Support API (issue reports) — always available
+export const supportAPI = {
+  // Fetch the complete project export JSON as text (same artifact as "Save project").
+  // Best-effort: returns undefined on any failure so a report can still be sent.
+  fetchProjectJson: async (
+    sessionId: string,
+    sessionMode: 'schematiq' | 'load' | string,
+  ): Promise<string | undefined> => {
+    try {
+      const tzOffset = new Date().getTimezoneOffset();
+      const path = sessionMode === 'schematiq'
+        ? `/schematiq/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`
+        : `/load/export-complete/${sessionId}?format=json`;
+      const response = await api.get(path, { responseType: 'text', transformResponse: (d) => d });
+      return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+    } catch {
+      return undefined;
+    }
+  },
+  reportIssue: async (data: {
+    session_id?: string;
+    description: string;
+    project_json?: string;
+    screenshots?: { name?: string; mime: string; data_b64: string }[];
+    client_context?: Record<string, unknown>;
+  }): Promise<{ status: string }> => {
+    const response = await api.post('/support/report', data);
+    return response.data;
+  },
+};
+
 // Config API (for public configuration)
 export const configAPI = {
   getConfig: async (): Promise<{

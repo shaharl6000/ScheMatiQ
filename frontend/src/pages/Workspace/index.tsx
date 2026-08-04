@@ -74,6 +74,7 @@ import {
 import { NewProjectDialog } from './NewProjectDialog';
 import { PendingRerunBanner } from './PendingRerunBanner';
 import { ProjectDetailsDialog } from './ProjectDetailsDialog';
+import ReportIssueDialog from '@/components/ReportIssueDialog/ReportIssueDialog';
 import { SpreadsheetChrome } from './SpreadsheetChrome';
 import { useAddDocuments } from './hooks/useAddDocuments';
 import { useReextraction } from './hooks/useReextraction';
@@ -113,6 +114,7 @@ function Workspace() {
   const [sessionMode, setSessionMode] = useState<WorkspaceSessionMode>(requestedMode);
   const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [status, setStatus] = useState<ScheMatiQStatus | null>(null);
   const [session, setSession] = useState<VisualizationSession | null>(null);
   const [schema, setSchema] = useState<SchemaData | null>(null);
@@ -860,6 +862,7 @@ function Workspace() {
         onRunPendingEdits={runPendingEdits}
         onAddDocuments={() => setActiveSheet('documents')}
         onApplyFormat={applyTableFormat}
+        onReportIssue={() => setReportOpen(true)}
         rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
       />
 
@@ -1215,6 +1218,14 @@ function Workspace() {
         documents={documents}
         config={config}
         costEstimate={costEstimate}
+      />
+
+      <ReportIssueDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        sessionId={sessionId}
+        sessionMode={sessionMode}
+        activeSheet={activeSheet}
       />
 
       <Dialog

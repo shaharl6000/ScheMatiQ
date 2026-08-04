@@ -51,6 +51,39 @@
   transition: color 0.15s ease, background 0.15s ease;
 }
 
+.workspace-report-issue {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  margin-right: 8px;
+  border: 1px solid hsl(var(--primary));
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
+}
+
+.workspace-report-issue:hover {
+  filter: brightness(0.95);
+  box-shadow: 0 1px 4px hsl(var(--primary) / 0.35);
+}
+
+@media (max-width: 720px) {
+  .workspace-report-issue span {
+    display: none;
+  }
+  .workspace-report-issue {
+    padding: 0 9px;
+  }
+}
+
 .workspace-chrome-link:hover {
   color: hsl(var(--foreground));
   background: hsl(var(--muted));
