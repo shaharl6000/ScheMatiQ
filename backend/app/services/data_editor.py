@@ -6,6 +6,7 @@ Handles updates to JSONL data files for both load and ScheMatiQ sessions.
 import copy
 import json
 import logging
+import asyncio
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,6 +18,22 @@ from app.services.data_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Per-session write locks. update_cell does a read-modify-write over the whole
+# JSONL file, and the frontend fires one request per cell in parallel for a
+# multi-cell clear/paste. Without serialization two concurrent writes each read
+# the pre-edit file and the second write clobbers the first, so some cells
+# silently revert on the next refresh ("cleared two, one comes back"). A lock
+# keyed by session_id serializes writes for a session within the event loop.
+_session_write_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_session_write_lock(session_id: str) -> asyncio.Lock:
+    lock = _session_write_locks.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _session_write_locks[session_id] = lock
+    return lock
 
 
 class DataEditor:
@@ -112,23 +129,7 @@ class DataEditor:
             previous_value = None
             persisted_files: list = []
 
-            # `_row_index` is the line position in the file the *reader*
-            # (get_paginated_data) serves: data_dir/{session}/data.jsonl. That is
-            # NOT necessarily data_files[0] — resolve_session_data_files lists
-            # work_dir/extracted_data.jsonl first when it exists (dev sessions
-            # have one). Matching the index against data_files[0] then reads the
-            # wrong file and the fallback fails for rows whose stored name does
-            # not match the displayed identity. Resolve the reader's file and
-            # match the index there specifically.
-            reader_file = (self.data_dir / session_id / "data.jsonl").resolve()
-
-            for file_position, data_file in enumerate(data_files):
-                is_reader_file = False
-                try:
-                    is_reader_file = Path(data_file).resolve() == reader_file
-                except OSError:
-                    is_reader_file = False
-
+            for data_file in data_files:
                 # Read all rows for this file
                 rows = []
                 try:
@@ -142,8 +143,13 @@ class DataEditor:
                 file_updated = False
                 for idx, row in enumerate(rows):
                     if match_by_index:
-                        # Only the reader's file is authoritative for the index.
-                        if not is_reader_file or idx != row_index:
+                        # `_row_index` is the reader's non-blank line position in
+                        # the session data file; `enumerate(rows)` here mirrors
+                        # that exact enumeration, so match it directly. Matching
+                        # in whichever resolved file contains that line keeps this
+                        # robust regardless of how the data dir is resolved
+                        # (e.g. dev.sh's .dev-data/instance-*/data).
+                        if idx != row_index:
                             continue
                     else:
                         current_row_name = row.get("row_name") or row.get("_row_name")
@@ -179,33 +185,36 @@ class DataEditor:
                             f.write(json.dumps(row, ensure_ascii=False) + "\n")
                     persisted_files.append(data_file)
 
-                # Index-based match applies only to the reader's file; stop once
-                # it has been processed.
-                if match_by_index and is_reader_file:
+                # An index identity is unique to one row; once matched, stop.
+                if match_by_index and file_updated:
                     break
 
             return updated_any, previous_value, persisted_files
 
         primary_by_index = (not row_name) and row_index is not None
-        updated_any, previous_value, persisted_files = _run_match(primary_by_index)
 
-        # Name matched nothing but we have a stable index — retry by position.
-        # (Index identity is unique, so update_all's fan-out does not apply here.)
-        if not updated_any and not primary_by_index and row_index is not None:
-            updated_any, previous_value, persisted_files = _run_match(True)
+        # Serialize the read-modify-write so concurrent single-cell updates for
+        # the same session (a multi-cell clear/paste) cannot clobber each other.
+        async with _get_session_write_lock(session_id):
+            updated_any, previous_value, persisted_files = _run_match(primary_by_index)
 
-        if not updated_any:
-            if primary_by_index:
-                raise ValueError(f"Row at index {row_index} not found")
-            if row_index is not None:
-                raise ValueError(
-                    f"Row with row_name '{row_name}' not found "
-                    f"(also tried index {row_index})"
-                )
-            raise ValueError(f"Row with row_name '{row_name}' not found")
+            # Name matched nothing but we have a stable index — retry by position.
+            # (Index identity is unique, so update_all's fan-out does not apply.)
+            if not updated_any and not primary_by_index and row_index is not None:
+                updated_any, previous_value, persisted_files = _run_match(True)
 
-        for data_file in persisted_files:
-            await persist_session_data_file(session_id, data_file)
+            if not updated_any:
+                if primary_by_index:
+                    raise ValueError(f"Row at index {row_index} not found")
+                if row_index is not None:
+                    raise ValueError(
+                        f"Row with row_name '{row_name}' not found "
+                        f"(also tried index {row_index})"
+                    )
+                raise ValueError(f"Row with row_name '{row_name}' not found")
+
+            for data_file in persisted_files:
+                await persist_session_data_file(session_id, data_file)
 
         return {
             "status": "success",

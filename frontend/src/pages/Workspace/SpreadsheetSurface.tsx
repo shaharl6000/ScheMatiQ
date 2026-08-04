@@ -648,6 +648,65 @@ export function SpreadsheetSurface({
     };
   }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel, schemaColumns, dataView, renderGroupCell]);
 
+  // Coalesce cell edit/clear toasts. Handsontable can split one visual clear
+  // into several afterChange batches (e.g. a 1-cell batch plus the rest), which
+  // otherwise produces both a per-cell "Cell cleared" toast and a "N cells
+  // cleared" summary. Accumulate across a short window and show a single toast:
+  // the detailed one when exactly one cell changed in total, the summary
+  // otherwise.
+  const editToastRef = useRef<{
+    cleared: number;
+    updated: number;
+    failed: number;
+    total: number;
+    single: { cleared: boolean; label: string; column: string } | null;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ cleared: 0, updated: 0, failed: 0, total: 0, single: null, timer: null });
+
+  const flushEditToast = useCallback(() => {
+    const a = editToastRef.current;
+    if (a.timer) { clearTimeout(a.timer); a.timer = null; }
+    const { cleared, updated, failed, total, single } = a;
+    editToastRef.current = { cleared: 0, updated: 0, failed: 0, total: 0, single: null, timer: null };
+    if (total === 0) return;
+    if (failed > 0) {
+      toast({
+        title: 'Some cells could not be saved',
+        description: `${failed} of ${total} update${total > 1 ? 's' : ''} failed.`,
+        variant: 'destructive',
+      });
+    } else if (total === 1 && single) {
+      toast({
+        title: single.cleared ? 'Cell cleared' : 'Cell updated',
+        description: `${single.label} / ${single.column}`,
+      });
+    } else {
+      const allCleared = updated === 0;
+      toast({ title: allCleared ? `${cleared} cells cleared` : `${cleared + updated} cells updated` });
+    }
+  }, [toast]);
+
+  const queueEditToast = useCallback(
+    (batch: {
+      succeeded: number;
+      failed: number;
+      allCleared: boolean;
+      single: { cleared: boolean; label: string; column: string } | null;
+    }) => {
+      const a = editToastRef.current;
+      a.total += batch.succeeded + batch.failed;
+      a.failed += batch.failed;
+      if (batch.allCleared) a.cleared += batch.succeeded;
+      else a.updated += batch.succeeded;
+      // Keep the detailed label only while the whole interaction is a single cell.
+      if (a.total === 1 && batch.single) a.single = batch.single;
+      else a.single = null;
+      if (a.timer) clearTimeout(a.timer);
+      a.timer = setTimeout(flushEditToast, 250);
+    },
+    [flushEditToast],
+  );
+
   const handleChanges = useCallback((changes: any[] | null, source: string) => {
     if (!changes || source === 'loadData' || !sessionId) return;
 
@@ -729,22 +788,15 @@ export function SpreadsheetSurface({
         const failed = results.filter((r) => r.status === 'rejected').length;
         const succeeded = updates.length - failed;
 
-        if (failed > 0) {
-          toast({
-            title: 'Some cells could not be saved',
-            description: `${failed} of ${updates.length} update${updates.length > 1 ? 's' : ''} failed.`,
-            variant: 'destructive',
-          });
-        } else if (updates.length === 1) {
+        let single: { cleared: boolean; label: string; column: string } | null = null;
+        if (updates.length === 1 && failed === 0) {
           const u = updates[0];
           const rowLabel = u.rowName || (u.rowIndexId != null ? `Row ${u.rowIndexId + 1}` : 'Row');
-          toast({
-            title: allCleared ? 'Cell cleared' : 'Cell updated',
-            description: `${rowLabel} / ${u.column}`,
-          });
-        } else {
-          toast({ title: allCleared ? `${succeeded} cells cleared` : `${succeeded} cells updated` });
+          single = { cleared: allCleared, label: rowLabel, column: u.column };
         }
+        // Accumulate; the debounced flush emits a single toast for the whole
+        // interaction even when Handsontable splits it across afterChange calls.
+        queueEditToast({ succeeded, failed, allCleared, single });
 
         onRefreshData();
       });
@@ -892,7 +944,7 @@ export function SpreadsheetSurface({
           });
       }
     }
-  }, [activeSheet, data.rows, hotTableRef, observationUnitRows, onEditFollowUp, onOptimisticCellEdit, onRefresh, onRefreshData, schemaColumns, sessionId, toast]);
+  }, [activeSheet, data.rows, hotTableRef, observationUnitRows, onEditFollowUp, onOptimisticCellEdit, onRefresh, onRefreshData, queueEditToast, schemaColumns, sessionId, toast]);
 
   const handleBeforeRemoveRow = useCallback(
     (_index: number, _amount: number, physicalRows: number[], _source?: string): boolean | void => {
