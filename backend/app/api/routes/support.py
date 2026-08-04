@@ -5,7 +5,10 @@ SUPPORT_EMAIL_TO via the shared Gmail sender, attaching the project's complete
 export JSON when the client supplies it. Fire-and-forget: always returns 200.
 """
 
+import io
 import logging
+import zipfile
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter
@@ -13,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.core.email_alerts import send_issue_report
 from app.services import session_manager
+from app.services.document_files import gather_source_documents
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +73,39 @@ def _build_context_rows(
 
     return rows
 
+async def _gather_documents(session_id: str) -> List[Tuple[str, bytes]]:
+    """Best-effort fetch of the session's source documents. Never raises."""
+    if not session_id:
+        return []
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            return []
+        return await gather_source_documents(session, session_id)
+    except Exception as e:
+        logger.debug("[support] Could not gather documents: %s", e)
+        return []
+
+
+def _build_bundle_zip(
+    project_bytes: Optional[bytes],
+    documents: List[Tuple[str, bytes]],
+) -> bytes:
+    """Zip the project JSON together with the user's source documents.
+
+    Mirrors the 'bundle' export: project.json at the root plus documents/<name>.
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        if project_bytes is not None:
+            zip_file.writestr("project.json", project_bytes)
+        for name, content in documents:
+            safe = Path(name).name
+            if safe:
+                zip_file.writestr(f"documents/{safe}", content)
+    return buf.getvalue()
+
+
 @router.post("/report", summary="Submit a user issue report")
 async def submit_issue_report(request: IssueReportRequest):
     """Email a user's issue report. Always returns 200; email is best-effort."""
@@ -76,26 +113,57 @@ async def submit_issue_report(request: IssueReportRequest):
         session_id = request.session_id or ""
         context_rows = _build_context_rows(session_id, request.client_context)
 
-        project_bytes: Optional[bytes] = None
+        project_bytes: Optional[bytes] = (
+            request.project_json.encode("utf-8") if request.project_json else None
+        )
+
+        # Attach the documents the user is working with (when any exist), bundled
+        # with the project JSON as a .zip — same shape as the 'bundle' export.
+        # Fall back to the plain project JSON when there are no documents.
+        documents = await _gather_documents(session_id)
+
+        attachment_bytes: Optional[bytes] = None
+        attachment_name = ""
+        attachment_subtype = "json"
         attachment_note = ""
-        if request.project_json:
-            raw = request.project_json.encode("utf-8")
-            if len(raw) <= _MAX_ATTACHMENT_BYTES:
-                project_bytes = raw
+        short = session_id[:8] if session_id else ""
+
+        if documents:
+            zip_bytes = _build_bundle_zip(project_bytes, documents)
+            if len(zip_bytes) <= _MAX_ATTACHMENT_BYTES:
+                attachment_bytes = zip_bytes
+                attachment_name = f"ScheMatiQ_{short}_bundle.zip" if short else "bundle.zip"
+                attachment_subtype = "zip"
+                context_rows.append(("Attached documents", len(documents)))
+            elif project_bytes is not None and len(project_bytes) <= _MAX_ATTACHMENT_BYTES:
+                attachment_bytes = project_bytes
+                attachment_name = f"ScheMatiQ_{short}_project.json" if short else "project.json"
+                attachment_note = (
+                    f"Documents omitted (bundle larger than "
+                    f"{_MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB); project JSON attached."
+                )
             else:
                 attachment_note = (
-                    "Project export omitted (larger than "
+                    f"Attachment omitted (larger than "
                     f"{_MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB)."
                 )
-
-        project_name = f"ScheMatiQ_{session_id[:8]}_project.json" if session_id else "project.json"
+        elif project_bytes is not None:
+            if len(project_bytes) <= _MAX_ATTACHMENT_BYTES:
+                attachment_bytes = project_bytes
+                attachment_name = f"ScheMatiQ_{short}_project.json" if short else "project.json"
+            else:
+                attachment_note = (
+                    f"Project export omitted (larger than "
+                    f"{_MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB)."
+                )
 
         send_issue_report(
             description=request.description,
             session_id=session_id,
             context_rows=context_rows,
-            project_json_bytes=project_bytes,
-            project_json_name=project_name,
+            attachment_bytes=attachment_bytes,
+            attachment_name=attachment_name,
+            attachment_subtype=attachment_subtype,
             attachment_note=attachment_note,
         )
         logger.info("[support] Issue report queued for session %s", session_id or "(none)")

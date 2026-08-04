@@ -225,6 +225,9 @@ def send_issue_report(
     description: str,
     session_id: str = "",
     context_rows: Optional[list] = None,
+    attachment_bytes: Optional[bytes] = None,
+    attachment_name: str = "",
+    attachment_subtype: str = "json",
     project_json_bytes: Optional[bytes] = None,
     project_json_name: str = "project.json",
     attachment_note: str = "",
@@ -233,7 +236,9 @@ def send_issue_report(
     """Email a user-submitted issue report to SUPPORT_EMAIL_TO. Never raises.
 
     ``context_rows`` is a list of ``(label, value)`` pairs rendered as a table.
-    ``project_json_bytes`` is attached as a .json file when provided. Unlike the
+    The attachment is ``(attachment_name, attachment_bytes, attachment_subtype)``
+    when provided (e.g. a project bundle .zip); otherwise it falls back to
+    ``project_json_bytes`` as a .json for backward compatibility. Unlike the
     quota alerts, this sends on every call (no once-per-process guard).
     """
     short = (session_id or "")[:8]
@@ -269,7 +274,9 @@ def send_issue_report(
     """
 
     attachment = None
-    if project_json_bytes:
+    if attachment_bytes:
+        attachment = (attachment_name or "attachment", attachment_bytes, attachment_subtype)
+    elif project_json_bytes:
         attachment = (project_json_name, project_json_bytes, "json")
 
     # If CC is not explicitly passed, fall back to global SUPPORT_CC_EMAILS
