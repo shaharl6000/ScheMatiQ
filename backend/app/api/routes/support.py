@@ -21,6 +21,8 @@ router = APIRouter(tags=["support"])
 # Guard rail: skip attaching very large project JSON (Gmail caps at 25 MB).
 _MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
+# Set default CC recipients here (or load from config)
+
 
 class IssueReportRequest(BaseModel):
     session_id: Optional[str] = Field(None, max_length=200)
@@ -66,7 +68,6 @@ def _build_context_rows(
             rows.append((key, str(client_context[key])[:500]))
 
     return rows
-
 
 @router.post("/report", summary="Submit a user issue report")
 async def submit_issue_report(request: IssueReportRequest):

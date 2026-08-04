@@ -1,8 +1,7 @@
 """Lightweight email alerts for quota and system events.
 
-Sends via Gmail API using the same Google OAuth credentials already
-configured for Google Sheets (GOOGLE_OAUTH_CREDENTIALS_JSON).
-No extra passwords or SMTP config needed.
+Sends via Gmail API using dedicated Google OAuth credentials
+(SUPPORT_EMAIL_OAUTH_CREDENTIALS_JSON). No extra passwords or SMTP config needed.
 
 Disabled when credentials or ALERT_EMAIL_TO are not set — never raises.
 """
@@ -14,18 +13,17 @@ import logging
 import re
 import threading
 from datetime import datetime, timezone
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
-from typing import Optional, Tuple
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from typing import List, Optional, Tuple, Union
 
 from app.core.config import (
     ALERT_EMAIL_TO,
-    SUPPORT_EMAIL_TO,
-    GOOGLE_OAUTH_CREDENTIALS_JSON,
-    GOOGLE_SERVICE_ACCOUNT_JSON,
-    GOOGLE_SERVICE_ACCOUNT_FILE,
     LLM_CALL_GLOBAL_LIMIT,
+    SUPPORT_CC_EMAILS,
+    SUPPORT_EMAIL_OAUTH_CREDENTIALS_JSON,
+    SUPPORT_EMAIL_TO,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,69 +35,68 @@ _lock = threading.Lock()
 
 
 def _build_gmail_service():
-    """Build Gmail API service from existing Google OAuth credentials."""
+    """Build Gmail API service directly from SUPPORT_EMAIL_OAUTH_CREDENTIALS_JSON."""
     try:
+        from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build
 
-        SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+        scopes = ["https://www.googleapis.com/auth/gmail.send"]
 
-        # Option 1: OAuth2 user credentials (same as Google Sheets)
-        if GOOGLE_OAUTH_CREDENTIALS_JSON:
-            from google.oauth2.credentials import Credentials
-            cleaned = re.sub(r"[\n\r\t]+\s*", "", GOOGLE_OAUTH_CREDENTIALS_JSON)
-            creds_data = json.loads(cleaned)
-            credentials = Credentials(
-                token=creds_data.get("token"),
-                refresh_token=creds_data["refresh_token"],
-                token_uri="https://oauth2.googleapis.com/token",
-                client_id=creds_data["client_id"],
-                client_secret=creds_data["client_secret"],
-                scopes=SCOPES,
+        if not SUPPORT_EMAIL_OAUTH_CREDENTIALS_JSON:
+            logger.error(
+                "[email-alert] SUPPORT_EMAIL_OAUTH_CREDENTIALS_JSON is missing or empty!"
             )
-            return build("gmail", "v1", credentials=credentials, cache_discovery=False)
+            return None
 
-        # Option 2: Service account (needs domain-wide delegation for Gmail)
-        if GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE:
-            from google.oauth2 import service_account
-            if GOOGLE_SERVICE_ACCOUNT_JSON:
-                cleaned = re.sub(r"[\n\r\t]+\s*", "", GOOGLE_SERVICE_ACCOUNT_JSON)
-                info = json.loads(cleaned)
-                credentials = service_account.Credentials.from_service_account_info(
-                    info, scopes=SCOPES
-                )
-            else:
-                credentials = service_account.Credentials.from_service_account_file(
-                    GOOGLE_SERVICE_ACCOUNT_FILE, scopes=SCOPES
-                )
-            return build("gmail", "v1", credentials=credentials, cache_discovery=False)
+        cleaned = re.sub(r"[\n\r\t]+\s*", "", SUPPORT_EMAIL_OAUTH_CREDENTIALS_JSON)
+        creds_data = json.loads(cleaned)
+
+        # Handle nested keys if user pasted raw client secrets alongside tokens
+        if "installed" in creds_data or "web" in creds_data:
+            creds_data = creds_data.get("installed") or creds_data.get("web")
+
+        credentials = Credentials(
+            token=creds_data.get("token"),
+            refresh_token=creds_data["refresh_token"],
+            token_uri=creds_data.get("token_uri", "https://oauth2.googleapis.com/token"),
+            client_id=creds_data["client_id"],
+            client_secret=creds_data["client_secret"],
+            scopes=creds_data.get("scopes", scopes),
+        )
+        return build("gmail", "v1", credentials=credentials, cache_discovery=False)
 
     except Exception as e:
-        logger.debug("[email-alert] Could not build Gmail service: %s", e)
-    return None
+        logger.error("[email-alert] Failed to build Gmail service: %s", e, exc_info=True)
+        return None
 
 
 def _send_email(
     subject: str,
     html_body: str,
     recipient: Optional[str] = None,
+    cc: Optional[Union[List[str], str]] = None,
     attachment: Optional[Tuple[str, bytes, str]] = None,
 ) -> None:
-    """Send an email via Gmail API in a background thread. Never raises.
-
-    ``recipient`` overrides the default ``ALERT_EMAIL_TO``. ``attachment`` is an
-    optional ``(filename, content_bytes, mime_subtype)`` tuple; when given, the
-    message becomes a ``mixed`` multipart carrying the HTML body plus the file.
-    """
+    """Send an email via Gmail API in a background thread. Never raises."""
     to_addr = recipient if recipient is not None else ALERT_EMAIL_TO
     if not to_addr:
-        logger.debug("[email-alert] No recipient configured — skipping")
+        logger.warning(
+            "[email-alert] No recipient configured (SUPPORT_EMAIL_TO / ALERT_EMAIL_TO is empty) — skipping"
+        )
         return
+
+    # Normalize CC list to a clean list of strings
+    cc_list: List[str] = []
+    if isinstance(cc, str):
+        cc_list = [c.strip() for c in cc.split(",") if c.strip()]
+    elif isinstance(cc, list):
+        cc_list = [c.strip() for c in cc if c.strip()]
 
     def _send():
         try:
             service = _build_gmail_service()
             if not service:
-                logger.debug("[email-alert] Gmail service not available — skipping")
+                logger.error("[email-alert] Gmail service creation returned None — skipping send")
                 return
 
             if attachment is not None:
@@ -107,18 +104,20 @@ def _send_email(
                 msg = MIMEMultipart("mixed")
                 msg["Subject"] = subject
                 msg["To"] = to_addr
+                if cc_list:
+                    msg["Cc"] = ", ".join(cc_list)
                 body = MIMEMultipart("alternative")
                 body.attach(MIMEText(html_body, "html"))
                 msg.attach(body)
                 part = MIMEApplication(content, _subtype=mime_subtype)
-                part.add_header(
-                    "Content-Disposition", "attachment", filename=filename
-                )
+                part.add_header("Content-Disposition", "attachment", filename=filename)
                 msg.attach(part)
             else:
                 msg = MIMEMultipart("alternative")
                 msg["Subject"] = subject
                 msg["To"] = to_addr
+                if cc_list:
+                    msg["Cc"] = ", ".join(cc_list)
                 msg.attach(MIMEText(html_body, "html"))
 
             raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
@@ -127,10 +126,12 @@ def _send_email(
                 body={"raw": raw},
             ).execute()
 
-            logger.info("[email-alert] Sent: %s → %s", subject, to_addr)
+            cc_info = f" (Cc: {', '.join(cc_list)})" if cc_list else ""
+            logger.info("[email-alert] Sent: %s → %s%s", subject, to_addr, cc_info)
         except Exception as e:
-            logger.error("[email-alert] Failed to send email: %s", e)
+            logger.error("[email-alert] Failed to send email: %s", e, exc_info=True)
 
+    # Run as a background daemon thread to avoid blocking response handling
     threading.Thread(target=_send, daemon=True).start()
 
 
@@ -227,6 +228,7 @@ def send_issue_report(
     project_json_bytes: Optional[bytes] = None,
     project_json_name: str = "project.json",
     attachment_note: str = "",
+    cc: Optional[Union[List[str], str]] = None,
 ) -> None:
     """Email a user-submitted issue report to SUPPORT_EMAIL_TO. Never raises.
 
@@ -239,20 +241,22 @@ def send_issue_report(
 
     safe_desc = html.escape(description or "").replace("\n", "<br>")
     rows_html = ""
-    for label, value in (context_rows or []):
+    for label, value in context_rows or []:
         rows_html += (
-            '<tr>'
+            "<tr>"
             f'<td style="padding: 8px 16px; border: 1px solid #ddd; font-weight: bold;">{html.escape(str(label))}</td>'
             f'<td style="padding: 8px 16px; border: 1px solid #ddd;">{html.escape(str(value))}</td>'
-            '</tr>'
+            "</tr>"
         )
     table_html = (
         f'<table style="border-collapse: collapse; margin: 16px 0;">{rows_html}</table>'
-        if rows_html else ""
+        if rows_html
+        else ""
     )
     note_html = (
         f'<p style="color: #666; font-size: 14px;">{html.escape(attachment_note)}</p>'
-        if attachment_note else ""
+        if attachment_note
+        else ""
     )
 
     html_body = f"""
@@ -268,4 +272,13 @@ def send_issue_report(
     if project_json_bytes:
         attachment = (project_json_name, project_json_bytes, "json")
 
-    _send_email(subject, html_body, recipient=SUPPORT_EMAIL_TO, attachment=attachment)
+    # If CC is not explicitly passed, fall back to global SUPPORT_CC_EMAILS
+    target_cc = cc if cc is not None else SUPPORT_CC_EMAILS
+
+    _send_email(
+        subject,
+        html_body,
+        recipient=SUPPORT_EMAIL_TO,
+        cc=target_cc,
+        attachment=attachment,
+    )
