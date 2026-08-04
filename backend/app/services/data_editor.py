@@ -112,7 +112,23 @@ class DataEditor:
             previous_value = None
             persisted_files: list = []
 
+            # `_row_index` is the line position in the file the *reader*
+            # (get_paginated_data) serves: data_dir/{session}/data.jsonl. That is
+            # NOT necessarily data_files[0] — resolve_session_data_files lists
+            # work_dir/extracted_data.jsonl first when it exists (dev sessions
+            # have one). Matching the index against data_files[0] then reads the
+            # wrong file and the fallback fails for rows whose stored name does
+            # not match the displayed identity. Resolve the reader's file and
+            # match the index there specifically.
+            reader_file = (self.data_dir / session_id / "data.jsonl").resolve()
+
             for file_position, data_file in enumerate(data_files):
+                is_reader_file = False
+                try:
+                    is_reader_file = Path(data_file).resolve() == reader_file
+                except OSError:
+                    is_reader_file = False
+
                 # Read all rows for this file
                 rows = []
                 try:
@@ -126,12 +142,8 @@ class DataEditor:
                 file_updated = False
                 for idx, row in enumerate(rows):
                     if match_by_index:
-                        # row_index is an absolute position in the reader's
-                        # merged, deduped view, not a per-file line number. Only
-                        # the first resolved file is authoritative for the index
-                        # fallback (effectively single-file); do not attempt it
-                        # against later files.
-                        if file_position != 0 or idx != row_index:
+                        # Only the reader's file is authoritative for the index.
+                        if not is_reader_file or idx != row_index:
                             continue
                     else:
                         current_row_name = row.get("row_name") or row.get("_row_name")
@@ -167,8 +179,9 @@ class DataEditor:
                             f.write(json.dumps(row, ensure_ascii=False) + "\n")
                     persisted_files.append(data_file)
 
-                # Index-based match targets a single file only; stop after the first.
-                if match_by_index and file_position == 0:
+                # Index-based match applies only to the reader's file; stop once
+                # it has been processed.
+                if match_by_index and is_reader_file:
                     break
 
             return updated_any, previous_value, persisted_files
