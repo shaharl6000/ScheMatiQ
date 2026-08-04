@@ -117,6 +117,7 @@ export function SpreadsheetSurface({
   }, []);
   const lastGridSizeRef = useRef({ width: 0, height: 0 });
   const [gridSize, setGridSize] = useState({ width: 0, height: 0 });
+  const scrollResyncTimerRef = useRef<number | undefined>(undefined);
 
   const applyGridSize = useCallback((width: number, height: number) => {
     const nextWidth = Math.max(320, Math.floor(width));
@@ -151,6 +152,43 @@ export function SpreadsheetSurface({
     hot.refreshDimensions();
     applyGridSize(width, height);
   }, [applyGridSize, hotTableRef]);
+
+  // Handsontable's last-column header width and the vertical scrollbar's
+  // reserved width can fall out of sync: the header clone (ht_clone_top) has
+  // no vertical scrollbar of its own, so when the body's scrollbar
+  // appears/disappears or the overlays' cached geometry goes stale, the last
+  // column's header renders wider than its body cells -- visible as the
+  // header overhanging past the body's right edge once you're scrolled all
+  // the way right (this is the same class of bug as
+  // handsontable/handsontable#10187, "Status: Released" upstream but
+  // reproducible here from a different trigger). `hot.render()` alone does
+  // NOT fix this: render() only repaints with the already-cached overlay
+  // sizes. The actual resync happens inside `updateSettings()`, which
+  // unconditionally calls `render()` + the internal
+  // `view._wt.wtOverlays.adjustElementsSize()` pair at the end of every
+  // settings update, recomputing overlay geometry against the current
+  // scrollbar state. `syncHotTableDimensions` already does exactly this (via
+  // `updateSettings({ width, height })`), so we reuse it instead of
+  // duplicating that logic. A short debounce (not every scroll tick) keeps
+  // this from adding cost during active scrolling.
+  const resyncAfterScroll = useCallback(() => {
+    if (scrollResyncTimerRef.current !== undefined) {
+      window.clearTimeout(scrollResyncTimerRef.current);
+    }
+    scrollResyncTimerRef.current = window.setTimeout(() => {
+      const hot = hotTableRef.current?.hotInstance;
+      if (!hot || hot.isDestroyed) return;
+      syncHotTableDimensions();
+    }, 80);
+  }, [hotTableRef, syncHotTableDimensions]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollResyncTimerRef.current !== undefined) {
+        window.clearTimeout(scrollResyncTimerRef.current);
+      }
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const element = gridContainerEl;
@@ -1309,6 +1347,8 @@ export function SpreadsheetSurface({
         }}
         afterColumnSort={applyGroupMerges}
         afterFilter={applyGroupMerges}
+        afterScrollHorizontally={resyncAfterScroll}
+        afterScrollVertically={resyncAfterScroll}
         beforeRemoveRow={handleBeforeRemoveRow}
         beforeRemoveCol={handleBeforeRemoveCol}
         beforeKeyDown={handleBeforeKeyDown}
