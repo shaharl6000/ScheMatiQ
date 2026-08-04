@@ -151,6 +151,7 @@ def _decode_screenshots(
 
 
 
+@router.post("/report", summary="Submit a user issue report")
 async def submit_issue_report(request: IssueReportRequest):
     """Email a user's issue report. Always returns 200; email is best-effort."""
     try:
