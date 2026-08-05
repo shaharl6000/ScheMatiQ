@@ -1,6 +1,4 @@
-import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -148,8 +146,6 @@ export function AdvancedSettingsFields({
   maxDocuments,
   className,
 }: AdvancedSettingsFieldsProps) {
-  const [editingSchemaLlm, setEditingSchemaLlm] = useState(false);
-  const [editingValueLlm, setEditingValueLlm] = useState(false);
 
   return (
     <div className={className ?? 'space-y-4'}>
@@ -369,122 +365,86 @@ export function AdvancedSettingsFields({
           <hr />
           {/* Schema creation LLM */}
           <div className="space-y-3">
-            {editingSchemaLlm ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Schema Creation LLM</Label>
-                  <Button variant="ghost" size="sm" onClick={() => setEditingSchemaLlm(false)}>Done</Button>
-                </div>
-                <div className="space-y-2">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Provider</Label>
-                    <Select
-                      value={value.schemaProvider}
-                      onValueChange={(provider) => onChange({ schemaProvider: provider, schemaModel: getDefaultModelForProvider(provider as LLMProviderKey) })}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {providers.map((provider) => (
-                          <SelectItem key={provider} value={provider}>{LLM_PROVIDER_NAMES[provider]}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Model</Label>
-                    <ModelSelector
-                      provider={value.schemaProvider as LLMProviderKey}
-                      value={value.schemaModel}
-                      onChange={(modelId) => onChange({ schemaModel: modelId })}
-                      showDetails
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Temperature</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={2}
-                      step={0.1}
-                      value={value.schemaTemperature}
-                      onChange={(e) => onChange({ schemaTemperature: parseFloat(e.target.value) || 0 })}
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-between">
-                <div className="text-sm">
-                  <span className="font-medium">Schema LLM:</span>{' '}
-                  <span className="text-muted-foreground">
-                    {LLM_PROVIDER_NAMES[value.schemaProvider as LLMProviderKey]} / {value.schemaModel}
-                    {value.schemaTemperature !== 0 && ` (temp: ${value.schemaTemperature})`}
-                  </span>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => setEditingSchemaLlm(true)}>Edit</Button>
+            <Label className="text-sm font-medium">Schema Creation LLM</Label>
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Provider</Label>
+                <Select
+                  value={value.schemaProvider}
+                  onValueChange={(provider) => onChange({ schemaProvider: provider, schemaModel: getDefaultModelForProvider(provider as LLMProviderKey) })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {providers.map((provider) => (
+                      <SelectItem key={provider} value={provider}>{LLM_PROVIDER_NAMES[provider]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            )}
+              <div className="space-y-1">
+                <Label className="text-xs">Model</Label>
+                <ModelSelector
+                  provider={value.schemaProvider as LLMProviderKey}
+                  value={value.schemaModel}
+                  onChange={(modelId) => onChange({ schemaModel: modelId })}
+                  showDetails
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Temperature</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={2}
+                  step={0.1}
+                  value={value.schemaTemperature}
+                  onChange={(e) => onChange({ schemaTemperature: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
           </div>
 
           <hr />
 
           {/* Value extraction LLM */}
           <div className="space-y-3">
-            {editingValueLlm ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Value Extraction LLM</Label>
-                  <Button variant="ghost" size="sm" onClick={() => setEditingValueLlm(false)}>Done</Button>
-                </div>
-                <div className="space-y-2">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Provider</Label>
-                    <Select
-                      value={value.valueProvider}
-                      onValueChange={(provider) => onChange({ valueProvider: provider, valueModel: getDefaultModelForProvider(provider as LLMProviderKey) })}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {providers.map((provider) => (
-                          <SelectItem key={provider} value={provider}>{LLM_PROVIDER_NAMES[provider]}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Model</Label>
-                    <ModelSelector
-                      provider={value.valueProvider as LLMProviderKey}
-                      value={value.valueModel}
-                      onChange={(modelId) => onChange({ valueModel: modelId })}
-                      showDetails
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Temperature</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={2}
-                      step={0.1}
-                      value={value.valueTemperature}
-                      onChange={(e) => onChange({ valueTemperature: parseFloat(e.target.value) || 0 })}
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-between">
-                <div className="text-sm">
-                  <span className="font-medium">Value LLM:</span>{' '}
-                  <span className="text-muted-foreground">
-                    {LLM_PROVIDER_NAMES[value.valueProvider as LLMProviderKey]} / {value.valueModel}
-                    {value.valueTemperature !== 0 && ` (temp: ${value.valueTemperature})`}
-                  </span>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => setEditingValueLlm(true)}>Edit</Button>
+            <Label className="text-sm font-medium">Value Extraction LLM</Label>
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Provider</Label>
+                <Select
+                  value={value.valueProvider}
+                  onValueChange={(provider) => onChange({ valueProvider: provider, valueModel: getDefaultModelForProvider(provider as LLMProviderKey) })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {providers.map((provider) => (
+                      <SelectItem key={provider} value={provider}>{LLM_PROVIDER_NAMES[provider]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            )}
+              <div className="space-y-1">
+                <Label className="text-xs">Model</Label>
+                <ModelSelector
+                  provider={value.valueProvider as LLMProviderKey}
+                  value={value.valueModel}
+                  onChange={(modelId) => onChange({ valueModel: modelId })}
+                  showDetails
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Temperature</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={2}
+                  step={0.1}
+                  value={value.valueTemperature}
+                  onChange={(e) => onChange({ valueTemperature: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
           </div>
         </>
       )}
