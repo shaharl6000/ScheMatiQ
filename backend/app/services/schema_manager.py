@@ -13,7 +13,6 @@ from pathlib import Path
 from datetime import datetime
 
 from app.models.session import ColumnInfo
-from app.services.atomic_jsonl import write_jsonl_atomic
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
@@ -323,7 +322,9 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 updated_rows.append(row_data)
             
             # Write back updated data
-            write_jsonl_atomic(data_file, updated_rows)
+            with open(data_file, 'w') as f:
+                for row in updated_rows:
+                    f.write(json.dumps(row) + '\n')
             
             logger.info(f"Successfully removed columns {columns_to_remove} from {columns_removed_count} rows")
             
@@ -560,7 +561,9 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         updated_rows.append(row_data)
             
             # Write back updated data
-            write_jsonl_atomic(data_file, updated_rows)
+            with open(data_file, 'w') as f:
+                for row in updated_rows:
+                    f.write(json.dumps(row) + '\n')
 
             await self.broadcast_completion(
                 session_id,
@@ -681,7 +684,9 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 updated_rows.append(row_data)
 
         # Write back updated data
-        write_jsonl_atomic(data_file, updated_rows)
+        with open(data_file, 'w') as f:
+            for row in updated_rows:
+                f.write(json.dumps(row) + '\n')
     
     async def _add_new_column_data(self, session_id: str, column_name: str, extraction_file: Path):
         """Add data for a new column to existing records across ALL data files."""
