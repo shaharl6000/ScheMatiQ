@@ -91,7 +91,12 @@ export function useWorkspaceSocket({
           totalDocuments: payload.total_documents ?? current?.totalDocuments ?? 0,
           currentColumn: payload.column || current?.currentColumn,
         }));
-        void refresh({ silent: true });
+        // Progress fires once per cell, alongside a `cell_extracted` event that
+        // already triggers a data-only refresh. Re-extraction never changes the
+        // schema/status/config/session, so a full `refresh` here re-fetches and
+        // re-sets four structural payloads per cell for no benefit, flooding the
+        // backend and churning the grid. Fetch only the rows that actually change.
+        void refreshSilent();
         return;
       }
 
