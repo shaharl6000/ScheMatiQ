@@ -20,6 +20,7 @@ from app.models.upload import (
     ColumnMappingRequest, CompatibilityCheck
 )
 from app.services.file_parser import FileParser, format_column_header, is_system_file
+from app.services.pipeline.data_query import session_data_read_failed
 from app.services import session_manager, websocket_manager, concurrency_limiter
 from app.services.upload_document_processor import UploadDocumentProcessor
 from app.storage import get_storage
@@ -361,8 +362,28 @@ async def get_data_with_filters(
             document_filter=document_filter
         )
 
+        # An empty payload that contradicts the session's own row count means the
+        # data could not be read, not that the table is empty. Reporting it as a
+        # retryable error keeps clients from rendering an empty table (and, for
+        # schema-driven grids, bare column headers) over data that still exists.
+        if await session_data_read_failed(session_id, data, session):
+            logger.error(
+                "Session %s: data read returned 0 rows while statistics record %s — "
+                "no local data file and the rows are present in storage",
+                session_id,
+                session.statistics.total_rows,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Table data could not be loaded right now. Please retry in a moment.",
+            )
+
         return data
 
+    except HTTPException:
+        # Preserve intended status codes (404 for a missing session, 503 above);
+        # the generic handler below would otherwise report them all as 500.
+        raise
     except Exception as e:
         logger.error(f"Exception in get_data_with_filters: {e}")
         import traceback
