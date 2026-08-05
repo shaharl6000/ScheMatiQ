@@ -158,6 +158,12 @@ function Workspace() {
     return {};
   });
   const [formatVersion, setFormatVersion] = useState(0);
+  // Bumped only when authoritative server data is applied (applyData /
+  // flushDeferredData), never on an optimistic cell edit. The By Unit view keys
+  // its refetch off this instead of `data` so an optimistic edit, which mutates
+  // `data` synchronously before its PUT persists, cannot trigger a unit refetch
+  // that races the write and briefly reverts the typed value.
+  const [dataServerVersion, setDataServerVersion] = useState(0);
   const [sheetSelection, setSheetSelection] = useState<SheetSelection>(null);
   const [showSourcePanel, setShowSourcePanel] = useState(false);
   // Grounding excerpts of the currently selected data cell, highlighted in the
@@ -202,6 +208,7 @@ function Workspace() {
       }
       deferredDataRef.current = null;
       setData((current) => (dataEquals(current, nextData) ? current : nextData));
+      setDataServerVersion((v) => v + 1);
     },
     [isCellEditorOpen],
   );
@@ -211,6 +218,7 @@ function Workspace() {
     if (!pending) return;
     deferredDataRef.current = null;
     setData((current) => (dataEquals(current, pending) ? current : pending));
+    setDataServerVersion((v) => v + 1);
   }, []);
 
   // Fetch row data only — no status/schema/session churn. Used after cell edits
@@ -457,17 +465,26 @@ function Workspace() {
   // Lazily fetch the observation-unit-grouped data when the Data sheet is in
   // "By Unit" mode. Same schema columns as the by-document view; only the row
   // grouping differs (one row per observation unit instead of per document).
+  //
+  // Refetch triggers off `dataServerVersion` (bumped only when server rows are
+  // applied), not `data`, so an optimistic edit does not race its own write. A
+  // short trailing debounce coalesces bursts of server updates (e.g. the
+  // per-cell stream during re-extraction) into a single unit fetch instead of
+  // one per changed cell.
   useEffect(() => {
     if (activeSheet !== 'data' || dataView !== 'by_unit' || !sessionId) return;
     let cancelled = false;
-    unitsAPI
-      .getData(sessionId, { page: 0, pageSize: 500 })
-      .then((res) => { if (!cancelled) setUnitData(res); })
-      .catch(() => { if (!cancelled) setUnitData(emptyData); });
+    const timer = window.setTimeout(() => {
+      unitsAPI
+        .getData(sessionId, { page: 0, pageSize: 500 })
+        .then((res) => { if (!cancelled) setUnitData(res); })
+        .catch(() => { if (!cancelled) setUnitData(emptyData); });
+    }, 200);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [activeSheet, dataView, sessionId, data]);
+  }, [activeSheet, dataView, sessionId, dataServerVersion]);
 
   // Order the By Unit rows so their unit groups appear in the same sequence as
   // the By Document view (the units' first appearance in the by-document data),
