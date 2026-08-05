@@ -401,10 +401,13 @@ async def get_data(
     """Get paginated data for a session (backward compatible, no filtering)."""
     return await get_data_with_filters(session_id, page, page_size, documents, None)
 
-@router.get("/sessions", response_model=List[VisualizationSession])
-async def list_sessions():
-    """List all upload sessions."""
-    return session_manager.list_sessions(SessionType.UPLOAD)
+# NOTE: the unauthenticated "list every session" endpoint was removed here.
+# These routes have no auth (main.py installs only CORSMiddleware, which is
+# browser-only), so the listing let any caller enumerate every project id on
+# the deployment and then read any project's data, documents and chat. The
+# frontend never called it: frontend/src/utils/recentProjects.ts keeps a
+# per-browser registry of ids precisely because the server has no user scoping.
+# Restoring a listing endpoint requires an auth/ownership model first.
 
 @router.get("/sessions/{session_id}", response_model=VisualizationSession)
 async def get_session(session_id: str):

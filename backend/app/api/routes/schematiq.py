@@ -544,10 +544,9 @@ async def stop_schematiq(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/sessions", response_model=List[VisualizationSession])
-async def list_schematiq_sessions():
-    """List all ScheMatiQ sessions."""
-    return session_manager.list_sessions(SessionType.SCHEMATIQ)
+# NOTE: the unauthenticated "list every session" endpoint was removed here.
+# See the matching note in routes/load.py — the listing exposed every project
+# id on the deployment to any caller, and the frontend never used it.
 
 
 @router.get("/directories")
