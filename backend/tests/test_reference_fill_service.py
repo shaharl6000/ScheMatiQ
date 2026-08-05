@@ -12,9 +12,18 @@ from schematiq.core.llm_call_tracker import QuotaExceededError
 
 
 class _Col:
-    def __init__(self, name, definition=""):
+    """Stands in for ColumnInfo.
+
+    ``allowed_values`` must be present with the model's own default (None):
+    ReferenceFillService reads it (reference_fill_service.py:207) to constrain
+    categorical columns, so a stub without it raises AttributeError rather than
+    exercising the code under test.
+    """
+
+    def __init__(self, name, definition="", allowed_values=None):
         self.name = name
         self.definition = definition
+        self.allowed_values = allowed_values
 
 
 class _Session:
@@ -82,7 +91,12 @@ def _build(monkeypatch, rows, values, runner=None, reference_text="small ref"):
     async def fake_load_all_rows(self, session_id):
         return rows
 
-    async def fake_extract(self, client, unit, column, definition, context):
+    async def fake_extract(self, client, unit, column, definition, context, allowed_values=None):
+        # Must mirror the real _extract_value_for_row signature, which the fill
+        # loop calls with allowed_values as a 6th positional argument. A stale
+        # signature raises TypeError, and the loop's broad `except Exception`
+        # (reference_fill_service.py:347) swallows it into "row not found" —
+        # which reads as a logic failure rather than a broken fake.
         # allow a per-row side effect (e.g. request stop) via the values callable
         return values(self, unit) if callable(values) else values[unit]
 
@@ -141,17 +155,23 @@ async def test_stops_when_quota_reached(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stop_request_halts_the_loop(monkeypatch):
+    # Rows are processed concurrently under a semaphore of
+    # REFERENCE_FILL_CONCURRENCY, so a stop requested while the first row is in
+    # flight cannot un-start the rows that already hold a permit. Use more rows
+    # than the concurrency limit so there are rows left for the stop to skip.
+    from app.services.reference_fill_service import REFERENCE_FILL_CONCURRENCY
+
+    row_count = REFERENCE_FILL_CONCURRENCY + 4
     rows = [
-        {"unit_name": "Canby", "source_document": "docA"},
-        {"unit_name": "Forrest", "source_document": "docA"},
-        {"unit_name": "Smith", "source_document": "docA"},
+        {"unit_name": f"Judge{i}", "source_document": "docA"} for i in range(row_count)
     ]
+    processed: list[str] = []
 
     def values(svc, unit):
-        # After the first row is produced, request stop; the loop should end
-        # before processing the remaining rows.
-        if unit == "Canby":
-            svc.request_stop(next(iter(svc._ops)))
+        # Stop as soon as any row is produced; the rows still waiting for a
+        # semaphore permit must not be processed.
+        processed.append(unit)
+        svc.request_stop(next(iter(svc._ops)))
         return "X"
 
     svc, ws, editor, runner = _build(monkeypatch, rows, values)
@@ -159,6 +179,11 @@ async def test_stop_request_halts_the_loop(monkeypatch):
     op = await _run_to_completion(svc, result)
 
     assert op.status == "stopped"
+    assert len(processed) < row_count, (
+        "rows queued behind the semaphore must be skipped after a stop"
+    )
+    assert op.filled == len(processed)
+    assert op.skipped == op.total - op.filled
     assert op.filled == 1  # only the first row was written
 
 
@@ -254,8 +279,10 @@ async def test_per_row_call_uses_reference_fill_model(monkeypatch):
     captured: dict = {}
 
     class _FakeModels:
-        async def generate_content(self, model, contents):
+        # The real call passes config=types.GenerateContentConfig(temperature=0).
+        async def generate_content(self, model, contents, config=None):
             captured["model"] = model
+            captured["config"] = config
             return type("R", (), {"text": "Democratic"})()
 
     class _FakeClient:

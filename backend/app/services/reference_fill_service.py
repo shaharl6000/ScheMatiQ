@@ -398,6 +398,14 @@ class ReferenceFillService:
                     }
             outcomes = list(by_unit.values())
 
+            if self._stop.get(op.fill_id) and op.status == "running":
+                # A user-requested stop only ever set the _stop flag; the quota
+                # path was the sole writer of the "stopped" status. Without this,
+                # a run the user halted reports "completed", and the recap below
+                # spends another model call describing a run that was cut short.
+                op.status = "stopped"
+                op.message = f"Stopped early: filled {op.filled} of {op.total} rows."
+
             if op.status == "running":
                 op.status = "completed"
                 # One extra model call (the stronger chat model) recaps the run for the
