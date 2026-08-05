@@ -81,16 +81,7 @@ export const LLM_MODELS: LLMModelDefinition[] = [
     speed: 'very_fast',
     contextWindow: 1000000,
   },
-  {
-    id: 'gemini-2.5-pro',
-    provider: 'gemini',
-    label: 'Gemini 2.5 Pro',
-    description: 'Most capable Gemini 2.5 model',
-    cost: 'high',
-    speed: 'moderate',
-    contextWindow: 1000000,
-  },
-  {
+    {
     id: 'gemini-3.1-flash-lite',
     provider: 'gemini',
     label: 'Gemini 3.1 Flash Lite',

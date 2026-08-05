@@ -35,7 +35,6 @@ class ModelNames:
     # Gemini
     GEMINI_25_FLASH = "gemini-2.5-flash"
     GEMINI_25_FLASH_LITE = "gemini-2.5-flash-lite"
-    GEMINI_25_PRO = "gemini-2.5-pro"
     GEMINI_31_FLASH_LITE = "gemini-3.1-flash-lite"
     GEMINI_35_FLASH = "gemini-3.5-flash"
     GEMINI_35_FLASH_LITE = "gemini-3.5-flash-lite"
@@ -76,7 +75,6 @@ MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
     "gemini": {
         ModelNames.GEMINI_25_FLASH: ModelSpec(1_048_576, 65_535, supports_thinking=True),
         ModelNames.GEMINI_25_FLASH_LITE: ModelSpec(1_048_576, 65_535, supports_thinking=True),
-        ModelNames.GEMINI_25_PRO: ModelSpec(1_048_576, 65_535, supports_thinking=True),
         ModelNames.GEMINI_31_FLASH_LITE: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
         ModelNames.GEMINI_35_FLASH: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
         ModelNames.GEMINI_36_FLASH: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
