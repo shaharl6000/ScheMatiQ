@@ -93,8 +93,13 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 # ── Release Mode vs Developer Mode ──────────────────────────────
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    """Read a boolean environment variable (accepts 1/true/yes, any case)."""
+    return os.environ.get(name, str(default)).strip().lower() in {"1", "true", "yes"}
+
+
 # Default: release mode (restricted). Set DEVELOPER_MODE=true to unlock.
-DEVELOPER_MODE = os.environ.get("DEVELOPER_MODE", "false").lower() == "true"
+DEVELOPER_MODE = _env_flag("DEVELOPER_MODE")
 
 # All mode-dependent feature flags live here.
 # To add a new release restriction, add a key with its release-mode default.
@@ -107,8 +112,10 @@ RELEASE_CONFIG = {
     "llm_temperature": 0,
 }
 
-# Convenience: whether LLM config UI should be shown
-ALLOW_LLM_CONFIG = DEVELOPER_MODE
+# Whether users may choose the LLM provider/model. Available to everyone by
+# default; set ALLOW_LLM_CONFIG=false to lock the pipeline to the release
+# models. Developer mode always allows it.
+ALLOW_LLM_CONFIG = _env_flag("ALLOW_LLM_CONFIG", default=True) or DEVELOPER_MODE
 
 # Model used for per-row "fill column from reference" lookups. This is a narrow
 # extraction task (pull one value out of a reference excerpt), not open-ended

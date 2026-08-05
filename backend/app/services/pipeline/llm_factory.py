@@ -3,7 +3,7 @@
 import logging
 from typing import Optional
 
-from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.config import ALLOW_LLM_CONFIG, RELEASE_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -75,12 +75,21 @@ def enforce_release_llm_config(backend_config: dict, is_schema_creation: bool = 
     Returns:
         The config dict, potentially with provider/model/temperature overridden
     """
-    if DEVELOPER_MODE:
-        return backend_config
+    role = "schema_creation" if is_schema_creation else "value_extraction"
 
-    return {
-        **backend_config,
-        "provider": RELEASE_CONFIG["llm_provider"],
-        "model": RELEASE_CONFIG["schema_creation_model"] if is_schema_creation else RELEASE_CONFIG["value_extraction_model"],
-        "temperature": RELEASE_CONFIG["llm_temperature"],
-    }
+    if ALLOW_LLM_CONFIG:
+        resolved, source = backend_config, "user-selected"
+    else:
+        resolved = {
+            **backend_config,
+            "provider": RELEASE_CONFIG["llm_provider"],
+            "model": RELEASE_CONFIG["schema_creation_model"] if is_schema_creation else RELEASE_CONFIG["value_extraction_model"],
+            "temperature": RELEASE_CONFIG["llm_temperature"],
+        }
+        source = "release-enforced"
+
+    logger.info(
+        "LLM config (%s): provider=%s model=%s (%s)",
+        role, resolved["provider"], resolved["model"], source,
+    )
+    return resolved
