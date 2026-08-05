@@ -735,6 +735,16 @@ function Workspace() {
     return { ...tableDisplay, ...selectedFormat };
   }, [activeSheet, cellFormats, sheetSelection, tableDisplay]);
 
+  // Keyboard shortcut entry point (Ctrl/Cmd+B/I/U). Toggles relative to the
+  // current selection's format, exactly like the toolbar buttons, and reuses
+  // applyTableFormat so cell-level vs sheet-level fallback stays identical.
+  const handleFormatShortcut = useCallback(
+    (key: 'bold' | 'italic' | 'underline') => {
+      applyTableFormat({ [key]: !selectedDisplayOptions[key] });
+    },
+    [applyTableFormat, selectedDisplayOptions],
+  );
+
   const printWorkspace = useCallback(() => {
     window.print();
   }, []);
@@ -944,6 +954,7 @@ function Workspace() {
         onOptimisticCellEdit={applyOptimisticCellEdits}
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
+        onToggleFormatShortcut={handleFormatShortcut}
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
       />
