@@ -60,6 +60,7 @@ export function SpreadsheetSurface({
   onOptimisticCellEdit,
   onEditFollowUp,
   onEditEnd,
+  onToggleFormatShortcut,
   layoutRevision,
   dataView,
 }: {
@@ -95,6 +96,9 @@ export function SpreadsheetSurface({
   ) => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
   onEditEnd: () => void;
+  // Toggle a text format (bold/italic/underline) on the current selection,
+  // invoked by the Ctrl/Cmd+B/I/U keyboard shortcuts registered below.
+  onToggleFormatShortcut?: (key: 'bold' | 'italic' | 'underline') => void;
   layoutRevision: string;
   // Current Data-sheet grouping. Drives the visual cell-merge of the leftmost
   // grouping column: 'by_unit' merges unit_name, 'by_document' merges the
@@ -510,6 +514,41 @@ export function SpreadsheetSurface({
   // skips re-pushing any init-only prop whose value is unchanged, so the plugin
   // is configured once and never torn down on subsequent renders. The list is
   // wrapper-facing metadata that Handsontable's core never reads at runtime.
+  // Latest-value ref so the shortcut callback (registered once at afterInit) is
+  // never stale, without re-registering on every render. Mirrors menuActionsRef.
+  const formatShortcutRef = useRef(onToggleFormatShortcut);
+  formatShortcutRef.current = onToggleFormatShortcut;
+
+  // Register Ctrl/Cmd+B/I/U through Handsontable's built-in ShortcutManager
+  // rather than a hand-rolled keydown handler. The shortcuts live in the 'grid'
+  // context, so they fire only when the grid is focused and NOT while a cell
+  // editor is open (typing "b" into a cell must not bold it). Ctrl+B/I/U are not
+  // Handsontable defaults, so this adds no conflict with copy/undo/select-all.
+  // Registered per instance at afterInit; the grid remounts on sheet/view
+  // changes, giving each instance its own fresh context (no accumulation).
+  const registerFormatShortcuts = useCallback(() => {
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+    try {
+      const context = hot.getShortcutManager().getContext('grid');
+      if (!context) return;
+      const bindings: [string, 'bold' | 'italic' | 'underline'][] = [
+        ['b', 'bold'],
+        ['i', 'italic'],
+        ['u', 'underline'],
+      ];
+      for (const [letter, format] of bindings) {
+        context.addShortcut({
+          keys: [['control', letter], ['meta', letter]],
+          callback: () => { formatShortcutRef.current?.(format); },
+          preventDefault: true,
+          stopPropagation: true,
+          group: 'schematiq:formatting',
+        });
+      }
+    } catch { /* instance may be mid-teardown or context unavailable */ }
+  }, [hotTableRef]);
+
   const markFilterSettingsInitOnly = useCallback(() => {
     const hot = hotTableRef.current?.hotInstance;
     if (!hot) return;
@@ -1393,6 +1432,7 @@ export function SpreadsheetSurface({
           syncHotTableDimensions();
           applyGroupMerges();
           markFilterSettingsInitOnly();
+          registerFormatShortcuts();
           syncHeaderOverlayScroll();
         }}
         // Runs after Handsontable has drawn and (mis)clamped the header overlay's
