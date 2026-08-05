@@ -1031,7 +1031,12 @@ export function SpreadsheetSurface({
           // columns' extracted values, so it must not flag a re-extract.
           // The "Schema changed" banner is only for edits/additions that
           // require re-running extraction against the source documents.
-          onRefresh();
+          //
+          // Schema-only refresh (no data reload), matching the Data-sheet
+          // "Delete column" path: deleting a column changes only the column
+          // list, so reloading the rows here is wasted work and would reset the
+          // Data grid's scroll when the user switches back.
+          onSchemaRefresh();
         })
         .catch((err: any) => {
           toast({
@@ -1039,7 +1044,7 @@ export function SpreadsheetSurface({
             description: err?.response?.data?.detail || err?.message || 'Could not delete column',
             variant: 'destructive',
           });
-          onRefresh();
+          onSchemaRefresh();
         });
 
       // Cancel Handsontable's local removal; the schema state refresh below
@@ -1047,7 +1052,7 @@ export function SpreadsheetSurface({
       // Schema and Data tabs in sync with a single source of truth.
       return false;
     },
-    [activeSheet, onRefresh, schemaColumns, sessionId, toast],
+    [activeSheet, onSchemaRefresh, schemaColumns, sessionId, toast],
   );
 
   const handleBeforeRemoveCol = useCallback(
@@ -1091,8 +1096,9 @@ export function SpreadsheetSurface({
             description: names.join(', '),
           });
           // Same rationale as row deletion: dropping a column does not
-          // invalidate the remaining columns' values, so no re-extract flag.
-          onRefresh();
+          // invalidate the remaining columns' values, so no re-extract flag and
+          // a schema-only refresh is enough (no data reload / scroll reset).
+          onSchemaRefresh();
         })
         .catch((err: any) => {
           toast({
@@ -1100,14 +1106,14 @@ export function SpreadsheetSurface({
             description: err?.response?.data?.detail || err?.message || 'Could not delete column',
             variant: 'destructive',
           });
-          onRefresh();
+          onSchemaRefresh();
         });
 
       // Cancel the local removal; the refresh re-renders the grid from the
       // server's updated schema so Data and Schema tabs stay in sync.
       return false;
     },
-    [activeSheet, onRefresh, schemaColumns, sessionId, sheet.columns, toast],
+    [activeSheet, onSchemaRefresh, schemaColumns, sessionId, sheet.columns, toast],
   );
 
   // Resolve the schema-column names covered by the current grid selection,
