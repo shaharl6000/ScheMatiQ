@@ -108,7 +108,7 @@ RELEASE_CONFIG = {
 }
 
 # Convenience: whether LLM config UI should be shown
-ALLOW_LLM_CONFIG = DEVELOPER_MODE
+ALLOW_LLM_CONFIG = os.environ.get("ALLOW_LLM_CONFIG", "true").lower() == "true"
 
 # Model used for per-row "fill column from reference" lookups. This is a narrow
 # extraction task (pull one value out of a reference excerpt), not open-ended
