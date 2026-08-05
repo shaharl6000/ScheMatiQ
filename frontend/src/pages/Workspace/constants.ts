@@ -91,11 +91,6 @@ export const emptyData: PaginatedData = {
   page_size: 500,
   has_more: false,
 };
-// Delay before re-checking a zero-row data response that arrived while the grid
-// was showing rows. Long enough for an in-flight backend data-file rewrite to
-// finish, short enough that a genuinely emptied table clears without a visible
-// wait. See applyData in index.tsx.
-export const EMPTY_DATA_RECHECK_MS = 900;
 export const WORKSPACE_DEFAULT_ADVANCED: AdvancedSettingsValue = {
   ...DEFAULT_ADVANCED_SETTINGS,
   schemaProvider: DEFAULT_PROVIDER,

@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
-from app.services.atomic_jsonl import write_jsonl_atomic
 from app.services.data_utils import (
     resolve_session_data_files,
     persist_session_data_file,
@@ -181,7 +180,9 @@ class DataEditor:
                         break
 
                 if file_updated:
-                    write_jsonl_atomic(data_file, rows, ensure_ascii=False)
+                    with open(data_file, "w", encoding="utf-8") as f:
+                        for row in rows:
+                            f.write(json.dumps(row, ensure_ascii=False) + "\n")
                     persisted_files.append(data_file)
 
                 # An index identity is unique to one row; once matched, stop.
@@ -342,7 +343,9 @@ class DataEditor:
                 if rename_column_keys_in_row(row, old_name, new_name):
                     file_rows_updated += 1
 
-            write_jsonl_atomic(data_file, rows, ensure_ascii=False)
+            with open(data_file, "w", encoding="utf-8") as f:
+                for row in rows:
+                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
             await persist_session_data_file(session_id, data_file)
             files_updated += 1
