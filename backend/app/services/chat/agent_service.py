@@ -9,11 +9,20 @@ import time
 import uuid
 from typing import Any, Optional
 
-from app.core.config import DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT
+from app.core.config import (
+    CHAT_MAX_MESSAGES_PER_SESSION,
+    DEVELOPER_MODE,
+    LLM_CALL_GLOBAL_LIMIT,
+)
 from schematiq.core.llm_call_tracker import LLMCallTracker, QuotaExceededError
 
 from .deps import CHAT_MODEL, get_gemini_api_key, schematiq_runner
-from .session_store import ChatSessionState, PendingToolCall, chat_session_store
+from .session_store import (
+    ChatSessionState,
+    PendingToolCall,
+    chat_session_store,
+    session_message_counter,
+)
 from .tool_executor import tool_executor
 from .tool_registry import (
     TOOL_BY_NAME,
@@ -53,6 +62,13 @@ QUOTA_EXCEEDED_CHAT_MESSAGE = (
     "right now. Please contact us to restore access."
 )
 
+MESSAGE_CAP_CHAT_MESSAGE = (
+    "This project has reached its chat message limit "
+    f"({CHAT_MAX_MESSAGES_PER_SESSION} messages). The table and documents are "
+    "unaffected and remain editable. Please contact us if you need the limit "
+    "raised."
+)
+
 
 class ChatAgentService:
     def __init__(self) -> None:
@@ -74,6 +90,18 @@ class ChatAgentService:
         await asyncio.to_thread(
             schematiq_runner.check_global_quota, LLM_CALL_GLOBAL_LIMIT
         )
+
+    @staticmethod
+    def _message_cap_reached(session_id: str) -> bool:
+        """Return True when this workspace session is out of chat messages.
+
+        Read-only: the counter is only incremented once a turn is actually
+        going to run, so a capped request does not keep pushing the count up.
+        Bypassed in developer mode and when the cap is set to 0.
+        """
+        if DEVELOPER_MODE or CHAT_MAX_MESSAGES_PER_SESSION <= 0:
+            return False
+        return session_message_counter.count(session_id) >= CHAT_MAX_MESSAGES_PER_SESSION
 
     @staticmethod
     async def _flush_llm_usage(state: ChatSessionState) -> None:
@@ -111,6 +139,17 @@ class ChatAgentService:
     ) -> dict[str, Any]:
         state = self._get_or_create_session(session_id, session_mode, chat_id, model)
         outbound_messages: list[dict[str, Any]] = []
+        # Enforced before the pending-action handling and the quota check, so a
+        # capped session does no Gemini work at all. Creating the chat session
+        # above is local to the SDK and costs no API call.
+        if self._message_cap_reached(session_id):
+            outbound_messages.append(self._text_message(MESSAGE_CAP_CHAT_MESSAGE))
+            return {
+                "chat_id": state.chat_id,
+                "status": "complete",
+                "messages": outbound_messages,
+            }
+        session_message_counter.increment(session_id)
         if state.pending:
             abort_messages, new_pending = await self._abort_pending(
                 state,
