@@ -237,6 +237,53 @@ async def get_schema(session_id: str, session_manager, work_dir: Path) -> Dict[s
     return {"query": "", "schema": []}
 
 
+async def session_data_read_failed(
+    session_id: str,
+    data: PaginatedData,
+    session,
+) -> bool:
+    """Return True when an empty result means "could not read" rather than "no rows".
+
+    ``get_data`` reports zero rows for two very different situations: a session
+    that genuinely has no rows, and one whose data files could not be read — the
+    local file is gone after a redeploy and hydration from storage failed. That
+    failure is swallowed in ``ensure_session_data_file_local``, which returns
+    False and logs at debug level, so the caller receives HTTP 200 with an empty
+    table and nothing explains why. Callers that draw their columns from the
+    schema then render column headers with no data underneath.
+
+    Four conditions, cheapest first, all required:
+
+    * the read produced no rows at all — not a filter that matched nothing and
+      not a page past the end, since ``total_count`` is the unfiltered count in
+      both branches of ``get_data``;
+    * the session's own statistics record rows. This is an independent record,
+      cleared only when the pipeline resets a session for rediscovery;
+    * no data file resolved locally. A table whose rows were all deleted keeps
+      its (now empty) file, so this is what separates "emptied" from "missing";
+    * the rows do exist in remote storage, i.e. hydration is what failed.
+
+    Only the last condition costs a storage round-trip, and it is reached only
+    for a session that should have rows but has no local file at all.
+    """
+    from app.services.data_utils import (
+        enumerate_session_data_files,
+        session_has_stored_data,
+    )
+
+    if data.total_count > 0:
+        return False
+
+    statistics = getattr(session, "statistics", None)
+    if not statistics or (statistics.total_rows or 0) <= 0:
+        return False
+
+    if enumerate_session_data_files(session_id):
+        return False
+
+    return await session_has_stored_data(session_id)
+
+
 async def get_data(
     session_id: str,
     work_dir: Path,
