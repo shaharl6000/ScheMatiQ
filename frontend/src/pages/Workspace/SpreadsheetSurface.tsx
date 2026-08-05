@@ -588,13 +588,6 @@ export function SpreadsheetSurface({
     [activeSheet, groupBadgeNoun, groupKeyAtVisual],
   );
 
-  // Re-apply merges whenever the displayed data, grouping column, or grid size
-  // changes. gridSize is a dep because Handsontable re-applies width/height via
-  // its own settings update on resize, after which the merges must be restored.
-  useEffect(() => {
-    applyGroupMerges();
-  }, [applyGroupMerges, gridSize, formatVersion]);
-
   const schemaRows = useMemo(() => {
     return schemaColumns.map((column) => ({
       // Display-only: the canonical `column.name` remains the edit identity
@@ -698,6 +691,53 @@ export function SpreadsheetSurface({
       ],
     };
   }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel, schemaColumns, dataView, renderGroupCell]);
+
+  const cellsCallback = useCallback((row: number, col: number) => {
+    const props: { readOnly?: boolean; className?: string } = {};
+    const column = sheet.columns[col];
+    if (column?.readOnly) props.readOnly = true;
+    if (activeSheet === 'unit' && column?.key === 'value') {
+      const field = String(sheet.rows[row]?.field || '');
+      props.readOnly = !EDITABLE_OBSERVATION_UNIT_FIELDS.has(field);
+    }
+    const formatClasses = getCellFormatClasses(cellFormats[cellFormatKey(activeSheet, row, col)]);
+    if (formatClasses) props.className = formatClasses;
+    if (activeSheet === 'data' && column && dataGrounding[row]?.[column.key]) {
+      props.className = [props.className, 'has-grounding'].filter(Boolean).join(' ');
+    }
+    return props;
+  }, [activeSheet, cellFormats, dataGrounding, sheet]);
+
+  const prevFormatVersionRef = useRef(formatVersion);
+
+  // Re-apply merges whenever the displayed data, grouping column, or grid size
+  // changes. gridSize is a dep because Handsontable re-applies width/height via
+  // its own settings update on resize, after which the merges must be restored.
+  // When cell formats change (formatVersion bump), invalidate Handsontable's
+  // cached cell meta and re-render in place so the grid keeps selection, scroll,
+  // and undo — instead of remounting via a React key change.
+  useEffect(() => {
+    applyGroupMerges();
+
+    const formatChanged = prevFormatVersionRef.current !== formatVersion;
+    prevFormatVersionRef.current = formatVersion;
+    if (!formatChanged) return;
+
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+
+    const selection = hot.getSelected();
+    try {
+      hot.updateSettings({ cells: cellsCallback });
+      hot.render();
+    } catch { /* instance may be mid-teardown */ }
+
+    if (selection && selection.length > 0) {
+      try {
+        hot.selectCells(selection);
+      } catch { /* selection may be invalid mid-teardown */ }
+    }
+  }, [applyGroupMerges, cellsCallback, formatVersion, gridSize, hotTableRef]);
 
   // Coalesce cell edit/clear toasts. Handsontable can split one visual clear
   // into several afterChange batches (e.g. a 1-cell batch plus the rest), which
@@ -1314,7 +1354,7 @@ export function SpreadsheetSurface({
     >
       <HotTable
         ref={hotTableRef}
-        key={`${activeSheet}-${formatVersion}-${activeSheet === 'data' ? dataView : 'x'}`}
+        key={`${activeSheet}-${activeSheet === 'data' ? dataView : 'x'}`}
         className="workspace-hot"
         theme="ht-theme-main"
         data={sheet.rows}
@@ -1438,21 +1478,7 @@ export function SpreadsheetSurface({
             content: { answer: grounding.answer, excerpts: grounding.excerpts },
           });
         }}
-        cells={(row: number, col: number) => {
-          const props: { readOnly?: boolean; className?: string } = {};
-          const column = sheet.columns[col];
-          if (column?.readOnly) props.readOnly = true;
-          if (activeSheet === 'unit' && column?.key === 'value') {
-            const field = String(sheet.rows[row]?.field || '');
-            props.readOnly = !EDITABLE_OBSERVATION_UNIT_FIELDS.has(field);
-          }
-          const formatClasses = getCellFormatClasses(cellFormats[cellFormatKey(activeSheet, row, col)]);
-          if (formatClasses) props.className = formatClasses;
-          if (activeSheet === 'data' && column && dataGrounding[row]?.[column.key]) {
-            props.className = [props.className, 'has-grounding'].filter(Boolean).join(' ');
-          }
-          return props;
-        }}
+        cells={cellsCallback}
       />
       {groundingModal && (
         <ContentModal
