@@ -164,6 +164,16 @@ LLM_USAGE_SYNC_TTL_SECONDS = float(os.environ.get("LLM_USAGE_SYNC_TTL_SECONDS", 
 # limit" warning email (e.g. 0.8 = warn at 80%). Set to 0 to disable the warning.
 LLM_CALL_WARN_THRESHOLD = float(os.environ.get("LLM_CALL_WARN_THRESHOLD", "0.8"))
 
+# ── Chat Message Cap ─────────────────────────────────────────────
+# Maximum number of user chat messages accepted per workspace session.
+# Bounds how much of the global LLM quota any single project can consume,
+# independently of what the messages are about. Counted per workspace
+# session (not per conversation), in memory, and bypassed in developer mode.
+# Set to 0 to disable the cap.
+CHAT_MAX_MESSAGES_PER_SESSION = int(
+    os.environ.get("CHAT_MAX_MESSAGES_PER_SESSION", "250")
+)
+
 # ── Quota Alert Email ────────────────────────────────────────────
 # Send an email when the LLM quota is exceeded.
 # Uses the same Google OAuth credentials as Google Sheets (no extra passwords).
