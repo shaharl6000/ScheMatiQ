@@ -13,9 +13,30 @@ from app.models.chat import (
     ChatTurnMessage,
     PendingChatAction,
 )
+from app.services import session_manager
 from app.services.chat.agent_service import chat_agent_service
 
 router = APIRouter(tags=["chat"])
+
+
+def _require_session(session_id: str) -> None:
+    """Reject chat requests for workspace sessions that do not exist.
+
+    These routes are unauthenticated, and the agent service builds a Gemini
+    chat for whatever ``session_id`` string it is handed — it never checks that
+    the session is real. Without this guard, any caller can spend the server's
+    LLM quota by POSTing to an arbitrary ``/api/chat/<anything>/message`` path,
+    with no project and no documents.
+
+    Sessions are persisted through the storage backend and rehydrated on
+    startup (``SessionManager._load_sessions``), so a legitimate session_id
+    keeps working across restarts and redeploys.
+
+    Must be called *before* the route's ``try`` block: the handlers catch bare
+    ``Exception`` and would otherwise convert this 404 into a 500.
+    """
+    if session_manager.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
 
 
 @router.get("/tools", response_model=ChatToolsResponse)
@@ -23,6 +44,11 @@ async def list_chat_tools(
     session_id: Optional[str] = Query(None),
     session_mode: str = Query("schematiq"),
 ) -> ChatToolsResponse:
+    # session_id is optional here: with no session the registry returns the
+    # project-creation tools, which is how the UI populates /tools before a
+    # project exists. Only validate when the caller claims a session.
+    if session_id:
+        _require_session(session_id)
     tools = await chat_agent_service.list_tools(session_id, session_mode)
     return ChatToolsResponse(tools=[ChatToolInfo(**tool) for tool in tools])
 
@@ -32,6 +58,7 @@ async def send_chat_message(
     session_id: str,
     request: ChatMessageRequest,
 ) -> ChatMessageResponse:
+    _require_session(session_id)
     try:
         result = await chat_agent_service.send_message(
             session_id=session_id,
@@ -62,6 +89,7 @@ async def confirm_chat_action(
     session_id: str,
     request: ChatConfirmRequest,
 ) -> ChatMessageResponse:
+    _require_session(session_id)
     try:
         result = await chat_agent_service.confirm_pending(session_id, request.chat_id)
         return ChatMessageResponse(
@@ -85,6 +113,7 @@ async def cancel_chat_action(
     session_id: str,
     request: ChatConfirmRequest,
 ) -> ChatMessageResponse:
+    _require_session(session_id)
     try:
         result = await chat_agent_service.cancel_pending(session_id, request.chat_id)
         return ChatMessageResponse(
