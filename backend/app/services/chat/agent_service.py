@@ -107,8 +107,9 @@ class ChatAgentService:
         session_mode: str,
         chat_id: Optional[str] = None,
         pinned_tool: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> dict[str, Any]:
-        state = self._get_or_create_session(session_id, session_mode, chat_id)
+        state = self._get_or_create_session(session_id, session_mode, chat_id, model)
         outbound_messages: list[dict[str, Any]] = []
         if state.pending:
             abort_messages, new_pending = await self._abort_pending(
@@ -152,7 +153,7 @@ class ChatAgentService:
             if self._is_stale_chat_error(exc) and chat_id:
                 logger.warning("Stale chat session %s, starting fresh: %s", chat_id, exc)
                 chat_session_store.delete(chat_id)
-                state = self._get_or_create_session(session_id, session_mode, None)
+                state = self._get_or_create_session(session_id, session_mode, None, model)
                 result = await self._run_loop(state, user_text, outbound_messages)
                 return {
                     "chat_id": state.chat_id,
@@ -302,13 +303,14 @@ class ChatAgentService:
         session_id: str,
         session_mode: str,
         chat_id: Optional[str],
+        model: Optional[str] = None,
     ) -> ChatSessionState:
         if chat_id:
             existing = chat_session_store.get(chat_id)
             if existing and existing.workspace_session_id == session_id:
                 return existing
 
-        client, chat = self._create_gemini_chat(session_id, session_mode)
+        client, chat = self._create_gemini_chat(session_id, session_mode, model)
         state = ChatSessionState(
             client=client,
             chat=chat,
@@ -334,7 +336,9 @@ class ChatAgentService:
                     self._genai_client = genai.Client(api_key=get_gemini_api_key())
         return self._genai_client
 
-    def _create_gemini_chat(self, session_id: str, session_mode: str) -> tuple[Any, Any]:
+    def _create_gemini_chat(
+        self, session_id: str, session_mode: str, model: Optional[str] = None
+    ) -> tuple[Any, Any]:
         from google.genai import types
 
         tools = get_tools_for_context(session_id, session_mode)
@@ -349,7 +353,9 @@ class ChatAgentService:
             system_instruction=CHAT_SYSTEM_PROMPT,
         )
         client = self._get_genai_client()
-        chat = client.aio.chats.create(model=CHAT_MODEL, config=config)
+        resolved_model = model or CHAT_MODEL
+        logger.info("Chat session using model: %s", resolved_model)
+        chat = client.aio.chats.create(model=resolved_model, config=config)
         return client, chat
 
     async def _run_loop(

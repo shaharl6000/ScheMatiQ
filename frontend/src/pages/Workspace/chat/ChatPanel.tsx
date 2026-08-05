@@ -4,9 +4,10 @@
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUp, Bot, Check, FileText, Loader2, Paperclip, X } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { ModelSelector } from '@/components/ModelSelector';
+import { getDefaultModelForProvider } from '@/constants';
 import { chatAPI, referenceAPI, type ReferenceDocumentInfo } from '@/services/api';
 import webSocketService from '@/services/websocket';
 import type { ChatToolInfo, PaginatedData, SchemaData, ScheMatiQStatus, WebSocketMessage } from '@/types';
@@ -78,6 +79,7 @@ export function ChatPanel({
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [chatId, setChatId] = useState<string | null>(null);
+  const [chatModel, setChatModel] = useState<string>(() => getDefaultModelForProvider('gemini'));
   const [pinnedTool, setPinnedTool] = useState<string | null>(null);
   const [availableTools, setAvailableTools] = useState<ChatToolInfo[]>([]);
   const [pendingAction, setPendingAction] = useState<PendingChatAction | null>(null);
@@ -346,6 +348,7 @@ export function ChatPanel({
         chat_id: chatId || undefined,
         session_mode: sessionMode,
         pinned_tool: pinnedTool || undefined,
+        model: chatModel || undefined,
       });
       applyChatResponse(response);
     } catch (err: any) {
@@ -440,16 +443,25 @@ export function ChatPanel({
         </div>
       )}
       <div className="workspace-chat-header">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Bot className="h-4 w-4" />
-          Chat
+        <div className="flex min-w-0 items-center gap-2">
+          <Bot className="h-4 w-4 shrink-0" />
+          <ModelSelector
+            provider="gemini"
+            value={chatModel}
+            onChange={(nextModel) => {
+              setChatModel(nextModel);
+              // Chat sessions are bound to a model at creation, so start a
+              // fresh session to make the switch take effect on the next turn.
+              setChatId(null);
+            }}
+            disabled={busy}
+            showDetails={false}
+            triggerClassName="h-8 w-auto max-w-[240px] focus:ring-offset-0"
+          />
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline">gemini-3.5-flash</Badge>
-          <Button size="sm" variant="outline" onClick={showToolsList} disabled={busy}>
-            Tools
-          </Button>
-        </div>
+        <Button size="sm" variant="outline" className="ml-2 shrink-0" onClick={showToolsList} disabled={busy}>
+          Tools
+        </Button>
       </div>
 
       {SHOW_TOOL_SUGGESTION && availableTools.length > 0 && (

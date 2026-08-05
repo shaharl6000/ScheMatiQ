@@ -39,6 +39,7 @@ async def send_chat_message(
             session_mode=request.session_mode,
             chat_id=request.chat_id,
             pinned_tool=request.pinned_tool,
+            model=request.model,
         )
         return ChatMessageResponse(
             chat_id=result["chat_id"],

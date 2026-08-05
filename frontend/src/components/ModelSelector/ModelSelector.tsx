@@ -27,6 +27,7 @@ interface ModelSelectorProps {
   disabled?: boolean;
   showDetails?: boolean;
   placeholder?: string;
+  triggerClassName?: string;
 }
 
 /**
@@ -55,6 +56,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   disabled = false,
   showDetails = true,
   placeholder = 'Select a model',
+  triggerClassName,
 }) => {
   const models = getModelsForProvider(provider);
   const selectedModel = getModelByProviderAndId(provider, value);
@@ -72,12 +74,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   return (
     <div className="space-y-2">
       <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger>
+        <SelectTrigger className={triggerClassName}>
           <SelectValue placeholder={placeholder}>
             {selectedModel && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 {getModelIcon(selectedModel)}
-                <span>{selectedModel.label}</span>
+                <span className="truncate">{selectedModel.label}</span>
               </div>
             )}
           </SelectValue>

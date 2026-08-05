@@ -1082,6 +1082,7 @@ export const chatAPI = {
       chat_id?: string;
       session_mode: 'schematiq' | 'load';
       pinned_tool?: string;
+      model?: string;
     },
   ): Promise<ChatMessageResponse> => {
     const response = await api.post(`/chat/${sessionId}/message`, payload, { timeout: CHAT_REQUEST_TIMEOUT_MS });
