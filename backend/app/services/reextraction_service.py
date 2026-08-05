@@ -19,6 +19,7 @@ from app.models.session import (
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
+from app.services.atomic_jsonl import write_jsonl_atomic
 from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
 from app.services.data_utils import row_name_of
 from app.storage.factory import get_storage
@@ -750,9 +751,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             import shutil
             shutil.copy2(data_file, backup_file)
 
-            with open(data_file, 'w') as f:
-                for row in rows:
-                    f.write(json.dumps(row) + '\n')
+            write_jsonl_atomic(data_file, rows)
 
     async def download_cloud_papers(
         self,
@@ -1716,9 +1715,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 new_rows_added += 1
                 matched_extracted_keys.add(ext_key)
 
-            with open(schematiq_extracted_file, "w") as f:
-                for row in updated_rows:
-                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            write_jsonl_atomic(schematiq_extracted_file, updated_rows, ensure_ascii=False)
             logger.info(
                 "Wrote %s with %d rows (%d updated, %d new)",
                 schematiq_extracted_file,
@@ -1818,9 +1815,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 if new_rows_added > 0:
                     logger.info(f"Appended {new_rows_added} new rows to {data_file.name}")
 
-            with open(data_file, 'w') as f:
-                for row in updated_rows:
-                    f.write(json.dumps(row) + '\n')
+            write_jsonl_atomic(data_file, updated_rows)
 
             await persist_session_data_file(session_id, data_file)
 

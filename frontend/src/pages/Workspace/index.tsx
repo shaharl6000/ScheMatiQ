@@ -60,7 +60,7 @@ import type {
 import type { DocumentListResponse } from '@/types/unit';
 
 import { ChatPanel } from './chat/ChatPanel';
-import { emptyData, SHEETS, cellFormatKey } from './constants';
+import { emptyData, EMPTY_DATA_RECHECK_MS, SHEETS, cellFormatKey } from './constants';
 import {
   buildExportFilename,
   dataEquals,
@@ -90,6 +90,14 @@ import type {
 } from './types';
 
 import './Workspace.css';
+
+type RefreshDataOptions = {
+  silent?: boolean;
+  force?: boolean;
+  // Set only by the automatic re-check in applyData: accept a zero-row payload
+  // even when the grid is currently showing rows.
+  acceptEmpty?: boolean;
+};
 
 async function downloadAs(path: string, filename: string): Promise<void> {
   const response = await api.get(path, { responseType: 'blob' });
@@ -186,6 +194,20 @@ function Workspace() {
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
   const cancelChatPendingRef = useRef<(() => Promise<boolean>) | null>(null);
+  // Row count of the payload currently rendered in the grid. Written eagerly on
+  // every commit and re-synced from state below, so a refresh can tell "the
+  // table really is empty" apart from "this response came back empty while the
+  // grid is showing rows".
+  const dataRowCountRef = useRef(0);
+  const unitDataRowCountRef = useRef(0);
+  const emptyRecheckTimerRef = useRef<number | null>(null);
+  const refreshDataRef = useRef<((options?: RefreshDataOptions) => Promise<void>) | null>(null);
+
+  const clearEmptyRecheck = useCallback(() => {
+    if (emptyRecheckTimerRef.current == null) return;
+    window.clearTimeout(emptyRecheckTimerRef.current);
+    emptyRecheckTimerRef.current = null;
+  }, []);
 
   const cancelChatPendingIfAny = useCallback(async (): Promise<boolean> => {
     if (!cancelChatPendingRef.current) return true;
@@ -197,8 +219,31 @@ function Workspace() {
     return Boolean(editor?.isOpened?.());
   }, []);
 
+  const commitData = useCallback((nextData: PaginatedData) => {
+    dataRowCountRef.current = nextData.rows.length;
+    setData((current) => (dataEquals(current, nextData) ? current : nextData));
+    setDataServerVersion((v) => v + 1);
+  }, []);
+
+  // A zero-row payload arriving while the grid is showing rows is almost always
+  // transient rather than a real empty table: the backend rewrites a session's
+  // JSONL data file in place (truncate, then write), so a fetch landing inside
+  // that window reads a half-written file and returns 200 with zero rows. The
+  // grid takes its columns from the schema and its rows from this payload, so
+  // applying it renders as "headers with no data". Keep the rows already on
+  // screen and re-check once; a table that really is empty is confirmed by the
+  // re-check and applied then. Nothing is committed on the skipped attempt, so
+  // dataServerVersion is not bumped and no By Unit refetch is triggered either.
+  const scheduleEmptyRecheck = useCallback(() => {
+    if (emptyRecheckTimerRef.current != null) return;
+    emptyRecheckTimerRef.current = window.setTimeout(() => {
+      emptyRecheckTimerRef.current = null;
+      void refreshDataRef.current?.({ silent: true, acceptEmpty: true });
+    }, EMPTY_DATA_RECHECK_MS);
+  }, []);
+
   const applyData = useCallback(
-    (nextData: PaginatedData, opts?: { silent?: boolean; force?: boolean }) => {
+    (nextData: PaginatedData, opts?: RefreshDataOptions) => {
       // Background polls defer while the inline editor is open so a mid-edit
       // fetch cannot clobber what the user is typing. Post-edit refreshes pass
       // force so the persisted value is always applied.
@@ -206,32 +251,49 @@ function Workspace() {
         deferredDataRef.current = nextData;
         return;
       }
+      if (!opts?.acceptEmpty && nextData.rows.length === 0 && dataRowCountRef.current > 0) {
+        deferredDataRef.current = null;
+        scheduleEmptyRecheck();
+        return;
+      }
       deferredDataRef.current = null;
-      setData((current) => (dataEquals(current, nextData) ? current : nextData));
-      setDataServerVersion((v) => v + 1);
+      commitData(nextData);
     },
-    [isCellEditorOpen],
+    [commitData, isCellEditorOpen, scheduleEmptyRecheck],
   );
 
   const flushDeferredData = useCallback(() => {
     const pending = deferredDataRef.current;
     if (!pending) return;
     deferredDataRef.current = null;
-    setData((current) => (dataEquals(current, pending) ? current : pending));
-    setDataServerVersion((v) => v + 1);
-  }, []);
+    if (pending.rows.length === 0 && dataRowCountRef.current > 0) {
+      scheduleEmptyRecheck();
+      return;
+    }
+    commitData(pending);
+  }, [commitData, scheduleEmptyRecheck]);
 
   // Fetch row data only — no status/schema/session churn. Used after cell edits
   // and for background polls so a refresh cannot re-render the grid from stale
   // React state while the network round-trip is still in flight.
-  const refreshData = useCallback(async (options?: { silent?: boolean; force?: boolean }) => {
+  const refreshData = useCallback(async (options?: RefreshDataOptions) => {
     if (!sessionId) return;
     const fetchData = sessionMode === 'load'
       ? () => loadAPI.getData(sessionId, 0, 500)
       : () => schematiqAPI.getData(sessionId, 0, 500);
-    const nextData = await fetchData().catch(() => emptyData);
+    // Keep the rows already on screen when the fetch fails instead of blanking
+    // the grid. The columns come from the schema, so falling back to emptyData
+    // here is exactly what leaves the user looking at headers with no data.
+    const nextData = await fetchData().catch(() => null);
+    if (!nextData) return;
     applyData(nextData, options);
   }, [applyData, sessionId, sessionMode]);
+
+  // The re-check scheduled by applyData needs the current refreshData without
+  // making applyData depend on it (they are mutually recursive by design).
+  useEffect(() => {
+    refreshDataRef.current = refreshData;
+  }, [refreshData]);
 
   const refreshAfterEdit = useCallback(() => refreshData({ silent: true, force: true }), [refreshData]);
 
@@ -460,7 +522,21 @@ function Workspace() {
     setSession(null);
     setDataView('by_document');
     setUnitData(emptyData);
-  }, [sessionId]);
+    // Drop refresh bookkeeping tied to the session we are leaving, so a pending
+    // re-check cannot apply the previous session's rows to the new one.
+    dataRowCountRef.current = 0;
+    unitDataRowCountRef.current = 0;
+    deferredDataRef.current = null;
+    clearEmptyRecheck();
+  }, [clearEmptyRecheck, sessionId]);
+
+  useEffect(() => clearEmptyRecheck, [clearEmptyRecheck]);
+
+  // Belt-and-braces re-sync: every commit writes dataRowCountRef eagerly, this
+  // keeps it correct for the paths that set `data` directly (optimistic edits).
+  useEffect(() => {
+    dataRowCountRef.current = data.rows.length;
+  }, [data]);
 
   // Lazily fetch the observation-unit-grouped data when the Data sheet is in
   // "By Unit" mode. Same schema columns as the by-document view; only the row
@@ -477,8 +553,19 @@ function Workspace() {
     const timer = window.setTimeout(() => {
       unitsAPI
         .getData(sessionId, { page: 0, pageSize: 500 })
-        .then((res) => { if (!cancelled) setUnitData(res); })
-        .catch(() => { if (!cancelled) setUnitData(emptyData); });
+        .then((res) => {
+          if (cancelled) return;
+          // Same transient-empty guard as the by-document view: both views read
+          // the same session data file, so a rewrite in flight blanks this one
+          // too. An empty by-unit payload is only believed once the by-document
+          // rows are gone as well (a real reset), since By Unit is a regrouping
+          // of them. Read from the ref, not `data`, so this effect keeps keying
+          // its refetch off dataServerVersion only.
+          if (res.rows.length === 0 && unitDataRowCountRef.current > 0 && dataRowCountRef.current > 0) return;
+          unitDataRowCountRef.current = res.rows.length;
+          setUnitData(res);
+        })
+        .catch(() => { /* keep the rows already on screen on a transient error */ });
     }, 200);
     return () => {
       cancelled = true;
