@@ -204,11 +204,6 @@ export const loadAPI = {
     return response.data;
   },
 
-  listSessions: async (): Promise<VisualizationSession[]> => {
-    const response = await api.get('/load/sessions');
-    return response.data;
-  },
-
   deleteSession: async (sessionId: string): Promise<void> => {
     await api.delete(`/load/sessions/${sessionId}`);
   },
@@ -345,11 +340,6 @@ export const schematiqAPI = {
     message: string;
   }> => {
     const response = await api.post(`/schematiq/stop/${sessionId}`);
-    return response.data;
-  },
-
-  listSessions: async (): Promise<VisualizationSession[]> => {
-    const response = await api.get('/schematiq/sessions');
     return response.data;
   },
 
