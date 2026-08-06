@@ -130,13 +130,25 @@ export function useWorkspaceSocket({
         return;
       }
 
+      // Terminal completion events change the session's status and statistics —
+      // progress reaches 100%, the run leaves the "processing" state, and the
+      // skipped-documents list is finalized. refreshSilent only re-fetches row
+      // data ("no status/schema/session churn"), so routing completion through
+      // it leaves the bar stuck at the last processing value (50%) and never
+      // surfaces the skipped-documents banner. Use the full refresh here.
+      if (
+        message.type === 'completed' ||
+        message.type === 'reprocessing_completed'
+      ) {
+        void refresh({ silent: true });
+        return;
+      }
+
       if (
         message.type === 'progress' ||
-        message.type === 'completed' ||
         message.type === 'cell_extracted' ||
         message.type === 'row_completed' ||
-        message.type === 'reprocessing_progress' ||
-        message.type === 'reprocessing_completed'
+        message.type === 'reprocessing_progress'
       ) {
         void refreshSilent();
         return;
