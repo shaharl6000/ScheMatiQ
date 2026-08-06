@@ -16,13 +16,8 @@ from app.core.config import (
 )
 from schematiq.core.llm_call_tracker import LLMCallTracker, QuotaExceededError
 
-from .deps import CHAT_MODEL, get_gemini_api_key, schematiq_runner
-from .session_store import (
-    ChatSessionState,
-    PendingToolCall,
-    chat_session_store,
-    session_message_counter,
-)
+from .deps import CHAT_MODEL, get_gemini_api_key, schematiq_runner, session_manager
+from .session_store import ChatSessionState, PendingToolCall, chat_session_store
 from .tool_executor import tool_executor
 from .tool_registry import (
     TOOL_BY_NAME,
@@ -95,13 +90,47 @@ class ChatAgentService:
     def _message_cap_reached(session_id: str) -> bool:
         """Return True when this workspace session is out of chat messages.
 
-        Read-only: the counter is only incremented once a turn is actually
-        going to run, so a capped request does not keep pushing the count up.
-        Bypassed in developer mode and when the cap is set to 0.
+        Reads the count off the persisted session record, so the cap survives a
+        redeploy — an in-memory counter reset on every Railway deploy, which on
+        an actively developed backend is often enough to make the cap porous.
+
+        get_session only touches SessionManager's in-memory dict, so this is
+        cheap; only the increment pays for a write.
+
+        Read-only: the count is bumped once a turn is actually going to run, so
+        a capped request does not keep pushing it up. Bypassed in developer mode
+        and when the cap is set to 0.
         """
         if DEVELOPER_MODE or CHAT_MAX_MESSAGES_PER_SESSION <= 0:
             return False
-        return session_message_counter.count(session_id) >= CHAT_MAX_MESSAGES_PER_SESSION
+        session = session_manager.get_session(session_id)
+        if session is None:
+            # The route layer rejects unknown sessions before reaching this, so
+            # this is only hit in tests or by a direct service call. Don't cap
+            # something we cannot count.
+            return False
+        return session.chat_messages_used >= CHAT_MAX_MESSAGES_PER_SESSION
+
+    @staticmethod
+    async def _record_message_used(session_id: str) -> None:
+        """Persist one more consumed chat message for this workspace session.
+
+        update_session writes through to the storage backend synchronously, so it
+        goes to a thread — matching how the other services record LLM usage.
+        Best effort: failing to bill a message must not fail the user's turn.
+        """
+        if DEVELOPER_MODE or CHAT_MAX_MESSAGES_PER_SESSION <= 0:
+            return
+        try:
+            session = session_manager.get_session(session_id)
+            if session is None:
+                return
+            session.chat_messages_used += 1
+            await asyncio.to_thread(session_manager.update_session, session)
+        except Exception as exc:
+            logger.warning(
+                "could not record chat message use for session %s: %s", session_id, exc
+            )
 
     @staticmethod
     async def _flush_llm_usage(state: ChatSessionState) -> None:
@@ -143,13 +172,20 @@ class ChatAgentService:
         # capped session does no Gemini work at all. Creating the chat session
         # above is local to the SDK and costs no API call.
         if self._message_cap_reached(session_id):
+            # Logged so a project hitting the ceiling is visible in the Railway
+            # logs; there is no admin surface for this yet.
+            logger.warning(
+                "chat message cap reached for session %s (limit %d)",
+                session_id,
+                CHAT_MAX_MESSAGES_PER_SESSION,
+            )
             outbound_messages.append(self._text_message(MESSAGE_CAP_CHAT_MESSAGE))
             return {
                 "chat_id": state.chat_id,
                 "status": "complete",
                 "messages": outbound_messages,
             }
-        session_message_counter.increment(session_id)
+        await self._record_message_used(session_id)
         if state.pending:
             abort_messages, new_pending = await self._abort_pending(
                 state,

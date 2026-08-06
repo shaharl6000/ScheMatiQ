@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -44,35 +43,4 @@ class ChatSessionStore:
         self._sessions.pop(chat_id, None)
 
 
-class SessionMessageCounter:
-    """Counts user chat messages per workspace session.
-
-    Keyed on the *workspace* session id rather than the chat id. A chat id is
-    minted per conversation and ``ChatSessionStore.delete`` drops it on stale
-    chat recovery, so counting there would let a caller reset the cap simply by
-    starting a new conversation.
-
-    In-memory only: the counts reset when the process restarts, the same
-    tradeoff as the local ``global_llm_usage.json`` runtime state. This is a
-    soft cap meant to bound a single project's quota consumption, not a durable
-    entitlement. Making it survive redeploys means persisting it to the storage
-    backend, which is deliberately out of scope here.
-    """
-
-    def __init__(self) -> None:
-        self._counts: dict[str, int] = {}
-        self._lock = threading.Lock()
-
-    def count(self, session_id: str) -> int:
-        with self._lock:
-            return self._counts.get(session_id, 0)
-
-    def increment(self, session_id: str) -> int:
-        with self._lock:
-            total = self._counts.get(session_id, 0) + 1
-            self._counts[session_id] = total
-            return total
-
-
 chat_session_store = ChatSessionStore()
-session_message_counter = SessionMessageCounter()

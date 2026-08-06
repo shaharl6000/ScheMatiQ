@@ -206,6 +206,9 @@ class VisualizationSession(BaseModel):
     # Privacy / data collection
     opt_out_data_collection: bool = False  # User opted out of research data archival
     write_artifacts: Optional[bool] = None  # If True, write debug artifacts like skip rationales
+    # Chat usage, persisted so CHAT_MAX_MESSAGES_PER_SESSION survives a redeploy.
+    # Defaults to 0, so sessions stored before this field existed load fine.
+    chat_messages_used: int = 0
 
 class DataRow(BaseModel):
     """A single row of data."""
