@@ -60,6 +60,11 @@
           "output": 9.00,
           "context_window": 1048576
         },
+        "gemini-3.6-flash": {
+          "input": 1.50,
+          "output": 9.00,
+          "context_window": 1048576
+        },
         "gemini-3.1-pro-preview": {
           "input": 2.00,
           "output": 12.00,
@@ -82,6 +87,13 @@
           "output": 0.18,
           "context_window": 131072
         }
+    }
+  },
+  "defaults": {
+    "unknown_model": {
+      "input": 1.00,
+      "output": 3.00,
+      "context_window": 1048576
     }
   },
   "estimation_constants": {

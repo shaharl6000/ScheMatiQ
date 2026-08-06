@@ -42,6 +42,17 @@ except Exception:
 # Pricing config will be loaded on first use
 _pricing_config: Optional[Dict[str, Any]] = None
 
+# Fallback pricing (per 1M tokens) for models absent from pricing_config.json.
+# Mirrors the config's ``defaults.unknown_model`` block and the implicit 1.0/3.0
+# defaults in ``calculate_cost``. Ensures cost estimation degrades to an
+# approximate estimate instead of raising when a newly-introduced model has not
+# yet been added to the pricing config.
+_DEFAULT_MODEL_PRICING: Dict[str, float] = {
+    "input": 1.0,
+    "output": 3.0,
+    "context_window": 1048576,
+}
+
 # ============================================================================
 # MEASURED PROMPT TOKEN COUNTS (from actual prompts in prompts.py)
 # These are computed once at module load to ensure accuracy
@@ -219,8 +230,10 @@ def get_model_pricing(provider: str, model: str) -> Dict[str, float]:
             if model_key.lower() in model.lower() or model.lower() in model_key.lower():
                 return pricing
     
-    # Return default pricing for unknown models
-    return config["defaults"]["unknown_model"]
+    # Return default pricing for unknown models. Never raise: an unpriced model
+    # should degrade to an approximate estimate, not a 500 error.
+    defaults = config.get("defaults") or {}
+    return defaults.get("unknown_model", _DEFAULT_MODEL_PRICING)
 
 
 def get_estimation_constants() -> Dict[str, int]:
