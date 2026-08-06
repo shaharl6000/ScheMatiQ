@@ -1,8 +1,9 @@
 """Tests for the per-workspace-session chat message cap.
 
 The contract: once a workspace session has used its allowance, send_message
-returns a plain refusal and performs no Gemini work at all — and the allowance
-cannot be reset by starting a new conversation.
+returns a plain refusal and performs no Gemini work at all. The allowance is
+held on the persisted session record, so it survives both a new conversation
+and a process restart.
 
 Uses a fake Gemini chat, so no real LLM or network call happens.
 """
@@ -16,11 +17,7 @@ from app.services.chat.agent_service import (
     MESSAGE_CAP_CHAT_MESSAGE,
     ChatAgentService,
 )
-from app.services.chat.session_store import (
-    ChatSessionState,
-    SessionMessageCounter,
-    chat_session_store,
-)
+from app.services.chat.session_store import chat_session_store
 
 
 class _FakeResponse:
@@ -37,6 +34,39 @@ class _FakeChat:
     async def send_message(self, content):
         self.sent.append(content)
         return _FakeResponse()
+
+
+class _FakeSession:
+    """Stand-in for VisualizationSession, with the persisted counter field."""
+
+    def __init__(self, session_id: str) -> None:
+        self.id = session_id
+        self.chat_messages_used = 0
+
+
+@pytest.fixture
+def store(monkeypatch):
+    """An in-test stand-in for the persisted session store.
+
+    Records every update_session call so tests can prove the count is written
+    through to storage rather than only held in memory.
+    """
+    sessions: dict[str, _FakeSession] = {}
+    writes: list[str] = []
+
+    def _get_session(session_id: str):
+        return sessions.setdefault(session_id, _FakeSession(session_id))
+
+    def _update_session(session):
+        writes.append(session.id)
+
+    monkeypatch.setattr(
+        agent_module.session_manager, "get_session", _get_session, raising=True
+    )
+    monkeypatch.setattr(
+        agent_module.session_manager, "update_session", _update_session, raising=True
+    )
+    return type("Store", (), {"sessions": sessions, "writes": writes})()
 
 
 @pytest.fixture
@@ -62,19 +92,10 @@ def service(monkeypatch):
     monkeypatch.setattr(svc, "_create_gemini_chat", _fake_create, raising=True)
     monkeypatch.setattr(svc, "_ensure_quota_available", _no_quota, raising=True)
     monkeypatch.setattr(svc, "_flush_llm_usage", _no_flush, raising=True)
-    svc._test_chats = chats  # type: ignore[attr-defined]
     svc._test_turns = lambda sid: sum(  # type: ignore[attr-defined]
         len(c.sent) for c in chats.get(sid, [])
     )
     return svc
-
-
-@pytest.fixture
-def fresh_counter(monkeypatch):
-    """Isolate the module-level counter so tests don't leak into each other."""
-    counter = SessionMessageCounter()
-    monkeypatch.setattr(agent_module, "session_message_counter", counter, raising=True)
-    return counter
 
 
 def _set_cap(monkeypatch, value: int) -> None:
@@ -85,51 +106,34 @@ def _set_cap(monkeypatch, value: int) -> None:
     monkeypatch.setattr(agent_module, "DEVELOPER_MODE", False, raising=True)
 
 
-# --- counter semantics ----------------------------------------------------
-
-
-def test_counter_is_per_workspace_session():
-    counter = SessionMessageCounter()
-    counter.increment("sess-a")
-    counter.increment("sess-a")
-    counter.increment("sess-b")
-    assert counter.count("sess-a") == 2
-    assert counter.count("sess-b") == 1
-    assert counter.count("sess-never-seen") == 0
-
-
-def test_counter_increments_are_thread_safe():
-    import threading
-
-    counter = SessionMessageCounter()
-
-    def bump():
-        for _ in range(500):
-            counter.increment("sess")
-
-    threads = [threading.Thread(target=bump) for _ in range(8)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    assert counter.count("sess") == 4000
+def _texts(result) -> list[str]:
+    return [m["content"] for m in result["messages"]]
 
 
 # --- enforcement ----------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_messages_under_the_cap_reach_gemini(service, fresh_counter, monkeypatch):
+async def test_messages_under_the_cap_reach_gemini(service, store, monkeypatch):
     _set_cap(monkeypatch, 2)
     result = await service.send_message("sess-1", "add a rationale", "schematiq")
     assert result["status"] == "complete"
     assert service._test_turns("sess-1") == 1, "turn should have reached Gemini"
-    assert fresh_counter.count("sess-1") == 1
+    assert store.sessions["sess-1"].chat_messages_used == 1
+
+
+@pytest.mark.asyncio
+async def test_the_count_is_written_through_to_storage(service, store, monkeypatch):
+    """The whole point of moving off an in-memory counter."""
+    _set_cap(monkeypatch, 5)
+    await service.send_message("sess-1", "one", "schematiq")
+    await service.send_message("sess-1", "two", "schematiq")
+    assert store.writes == ["sess-1", "sess-1"]
 
 
 @pytest.mark.asyncio
 async def test_capped_session_refuses_and_makes_no_gemini_call(
-    service, fresh_counter, monkeypatch
+    service, store, monkeypatch
 ):
     _set_cap(monkeypatch, 2)
     await service.send_message("sess-1", "one", "schematiq")
@@ -140,17 +144,35 @@ async def test_capped_session_refuses_and_makes_no_gemini_call(
     result = await service.send_message("sess-1", "three", "schematiq")
 
     assert result["status"] == "complete"
-    assert [m["content"] for m in result["messages"]] == [MESSAGE_CAP_CHAT_MESSAGE]
+    assert _texts(result) == [MESSAGE_CAP_CHAT_MESSAGE]
     assert service._test_turns("sess-1") == turns_before, (
         "a capped turn must not reach Gemini"
     )
-    # The refused turn must not push the counter further up.
-    assert fresh_counter.count("sess-1") == 2
+    # The refused turn must not push the count further up.
+    assert store.sessions["sess-1"].chat_messages_used == 2
+
+
+@pytest.mark.asyncio
+async def test_cap_survives_a_process_restart(service, store, monkeypatch):
+    """A fresh service instance still sees the count: it lives on the session."""
+    _set_cap(monkeypatch, 1)
+    await service.send_message("sess-1", "one", "schematiq")
+
+    restarted = ChatAgentService()
+    monkeypatch.setattr(
+        restarted,
+        "_create_gemini_chat",
+        lambda sid, mode, model=None: (object(), _FakeChat()),
+        raising=True,
+    )
+    result = await restarted.send_message("sess-1", "two", "schematiq")
+
+    assert _texts(result) == [MESSAGE_CAP_CHAT_MESSAGE]
 
 
 @pytest.mark.asyncio
 async def test_cap_is_not_reset_by_starting_a_new_conversation(
-    service, fresh_counter, monkeypatch
+    service, store, monkeypatch
 ):
     _set_cap(monkeypatch, 1)
     first = await service.send_message("sess-1", "one", "schematiq")
@@ -160,38 +182,47 @@ async def test_cap_is_not_reset_by_starting_a_new_conversation(
 
     result = await service.send_message("sess-1", "two", "schematiq", chat_id=None)
 
-    assert [m["content"] for m in result["messages"]] == [MESSAGE_CAP_CHAT_MESSAGE]
+    assert _texts(result) == [MESSAGE_CAP_CHAT_MESSAGE]
 
 
 @pytest.mark.asyncio
-async def test_other_sessions_are_unaffected(service, fresh_counter, monkeypatch):
+async def test_other_sessions_are_unaffected(service, store, monkeypatch):
     _set_cap(monkeypatch, 1)
     await service.send_message("sess-1", "one", "schematiq")
     capped = await service.send_message("sess-1", "two", "schematiq")
-    assert [m["content"] for m in capped["messages"]] == [MESSAGE_CAP_CHAT_MESSAGE]
+    assert _texts(capped) == [MESSAGE_CAP_CHAT_MESSAGE]
 
-    other = await service.send_message("sess-2", "one", "schematiq")
-    assert other["messages"] == [] or MESSAGE_CAP_CHAT_MESSAGE not in [
-        m["content"] for m in other["messages"]
-    ]
+    await service.send_message("sess-2", "one", "schematiq")
     assert service._test_turns("sess-2") == 1, "a different project keeps working"
+
+
+@pytest.mark.asyncio
+async def test_unknown_session_is_not_capped(service, monkeypatch):
+    """The route layer 404s these first; the service must not crash on them."""
+    _set_cap(monkeypatch, 1)
+    monkeypatch.setattr(
+        agent_module.session_manager, "get_session", lambda sid: None, raising=True
+    )
+    result = await service.send_message("ghost", "hi", "schematiq")
+    assert _texts(result) != [MESSAGE_CAP_CHAT_MESSAGE]
 
 
 # --- escape hatches -------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_cap_of_zero_disables_enforcement(service, fresh_counter, monkeypatch):
+async def test_cap_of_zero_disables_enforcement(service, store, monkeypatch):
     _set_cap(monkeypatch, 0)
     for _ in range(5):
         result = await service.send_message("sess-1", "hi", "schematiq")
-    assert MESSAGE_CAP_CHAT_MESSAGE not in [m["content"] for m in result["messages"]]
+    assert MESSAGE_CAP_CHAT_MESSAGE not in _texts(result)
+    assert store.writes == [], "disabled cap should not write to storage"
 
 
 @pytest.mark.asyncio
-async def test_developer_mode_bypasses_the_cap(service, fresh_counter, monkeypatch):
+async def test_developer_mode_bypasses_the_cap(service, store, monkeypatch):
     monkeypatch.setattr(agent_module, "CHAT_MAX_MESSAGES_PER_SESSION", 1, raising=True)
     monkeypatch.setattr(agent_module, "DEVELOPER_MODE", True, raising=True)
     await service.send_message("sess-1", "one", "schematiq")
     result = await service.send_message("sess-1", "two", "schematiq")
-    assert MESSAGE_CAP_CHAT_MESSAGE not in [m["content"] for m in result["messages"]]
+    assert MESSAGE_CAP_CHAT_MESSAGE not in _texts(result)
