@@ -1444,6 +1444,9 @@ function Workspace() {
           activeTab={activeSheet}
           tableRowCount={data?.total_count || 0}
           tableColumnCount={session?.columns?.length || 0}
+          // Sheet side, clear of the 52px bottombar, so it never lands on the
+          // chat composer in the bottom-right of the workspace.
+          anchorClassName="fixed bottom-20 left-6 z-50"
         />
       )}
     </div>
