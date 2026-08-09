@@ -12,10 +12,8 @@ import {
   RotateCw,
   Save,
   Search,
-  Sigma,
   Sparkles,
   Strikethrough,
-  Type,
   Underline,
 } from 'lucide-react';
 
@@ -27,7 +25,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 import { TABLE_FONT_OPTIONS, TABLE_FONT_SIZE_OPTIONS, WORKSPACE_MENUS } from './constants';
-import type { TableDisplayOptions, TableTextAlign } from './types';
+import type {
+  TableDisplayOptions,
+  TableTextAlign,
+  WorkspaceMenuAction,
+  WorkspaceMenuItem,
+} from './types';
 
 export function SpreadsheetChrome({
   projectTitle,
@@ -45,6 +48,8 @@ export function SpreadsheetChrome({
   onSaveProjectWithDocs,
   onHome,
   onSearch,
+  onUndo,
+  onRedo,
   onEstimateCost,
   onShowSheet,
   onShowChat,
@@ -70,6 +75,8 @@ export function SpreadsheetChrome({
   onSaveProjectWithDocs: () => void;
   onHome: () => void;
   onSearch: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
   onEstimateCost: () => void;
   onShowSheet: () => void;
   onShowChat: () => void;
@@ -80,41 +87,35 @@ export function SpreadsheetChrome({
   onReportIssue: () => void;
   rerunDisabled: boolean;
 }) {
-  const runMenuItem = (label: string) => {
-    if (label === 'New project') onNewProject();
-    if (label === 'Import project') onImportProject();
-    if (label === 'Open classic visualizer') onOpenClassic();
-    if (label === 'Download table (.csv)') onExport();
-    if (label === 'Save project (.schematiq.json)') onSaveProject();
-    if (label === 'Save project with documents (.zip)') onSaveProjectWithDocs();
-    if (label === 'Project details') onProjectDetails();
-    if (label === 'Refresh project') onRefresh();
-    if (label === 'Estimate cost') onEstimateCost();
-    if (label === 'Show sheet full screen') onShowSheet();
-    if (label === 'Show chat full screen') onShowChat();
-    if (label === 'Split view') onSplitView();
-    if (label === 'Re-extract table') onRunPendingEdits();
-    if (label === 'Add documents') onAddDocuments();
-    if (label === 'Report an issue') onReportIssue();
+  // Exhaustive by construction: Record<WorkspaceMenuAction, ...> makes TypeScript
+  // reject a new menu action that has no handler, which is what previously let
+  // ~19 menu entries render as clickable no-ops.
+  const menuActions: Record<WorkspaceMenuAction, () => void> = {
+    newProject: onNewProject,
+    importProject: onImportProject,
+    openClassic: onOpenClassic,
+    exportCsv: onExport,
+    saveProject: onSaveProject,
+    saveProjectWithDocs: onSaveProjectWithDocs,
+    undo: onUndo,
+    redo: onRedo,
+    find: onSearch,
+    showSheet: onShowSheet,
+    showChat: onShowChat,
+    splitView: onSplitView,
+    projectDetails: onProjectDetails,
+    reextract: onRunPendingEdits,
+    addDocuments: onAddDocuments,
+    estimateCost: onEstimateCost,
+    refreshProject: onRefresh,
+    reportIssue: onReportIssue,
   };
 
-  const isDisabled = (label: string) => {
-    if (label === 'New project' || label === 'Import project') return false;
-    if (label === 'Re-extract table') return rerunDisabled;
-    return !canUseProjectActions && [
-      'Open classic visualizer',
-      'Download table (.csv)',
-      'Save project (.schematiq.json)',
-      'Save project with documents (.zip)',
-      'Project details',
-      'Refresh project',
-      'Estimate cost',
-      'Show sheet full screen',
-      'Show chat full screen',
-      'Split view',
-      'Re-extract table',
-      'Add documents',
-    ].includes(label);
+  const isDisabled = (item: WorkspaceMenuItem) => {
+    // Re-extract has its own gating (no session, nothing pending, or already
+    // starting), which already covers the no-project case.
+    if (item.action === 'reextract') return rerunDisabled;
+    return Boolean(item.requiresProject) && !canUseProjectActions;
   };
 
   return (
@@ -145,11 +146,11 @@ export function SpreadsheetChrome({
               <DropdownMenuContent align="start" className="workspace-menu-content w-56">
                 {menu.items.map((item) => (
                   <DropdownMenuItem
-                    key={item}
+                    key={item.action}
                     disabled={isDisabled(item)}
-                    onClick={() => runMenuItem(item)}
+                    onClick={menuActions[item.action]}
                   >
-                    {item}
+                    {item.label}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -295,9 +296,6 @@ export function SpreadsheetChrome({
 
         <span className="workspace-toolbar-separator" />
 
-        <button className="workspace-toolbar-icon" type="button" title="Text color">
-          <Type className="h-3.5 w-3.5" />
-        </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="workspace-toolbar-icon" type="button" title="Align">
@@ -312,10 +310,7 @@ export function SpreadsheetChrome({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <button className="workspace-toolbar-icon" type="button" title="Functions">
-          <Sigma className="h-3.5 w-3.5" />
-        </button>
-        <button className="workspace-toolbar-icon" type="button" onClick={onSearch} title="Search">
+        <button className="workspace-toolbar-icon" type="button" onClick={onSearch} title="Find in workspace">
           <Search className="h-3.5 w-3.5" />
         </button>
 

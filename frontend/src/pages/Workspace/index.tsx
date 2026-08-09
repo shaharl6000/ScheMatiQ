@@ -813,6 +813,22 @@ function Workspace() {
   // reported nothing for the rest of the table -- on a 194-row sheet that is
   // most of it. The Search plugin queries the loaded dataset instead, so a hit
   // outside the viewport is found and scrolled to.
+  // Handsontable's UndoRedo plugin is enabled on the grid, so the instance
+  // exposes undo/redo directly. Reverted cells re-enter handleChanges with a
+  // 'UndoRedo.*' source, which the persistence path does not filter out, so the
+  // revert is written back rather than only shown.
+  // Reached through getPlugin rather than hot.undo(): the convenience methods
+  // are attached at runtime by the plugin and are not on the Handsontable type.
+  const undoEdit = useCallback(() => {
+    const plugin = hotTableRef.current?.hotInstance?.getPlugin('undoRedo');
+    if (plugin?.isUndoAvailable()) plugin.undo();
+  }, []);
+
+  const redoEdit = useCallback(() => {
+    const plugin = hotTableRef.current?.hotInstance?.getPlugin('undoRedo');
+    if (plugin?.isRedoAvailable()) plugin.redo();
+  }, []);
+
   const searchPage = useCallback(() => {
     const term = window.prompt('Find in table')?.trim();
     if (!term) return;
@@ -1036,6 +1052,8 @@ function Workspace() {
         onSaveProjectWithDocs={saveProjectWithDocuments}
         onHome={() => navigate('/workspace')}
         onSearch={searchPage}
+        onUndo={undoEdit}
+        onRedo={redoEdit}
         onEstimateCost={estimateCurrentCost}
         onShowSheet={() => setChatWidth(0)}
         onShowChat={() => setChatWidth(window.innerWidth)}

@@ -4,7 +4,7 @@ import {
 } from '@/components/AdvancedSettings/AdvancedSettingsFields';
 import type { PaginatedData } from '@/types';
 
-import type { SheetId, TableFontFamily } from './types';
+import type { SheetId, TableFontFamily, WorkspaceMenu } from './types';
 
 // Shared constants for the Workspace page and its sub-components.
 
@@ -45,38 +45,63 @@ export const SHEETS: Array<{ id: SheetId; label: string; group: 'structure' | 'a
   { id: 'monitor', label: 'Monitor', group: 'analysis' },
 ];
 
-export const WORKSPACE_MENUS = [
+// Top menu bar. Every item carries the action it performs, and
+// SpreadsheetChrome resolves those actions through an exhaustive Record, so a
+// menu entry cannot exist without a handler behind it. Items that were purely
+// decorative (Insert, Format, Undo/Redo, Sort range, Validate schema, and so
+// on) are omitted rather than rendered as clickable no-ops; the formatting
+// toolbar below covers font/bold/align, and the column header dropdown covers
+// sorting and filtering.
+export const WORKSPACE_MENUS: WorkspaceMenu[] = [
   {
     label: 'File',
-    items: ['New project', 'Import project', 'Open classic visualizer', 'Download table (.csv)', 'Save project (.schematiq.json)', 'Save project with documents (.zip)'],
+    items: [
+      { label: 'New project', action: 'newProject' },
+      { label: 'Import project', action: 'importProject' },
+      { label: 'Open classic visualizer', action: 'openClassic', requiresProject: true },
+      { label: 'Download table (.csv)', action: 'exportCsv', requiresProject: true },
+      { label: 'Save project (.schematiq.json)', action: 'saveProject', requiresProject: true },
+      { label: 'Save project with documents (.zip)', action: 'saveProjectWithDocs', requiresProject: true },
+    ],
   },
   {
     label: 'Edit',
-    items: ['Undo', 'Redo', 'Find and replace', 'Delete values'],
+    items: [
+      // Handsontable's UndoRedo plugin is enabled on the grid, and edits made
+      // by it flow through the same afterChange -> updateCell path as typed
+      // ones, so these persist rather than only reverting the display.
+      { label: 'Undo', action: 'undo', requiresProject: true },
+      { label: 'Redo', action: 'redo', requiresProject: true },
+      // Browser find over the table. Not a replace, so it is not labelled one.
+      { label: 'Find in workspace', action: 'find' },
+    ],
   },
   {
     label: 'View',
-    items: ['Show sheet full screen', 'Show chat full screen', 'Split view', 'Project details'],
-  },
-  {
-    label: 'Insert',
-    items: ['Column', 'Observation unit', 'Schema field', 'Comment'],
-  },
-  {
-    label: 'Format',
-    items: ['Text wrapping', 'Bold headers', 'Alternating colors', 'Clear formatting'],
+    items: [
+      { label: 'Show sheet full screen', action: 'showSheet', requiresProject: true },
+      { label: 'Show chat full screen', action: 'showChat', requiresProject: true },
+      { label: 'Split view', action: 'splitView', requiresProject: true },
+      { label: 'Project details', action: 'projectDetails', requiresProject: true },
+    ],
   },
   {
     label: 'Data',
-    items: ['Sort range', 'Create filter', 'Re-extract table', 'Add documents', 'Validate schema'],
+    items: [
+      { label: 'Re-extract table', action: 'reextract', requiresProject: true },
+      { label: 'Add documents', action: 'addDocuments', requiresProject: true },
+    ],
   },
   {
     label: 'Tools',
-    items: ['Estimate cost', 'Refresh project', 'Schema suggestions', 'Merge units'],
+    items: [
+      { label: 'Estimate cost', action: 'estimateCost', requiresProject: true },
+      { label: 'Refresh project', action: 'refreshProject', requiresProject: true },
+    ],
   },
   {
     label: 'Help',
-    items: ['Keyboard shortcuts', 'About ScheMatiQ workspace', 'Report an issue'],
+    items: [{ label: 'Report an issue', action: 'reportIssue' }],
   },
 ];
 

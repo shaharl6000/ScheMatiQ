@@ -1,6 +1,41 @@
 // Shared TypeScript types for the Workspace page and its sub-components.
 
 export type SheetId = 'data' | 'unit' | 'schema' | 'stats' | 'monitor' | 'documents';
+
+// Every action the top menu bar can perform. SpreadsheetChrome maps this union
+// to handlers via a Record, so adding a menu item without wiring it is a type
+// error rather than a menu entry that silently does nothing when clicked.
+export type WorkspaceMenuAction =
+  | 'newProject'
+  | 'importProject'
+  | 'openClassic'
+  | 'exportCsv'
+  | 'saveProject'
+  | 'saveProjectWithDocs'
+  | 'undo'
+  | 'redo'
+  | 'find'
+  | 'showSheet'
+  | 'showChat'
+  | 'splitView'
+  | 'projectDetails'
+  | 'reextract'
+  | 'addDocuments'
+  | 'estimateCost'
+  | 'refreshProject'
+  | 'reportIssue';
+
+export type WorkspaceMenuItem = {
+  label: string;
+  action: WorkspaceMenuAction;
+  // Acts on an open project; rendered disabled while none is open.
+  requiresProject?: boolean;
+};
+
+export type WorkspaceMenu = {
+  label: string;
+  items: WorkspaceMenuItem[];
+};
 export type WorkspaceSessionMode = 'schematiq' | 'load';
 export type PendingRerunKind = 'schema' | 'unit';
 
