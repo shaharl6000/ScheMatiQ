@@ -15,6 +15,7 @@ import {
   type CellGrounding,
 } from '@/components/DataTable/utils/excerptUtils';
 import ContentModal from '@/components/ContentModal/ContentModal';
+import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { observationUnitAPI, schemaAPI, schematiqAPI } from '@/services/api';
 import type { ColumnInfo, DataRow, PaginatedData, SchemaData } from '@/types';
@@ -61,6 +62,8 @@ export function SpreadsheetSurface({
   onEditFollowUp,
   onEditEnd,
   onToggleFormatShortcut,
+  onNewProject,
+  onImportProject,
   layoutRevision,
   dataView,
 }: {
@@ -99,6 +102,11 @@ export function SpreadsheetSurface({
   // Toggle a text format (bold/italic/underline) on the current selection,
   // invoked by the Ctrl/Cmd+B/I/U keyboard shortcuts registered below.
   onToggleFormatShortcut?: (key: 'bold' | 'italic' | 'underline') => void;
+  // Empty-state actions. Closing the New Project dialog previously left the
+  // workbook as a dead end whose only way forward was the File menu, which is
+  // itself unreachable on narrow viewports.
+  onNewProject?: () => void;
+  onImportProject?: () => void;
   layoutRevision: string;
   // Current Data-sheet grouping. Drives the visual cell-merge of the leftmost
   // grouping column: 'by_unit' merges unit_name, 'by_document' merges the
@@ -1367,8 +1375,24 @@ export function SpreadsheetSurface({
 
   if (!sessionId) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Start or open a project to populate the workbook.
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          Start or open a project to populate the workbook.
+        </p>
+        {(onNewProject || onImportProject) && (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {onNewProject && (
+              <Button size="sm" onClick={onNewProject}>
+                New project
+              </Button>
+            )}
+            {onImportProject && (
+              <Button size="sm" variant="outline" onClick={onImportProject}>
+                Import project
+              </Button>
+            )}
+          </div>
+        )}
       </div>
     );
   }

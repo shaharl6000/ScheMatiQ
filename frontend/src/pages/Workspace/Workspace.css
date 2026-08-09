@@ -305,6 +305,29 @@
   display: none;
 }
 
+/* The four fixed tracks below overflowed on phone widths, where the research
+   question collapsed to a couple of pixels and its clipped text painted on top
+   of the status label. The question is decorative here (it is also the tab
+   tooltip), so drop it and give the space to the sheet tabs. */
+@media (max-width: 720px) {
+  .workspace-bottombar {
+    grid-template-columns: minmax(0, 1fr) auto 36px;
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .workspace-topbar-question {
+    display: none;
+  }
+
+  /* "No status" is a placeholder for an empty region; collapsing it lets the
+     tabs use the full row instead of being clipped mid-label against it. A real
+     progress bar still gets its space. */
+  .workspace-topbar-status-empty {
+    display: none;
+  }
+}
+
 .workspace-topbar-question {
   min-width: 0;
   width: 100%;
@@ -1308,8 +1331,18 @@
     border-bottom: 1px solid hsl(var(--border));
   }
 
+  /* The divider only makes sense for a side-by-side split. Workspace/index.tsx
+     stops deriving the collapsed-pane flags from chatWidth at this breakpoint,
+     so neither pane can arrive here marked hidden; the reset is a guard in case
+     a stale flag survives a resize mid-drag. */
   .workspace-resizer {
     display: none;
+  }
+
+  .workspace-sheet-pane[data-hidden="true"],
+  .workspace-chat-pane[data-hidden="true"] {
+    visibility: visible;
+    pointer-events: auto;
   }
 }
 

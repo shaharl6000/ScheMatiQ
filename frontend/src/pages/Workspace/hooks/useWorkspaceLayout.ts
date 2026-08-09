@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 // Owns chat-panel width and the pointer-driven divider drag interaction.
 // Parent: Workspace (index.tsx).
@@ -9,6 +9,12 @@ const DEFAULT_CHAT_WIDTH = 380;
 // sessions, but never *restore* a fully collapsed side: reopening a workspace
 // always lands in split view so the user can't get stuck with one pane hidden.
 const MIN_SPLIT_WIDTH = 56;
+
+// Must match the `max-width: 900px` breakpoint in Workspace.css, where the body
+// stops being a sheet|chat split and stacks the two panes vertically. Below it
+// the pixel chat width is meaningless, so the collapse thresholds derived from
+// it have to be switched off.
+const STACKED_QUERY = '(max-width: 900px)';
 
 export function useWorkspaceLayout() {
   const [chatWidth, setChatWidth] = useState(() => {
@@ -21,6 +27,28 @@ export function useWorkspaceLayout() {
     return saved;
   });
   const [isDraggingDivider, setIsDraggingDivider] = useState(false);
+  // The collapse thresholds below compare chatWidth against the viewport, so
+  // they need the viewport as reactive state. Reading window.innerWidth during
+  // render left them stale until an unrelated state change forced a re-render.
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const [isStacked, setIsStacked] = useState(
+    () => window.matchMedia(STACKED_QUERY).matches,
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia(STACKED_QUERY);
+    const sync = () => {
+      setViewportWidth(window.innerWidth);
+      setIsStacked(media.matches);
+    };
+    sync();
+    window.addEventListener('resize', sync);
+    media.addEventListener('change', sync);
+    return () => {
+      window.removeEventListener('resize', sync);
+      media.removeEventListener('change', sync);
+    };
+  }, []);
 
   const startDividerDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -50,5 +78,7 @@ export function useWorkspaceLayout() {
     setChatWidth,
     isDraggingDivider,
     startDividerDrag,
+    viewportWidth,
+    isStacked,
   };
 }

@@ -335,7 +335,7 @@ export function ChatPanel({
         {
           id: `${Date.now()}-no-session`,
           role: 'assistant',
-          content: 'Open > New Project or Import Project to get started. Once a project exists I can inspect and edit it.',
+          content: 'Use File > New project or File > Import project to get started. Once a project exists I can inspect and edit it.',
         },
       ]);
       return;
