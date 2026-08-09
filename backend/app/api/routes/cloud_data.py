@@ -1,10 +1,13 @@
 """Cloud data API endpoints for datasets, templates, and initial schemas."""
 
-from typing import List, Optional, Any, Dict
+import asyncio
+import time
+from typing import List, Optional, Any, Dict, Tuple
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from app.storage import get_storage
+from app.storage.interface import DatasetInfo
 
 router = APIRouter(prefix="/cloud", tags=["cloud-data"])
 
@@ -43,6 +46,57 @@ class TemplateResponse(BaseModel):
 # Dataset Endpoints
 # ==================
 
+# Every workspace page load calls GET /api/cloud/datasets to populate the
+# "Cloud dataset" picker, and the Supabase backend answers it by walking the
+# whole bucket: one list call for the root plus one per dataset folder. In
+# production that is nine round-trips and several thousand listed objects per
+# page load, for a dropdown most visits never open.
+#
+# Datasets are curated collections that change rarely, so a short shared cache
+# collapses that to one walk per window. A single in-flight future also stops
+# concurrent visitors from each starting their own walk.
+_DATASETS_CACHE_TTL_SECONDS = 300
+_datasets_cache: Optional[Tuple[float, List[DatasetInfo]]] = None
+_datasets_inflight: Optional[asyncio.Future] = None
+_datasets_lock = asyncio.Lock()
+
+
+async def _get_datasets_cached() -> List[DatasetInfo]:
+    global _datasets_cache, _datasets_inflight
+
+    now = time.monotonic()
+    cached = _datasets_cache
+    if cached and now - cached[0] < _DATASETS_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    async with _datasets_lock:
+        # Re-check: another caller may have refreshed while we waited.
+        cached = _datasets_cache
+        if cached and time.monotonic() - cached[0] < _DATASETS_CACHE_TTL_SECONDS:
+            return cached[1]
+        if _datasets_inflight is not None:
+            inflight = _datasets_inflight
+        else:
+            inflight = asyncio.ensure_future(get_storage().list_datasets())
+            _datasets_inflight = inflight
+
+    try:
+        datasets = await inflight
+    finally:
+        async with _datasets_lock:
+            if _datasets_inflight is inflight:
+                _datasets_inflight = None
+
+    _datasets_cache = (time.monotonic(), datasets)
+    return datasets
+
+
+def invalidate_datasets_cache() -> None:
+    """Drop the cached dataset listing, e.g. after a dataset is uploaded."""
+    global _datasets_cache
+    _datasets_cache = None
+
+
 @router.get("/datasets", response_model=List[DatasetResponse])
 async def list_datasets():
     """List available datasets (document collections).
@@ -53,8 +107,7 @@ async def list_datasets():
     Returns:
         List of dataset information including name, path, and file count.
     """
-    storage = get_storage()
-    datasets = await storage.list_datasets()
+    datasets = await _get_datasets_cached()
 
     return [
         DatasetResponse(
