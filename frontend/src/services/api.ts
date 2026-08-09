@@ -134,17 +134,42 @@ export const supportAPI = {
 };
 
 // Config API (for public configuration)
+export type PublicConfig = {
+  max_documents: number;
+  developer_mode: boolean;
+  allow_llm_config: boolean;
+  data_collection_enabled: boolean;
+  release_config: Record<string, any>;
+  server_has_api_keys: boolean;
+};
+
+// Fourteen call sites across the app fetch /config independently, and several
+// of them mount together: opening a project issued two identical requests in
+// the same tick (Workspace's developer-mode check and LLMSelector). This
+// collapses concurrent callers onto one request.
+//
+// Deliberately in-flight only, with no TTL. /api/config is not static -- it
+// reports `active_sessions` from the concurrency limiter -- so caching a
+// resolved response would hand later callers a stale count. Nothing in the
+// frontend reads that field today, but a time-based cache would silently break
+// whatever does first. Callers that mount later still get fresh data.
+let inFlightConfig: Promise<PublicConfig> | null = null;
+
 export const configAPI = {
-  getConfig: async (): Promise<{
-    max_documents: number;
-    developer_mode: boolean;
-    allow_llm_config: boolean;
-    data_collection_enabled: boolean;
-    release_config: Record<string, any>;
-    server_has_api_keys: boolean;
-  }> => {
-    const response = await api.get('/config');
-    return response.data;
+  getConfig: async (): Promise<PublicConfig> => {
+    if (inFlightConfig) return inFlightConfig;
+    inFlightConfig = api
+      .get('/config')
+      .then((response) => response.data as PublicConfig)
+      .finally(() => {
+        inFlightConfig = null;
+      });
+    return inFlightConfig;
+  },
+
+  /** Drop any in-flight request so the next getConfig() starts a fresh one. */
+  invalidate: () => {
+    inFlightConfig = null;
   },
 };
 
