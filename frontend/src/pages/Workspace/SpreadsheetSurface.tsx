@@ -25,6 +25,7 @@ import {
   EDITABLE_OBSERVATION_UNIT_FIELDS,
   SCHEMA_COLUMN_HEADER_TOOLTIPS,
   cellFormatKey,
+  COMPACT_ROW_HEIGHT,
 } from './constants';
 import {
   documentDisplayName,
@@ -64,6 +65,7 @@ export function SpreadsheetSurface({
   onToggleFormatShortcut,
   onNewProject,
   onImportProject,
+  compactRows,
   layoutRevision,
   dataView,
 }: {
@@ -107,6 +109,11 @@ export function SpreadsheetSurface({
   // itself unreachable on narrow viewports.
   onNewProject?: () => void;
   onImportProject?: () => void;
+  // Fixed row height instead of measured. AutoRowSize keeps a stable per-row
+  // height so rows do not drift while scrolling horizontally, but it sizes each
+  // row to its tallest cell across all columns, which on wide schemas left ~5
+  // of 194 rows on screen. Uniform heights avoid the drift the same way.
+  compactRows?: boolean;
   layoutRevision: string;
   // Current Data-sheet grouping. Drives the visual cell-merge of the leftmost
   // grouping column: 'by_unit' merges unit_name, 'by_document' merges the
@@ -1465,12 +1472,19 @@ export function SpreadsheetSurface({
         // out of place). AutoRowSize caches a stable per-row height from the
         // full row, so a row keeps its height at any scroll position. See
         // handsontable/handsontable#493, #1213, #5241.
-        autoRowSize={true}
+        autoRowSize={!compactRows}
+        {...(compactRows ? { rowHeights: COMPACT_ROW_HEIGHT } : {})}
         contextMenu={contextMenuConfig}
         filters
         dropdownMenu={dropdownMenuConfig}
         columnSorting={!hasMultiRowGroup}
         copyPaste
+        // Required for the highlight, not for the query. getPlugin('search')
+        // .query() sets `isSearchResult` on cell meta regardless, but the hook
+        // that turns that into the htSearchResult class is guarded by the
+        // plugin's isEnabled(), which reads this setting -- so without it, Find
+        // jumped to the match and reported the count while highlighting nothing.
+        search
         undo
         minSpareRows={sheet.minSpareRows || 0}
         licenseKey="non-commercial-and-evaluation"

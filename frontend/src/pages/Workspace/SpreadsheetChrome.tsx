@@ -54,6 +54,8 @@ export function SpreadsheetChrome({
   onShowSheet,
   onShowChat,
   onSplitView,
+  onToggleCompactRows,
+  onKeyboardShortcuts,
   onRunPendingEdits,
   onAddDocuments,
   onApplyFormat,
@@ -81,6 +83,8 @@ export function SpreadsheetChrome({
   onShowSheet: () => void;
   onShowChat: () => void;
   onSplitView: () => void;
+  onToggleCompactRows: () => void;
+  onKeyboardShortcuts: () => void;
   onRunPendingEdits: () => void;
   onAddDocuments: () => void;
   onApplyFormat: (patch: Partial<TableDisplayOptions>) => void;
@@ -103,6 +107,8 @@ export function SpreadsheetChrome({
     showSheet: onShowSheet,
     showChat: onShowChat,
     splitView: onSplitView,
+    toggleCompactRows: onToggleCompactRows,
+    keyboardShortcuts: onKeyboardShortcuts,
     projectDetails: onProjectDetails,
     reextract: onRunPendingEdits,
     addDocuments: onAddDocuments,

@@ -73,6 +73,7 @@ import {
 } from './helpers';
 import { NewProjectDialog } from './NewProjectDialog';
 import { PendingRerunBanner } from './PendingRerunBanner';
+import { KeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
 import { ProjectDetailsDialog } from './ProjectDetailsDialog';
 import ReportIssueDialog from '@/components/ReportIssueDialog/ReportIssueDialog';
 import { SpreadsheetChrome } from './SpreadsheetChrome';
@@ -819,6 +820,19 @@ function Workspace() {
   // revert is written back rather than only shown.
   // Reached through getPlugin rather than hot.undo(): the convenience methods
   // are attached at runtime by the plugin and are not on the Handsontable type.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [compactRows, setCompactRows] = useState<boolean>(() => {
+    try { return localStorage.getItem('workspace.compactRows') === '1'; } catch { return false; }
+  });
+
+  const toggleCompactRows = useCallback(() => {
+    setCompactRows((current) => {
+      const next = !current;
+      try { localStorage.setItem('workspace.compactRows', next ? '1' : '0'); } catch { /* private mode */ }
+      return next;
+    });
+  }, []);
+
   const undoEdit = useCallback(() => {
     const plugin = hotTableRef.current?.hotInstance?.getPlugin('undoRedo');
     if (plugin?.isUndoAvailable()) plugin.undo();
@@ -920,7 +934,7 @@ function Workspace() {
         : `minmax(0, 1fr) 8px ${chatWidth}px`;
   // Crossing the breakpoint resizes the grid without changing chatWidth, so the
   // revision has to carry it too or Handsontable keeps stale measurements.
-  const gridLayoutRevision = `${chatWidth}:${isStacked ? 'stacked' : 'split'}`;
+  const gridLayoutRevision = `${chatWidth}:${isStacked ? 'stacked' : 'split'}:${compactRows ? 'compact' : 'auto'}`;
   const reextractionPercent = Math.round((reextraction?.progress || 0) * 100);
   const bottombarStatus = reextraction
     ? `Re-extracting ${reextraction.columns.join(', ')} (${reextraction.processedDocuments}/${reextraction.totalDocuments || '?'} docs)`
@@ -1006,6 +1020,7 @@ function Workspace() {
         onToggleFormatShortcut={handleFormatShortcut}
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}
+        compactRows={compactRows}
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
       />
@@ -1052,6 +1067,8 @@ function Workspace() {
         onSaveProjectWithDocs={saveProjectWithDocuments}
         onHome={() => navigate('/workspace')}
         onSearch={searchPage}
+        onToggleCompactRows={toggleCompactRows}
+        onKeyboardShortcuts={() => setShortcutsOpen(true)}
         onUndo={undoEdit}
         onRedo={redoEdit}
         onEstimateCost={estimateCurrentCost}
@@ -1406,6 +1423,8 @@ function Workspace() {
           refresh();
         }}
       />
+
+      <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
 
       <ProjectDetailsDialog
         open={detailsDialogOpen}
