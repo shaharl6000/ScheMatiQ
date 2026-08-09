@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
+import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
 
 import { WS_DISCONNECTED_REFRESH_INTERVAL } from '@/constants';
 import webSocketService from '@/services/websocket';
@@ -37,9 +37,18 @@ export function useWorkspaceSocket({
   toast,
 }: UseWorkspaceSocketOptions) {
   const [wsConnected, setWsConnected] = useState(false);
+  // A 'connected' message only means "catch up on what you missed" when it
+  // follows a drop. The first connect of a session lands right after the
+  // initial load has already fetched everything, and the subscription below is
+  // re-registered whenever refresh/refreshSilent change identity during mount,
+  // so the service replays 'connected' to each new subscriber. Refreshing on
+  // every one of those made a single project open issue three identical
+  // POST /api/load/data requests for the same 500-row page.
+  const sawDisconnectRef = useRef(false);
 
   useEffect(() => {
     setWsConnected(false);
+    sawDisconnectRef.current = false;
   }, [sessionId]);
 
   useEffect(() => {
@@ -54,12 +63,16 @@ export function useWorkspaceSocket({
     const handler = (message: WebSocketMessage) => {
       if (message.type === 'connected') {
         setWsConnected(true);
-        void refreshSilent();
+        if (sawDisconnectRef.current) {
+          sawDisconnectRef.current = false;
+          void refreshSilent();
+        }
         return;
       }
 
       if (message.type === 'disconnected' || message.type === 'reconnecting') {
         setWsConnected(false);
+        sawDisconnectRef.current = true;
         return;
       }
 
