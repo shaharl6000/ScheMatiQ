@@ -385,6 +385,12 @@ function Workspace() {
     try {
       if (sessionMode === 'load') {
         const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
+        if (!loadSession) {
+          setSessionMissing(true);
+          if (!silent) setLoading(false);
+          return;
+        }
+        setSessionMissing(false);
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
         setSession(loadSession);
@@ -404,6 +410,7 @@ function Workspace() {
           schematiqAPI.getConfig(sessionId).catch(() => null),
           loadAPI.getSession(sessionId).catch(() => null),
         ]);
+        setSessionMissing(false);
         setStatus(nextStatus);
         setSchema(nextSchema);
         setSession(statsSession);
@@ -415,7 +422,13 @@ function Workspace() {
         );
       } catch (err) {
         const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
-        if (!loadSession) throw err;
+        if (!loadSession) {
+          // Neither mode can resolve it: the session is gone, not mid-import.
+          setSessionMissing(true);
+          if (!silent) setLoading(false);
+          return;
+        }
+        setSessionMissing(false);
         setSessionMode('load');
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
@@ -855,6 +868,11 @@ function Workspace() {
   // revert is written back rather than only shown.
   // Reached through getPlugin rather than hot.undo(): the convenience methods
   // are attached at runtime by the plugin and are not on the Handsontable type.
+  // The backend 404s for a session it cannot resolve. Every fetch here swallows
+  // that with .catch(() => null), so the workspace fell back to its
+  // still-working state and showed "Importing…" forever, with no error anywhere
+  // on screen -- the worst possible reading of "this project is gone".
+  const [sessionMissing, setSessionMissing] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [compactRows, setCompactRows] = useState<boolean>(() => {
     try { return localStorage.getItem('workspace.compactRows') === '1'; } catch { return false; }
@@ -930,6 +948,7 @@ function Workspace() {
     const isDone = rawStatus === 'completed' || rawStatus === 'schema_extracted' || rawStatus === 'stopped';
     const isFailed = rawStatus === 'error' || rawStatus === 'failed';
 
+    if (sessionMissing) return 'Project not found';
     if (isFailed) return 'Extraction failed';
 
     // Still working: surface a live, human label instead of the raw status key.
@@ -1056,6 +1075,7 @@ function Workspace() {
         onRecordEdit={editHistory.push}
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}
+        sessionMissing={sessionMissing}
         compactRows={compactRows}
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
