@@ -532,10 +532,19 @@ export function SpreadsheetSurface({
   // context, so they fire only when the grid is focused and NOT while a cell
   // editor is open (typing "b" into a cell must not bold it). Ctrl+B/I/U are not
   // Handsontable defaults, so this adds no conflict with copy/undo/select-all.
-  // Registered per instance at afterInit; the grid remounts on sheet/view
-  // changes, giving each instance its own fresh context (no accumulation).
-  const registerFormatShortcuts = useCallback(() => {
-    const hot = hotTableRef.current?.hotInstance;
+  // Registered per instance; the grid remounts on sheet/view changes, giving
+  // each instance its own fresh context (no accumulation).
+  //
+  // Registration is driven by the effect below rather than by `afterInit`.
+  // `afterInit` runs from inside Handsontable's constructor, before
+  // @handsontable/react has assigned `hotInstance` onto the ref, so reading the
+  // ref there yields undefined and the registration silently no-ops -- which is
+  // why Ctrl/Cmd+B/I/U stopped firing while Handsontable's own grid shortcuts
+  // (arrows, Ctrl+A) kept working. The other afterInit callees survived this
+  // because they are also invoked from later hooks and effects; this one had
+  // afterInit as its only caller.
+  const registerFormatShortcuts = useCallback((instance?: HotTableClass['hotInstance']) => {
+    const hot = instance ?? hotTableRef.current?.hotInstance;
     if (!hot) return;
     try {
       const context = hot.getShortcutManager().getContext('grid');
@@ -556,6 +565,19 @@ export function SpreadsheetSurface({
       }
     } catch { /* instance may be mid-teardown or context unavailable */ }
   }, [hotTableRef]);
+
+  // Runs after every render, but the identity guard makes it a no-op except on
+  // the first render after a new grid instance appears. Deliberately without a
+  // dependency array: the grid remounts on `key` changes (sheet/view) and the
+  // ref is populated by the wrapper after mount, so there is no dependency that
+  // reliably marks "a new instance now exists".
+  const shortcutInstanceRef = useRef<HotTableClass['hotInstance'] | null>(null);
+  useEffect(() => {
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot || shortcutInstanceRef.current === hot) return;
+    shortcutInstanceRef.current = hot;
+    registerFormatShortcuts(hot);
+  });
 
   const markFilterSettingsInitOnly = useCallback(() => {
     const hot = hotTableRef.current?.hotInstance;
@@ -1456,7 +1478,6 @@ export function SpreadsheetSurface({
           syncHotTableDimensions();
           applyGroupMerges();
           markFilterSettingsInitOnly();
-          registerFormatShortcuts();
           syncHeaderOverlayScroll();
         }}
         // Runs after Handsontable has drawn and (mis)clamped the header overlay's
