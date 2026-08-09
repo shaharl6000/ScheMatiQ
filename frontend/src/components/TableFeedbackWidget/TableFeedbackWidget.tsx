@@ -11,6 +11,10 @@ interface TableFeedbackWidgetProps {
   activeTab: string;
   tableRowCount: number;
   tableColumnCount: number;
+  // Placement of the fixed anchor. The default bottom-right corner is free on
+  // the classic Visualize page, but in the Workspace it is exactly where the
+  // chat composer sits, so the card covered the attach and send buttons.
+  anchorClassName?: string;
 }
 
 type WidgetState = 'hidden' | 'expanded' | 'submitted';
@@ -23,6 +27,7 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
   activeTab,
   tableRowCount,
   tableColumnCount,
+  anchorClassName = 'fixed bottom-6 right-6 z-50',
 }) => {
   const [widgetState, setWidgetState] = useState<WidgetState>('hidden');
   const [rating, setRating] = useState<'positive' | 'negative' | null>(null);
@@ -172,7 +177,7 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
   if (widgetState === 'hidden') return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-50">
+    <div className={anchorClassName}>
       {/* Submitted state: small checkmark */}
       {widgetState === 'submitted' && (
         <div
