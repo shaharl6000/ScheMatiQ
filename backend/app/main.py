@@ -34,7 +34,7 @@ for _handler in logging.root.handlers:
 # Suppress noisy uvicorn access logs (frontend polling every ~3s floods Railway logs)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.load import router as load_router
@@ -45,6 +45,8 @@ from app.api.routes.cloud_data import router as cloud_data_router
 from app.api.routes.observation_unit import router as observation_unit_router
 from app.api.routes.units import router as units_router
 from app.api.routes.feedback import router as feedback_router
+from app.api.routes.auth import router as auth_router
+from app.core.session_access import require_session_access
 from app.api.routes.chat import router as chat_router
 from app.api.routes.reference import router as reference_router
 from app.api.routes.support import router as support_router
@@ -113,17 +115,23 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],  # Allow frontend to read download filename
 )
 
+# Session ownership, applied once per session-scoped router rather than in each
+# handler. The websocket router and the auth/feedback/support routers are not
+# session-scoped in the same way and are covered separately.
+_owns_session = Depends(require_session_access)
+
 # Include routers
-app.include_router(load_router, prefix="/api/load", tags=["load"])
-app.include_router(schematiq_router, prefix="/api/schematiq", tags=["schematiq"])
-app.include_router(schema_router, prefix="/api/schema", tags=["schema"])
+app.include_router(load_router, prefix="/api/load", tags=["load"], dependencies=[_owns_session])
+app.include_router(schematiq_router, prefix="/api/schematiq", tags=["schematiq"], dependencies=[_owns_session])
+app.include_router(schema_router, prefix="/api/schema", tags=["schema"], dependencies=[_owns_session])
 app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
-app.include_router(cloud_data_router, prefix="/api", tags=["cloud-data"])
-app.include_router(observation_unit_router, prefix="/api/observation-unit", tags=["observation-unit"])
-app.include_router(units_router, prefix="/api/units", tags=["units"])
+app.include_router(cloud_data_router, prefix="/api", tags=["cloud-data"], dependencies=[_owns_session])
+app.include_router(observation_unit_router, prefix="/api/observation-unit", tags=["observation-unit"], dependencies=[_owns_session])
+app.include_router(units_router, prefix="/api/units", tags=["units"], dependencies=[_owns_session])
 app.include_router(feedback_router, prefix="/api/feedback", tags=["feedback"])
-app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
-app.include_router(reference_router, prefix="/api/reference", tags=["reference"])
+app.include_router(chat_router, prefix="/api/chat", tags=["chat"], dependencies=[_owns_session])
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+app.include_router(reference_router, prefix="/api/reference", tags=["reference"], dependencies=[_owns_session])
 app.include_router(support_router, prefix="/api/support", tags=["support"])
 
 logger = logging.getLogger(__name__)

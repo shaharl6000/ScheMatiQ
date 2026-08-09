@@ -32,6 +32,7 @@ tqdm>=4.65.0
 
 # Cloud Storage
 supabase>=2.0.0
+PyJWT[crypto]>=2.8.0
 
 # Google Drive/Sheets (optional, for research data collection)
 google-api-python-client>=2.100.0

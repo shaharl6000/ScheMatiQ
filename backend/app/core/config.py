@@ -92,6 +92,40 @@ STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "local")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
+# ── Authentication ───────────────────────────────────────────────
+# Identity comes from Supabase Auth. The backend verifies the access token
+# locally, so there is no round trip to Supabase on each request.
+#
+# Supabase signs session JWTs either with the project's legacy shared secret
+# (HS256) or with an asymmetric key published at the JWKS endpoint (ES256/RS256).
+# Newer projects and Supabase CLI >= 2.71.1 default to asymmetric, so both paths
+# are supported: set SUPABASE_JWT_SECRET for the legacy case, and the JWKS URL is
+# derived from SUPABASE_URL for the asymmetric case.
+SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
+SUPABASE_JWKS_URL = os.environ.get(
+    "SUPABASE_JWKS_URL",
+    f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json" if SUPABASE_URL else "",
+)
+# Expected `aud` claim on a Supabase user access token.
+SUPABASE_JWT_AUDIENCE = os.environ.get("SUPABASE_JWT_AUDIENCE", "authenticated")
+
+# Master switch for ownership enforcement. Deliberately OFF by default: this
+# release only adds the ability to identify a caller. Turning it on before the
+# frontend sends tokens, and before existing sessions have an owner, would lock
+# real users out of their own projects.
+AUTH_ENFORCED = os.environ.get("AUTH_ENFORCED", "false").lower() == "true"
+
+# What to do, once AUTH_ENFORCED is on, with sessions that still have no owner.
+# Sessions created before ownership existed start unowned, and an authenticated
+# caller claims them on first access, so in practice only sessions nobody has
+# opened since sign-in shipped are still here.
+#   "allow" — anonymous callers may still reach them (each access is logged).
+#             Safe for continuity, but keeps the old open behaviour for those
+#             sessions, so it is a grace period and not an end state.
+#   "deny"  — unowned sessions are unreachable without ownership. Safe by
+#             default, but will 404 any project nobody has claimed yet.
+AUTH_LEGACY_SESSION_POLICY = os.environ.get("AUTH_LEGACY_SESSION_POLICY", "allow")
+
 # ── Release Mode vs Developer Mode ──────────────────────────────
 def _env_flag(name: str, *, default: bool = False) -> bool:
     """Read a boolean environment variable (accepts 1/true/yes, any case)."""

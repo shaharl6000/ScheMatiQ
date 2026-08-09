@@ -204,6 +204,9 @@ class VisualizationSession(BaseModel):
     # External reference documents (supplementary lookup material, not row sources)
     reference_documents: List[ReferenceDocument] = Field(default_factory=list)
     # Privacy / data collection
+    # Owning Supabase Auth user id. None means the session predates ownership
+    # (or was created while AUTH_ENFORCED was off) and is treated as legacy.
+    owner_id: Optional[str] = None
     opt_out_data_collection: bool = False  # User opted out of research data archival
     write_artifacts: Optional[bool] = None  # If True, write debug artifacts like skip rationales
     # Chat usage, persisted so CHAT_MAX_MESSAGES_PER_SESSION survives a redeploy.
