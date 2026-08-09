@@ -24,6 +24,9 @@ type UseWorkspaceSocketOptions = {
     variant?: 'default' | 'destructive';
     duration?: number;
   }) => void;
+  // Called when a background operation is about to rewrite existing cell values
+  // (e.g. re-extraction), so the caller can drop now-stale undo history.
+  onExternalRewrite?: () => void;
 };
 
 // Owns WebSocket connection lifecycle, message routing, and disconnected polling.
@@ -35,6 +38,7 @@ export function useWorkspaceSocket({
   setActiveSheet,
   setReextraction,
   toast,
+  onExternalRewrite,
 }: UseWorkspaceSocketOptions) {
   const [wsConnected, setWsConnected] = useState(false);
   // A 'connected' message only means "catch up on what you missed" when it
@@ -90,6 +94,9 @@ export function useWorkspaceSocket({
           totalDocuments: payload.total_documents || 0,
         });
         setActiveSheet('data');
+        // A re-extraction overwrites existing cell values, so any recorded undo
+        // of a manual edit would now restore a value the model has replaced.
+        onExternalRewrite?.();
         void refresh({ silent: true });
         return;
       }
@@ -185,7 +192,7 @@ export function useWorkspaceSocket({
       webSocketService.disconnect();
       setWsConnected(false);
     };
-  }, [refresh, refreshSilent, sessionId, setActiveSheet, setReextraction, toast]);
+  }, [refresh, refreshSilent, sessionId, setActiveSheet, setReextraction, toast, onExternalRewrite]);
 
   return { wsConnected };
 }

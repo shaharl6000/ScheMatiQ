@@ -59,8 +59,11 @@ import type {
 } from '@/types';
 import type { DocumentListResponse } from '@/types/unit';
 
+import { applyPatches, enablePatches, produceWithPatches } from 'immer';
+
 import { ChatPanel } from './chat/ChatPanel';
 import { emptyData, EMPTY_DATA_RECHECK_MS, SHEETS, cellFormatKey } from './constants';
+import { useEditHistory } from './hooks/useEditHistory';
 import {
   buildExportFilename,
   dataEquals,
@@ -91,6 +94,9 @@ import type {
 } from './types';
 
 import './Workspace.css';
+
+// immer's patch APIs are opt-in and must be enabled once before use (undo stack).
+enablePatches();
 
 type RefreshDataOptions = {
   silent?: boolean;
@@ -167,6 +173,9 @@ function Workspace() {
     return {};
   });
   const [formatVersion, setFormatVersion] = useState(0);
+  // Undo/redo stack for reversible edits (formatting + cell-value edits),
+  // following the Command pattern; each entry owns its inverse and forward.
+  const editHistory = useEditHistory();
   // Bumped only when authoritative server data is applied (applyData /
   // flushDeferredData), never on an optimistic cell edit. The By Unit view keys
   // its refetch off this instead of `data` so an optimistic edit, which mutates
@@ -482,6 +491,7 @@ function Workspace() {
     setActiveSheet,
     setReextraction,
     toast,
+    onExternalRewrite: editHistory.clear,
   });
 
   useEffect(() => {
@@ -525,13 +535,15 @@ function Workspace() {
     setSession(null);
     setDataView('by_document');
     setUnitData(emptyData);
+    // The undo stack belongs to the session we are leaving.
+    editHistory.clear();
     // Drop refresh bookkeeping tied to the session we are leaving, so a pending
     // re-check cannot apply the previous session's rows to the new one.
     dataRowCountRef.current = 0;
     unitDataRowCountRef.current = 0;
     deferredDataRef.current = null;
     clearEmptyRecheck();
-  }, [clearEmptyRecheck, sessionId]);
+  }, [clearEmptyRecheck, editHistory, sessionId]);
 
   useEffect(() => clearEmptyRecheck, [clearEmptyRecheck]);
 
@@ -713,24 +725,47 @@ function Workspace() {
       : liveSelection;
 
     if (!activeSelection || activeSelection.sheet !== activeSheet) {
+      // No cell selection: this toggles the sheet-wide display. Snapshot both
+      // sides so undo/redo restore them exactly.
+      const prevDisplay = tableDisplay;
       const nextDisplay = { ...tableDisplay, ...patch };
       updateTableDisplay(nextDisplay);
+      editHistory.push({
+        undo: () => updateTableDisplay(prevDisplay),
+        redo: () => updateTableDisplay(nextDisplay),
+      });
       return;
     }
 
-    setCellFormats((current) => {
-      const next = { ...current };
+    // Compute the next formats and immer's forward/inverse patches up front (in
+    // the event handler, not inside a setState updater, so there is no
+    // double-run in StrictMode). The patches target only the touched keys, so
+    // undo/redo in LIFO order restore exactly what this command changed.
+    const [nextFormats, forwardPatches, inversePatches] = produceWithPatches(cellFormats, (draft) => {
       for (let row = activeSelection.fromRow; row <= activeSelection.toRow; row += 1) {
         for (let col = activeSelection.fromCol; col <= activeSelection.toCol; col += 1) {
           const key = cellFormatKey(activeSheet, row, col);
-          next[key] = { ...next[key], ...patch };
+          draft[key] = { ...draft[key], ...patch };
         }
       }
-      localStorage.setItem('workspace.cellFormats', JSON.stringify(next));
-      return next;
     });
+    setCellFormats(nextFormats);
+    localStorage.setItem('workspace.cellFormats', JSON.stringify(nextFormats));
     setFormatVersion((current) => current + 1);
-  }, [activeSheet, sheetSelection, tableDisplay, updateTableDisplay]);
+
+    const applyFormatPatches = (patches: typeof forwardPatches) => {
+      setCellFormats((cur) => {
+        const nextValue = applyPatches(cur, patches);
+        localStorage.setItem('workspace.cellFormats', JSON.stringify(nextValue));
+        return nextValue;
+      });
+      setFormatVersion((current) => current + 1);
+    };
+    editHistory.push({
+      undo: () => applyFormatPatches(inversePatches),
+      redo: () => applyFormatPatches(forwardPatches),
+    });
+  }, [activeSheet, cellFormats, editHistory, sheetSelection, tableDisplay, updateTableDisplay]);
 
   const selectedDisplayOptions = useMemo(() => {
     if (!sheetSelection || sheetSelection.sheet !== activeSheet) return tableDisplay;
@@ -1018,6 +1053,9 @@ function Workspace() {
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
         onToggleFormatShortcut={handleFormatShortcut}
+        onUndo={() => { editHistory.undo(); }}
+        onRedo={() => { editHistory.redo(); }}
+        onRecordEdit={editHistory.push}
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}
         compactRows={compactRows}
