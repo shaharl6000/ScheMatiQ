@@ -868,15 +868,13 @@ function Workspace() {
     });
   }, []);
 
-  const undoEdit = useCallback(() => {
-    const plugin = hotTableRef.current?.hotInstance?.getPlugin('undoRedo');
-    if (plugin?.isUndoAvailable()) plugin.undo();
-  }, []);
-
-  const redoEdit = useCallback(() => {
-    const plugin = hotTableRef.current?.hotInstance?.getPlugin('undoRedo');
-    if (plugin?.isRedoAvailable()) plugin.redo();
-  }, []);
+  // Must be the same stack the Ctrl/Cmd+Z shortcuts drive. These used to call
+  // Handsontable's UndoRedo plugin, which is now disabled (undo={false} on the
+  // grid) in favour of the workspace edit-history stack -- so the menu items
+  // were calling a plugin that no longer runs and silently did nothing, while
+  // the keyboard path worked.
+  const undoEdit = useCallback(() => { editHistory.undo(); }, [editHistory]);
+  const redoEdit = useCallback(() => { editHistory.redo(); }, [editHistory]);
 
   const searchPage = useCallback(() => {
     const term = window.prompt('Find in table')?.trim();
@@ -1053,8 +1051,8 @@ function Workspace() {
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
         onToggleFormatShortcut={handleFormatShortcut}
-        onUndo={() => { editHistory.undo(); }}
-        onRedo={() => { editHistory.redo(); }}
+        onUndo={undoEdit}
+        onRedo={redoEdit}
         onRecordEdit={editHistory.push}
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}

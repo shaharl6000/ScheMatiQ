@@ -32,6 +32,7 @@ const GROUPS: { title: string; items: Shortcut[] }[] = [
     items: [
       { keys: ['Mod', 'Z'], label: 'Undo' },
       { keys: ['Mod', 'Y'], label: 'Redo' },
+      { keys: ['Mod', 'Shift', 'Z'], label: 'Redo (alternative)' },
       { keys: ['Mod', 'C'], label: 'Copy' },
       { keys: ['Mod', 'X'], label: 'Cut' },
       { keys: ['Mod', 'V'], label: 'Paste' },
