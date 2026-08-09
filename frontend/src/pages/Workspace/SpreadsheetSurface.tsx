@@ -20,6 +20,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { observationUnitAPI, schemaAPI, schematiqAPI } from '@/services/api';
 import type { ColumnInfo, DataRow, PaginatedData, SchemaData } from '@/types';
 import { formatColumnName } from '@/utils/formatting';
+import type { EditCommand } from './hooks/useEditHistory';
 
 import {
   EDITABLE_OBSERVATION_UNIT_FIELDS,
@@ -63,6 +64,9 @@ export function SpreadsheetSurface({
   onEditFollowUp,
   onEditEnd,
   onToggleFormatShortcut,
+  onUndo,
+  onRedo,
+  onRecordEdit,
   onNewProject,
   onImportProject,
   compactRows,
@@ -104,6 +108,14 @@ export function SpreadsheetSurface({
   // Toggle a text format (bold/italic/underline) on the current selection,
   // invoked by the Ctrl/Cmd+B/I/U keyboard shortcuts registered below.
   onToggleFormatShortcut?: (key: 'bold' | 'italic' | 'underline') => void;
+  // Reverse / re-apply the last reversible edit (Ctrl/Cmd+Z, Ctrl/Cmd+Y or
+  // Ctrl/Cmd+Shift+Z), wired to the workspace undo/redo stack. Native
+  // Handsontable undo is disabled (undo={false}) because it only tracks in-grid
+  // changes and its stack is cleared whenever the controlled data prop reloads.
+  onUndo?: () => void;
+  onRedo?: () => void;
+  // Record an undoable command after a cell-value edit is applied.
+  onRecordEdit?: (command: EditCommand) => void;
   // Empty-state actions. Closing the New Project dialog previously left the
   // workbook as a dead end whose only way forward was the File menu, which is
   // itself unreachable on narrow viewports.
@@ -533,6 +545,10 @@ export function SpreadsheetSurface({
   // never stale, without re-registering on every render. Mirrors menuActionsRef.
   const formatShortcutRef = useRef(onToggleFormatShortcut);
   formatShortcutRef.current = onToggleFormatShortcut;
+  const undoRef = useRef(onUndo);
+  undoRef.current = onUndo;
+  const redoRef = useRef(onRedo);
+  redoRef.current = onRedo;
 
   // Register Ctrl/Cmd+B/I/U through Handsontable's built-in ShortcutManager
   // rather than a hand-rolled keydown handler. The shortcuts live in the 'grid'
@@ -570,6 +586,24 @@ export function SpreadsheetSurface({
           group: 'schematiq:formatting',
         });
       }
+      // Undo/redo drive the workspace edit-history stack (formats + cell-value
+      // edits). Live in the 'grid' context, so they do not fire while a cell
+      // editor is open, leaving the editor's own text undo intact. Native HT
+      // undo/redo is disabled (undo={false}) to avoid a double handler.
+      context.addShortcut({
+        keys: [['control', 'z'], ['meta', 'z']],
+        callback: () => { undoRef.current?.(); },
+        preventDefault: true,
+        stopPropagation: true,
+        group: 'schematiq:formatting',
+      });
+      context.addShortcut({
+        keys: [['control', 'y'], ['meta', 'y'], ['control', 'shift', 'z'], ['meta', 'shift', 'z']],
+        callback: () => { redoRef.current?.(); },
+        preventDefault: true,
+        stopPropagation: true,
+        group: 'schematiq:formatting',
+      });
     } catch { /* instance may be mid-teardown or context unavailable */ }
   }, [hotTableRef]);
 
@@ -874,6 +908,51 @@ export function SpreadsheetSurface({
     [flushEditToast],
   );
 
+  type CellUpdate = {
+    rowName: string;
+    sourceDocument?: string;
+    rowIndexId?: number;
+    column: string;
+    value: string;
+  };
+
+  // Apply a batch of cell writes through the standard edit pipeline: optimistic
+  // React update up front, the persisting PUTs, one summary toast, then a
+  // refresh. Shared by direct edits and by undo/redo (which replay the inverse
+  // or forward batch), so the paths can never drift.
+  const applyCellUpdates = useCallback((updates: CellUpdate[]) => {
+    if (!sessionId || updates.length === 0) return;
+
+    onOptimisticCellEdit(
+      updates.map((u) => ({
+        identity: { rowName: u.rowName, sourceDocument: u.sourceDocument, rowIndex: u.rowIndexId },
+        column: u.column,
+        value: u.value,
+      })),
+    );
+
+    const allCleared = updates.every((u) => u.value.trim() === '');
+
+    Promise.allSettled(
+      updates.map((u) =>
+        schematiqAPI.updateCell(sessionId, u.rowName, u.column, u.value, u.sourceDocument, u.rowIndexId),
+      ),
+    ).then((results) => {
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      const succeeded = updates.length - failed;
+
+      let single: { cleared: boolean; label: string; column: string } | null = null;
+      if (updates.length === 1 && failed === 0) {
+        const u = updates[0];
+        const rowLabel = u.rowName || (u.rowIndexId != null ? `Row ${u.rowIndexId + 1}` : 'Row');
+        single = { cleared: allCleared, label: rowLabel, column: u.column };
+      }
+      queueEditToast({ succeeded, failed, allCleared, single });
+
+      onRefreshData();
+    });
+  }, [onOptimisticCellEdit, onRefreshData, queueEditToast, sessionId]);
+
   const handleChanges = useCallback((changes: any[] | null, source: string) => {
     if (!changes || source === 'loadData' || !sessionId) return;
 
@@ -893,14 +972,8 @@ export function SpreadsheetSurface({
       const toPhysicalRow = (visualRow: number): number =>
         hot && typeof hot.toPhysicalRow === 'function' ? hot.toPhysicalRow(visualRow) : visualRow;
 
-      type CellUpdate = {
-        rowName: string;
-        sourceDocument?: string;
-        rowIndexId?: number;
-        column: string;
-        value: string;
-      };
       const updates: CellUpdate[] = [];
+      const inverseUpdates: CellUpdate[] = [];
       let unidentified = 0;
 
       for (const change of changes) {
@@ -919,6 +992,7 @@ export function SpreadsheetSurface({
         }
 
         updates.push({ rowName, sourceDocument, rowIndexId, column: key, value: String(newValue ?? '') });
+        inverseUpdates.push({ rowName, sourceDocument, rowIndexId, column: key, value: String(oldValue ?? '') });
       }
 
       if (updates.length === 0) {
@@ -937,35 +1011,15 @@ export function SpreadsheetSurface({
       // the grid does not revert while the writes are in flight. A single call
       // (rather than one per cell) keeps a multi-cell clear from triggering a
       // render cascade inside Handsontable's synchronous afterChange.
-      onOptimisticCellEdit(
-        updates.map((u) => ({
-          identity: { rowName: u.rowName, sourceDocument: u.sourceDocument, rowIndex: u.rowIndexId },
-          column: u.column,
-          value: u.value,
-        })),
-      );
+      applyCellUpdates(updates);
 
-      const allCleared = updates.every((u) => u.value.trim() === '');
-
-      Promise.allSettled(
-        updates.map((u) =>
-          schematiqAPI.updateCell(sessionId, u.rowName, u.column, u.value, u.sourceDocument, u.rowIndexId),
-        ),
-      ).then((results) => {
-        const failed = results.filter((r) => r.status === 'rejected').length;
-        const succeeded = updates.length - failed;
-
-        let single: { cleared: boolean; label: string; column: string } | null = null;
-        if (updates.length === 1 && failed === 0) {
-          const u = updates[0];
-          const rowLabel = u.rowName || (u.rowIndexId != null ? `Row ${u.rowIndexId + 1}` : 'Row');
-          single = { cleared: allCleared, label: rowLabel, column: u.column };
-        }
-        // Accumulate; the debounced flush emits a single toast for the whole
-        // interaction even when Handsontable splits it across afterChange calls.
-        queueEditToast({ succeeded, failed, allCleared, single });
-
-        onRefreshData();
+      // Record the batch as one history entry: Ctrl/Cmd+Z restores the previous
+      // values, Ctrl/Cmd+Y (or Shift+Z) reapplies them, both through the same
+      // pipeline. Undo/redo replay via applyCellUpdates (which does not record),
+      // so they never stack a command.
+      onRecordEdit?.({
+        undo: () => applyCellUpdates(inverseUpdates),
+        redo: () => applyCellUpdates(updates),
       });
 
       return;
@@ -1111,7 +1165,7 @@ export function SpreadsheetSurface({
           });
       }
     }
-  }, [activeSheet, data.rows, hotTableRef, observationUnitRows, onEditFollowUp, onOptimisticCellEdit, onRefresh, onRefreshData, queueEditToast, schemaColumns, sessionId, toast]);
+  }, [activeSheet, applyCellUpdates, data.rows, hotTableRef, observationUnitRows, onEditFollowUp, onRecordEdit, onRefresh, onRefreshData, schemaColumns, sessionId, toast]);
 
   const handleBeforeRemoveRow = useCallback(
     (_index: number, _amount: number, physicalRows: number[], _source?: string): boolean | void => {
@@ -1485,7 +1539,7 @@ export function SpreadsheetSurface({
         // plugin's isEnabled(), which reads this setting -- so without it, Find
         // jumped to the match and reported the count while highlighting nothing.
         search
-        undo
+        undo={false}
         minSpareRows={sheet.minSpareRows || 0}
         licenseKey="non-commercial-and-evaluation"
         afterInit={() => {
