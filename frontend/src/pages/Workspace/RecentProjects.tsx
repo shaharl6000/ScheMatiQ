@@ -81,28 +81,37 @@ export function RecentProjects({
       return;
     }
     let cancelled = false;
+    // Drop the previous result so reopening the window shows the loader rather
+    // than the last visit's list while the refetch is in flight.
+    setSessions(null);
     setLoading(true);
     (async () => {
-      // Fetch each remembered project by id. The backend resolves a session by
-      // id regardless of type, so one endpoint covers both load and schematiq
-      // projects; the returned `type` drives navigation mode.
-      const results = await Promise.all(
-        ids.map((id) =>
-          loadAPI.getSession(id).then(
-            (session) => ({ id, session: session as VisualizationSession | null }),
-            () => ({ id, session: null as VisualizationSession | null }),
+      try {
+        // Fetch each remembered project by id. The backend resolves a session by
+        // id regardless of type, so one endpoint covers both load and schematiq
+        // projects; the returned `type` drives navigation mode.
+        const results = await Promise.all(
+          ids.map((id) =>
+            loadAPI.getSession(id).then(
+              (session) => ({ id, session: session as VisualizationSession | null }),
+              () => ({ id, session: null as VisualizationSession | null }),
+            ),
           ),
-        ),
-      );
-      if (cancelled) return;
-      const missing = results.filter((r) => r.session === null).map((r) => r.id);
-      if (missing.length > 0) forgetProjects(missing);
-      const found = results
-        .map((r) => r.session)
-        .filter((s): s is VisualizationSession => s !== null)
-        .sort((a, b) => sessionTime(b) - sessionTime(a));
-      setSessions(found);
-      setLoading(false);
+        );
+        if (cancelled) return;
+        const missing = results.filter((r) => r.session === null).map((r) => r.id);
+        if (missing.length > 0) forgetProjects(missing);
+        const found = results
+          .map((r) => r.session)
+          .filter((s): s is VisualizationSession => s !== null)
+          .sort((a, b) => sessionTime(b) - sessionTime(a));
+        setSessions(found);
+      } finally {
+        // Always reset, including on the cancelled path. Returning early from
+        // inside the async body left `loading` stuck at true, so the next open
+        // rendered a stale list with no loading indicator.
+        setLoading(false);
+      }
     })();
     return () => {
       cancelled = true;

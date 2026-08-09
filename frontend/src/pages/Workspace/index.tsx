@@ -806,11 +806,29 @@ function Workspace() {
     }
   }, [sessionId, sessionMode, schema, config, toast]);
 
+  // window.find only sees painted DOM text. Handsontable virtualises rows and
+  // columns, so it searched whatever happened to be in the viewport and quietly
+  // reported nothing for the rest of the table -- on a 194-row sheet that is
+  // most of it. The Search plugin queries the loaded dataset instead, so a hit
+  // outside the viewport is found and scrolled to.
   const searchPage = useCallback(() => {
-    const term = window.prompt('Find in visible workspace');
-    const findInPage = (window as Window & { find?: (text: string) => boolean }).find;
-    if (term && findInPage) findInPage(term);
-  }, []);
+    const term = window.prompt('Find in table')?.trim();
+    if (!term) return;
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+    const results = hot.getPlugin('search').query(term);
+    hot.render();
+    if (results.length === 0) {
+      toast({ title: 'No matches', description: `Nothing in this sheet matches "${term}".` });
+      return;
+    }
+    const [first] = results;
+    hot.selectCell(first.row, first.col);
+    toast({
+      title: results.length === 1 ? '1 match' : `${results.length} matches`,
+      description: 'Jumped to the first one.',
+    });
+  }, [toast]);
 
   const importExistingProject = useCallback(async (file: File) => {
     setImportingProject(true);
