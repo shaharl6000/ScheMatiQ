@@ -190,6 +190,8 @@ function Workspace() {
     setChatWidth,
     isDraggingDivider,
     startDividerDrag,
+    viewportWidth,
+    isStacked,
   } = useWorkspaceLayout();
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
@@ -864,14 +866,27 @@ function Workspace() {
     if (colCount > 0) parts.push(`${colCount} ${colCount === 1 ? 'column' : 'columns'}`);
     return parts.join(' · ');
   }, [sessionId, loading, status, sessionMode, data.total_count, schema]);
-  const isSheetHidden = chatWidth >= window.innerWidth - 80;
-  const isChatHidden = chatWidth <= 24;
-  const bodyGridColumns = isSheetHidden
-    ? '0px 8px minmax(0, 1fr)'
-    : isChatHidden
-      ? 'minmax(0, 1fr) 8px 0px'
-      : `minmax(0, 1fr) 8px ${chatWidth}px`;
-  const gridLayoutRevision = String(chatWidth);
+  // Below the stacked breakpoint the panes sit one above the other and the
+  // divider is display:none, so a chat width measured in pixels no longer says
+  // anything about whether a pane is collapsed. Left live, the default 380px
+  // chat satisfied `chatWidth >= innerWidth - 80` on any viewport under 460px,
+  // which hid the sheet and -- with the divider removed from the grid flow --
+  // dropped the chat into the 8px divider track, rendering an empty workspace.
+  const isSheetHidden = !isStacked && chatWidth >= viewportWidth - 80;
+  const isChatHidden = !isStacked && chatWidth <= 24;
+  // Undefined while stacked so the inline style does not outrank the
+  // `max-width: 900px` rule in Workspace.css, which is what silently defeated
+  // the responsive layout before.
+  const bodyGridColumns = isStacked
+    ? undefined
+    : isSheetHidden
+      ? '0px 8px minmax(0, 1fr)'
+      : isChatHidden
+        ? 'minmax(0, 1fr) 8px 0px'
+        : `minmax(0, 1fr) 8px ${chatWidth}px`;
+  // Crossing the breakpoint resizes the grid without changing chatWidth, so the
+  // revision has to carry it too or Handsontable keeps stale measurements.
+  const gridLayoutRevision = `${chatWidth}:${isStacked ? 'stacked' : 'split'}`;
   const reextractionPercent = Math.round((reextraction?.progress || 0) * 100);
   const bottombarStatus = reextraction
     ? `Re-extracting ${reextraction.columns.join(', ')} (${reextraction.processedDocuments}/${reextraction.totalDocuments || '?'} docs)`
@@ -955,6 +970,8 @@ function Workspace() {
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
         onToggleFormatShortcut={handleFormatShortcut}
+        onNewProject={() => setProjectDialogOpen(true)}
+        onImportProject={() => importInputRef.current?.click()}
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
       />
