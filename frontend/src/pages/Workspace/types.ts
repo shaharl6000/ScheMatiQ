@@ -18,11 +18,13 @@ export type WorkspaceMenuAction =
   | 'showSheet'
   | 'showChat'
   | 'splitView'
+  | 'toggleCompactRows'
   | 'projectDetails'
   | 'reextract'
   | 'addDocuments'
   | 'estimateCost'
   | 'refreshProject'
+  | 'keyboardShortcuts'
   | 'reportIssue';
 
 export type WorkspaceMenuItem = {

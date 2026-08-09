@@ -52,6 +52,10 @@ export const SHEETS: Array<{ id: SheetId; label: string; group: 'structure' | 'a
 // on) are omitted rather than rendered as clickable no-ops; the formatting
 // toolbar below covers font/bold/align, and the column header dropdown covers
 // sorting and filtering.
+// Row height used when compact rows are on. Matches the 12px table font with
+// single-line padding.
+export const COMPACT_ROW_HEIGHT = 28;
+
 export const WORKSPACE_MENUS: WorkspaceMenu[] = [
   {
     label: 'File',
@@ -82,6 +86,7 @@ export const WORKSPACE_MENUS: WorkspaceMenu[] = [
       { label: 'Show sheet full screen', action: 'showSheet', requiresProject: true },
       { label: 'Show chat full screen', action: 'showChat', requiresProject: true },
       { label: 'Split view', action: 'splitView', requiresProject: true },
+      { label: 'Toggle compact rows', action: 'toggleCompactRows', requiresProject: true },
       { label: 'Project details', action: 'projectDetails', requiresProject: true },
     ],
   },
@@ -101,7 +106,10 @@ export const WORKSPACE_MENUS: WorkspaceMenu[] = [
   },
   {
     label: 'Help',
-    items: [{ label: 'Report an issue', action: 'reportIssue' }],
+    items: [
+      { label: 'Keyboard shortcuts', action: 'keyboardShortcuts' },
+      { label: 'Report an issue', action: 'reportIssue' },
+    ],
   },
 ];
 
