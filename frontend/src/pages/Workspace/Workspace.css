@@ -24,7 +24,12 @@
 .workspace-chrome-titlebar {
   height: 38px;
   display: grid;
-  grid-template-columns: auto minmax(160px, 320px) minmax(0, 1fr) auto;
+  /* The project-title track must be allowed to shrink below its content. With a
+     160px floor it stole width from the menu row, which is overflow-x: auto with
+     a hidden scrollbar, so the last menus (Data/Tools/Help) scrolled out of view
+     with no visual affordance on ~1024-1150px viewports. The title already
+     ellipsises, so let it yield to the menus. */
+  grid-template-columns: auto minmax(0, 320px) minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   padding: 6px 10px 2px;
@@ -159,6 +164,42 @@
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+}
+
+/* Second line of defence for the hidden-scrollbar clipping above: below 1180px
+   the menus take their own full-width row instead of competing with the title
+   and the Report an issue button. Kept separate from the 900px block, which
+   also stacks the chat under the sheet -- that layout change should not kick in
+   this early. */
+@media (min-width: 901px) and (max-width: 1180px) {
+  .workspace-chrome {
+    height: 100px;
+  }
+
+  .workspace-chrome-titlebar {
+    height: 62px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "mark title links"
+      "menus menus menus";
+    row-gap: 2px;
+  }
+
+  .workspace-file-mark {
+    grid-area: mark;
+  }
+
+  .workspace-file-title {
+    grid-area: title;
+  }
+
+  .workspace-chrome-links {
+    grid-area: links;
+  }
+
+  .workspace-menu-row {
+    grid-area: menus;
+  }
 }
 
 .workspace-menu-row::-webkit-scrollbar {
@@ -1293,6 +1334,45 @@
 
 .dark .workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(odd) > th {
   background: hsl(145 14% 15%);
+}
+
+/* Surfaces below were authored with literal light values and had no dark
+   counterpart, so on a dark theme the sheet pane rendered as a white slab
+   inside otherwise dark chrome (the workspace is the default route and hides
+   the app header, so a system-dark user could not switch away from it). */
+.dark .workspace-sheet-pane {
+  background: hsl(150 8% 8%);
+}
+
+.dark .workspace-loading-overlay {
+  background: hsl(150 8% 8% / 0.72);
+}
+
+.dark .workspace-loading-card {
+  background: hsl(150 9% 12%);
+  border-color: hsl(146 14% 24%);
+  color: hsl(var(--foreground));
+}
+
+.dark .workspace-data-loading-badge {
+  background: hsl(150 9% 12%);
+  border-color: hsl(146 14% 24%);
+  color: hsl(var(--foreground));
+}
+
+.dark .workspace-toolbar-separator {
+  background: hsl(146 14% 24%);
+}
+
+.dark .workspace-followup-banner {
+  background: hsl(38 32% 14%);
+  border-bottom-color: hsl(38 28% 26%);
+}
+
+.dark .workspace-sheet-tab[data-active="true"] {
+  border-color: hsl(142 45% 42%);
+  background: hsl(146 28% 16%);
+  color: hsl(142 52% 72%);
 }
 
 @media (max-width: 900px) {
