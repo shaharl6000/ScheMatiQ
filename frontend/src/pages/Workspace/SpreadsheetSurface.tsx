@@ -70,6 +70,7 @@ export function SpreadsheetSurface({
   onNewProject,
   onImportProject,
   sessionMissing,
+  dataMissing,
   compactRows,
   layoutRevision,
   dataView,
@@ -128,6 +129,8 @@ export function SpreadsheetSurface({
   // of 194 rows on screen. Uniform heights avoid the drift the same way.
   // Session id is present in the URL but the backend cannot resolve it.
   sessionMissing?: boolean;
+  // Session resolves, but its extracted data file does not exist in storage.
+  dataMissing?: boolean;
   compactRows?: boolean;
   layoutRevision: string;
   // Current Data-sheet grouping. Drives the visual cell-merge of the leftmost
@@ -1459,13 +1462,15 @@ export function SpreadsheetSurface({
     };
   }, [activeSheet, customColumnMenuItems]);
 
-  if (!sessionId || sessionMissing) {
+  if (!sessionId || sessionMissing || dataMissing) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
         <p className="text-sm text-muted-foreground">
           {sessionMissing
             ? 'This project could not be found. It may have been removed, or the link may be out of date.'
-            : 'Start or open a project to populate the workbook.'}
+            : dataMissing
+              ? 'This project exists but its extracted data is no longer in storage. The schema is intact, so re-running extraction will rebuild the table.'
+              : 'Start or open a project to populate the workbook.'}
         </p>
         {(onNewProject || onImportProject) && (
           <div className="flex flex-wrap items-center justify-center gap-2">

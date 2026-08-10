@@ -940,6 +940,13 @@ function Workspace() {
   const progressPercent = Math.round((status?.progress || 0) * 100);
   const topbarQuestion = schema?.query || config?.query || '';
   const projectTitle = topbarQuestion || (sessionId ? `ScheMatiQ ${sessionId.slice(0, 8)}` : 'Untitled workspace');
+  // Extraction has stopped moving, either successfully or not. Used to decide
+  // whether an empty data payload means "nothing yet" or "nothing left".
+  const extractionSettled = useMemo(() => {
+    const rawStatus = status?.status || '';
+    return ['completed', 'schema_extracted', 'stopped', 'error', 'failed'].includes(rawStatus);
+  }, [status?.status]);
+
   const chromeStatus = useMemo(() => {
     if (!sessionId) return 'No project open';
     if (loading) return 'Loading…';
@@ -1076,6 +1083,7 @@ function Workspace() {
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}
         sessionMissing={sessionMissing}
+        dataMissing={Boolean(data?.data_missing) && extractionSettled}
         compactRows={compactRows}
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
