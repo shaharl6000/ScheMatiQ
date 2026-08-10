@@ -10,7 +10,14 @@ import { ModelSelector } from '@/components/ModelSelector';
 import { getDefaultModelForProvider } from '@/constants';
 import { chatAPI, referenceAPI, type ReferenceDocumentInfo } from '@/services/api';
 import webSocketService from '@/services/websocket';
-import type { ChatToolInfo, PaginatedData, SchemaData, ScheMatiQStatus, WebSocketMessage } from '@/types';
+import type {
+  ChatToolInfo,
+  ChatTurnMessage,
+  PaginatedData,
+  SchemaData,
+  ScheMatiQStatus,
+  WebSocketMessage,
+} from '@/types';
 
 import {
   CHAT_MUTATION_TOOLS,
@@ -217,8 +224,21 @@ export function ChatPanel({
     [sessionId, references],
   );
 
+  // Ids are the deduplication key. Assistant and tool messages now arrive over
+  // two channels -- live over the WebSocket as the agent produces them, and
+  // again in the HTTP response at the end of the turn -- so whichever lands
+  // first wins and the other copy is dropped. The HTTP response stays the source
+  // of truth: if the socket is down, nothing is lost.
   const appendMessages = useCallback((next: WorkspaceMessage[]) => {
-    setMessages((current) => [...current, ...next]);
+    setMessages((current) => {
+      const seen = new Set(current.map((message) => message.id));
+      const fresh = next.filter((message) => {
+        if (seen.has(message.id)) return false;
+        seen.add(message.id);
+        return true;
+      });
+      return fresh.length ? [...current, ...fresh] : current;
+    });
   }, []);
 
   // A column fill runs in the background after the chat turn ends, streaming cells
@@ -227,7 +247,12 @@ export function ChatPanel({
   useEffect(() => {
     if (!sessionId) return undefined;
     const handler = (message: WebSocketMessage) => {
-      if (message.type === 'reference_fill_started') {
+      if (message.type === 'chat_message' && message.data) {
+        // Emitted by agent_service as each assistant/tool message is produced,
+        // so the panel fills in while the turn is still running instead of
+        // staying empty until the HTTP response returns.
+        appendMessages([mapChatTurnMessage(message.data as unknown as ChatTurnMessage)]);
+      } else if (message.type === 'reference_fill_started') {
         const data = (message.data ?? {}) as unknown as { column?: string };
         setFillRunning({ column: data.column ?? '' });
       } else if (message.type === 'reference_fill_completed') {
