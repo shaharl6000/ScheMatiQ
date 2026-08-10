@@ -18,7 +18,7 @@ if _SCHEMATIQ_LIB_PATH.exists() and str(_SCHEMATIQ_LIB_PATH) not in sys.path:
 # Set LOG_LEVEL=DEBUG to see detailed schema column tracking
 # Format includes [session_id] for Railway log filtering per session
 from app.core.config import LOG_LEVEL
-from app.core.logging_utils import SessionFilter
+from app.core.logging_utils import SessionFilter, set_session_context
 
 log_level = LOG_LEVEL.upper()
 logging.basicConfig(
@@ -34,7 +34,9 @@ for _handler in logging.root.handlers:
 # Suppress noisy uvicorn access logs (frontend polling every ~3s floods Railway logs)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
-from fastapi import FastAPI
+import re
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.load import router as load_router
@@ -102,6 +104,24 @@ app = FastAPI(
         }
     ]
 )
+
+# Tag every log line emitted while handling a request with the session it
+# concerns. set_session_context was previously called by hand at about a dozen
+# sites, none of them on the load/data read paths -- so an investigation into a
+# session that would not open had to read a log where every relevant line said
+# [no-session], including the Supabase calls that failed.
+_SESSION_ID_IN_PATH = re.compile(
+    r"/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
+
+
+@app.middleware("http")
+async def tag_logs_with_session(request: Request, call_next):
+    match = _SESSION_ID_IN_PATH.search(request.url.path)
+    if match:
+        set_session_context(match.group(1))
+    return await call_next(request)
+
 
 # CORS middleware for frontend communication
 app.add_middleware(
