@@ -467,8 +467,9 @@ class SupabaseStorageBackend(StorageInterface):
             logger.info("Fetching datasets from Supabase 'datasets' bucket...")
             # List top-level folders in datasets bucket with pagination
             items = self._list_all_storage_items("datasets")
-            logger.info(f"Supabase returned {len(items)} items from datasets bucket")
-            logger.info(f"Raw items: {items}")
+            logger.debug(f"Supabase returned {len(items)} items from datasets bucket")
+            # Whole-bucket dump; useful when debugging a listing, far too noisy at INFO.
+            logger.debug(f"Raw items: {items}")
 
             datasets = []
             for item in items:
@@ -476,12 +477,12 @@ class SupabaseStorageBackend(StorageInterface):
                 # Check if it's a folder (no id means folder)
                 if not item.get("id"):
                     dataset_name = item["name"]
-                    logger.info(f"Found folder (dataset): {dataset_name}")
+                    logger.debug(f"Found folder (dataset): {dataset_name}")
                     # Count files in the dataset folder with pagination
                     try:
                         files = self._list_all_storage_items("datasets", dataset_name)
                         file_count = sum(1 for f in files if f.get("id"))
-                        logger.info(f"Dataset '{dataset_name}' has {file_count} files")
+                        logger.debug(f"Dataset '{dataset_name}' has {file_count} files")
                     except Exception as e:
                         logger.warning(f"Error counting files in dataset '{dataset_name}': {e}")
                         file_count = 0
