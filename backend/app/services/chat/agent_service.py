@@ -14,6 +14,7 @@ from app.core.config import (
     DEVELOPER_MODE,
     LLM_CALL_GLOBAL_LIMIT,
 )
+from app.services import websocket_manager
 from schematiq.core.llm_call_tracker import LLMCallTracker, QuotaExceededError
 
 from .deps import CHAT_MODEL, get_gemini_api_key, schematiq_runner, session_manager
@@ -268,7 +269,7 @@ class ChatAgentService:
         pending = state.pending
         state.pending = None
         outbound_messages: list[dict[str, Any]] = []
-        outbound_messages.append(
+        await self._emit(state, outbound_messages,
             self._tool_log(pending.tool_name, "running", f"...{tool_running_label(pending.tool_name).lower()}")
         )
         try:
@@ -278,7 +279,7 @@ class ChatAgentService:
                 state.session_mode,
                 pending.args,
             )
-            outbound_messages.append(
+            await self._emit(state, outbound_messages,
                 self._tool_log(
                     pending.tool_name,
                     "done",
@@ -301,7 +302,7 @@ class ChatAgentService:
                 "messages": outbound_messages,
             }
         except Exception as exc:
-            outbound_messages.append(
+            await self._emit(state, outbound_messages,
                 self._tool_log(pending.tool_name, "error", f"Tool failed: {exc}")
             )
             return {
@@ -433,6 +434,31 @@ class ChatAgentService:
         chat = client.aio.chats.create(model=resolved_model, config=config)
         return client, chat
 
+    async def _emit(
+        self,
+        state: ChatSessionState,
+        outbound_messages: list[dict[str, Any]],
+        message: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Buffer a chat message for the HTTP response and stream it live over WS.
+
+        The HTTP response still returns the full ``outbound_messages`` list, so
+        this broadcast is purely additive: it gives the client live feedback as
+        the agent works, and if the socket is down nothing is lost because the
+        HTTP response remains the source of truth. The frontend dedupes by
+        message id, so a message delivered over both channels appears once.
+        Broadcast failures are swallowed for the same reason.
+        """
+        outbound_messages.append(message)
+        try:
+            await websocket_manager.broadcast_to_session(
+                state.workspace_session_id,
+                {"type": "chat_message", "data": message},
+            )
+        except Exception as exc:
+            logger.debug("Could not stream chat message over WS: %s", exc)
+        return message
+
     async def _run_loop(
         self,
         state: ChatSessionState,
@@ -500,7 +526,7 @@ class ChatAgentService:
                             },
                         }
 
-                    outbound_messages.append(
+                    await self._emit(state, outbound_messages,
                         self._tool_log(tool_name, "running", f"...{tool_running_label(tool_name).lower()}")
                     )
                     try:
@@ -515,11 +541,11 @@ class ChatAgentService:
                             "error": str(exc),
                             "hint": self._tool_error_hint(tool_name),
                         }
-                        outbound_messages.append(
+                        await self._emit(state, outbound_messages,
                             self._tool_log(tool_name, "error", f"...{exc}")
                         )
                     else:
-                        outbound_messages.append(
+                        await self._emit(state, outbound_messages,
                             self._tool_log(
                                 tool_name,
                                 "done",
@@ -536,12 +562,12 @@ class ChatAgentService:
 
             text = (getattr(response, "text", None) or "").strip()
             if text:
-                outbound_messages.append(self._text_message(text))
+                await self._emit(state, outbound_messages, self._text_message(text))
                 return {"status": "complete"}
 
             break
 
-        outbound_messages.append(
+        await self._emit(state, outbound_messages,
             self._text_message("I could not complete that request. Please try rephrasing.")
         )
         return {"status": "complete"}
