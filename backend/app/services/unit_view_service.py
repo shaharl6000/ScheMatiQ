@@ -164,9 +164,18 @@ class UnitViewService:
             file_keys: set = set()
             try:
                 with open(data_file, 'r', encoding='utf-8') as f:
+                    # Absolute non-blank line position, stamped the same way
+                    # file_parser._load_all_rows does it. data_editor resolves an
+                    # edit by this number, so the two readers must agree: count
+                    # every non-blank line and stamp before the dedup skip below,
+                    # or a deduplicated row would shift every index after it and
+                    # edits would land on the wrong row -- worse than no index.
+                    row_index = 0
                     for line in f:
                         if line.strip():
                             row = json.loads(line)
+                            row['_row_index'] = row_index
+                            row_index += 1
                             key = row_dedup_key(row)
                             if key[0] and key in seen_keys:
                                 continue

@@ -394,6 +394,10 @@ async def get_unit_data(
                     source_document=row_data.get('_source_document') or row_data.get('source_document'),
                     parent_document=row_data.get('_parent_document'),
                     cell_status=row_data.get('_cell_status'),
+                    # Without this the by-unit view sent row_index=None on every
+                    # row, so cell edits from the default view fell back to
+                    # first-match on row_name + source_document.
+                    row_index=row_data.get('_row_index'),
                 )
             else:
                 # Flat format - extract special fields
@@ -404,6 +408,9 @@ async def get_unit_data(
                 source_document = flat_data.pop('_source_document', None) or flat_data.pop('source_document', None)
                 parent_document = flat_data.pop('_parent_document', None)
                 cell_status = flat_data.pop('_cell_status', None)
+                # pop, not get: leaving it in flat_data would surface the index
+                # as a data column.
+                row_index = flat_data.pop('_row_index', None)
                 flat_data.pop('_original_units', None)  # Remove internal merge tracking
 
                 data_row = DataRow(
@@ -414,6 +421,7 @@ async def get_unit_data(
                     source_document=source_document,
                     parent_document=parent_document,
                     cell_status=cell_status,
+                    row_index=row_index,
                 )
             data_rows.append(data_row)
 
