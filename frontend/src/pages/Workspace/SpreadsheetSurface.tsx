@@ -992,6 +992,43 @@ export function SpreadsheetSurface({
         const rowName = sourceRow?.row_name || sourceRow?._unit_name || '';
         const rowIndexId = sourceRow?._row_index;
         const sourceDocument = sourceRow?._source_document || sourceRow?._parent_document;
+
+        // TEMPORARY DIAGNOSTIC -- remove once the missing row_index is explained.
+        //
+        // A PUT captured from a real edit carried row_name and source_document
+        // but no row_index, even though the payload contains _row_index and the
+        // alignment memos only reorder rows. That means sourceRow._row_index was
+        // undefined for that edit and we do not know why. Opt in per browser:
+        //   localStorage.setItem('schematiq.debugCellEdit', '1')
+        // then edit a cell and read the console. Off for everyone else.
+        if (localStorage.getItem('schematiq.debugCellEdit') === '1') {
+          const physicalRow = toPhysicalRow(visualRowIndex);
+          // eslint-disable-next-line no-console
+          console.log('[cell-edit-identity]', {
+            dataView,
+            column: key,
+            visualRowIndex,
+            physicalRow,
+            rowsLength: data.rows.length,
+            hasToPhysicalRow: typeof hot?.toPhysicalRow === 'function',
+            sourceRowFound: Boolean(sourceRow),
+            // The three values actually sent to the backend.
+            sent: { rowName, sourceDocument, rowIndexId },
+            // Present but undefined vs absent entirely are different bugs.
+            rowIndexKeyPresent: sourceRow ? '_row_index' in sourceRow : null,
+            sourceRowUnderscoreKeys: sourceRow
+              ? Object.keys(sourceRow).filter((k) => k.startsWith('_'))
+              : null,
+            // A sort or filter makes visual != physical; worth knowing which.
+            sortConfig: hot?.getPlugin('columnSorting')?.getSortConfig?.() ?? null,
+            filtersActive: Boolean(hot?.getPlugin('filters')?.isEnabled?.()),
+            // The neighbouring rows, to see whether the index is missing on this
+            // row alone or across the payload.
+            neighbourRowIndexes: data.rows
+              .slice(Math.max(0, physicalRow - 2), physicalRow + 3)
+              .map((r) => r?._row_index),
+          });
+        }
         if (!rowName && rowIndexId == null) {
           unidentified += 1;
           continue;
