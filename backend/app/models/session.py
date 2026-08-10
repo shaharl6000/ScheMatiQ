@@ -239,6 +239,11 @@ class PaginatedData(BaseModel):
     page: int
     page_size: int
     has_more: bool
+    # True when no data file could be resolved for the session at all, as
+    # opposed to a file that exists and yielded no rows. Those two were
+    # indistinguishable to callers, so a session whose data was lost rendered
+    # as an ordinary empty table.
+    data_missing: bool = False
 
 
 # Filter/Sort request models for server-side filtering

@@ -304,7 +304,19 @@ async def get_data(
     )
 
     if not data_files:
-        return PaginatedData(rows=[], total_count=0, filtered_count=None, page=page, page_size=page_size, has_more=False)
+        # Nothing resolved from the work dir, the data dir, or storage. For a
+        # session still extracting this is normal; for a completed one the data
+        # is gone, and returning a plain empty page made the two identical to
+        # every caller. Flag it, and say so in the log.
+        logger.warning(
+            "No data file resolved for session %s; returning an empty page with data_missing set",
+            session_id,
+        )
+        return PaginatedData(
+            rows=[], total_count=0, filtered_count=None,
+            page=page, page_size=page_size, has_more=False,
+            data_missing=True,
+        )
 
     from app.services.data_utils import row_dedup_key
 

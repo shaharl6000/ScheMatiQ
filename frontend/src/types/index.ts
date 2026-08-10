@@ -183,6 +183,9 @@ export interface PaginatedData {
   page: number;
   page_size: number;
   has_more: boolean;
+  // Set by the backend when no data file could be resolved for the session,
+  // as opposed to a file that exists and yielded no rows.
+  data_missing?: boolean;
 }
 
 export interface FileValidationResult {
