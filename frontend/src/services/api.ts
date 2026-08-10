@@ -424,16 +424,26 @@ export const schematiqAPI = {
     return response.data;
   },
 
-  /** Restore a cell to its previous full value (undo). */
+  /**
+   * Restore a cell to its previous full value (undo).
+   *
+   * Takes the same identifiers as updateCell, rowIndex included. The two must
+   * stay in step: the backend resolves the target row from whatever it is given,
+   * so an undo that omits an identifier the original edit supplied can resolve
+   * to a different row. That is worse than a failed write, because it silently
+   * reverts a cell the user never touched.
+   */
   restoreCell: async (
     sessionId: string,
     rowName: string,
     column: string,
     previousValue: any,
-    sourceDocument?: string
+    sourceDocument?: string,
+    rowIndex?: number
   ): Promise<{ status: string }> => {
-    const params: Record<string, string> = { row_name: rowName, column, value: '' };
+    const params: Record<string, string | number> = { row_name: rowName, column, value: '' };
     if (sourceDocument) params.source_document = sourceDocument;
+    if (rowIndex != null) params.row_index = rowIndex;
     const response = await api.put(`/schematiq/cell/${sessionId}`, { restore: previousValue }, { params });
     return response.data;
   },

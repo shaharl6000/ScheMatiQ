@@ -396,11 +396,14 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
       rowName: row?.row_name || row?._unit_name,
       column: columnName,
       sourceDocument: row?._source_document,
+      rowIndex: row?._row_index,
     });
     setModalOpen(true);
   }, []);
 
-  const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string, sourceDocument?: string) => {
+  // rowIndex is threaded through so the undo below identifies the row the same
+  // way the edit did; identifying it more weakly can revert a different row.
+  const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string, sourceDocument?: string, rowIndex?: number) => {
     try {
       const result = await schematiqAPI.updateCell(sessionId, rowName, column, value, sourceDocument);
       const previousValue = result.previous_value;
@@ -413,7 +416,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         action: (
           <ToastAction altText="Undo" onClick={async () => {
             try {
-              await schematiqAPI.restoreCell(sessionId, rowName, column, previousValue, sourceDocument);
+              await schematiqAPI.restoreCell(sessionId, rowName, column, previousValue, sourceDocument, rowIndex);
               refetchData();
             } catch {
               toast({ title: 'Undo failed', description: 'Could not revert the cell edit.', variant: 'destructive' });
@@ -1144,7 +1147,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         })()}
         onSave={modalContent.rowName && modalContent.column
           ? async (value: string) => {
-              await handleCellUpdate(modalContent.rowName!, modalContent.column!, value, modalContent.sourceDocument);
+              await handleCellUpdate(modalContent.rowName!, modalContent.column!, value, modalContent.sourceDocument, modalContent.rowIndex);
             }
           : undefined
         }

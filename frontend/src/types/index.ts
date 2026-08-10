@@ -443,6 +443,9 @@ export interface ModalContent {
   rowName?: string;
   column?: string;
   sourceDocument?: string;
+  // Absolute row position from the paginated data. Carried so an edit made
+  // from the modal can be undone against the same row it was applied to.
+  rowIndex?: number;
 }
 
 export interface ApiError {
