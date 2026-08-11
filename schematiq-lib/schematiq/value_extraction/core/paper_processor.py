@@ -25,7 +25,26 @@ _debug_env = os.environ.get("SCHEMATIQ_DEBUG_DIR")
 if _debug_env:
     _DEBUG_DIR = Path(_debug_env)
     _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-    logging.info("Debug dump enabled -> %s", _DEBUG_DIR)
+    logger.info("Debug dump enabled -> %s", _DEBUG_DIR)
+
+
+def _count_filled_columns(values: Dict[str, Any]) -> tuple[int, int]:
+    """Return (filled, empty) answer counts, ignoring ``_``-prefixed metadata.
+
+    A column is present in the result dict even when the model answered with an
+    explicit null, so counting keys overstates what was actually extracted.
+    """
+    filled = empty = 0
+    for name, value in values.items():
+        if name.startswith("_"):
+            continue
+        answer = value.get("answer", "") if isinstance(value, dict) else value
+        if answer is not None and str(answer).strip():
+            filled += 1
+        else:
+            empty += 1
+    return filled, empty
+
 
 from .llm_cache import LLMCache
 from .json_parser import JSONResponseParser
@@ -186,7 +205,7 @@ class PaperProcessor:
         try:
             (_DEBUG_DIR / fname).write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
         except Exception as e:
-            logging.warning("Debug dump failed: %s", e)
+            logger.warning("Debug dump failed: %s", e)
 
     def _check_stop_requested(self) -> bool:
         """Check if stop was requested. Returns True if should stop."""
@@ -209,7 +228,7 @@ class PaperProcessor:
             return None, {}
         schema, key_map = build_extraction_response_schema(columns)
         if schema is not None:
-            logging.info(
+            logger.info(
                 "[controlled-gen] ACTIVE — %d columns, %d sanitized key(s): %s",
                 len(columns),
                 len(key_map),
@@ -493,8 +512,8 @@ class PaperProcessor:
             # Cache the result
             self.cache.put(cache_key, result)
             return result
-        except Exception as e:
-            print(f"⚠️  parse failure for column {col.name}: {e}")
+        except Exception:
+            logger.exception("Parse failure for column %s", col.name)
             return {}
 
     def _batch_column_attempt(
@@ -613,9 +632,9 @@ class PaperProcessor:
             )
 
             return cleaned
-        except Exception as e:
-            print(
-                f"⚠️  Batch parse failure for columns {[c.name for c in columns]}: {e}"
+        except Exception:
+            logger.exception(
+                "Batch parse failure for columns %s", [c.name for c in columns]
             )
             return {}
 
@@ -745,11 +764,11 @@ class PaperProcessor:
                                 self._notify_value_extracted(
                                     row_name, col_name, col_val
                                 )
-                except Exception as e:
-                    print(f"⚠️  Reordered pass batch {p2_batch_idx} parse failure: {e}")
+                except Exception:
+                    logger.exception("Reordered pass batch %s parse failure", p2_batch_idx)
 
             if p2_new_fills:
-                logging.info(
+                logger.info(
                     "[%s] Reordered pass filled %d more columns",
                     paper_title, p2_new_fills,
                 )
@@ -971,8 +990,8 @@ class PaperProcessor:
                 # Cache the result
                 self.cache.put(cache_key, result)
                 return result
-            except Exception as e:
-                print(f"⚠️  parse failure for column {col.name} in {paper_title}: {e}")
+            except Exception:
+                logger.exception("Parse failure for column %s in %s", col.name, paper_title)
                 return {}
 
         if mode == "all":
@@ -990,7 +1009,7 @@ class PaperProcessor:
                 _chunk_list(all_columns, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION)
             )
             if len(col_batches) > 1:
-                logging.info(
+                logger.info(
                     "[extract_values_for_paper] %d columns → %d batches of ≤%d for %r",
                     len(all_columns),
                     len(col_batches),
@@ -1036,8 +1055,11 @@ class PaperProcessor:
                     parsed = self._remap_response_keys(
                         self.json_parser.parse_response(raw), key_map
                     )
-                except Exception as e:
-                    print(f"⚠️  parse failure for {paper_title} (batch {batch_idx + 1}/{len(col_batches)}): {e}")
+                except Exception:
+                    logger.exception(
+                        "Parse failure for %s (batch %s/%s)",
+                        paper_title, batch_idx + 1, len(col_batches),
+                    )
                     parsed = {}
 
                 requested = [c.name for c in col_batch]
@@ -1208,8 +1230,8 @@ class PaperProcessor:
 
             return row_name, paper_title, paper_data
 
-        except Exception as e:
-            print(f"⚠️  Error processing {paper_title}: {e}")
+        except Exception:
+            logger.exception("Error processing %s", paper_title)
             return row_name, paper_title, None
 
     # ================================================================
@@ -1304,7 +1326,7 @@ class PaperProcessor:
                 representative["relevant_passages"] = unique_passages
 
                 merged_names = [names[idx] for idx in cluster]
-                logging.debug(
+                logger.debug(
                     f"Merged units: {merged_names} → {representative['unit_name']}"
                 )
 
@@ -1385,9 +1407,11 @@ class PaperProcessor:
             trimmed, max_output_tokens=task_tokens, **self._gemini_kwargs(thinking_budget=1024)
         )
 
-        # Log raw response for diagnostics (truncated for readability)
-        preview = raw_response[:500] if raw_response else "(empty)"
-        logging.info(f"[{paper_title}] Unit identification raw response: {preview}")
+        # Log raw response for diagnostics. Kept to a single line: multi-line
+        # records interleave with concurrent output in aggregated logs, which
+        # shreds the JSON and makes it unreadable exactly when it is needed.
+        preview = " ".join(raw_response[:500].split()) if raw_response else "(empty)"
+        logger.info("[%s] Unit identification raw response: %s", paper_title, preview)
 
         # Check for stop request
         if self._check_stop_requested():
@@ -1403,11 +1427,11 @@ class PaperProcessor:
             unit_names = (
                 [u.get("unit_name", "?") for u in result.units] if result.units else []
             )
-            logging.info(
+            logger.info(
                 f"[{paper_title}] Unit identification result: {len(unit_names)} units found: {unit_names}"
             )
         else:
-            logging.warning(
+            logger.warning(
                 f"[{paper_title}] Unit identification parse failed: {result.error} (format: {result.detected_format})"
             )
 
@@ -1447,7 +1471,7 @@ class PaperProcessor:
             try:
                 is_retry = attempt > 0
                 if is_retry:
-                    logging.info(
+                    logger.info(
                         f"Retry {attempt}/{max_retries} for unit identification in {paper_title}"
                     )
                     print(
@@ -1467,13 +1491,13 @@ class PaperProcessor:
                 if result.success:
                     # Log any warnings from successful parse
                     for warning in result.warnings:
-                        logging.info(
+                        logger.info(
                             f"Unit identification warning for {paper_title}: {warning}"
                         )
 
                     if not result.units:
                         # Empty is valid - no units of this type in document
-                        logging.info(
+                        logger.info(
                             f"No observation units of type '{observation_unit.name}' found in {paper_title}"
                         )
                         notes = (result.notes or "").strip()
@@ -1495,7 +1519,7 @@ class PaperProcessor:
                     ]
                     dropped_low = raw_count - len(units)
                     if dropped_low > 0:
-                        logging.info(
+                        logger.info(
                             f"[{paper_title}] Confidence filter: {raw_count} → {len(units)} "
                             f"(dropped {dropped_low} low-confidence units)"
                         )
@@ -1504,14 +1528,14 @@ class PaperProcessor:
                     pre_dedup = len(units)
                     units = self._deduplicate_units(units)
                     if len(units) < pre_dedup:
-                        logging.info(
+                        logger.info(
                             f"[{paper_title}] Semantic dedup: {pre_dedup} → {len(units)} units"
                         )
 
                     # --- Layer 2c: Hard cap ---
                     MAX_UNITS = 15
                     if len(units) > MAX_UNITS:
-                        logging.warning(
+                        logger.warning(
                             f"[{paper_title}] Unit hard cap: {len(units)} → {MAX_UNITS} "
                             f"(keeping top {MAX_UNITS} by confidence)"
                         )
@@ -1524,7 +1548,7 @@ class PaperProcessor:
                         )
                         units = units[:MAX_UNITS]
 
-                    logging.info(
+                    logger.info(
                         f"[{paper_title}] Unit identification: {raw_count} raw → "
                         f"{raw_count - dropped_low} after confidence → {len(units)} final"
                     )
@@ -1549,18 +1573,18 @@ class PaperProcessor:
                     return UnitIdentificationResult(units=[], skip_reason="Stop requested")
 
                 if result.detected_format == "value_extraction":
-                    logging.warning(
+                    logger.warning(
                         f"LLM confused unit ID with value extraction for {paper_title}"
                     )
                 else:
-                    logging.warning(
+                    logger.warning(
                         f"Unit parse failed for {paper_title}: {result.error}"
                     )
 
             except Exception as e:
                 last_error = str(e)
                 last_format = "exception"
-                logging.warning(
+                logger.warning(
                     f"Exception in unit identification attempt {attempt + 1} for {paper_title}: {e}"
                 )
 
@@ -1621,7 +1645,7 @@ class PaperProcessor:
             _chunk_list(columns, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION)
         )
         if len(batches) > 1:
-            logging.info(
+            logger.info(
                 "[extract_values_for_unit] %d columns → %d batches of ≤%d for unit %r",
                 len(columns),
                 len(batches),
@@ -1694,7 +1718,7 @@ class PaperProcessor:
                 all_cleaned.update(cleaned)
 
             except Exception as e:
-                logging.warning(
+                logger.warning(
                     "[%s] Error extracting values for unit '%s' (batch %d/%d): %s\n"
                     "Raw response was:\n%s",
                     paper_title,
@@ -1864,13 +1888,24 @@ class PaperProcessor:
                     if on_unit_extracted:
                         on_unit_extracted(unit_name, unit_values)
 
-                    col_count = len([k for k in unit_values if not k.startswith("_")])
-                    print(
-                        f"    ✓ Extracted {col_count} columns for {unit_name} ({unit_elapsed:.1f}s)"
+                    filled, empty = _count_filled_columns(unit_values)
+                    logger.info(
+                        "[%s] Extracted unit %s: %d filled, %d empty of %d columns (%.1fs)",
+                        paper_title, unit_name, filled, empty, filled + empty, unit_elapsed,
                     )
+                    if filled == 0:
+                        # The row reaches the table with every cell blank. Columns
+                        # the model returned as explicit null are recorded as
+                        # confirmed-empty and skipped by the retry passes, so this
+                        # is not visible anywhere else.
+                        logger.warning(
+                            "[%s] Unit %s produced a fully empty row: %d columns, none filled",
+                            paper_title, unit_name, empty,
+                        )
                 else:
-                    print(
-                        f"    ✗ No values extracted for {unit_name} ({unit_elapsed:.1f}s)"
+                    logger.warning(
+                        "[%s] No values extracted for unit %s, row dropped (%.1fs)",
+                        paper_title, unit_name, unit_elapsed,
                     )
         finally:
             self._delete_document_cache()
