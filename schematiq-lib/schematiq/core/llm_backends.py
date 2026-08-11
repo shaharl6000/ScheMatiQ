@@ -509,9 +509,13 @@ class GeminiLLM(LLMInterface):
         # combined with response_schema, causing 400 INVALID_ARGUMENT.
         self.supports_thinking = spec.supports_thinking
         # Gemini 3.x+ models use the thinking_level enum instead of the legacy
-        # integer thinking_budget and reject temperature/top_p/top_k. See
-        # _apply_thinking_config for the translation.
+        # integer thinking_budget. See _apply_thinking_config for the translation.
         self.uses_thinking_level = spec.uses_thinking_level
+        # Per-model sampling and thinking-level facts. The Gemini 3.x family is
+        # not uniform, so these come from the spec rather than one shared rule.
+        self.supports_sampling_params = spec.supports_sampling_params
+        self.allowed_thinking_levels = spec.allowed_thinking_levels
+        self.fallback_thinking_level = spec.fallback_thinking_level
 
         # Load single API key
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -601,34 +605,58 @@ class GeminiLLM(LLMInterface):
         return True
 
     # Map a legacy integer thinking_budget onto a Gemini 3.x thinking_level.
-    # (max_budget_inclusive, level). Anything larger maps to "high".
-    # "low" is the floor rather than "minimal": Gemini 3.x cannot disable
-    # thinking, and "minimal" additionally requires thought-signature handling
-    # (returns 400 without it), which this pipeline does not implement.
+    # (max_budget_inclusive, level). Anything larger maps to "high". Used only
+    # to translate a caller's budget hint; the result is then clamped to the
+    # levels the specific model accepts.
     _THINKING_LEVEL_THRESHOLDS = (
         (2048, "low"),
         (8192, "medium"),
     )
 
     def _thinking_budget_to_level(self, budget: int) -> str:
-        """Translate a legacy thinking_budget hint to a Gemini 3.x thinking_level."""
-        for max_budget, level in self._THINKING_LEVEL_THRESHOLDS:
+        """Translate a legacy thinking_budget hint to a Gemini 3.x thinking_level.
+
+        The requested level is constrained to ``allowed_thinking_levels`` for this
+        model, because the set differs per model and sending an unsupported value
+        returns 400 (gemini-3-pro rejects "medium", for example). When the model
+        declares no allowed set, the translated level is used unchanged.
+        """
+        level = "high"
+        for max_budget, candidate in self._THINKING_LEVEL_THRESHOLDS:
             if budget <= max_budget:
-                return level
-        return "high"
+                level = candidate
+                break
+
+        allowed = self.allowed_thinking_levels
+        if not allowed or level in allowed:
+            return level
+
+        # Substitute this model's fallback, then the nearest level it does
+        # accept, so a budget hint can never produce a 400.
+        if self.fallback_thinking_level and self.fallback_thinking_level in allowed:
+            return self.fallback_thinking_level
+        return allowed[-1]
 
     def _apply_thinking_config(self, config_kwargs: dict, thinking_budget) -> None:
-        """Attach thinking config and prune sampling params for the model family.
+        """Attach thinking config and prune sampling params for this model.
 
-        Gemini 3.x+ (``uses_thinking_level``): translate the integer budget to a
-        ``thinking_level`` enum and drop temperature/top_p/top_k, which those
-        models reject with 400 INVALID_ARGUMENT. Earlier Gemini models keep the
-        legacy integer ``thinking_budget``. Mutates ``config_kwargs`` in place.
+        Both behaviours come from the model's ``ModelSpec`` rather than from a
+        single Gemini-3-wide assumption, because the family is not uniform: the
+        accepted ``thinking_level`` values and the default level differ per model.
+
+        ``supports_sampling_params=False`` drops temperature/top_p/top_k. Gemini
+        3.x deprecated them, the API ignores them today, and future generations
+        return 400. Dropping them here means a caller asking for temperature=0
+        is not silently told it took effect. Models that still honour the
+        sampling params keep them. Mutates ``config_kwargs`` in place.
         """
-        if self.uses_thinking_level:
-            # These are rejected / no longer supported by Gemini 3.x.
+        if not self.supports_sampling_params:
             for stale in ("temperature", "top_p", "top_k"):
                 config_kwargs.pop(stale, None)
+
+        if self.uses_thinking_level:
+            # No budget means no thinking_config, same as before: let the model
+            # apply its own default rather than pinning a level here.
             if thinking_budget is not None:
                 config_kwargs["thinking_config"] = self.types.ThinkingConfig(
                     thinking_level=self._thinking_budget_to_level(thinking_budget)
