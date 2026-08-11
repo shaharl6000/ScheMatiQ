@@ -14,6 +14,8 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Union, Optional
 import re
 
+import httpx
+
 from schematiq.core.model_specs import get_model_spec, get_max_output_tokens, ModelNames
 from schematiq.core.llm_call_tracker import LLMCallTracker
 
@@ -29,6 +31,10 @@ _RATE_LIMIT_STATUS_CODE = 429
 # because it is classified separately and uses the provider's own retry hint.
 _TRANSIENT_STATUS_CODES = frozenset({408, 500, 502, 503, 504})
 _AUTH_STATUS_CODES = frozenset({401, 403})
+# Transport failures carry no HTTP status, so they need their own check. These
+# are the two the google-genai client retries internally, and generation is a
+# read-only call, so replaying it has no side effect beyond the token cost.
+_TRANSPORT_RETRY_ERRORS = (httpx.TimeoutException, httpx.ConnectError)
 
 
 def _status_code(error: BaseException) -> Optional[int]:
@@ -72,9 +78,13 @@ def _is_retryable_server_error(error: BaseException) -> bool:
 
     Any 408/5xx from the provider qualifies, regardless of message wording:
     500 INTERNAL and 504 DEADLINE_EXCEEDED are as transient as 503 UNAVAILABLE.
-    The 503 text match stays as a fallback for exceptions with no status code.
+    Timeouts and connection failures qualify as well, since they carry no status
+    code and would otherwise be treated as permanent. The 503 text match stays
+    as a fallback for exceptions with neither a status code nor an httpx type.
     """
     if _status_code(error) in _TRANSIENT_STATUS_CODES:
+        return True
+    if isinstance(error, _TRANSPORT_RETRY_ERRORS):
         return True
     error_str = str(error)
     if "503" not in error_str:
@@ -110,33 +120,85 @@ def _is_invalid_api_key_error(error: BaseException) -> bool:
 
     return any(indicator in error_lower for indicator in invalid_key_indicators)
 
-def _extract_wait_time(error_str: str) -> int:
-    """Extract wait time from rate limit error or return default."""
-    # Try to extract actual retry delay from Gemini error
-    retry_match = re.search(r"retry in ([\d.]+)s", error_str.lower())
+_MIN_RETRY_WAIT_SECONDS = 10
+_MAX_RETRY_WAIT_SECONDS = 120
+# google.rpc.RetryInfo in JSON form; snake_case appears in gRPC-style payloads.
+_RETRY_DELAY_KEYS = ("retryDelay", "retry_delay")
+# A protobuf Duration serialized as JSON, e.g. "54s" or "1.5s".
+_DURATION_RE = re.compile(r"\s*(\d+(?:\.\d+)?)s?\s*")
+
+
+def _clamp_wait(seconds: float) -> int:
+    """Keep a retry wait within sane bounds.
+
+    A malformed or extreme hint should not produce a near-instant retry that
+    burns an attempt, nor stall a request for hours. The bounds are wide enough
+    that they never bind on the fallback paths below.
+    """
+    return int(min(max(seconds, _MIN_RETRY_WAIT_SECONDS), _MAX_RETRY_WAIT_SECONDS))
+
+
+def _parse_duration(value: Any) -> Optional[float]:
+    """Parse a protobuf Duration in its JSON form. Returns None if unparseable."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    if isinstance(value, str):
+        match = _DURATION_RE.fullmatch(value)
+        if match:
+            return float(match.group(1))
+    return None
+
+
+def _retry_delay_from_details(error: BaseException) -> Optional[float]:
+    """Read the provider's own retry delay from a structured error payload.
+
+    A 429 carries ``google.rpc.RetryInfo`` inside ``APIError.details``, which is
+    the API telling us exactly when the quota window reopens. The nesting depth
+    varies by transport, so the payload is walked rather than indexed by a fixed
+    path. Returns None when no delay is present.
+    """
+    stack = [getattr(error, "details", None)]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for key in _RETRY_DELAY_KEYS:
+                seconds = _parse_duration(node.get(key))
+                if seconds is not None:
+                    return seconds
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return None
+
+
+def _extract_wait_time(error: BaseException) -> int:
+    """Seconds to wait before retrying a rate-limited request.
+
+    The provider's RetryInfo wins when present. The text patterns below remain
+    for SDKs that only put the delay in the message, and the fixed defaults are
+    the last resort.
+    """
+    provider_delay = _retry_delay_from_details(error)
+    if provider_delay is not None:
+        # Small buffer so the retry lands after the window reopens, not on it.
+        return _clamp_wait(provider_delay + random.randint(5, 10))
+
+    error_str = str(error)
+
+    retry_match = re.search(r"retry in (\d+(?:\.\d+)?)s", error_str.lower())
     if retry_match:
-        try:
-            retry_seconds = float(retry_match.group(1))
-            # Add small buffer to avoid immediate retry
-            return int(retry_seconds) + random.randint(5, 10)
-        except (ValueError, IndexError):
-            pass
-    
-    # Try to extract from retry_delay field 
+        return _clamp_wait(float(retry_match.group(1)) + random.randint(5, 10))
+
     delay_match = re.search(r"retry_delay.*?seconds:\s*(\d+)", error_str)
     if delay_match:
-        try:
-            delay_seconds = int(delay_match.group(1))
-            return delay_seconds + random.randint(5, 10)
-        except (ValueError, IndexError):
-            pass
-    
+        return _clamp_wait(int(delay_match.group(1)) + random.randint(5, 10))
+
     # For per-minute limits, default to longer wait
     if "per minute" in error_str.lower():
-        return 90 + random.randint(5, 15)
-    
+        return _clamp_wait(90 + random.randint(5, 15))
+
     # Default fallback
-    return 45 + random.randint(5, 15)
+    return _clamp_wait(45 + random.randint(5, 15))
 
 ##############################################################################
 # Base class (copied from scaffold for convenience – delete if already there)
@@ -257,7 +319,7 @@ class TogetherLLM(LLMInterface):
                 # Check if this is a retryable error
                 if _is_rate_limit_error(e):
                     if attempt < max_retries:
-                        wait_time = _extract_wait_time(error_str)
+                        wait_time = _extract_wait_time(e)
                         print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
                         time.sleep(wait_time)
                         continue
@@ -368,7 +430,7 @@ class OpenAILLM(LLMInterface):
                 # Check if this is a retryable error
                 if _is_rate_limit_error(e):
                     if attempt < max_retries:
-                        wait_time = _extract_wait_time(error_str)
+                        wait_time = _extract_wait_time(e)
                         print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
                         time.sleep(wait_time)
                         continue
@@ -855,7 +917,7 @@ class GeminiLLM(LLMInterface):
                 # Check if this is a retryable error
                 if _is_rate_limit_error(e):
                     if attempt < max_retries:
-                        wait_time = _extract_wait_time(error_str)
+                        wait_time = _extract_wait_time(e)
                         snippet = error_str.replace("\n", " ")[:280]
                         print(
                             f"[Gemini rate limit] attempt {attempt + 1}/{max_retries + 1}, "
@@ -1025,7 +1087,7 @@ class GeminiLLM(LLMInterface):
                     raise
                 if _is_rate_limit_error(e):
                     if attempt < max_retries:
-                        wait_time = _extract_wait_time(error_str)
+                        wait_time = _extract_wait_time(e)
                         snippet = error_str.replace("\n", " ")[:280]
                         print(
                             f"[Gemini rate limit/cached] attempt {attempt + 1}/{max_retries + 1}, "
