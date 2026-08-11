@@ -913,9 +913,9 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
                     content = await file.read()
                     f.write(content)
 
-                loop = asyncio.get_event_loop()
-                display_name, error = await loop.run_in_executor(
-                    None,
+                # to_thread rather than run_in_executor: it copies the context,
+                # so preprocessing logs keep the session id.
+                display_name, error = await asyncio.to_thread(
                     _preprocess_and_record,
                     file_path, file.filename, docs_dir, session, document_extraction,
                 )
@@ -1158,9 +1158,9 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
                 with open(file_path, 'wb') as f:
                     f.write(content)
 
-                loop = asyncio.get_event_loop()
-                display_name, error = await loop.run_in_executor(
-                    None,
+                # to_thread rather than run_in_executor: it copies the context,
+                # so preprocessing logs keep the session id.
+                display_name, error = await asyncio.to_thread(
                     _preprocess_and_record,
                     file_path, filename, docs_dir, session, document_extraction,
                 )
