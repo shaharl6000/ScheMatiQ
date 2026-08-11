@@ -17,7 +17,7 @@ MAX_KEYS_DEFAULT = None         # unlimited unless specified
 
 def _embed(text: str):
     """Small helper – add caching in production."""
-    return EMB_MODEL.encode(text, normalize_embeddings=True)
+    return EMB_MODEL.encode(text, normalize_embeddings=True, show_progress_bar=False)
 
 
 # -------------------------------------------------------------------- #
