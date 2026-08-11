@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, Zap, HardDrive, Thermometer } from 'lucide-react';
+import { Brain, Zap, HardDrive } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,12 +9,16 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
+// Temperature is deliberately not displayed. It is not user-configurable (every
+// call site sends 0), and Gemini 3.x ignores the parameter outright, so showing
+// "Temp: 0" next to "0.0 = deterministic" told users their runs were
+// reproducible when they are not.
+// See https://ai.google.dev/gemini-api/docs/latest-model
 interface LLMConfigDisplayProps {
   config: {
     provider?: string;
     model?: string;
     max_output_tokens?: number;
-    temperature?: number;
   } | null;
   title?: string;
   variant?: 'card' | 'inline' | 'compact';
@@ -90,20 +94,6 @@ const LLMConfigDisplay: React.FC<LLMConfigDisplayProps> = ({
               </TooltipTrigger>
               <TooltipContent>
                 Maximum tokens the model can generate in its response
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {config.temperature !== undefined && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge variant="outline" className="gap-1 cursor-help">
-                  <Thermometer className="h-3 w-3" />
-                  Temp: {config.temperature}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent>
-                Temperature controls randomness (0.0 = deterministic, 1.0 = very random)
               </TooltipContent>
             </Tooltip>
           )}
