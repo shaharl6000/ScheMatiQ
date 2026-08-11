@@ -28,9 +28,9 @@ def _require_session(session_id: str) -> None:
     LLM quota by POSTing to an arbitrary ``/api/chat/<anything>/message`` path,
     with no project and no documents.
 
-    Sessions are persisted through the storage backend and rehydrated on
-    startup (``SessionManager._load_sessions``), so a legitimate session_id
-    keeps working across restarts and redeploys.
+    Sessions are persisted through the storage backend and fetched on first
+    access (``SessionManager.get_session``), so a legitimate session_id keeps
+    working across restarts and redeploys.
 
     Must be called *before* the route's ``try`` block: the handlers catch bare
     ``Exception`` and would otherwise convert this 404 into a 500.
