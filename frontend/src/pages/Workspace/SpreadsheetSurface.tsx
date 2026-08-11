@@ -7,6 +7,7 @@ import { HotTable, type HotTableClass } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/styles/handsontable.min.css';
 import 'handsontable/styles/ht-theme-main.min.css';
+import DOMPurify from 'dompurify';
 
 import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
 import {
@@ -45,6 +46,22 @@ import type {
 } from './types';
 
 registerAllModules();
+
+// Cell values come from user-uploaded documents and are written through
+// innerHTML, so they have to be stripped of anything executable first.
+// Handsontable did this for us by calling DOMPurify internally, but v17
+// deprecated that: it now warns on every render and will drop the built-in
+// sanitisation entirely in v18, silently leaving the content unfiltered.
+//
+// Declaring the sanitizer keeps the exact same protection under our own
+// dependency (dompurify is now a direct entry in package.json rather than
+// something we inherit from Handsontable's tree) and survives the upgrade.
+// Handsontable also routes pasted content through this, hence the `source`
+// argument in its type -- both paths get the same treatment.
+//
+// Defined at module scope so its identity is stable; a new function on every
+// render would make Handsontable re-apply settings continuously.
+const sanitizeCellHtml = (content: string): string => DOMPurify.sanitize(content);
 
 export function SpreadsheetSurface({
   activeSheet,
@@ -1544,6 +1561,7 @@ export function SpreadsheetSurface({
         dropdownMenu={dropdownMenuConfig}
         columnSorting={!hasMultiRowGroup}
         copyPaste
+        sanitizer={sanitizeCellHtml}
         // Required for the highlight, not for the query. getPlugin('search')
         // .query() sets `isSearchResult` on cell meta regardless, but the hook
         // that turns that into the htSearchResult class is guarded by the
