@@ -393,37 +393,25 @@ async def get_data(
             has_more=end < filtered_count
         )
     else:
-        # Efficient pagination (no filtering/sorting)
+        # Single pass: count every deduplicated row and materialise only the
+        # requested window.
+        #
+        # This was two passes over every file -- one to count, one to build the
+        # page -- so an unfiltered request parsed the whole dataset twice. The
+        # window is still the only thing retained, so the memory profile is
+        # unchanged; only the second read is gone.
+        #
+        # The two passes also kept separate deduplication sets (seen_keys and
+        # seen_keys_page) running the same logic, which meant total_count and the
+        # returned rows were derived independently and could drift apart. One set
+        # now feeds both.
         total_count = 0
-        seen_keys: set = set()
-        for data_file in data_files:
-            file_keys: set = set()
-            with open(data_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    try:
-                        row_data = json.loads(line.strip())
-                        key = row_dedup_key(row_data)
-                        if key[0] and key in seen_keys:
-                            continue
-                        if key[0]:
-                            file_keys.add(key)
-                        total_count += 1
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-            seen_keys.update(file_keys)
-
         rows = []
         start_line = page * page_size
         end_line = start_line + page_size
-        global_line = 0
-        seen_keys_page: set = set()
+        seen_keys: set = set()
 
         for data_file in data_files:
-            if global_line >= end_line:
-                break
-
             file_keys: set = set()
             with open(data_file, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -434,19 +422,18 @@ async def get_data(
                     except (json.JSONDecodeError, TypeError):
                         continue
                     key = row_dedup_key(row_data)
-                    if key[0] and key in seen_keys_page:
+                    if key[0] and key in seen_keys:
                         continue
                     if key[0]:
                         file_keys.add(key)
 
-                    if global_line >= end_line:
-                        break
-                    if global_line >= start_line:
-                        normalized = normalize_row(row_data)
-                        data_row = DataRow(**normalized)
-                        rows.append(data_row)
-                    global_line += 1
-            seen_keys_page.update(file_keys)
+                    # total_count doubles as the position among deduplicated
+                    # rows, which is the unit the page window is expressed in.
+                    # No early break: the full count is part of the response.
+                    if start_line <= total_count < end_line:
+                        rows.append(DataRow(**normalize_row(row_data)))
+                    total_count += 1
+            seen_keys.update(file_keys)
 
         return PaginatedData(
             rows=rows,
