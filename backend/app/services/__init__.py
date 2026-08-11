@@ -4,7 +4,6 @@ import asyncio
 import logging
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -13,13 +12,16 @@ from .session_manager import SessionManager
 
 from app.core.config import MAX_CONCURRENT_SESSIONS, SCHEMATIQ_THREAD_POOL_SIZE
 from app.core.exceptions import CapacityExceededError
+from app.core.logging_utils import ContextPropagatingThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
 # ── Shared thread pool for blocking ScheMatiQ operations ─────────────
 # Bounded pool prevents unbounded thread growth under concurrent load.
 # 6 workers on 8 vCPU leaves headroom for the event loop and OS.
-schematiq_thread_pool = ThreadPoolExecutor(
+# Context-propagating so that logs from offloaded work still carry the
+# session id; a plain pool loses it and everything reads as no-session.
+schematiq_thread_pool = ContextPropagatingThreadPoolExecutor(
     max_workers=SCHEMATIQ_THREAD_POOL_SIZE,
     thread_name_prefix="schematiq-worker",
 )
