@@ -24,10 +24,26 @@ class ModelSpec:
     max_output_tokens: int
     supports_thinking: bool = False
     # Gemini 3.x+ models replace the integer ``thinking_budget`` with the
-    # semantic ``thinking_level`` enum and reject the legacy sampling params
-    # (temperature/top_p/top_k). Sending the old parameters returns
-    # 400 INVALID_ARGUMENT. True selects the thinking_level code path.
+    # semantic ``thinking_level`` enum. They also deprecated the sampling
+    # params (temperature/top_p/top_k): the API silently ignores them today
+    # and returns 400 in future model generations, so they must not be sent.
+    # See https://ai.google.dev/gemini-api/docs/latest-model
     uses_thinking_level: bool = False
+    # Whether the provider still honours temperature/top_p/top_k. When False the
+    # values are dropped before the request rather than sent and ignored, so a
+    # caller asking for temperature=0 is never quietly told it worked.
+    supports_sampling_params: bool = True
+    # Thinking levels this pipeline may send to this model. Sending a level the
+    # model does not accept returns 400 (gemini-3.1-pro-preview rejects the
+    # medium level). This is the *sendable* set, not everything the model
+    # supports: the minimal level is deliberately excluded everywhere because it
+    # requires thought-signature handling that this pipeline does not implement.
+    # Empty means no constraint is known and the translated level is used as is.
+    allowed_thinking_levels: tuple = ()
+    # Level substituted when the translated level is not in the sendable set.
+    # Only a clamp target. It is never sent on its own when the caller passes no
+    # thinking_budget, so omitting a budget still means "let the server decide".
+    fallback_thinking_level: Optional[str] = None
 
 
 # ── Canonical model names ───────────────────────────────────────────
@@ -73,13 +89,42 @@ class ModelNames:
 # ── Model specifications ────────────────────────────────────────────
 MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
     "gemini": {
+        # Gemini 2.5: legacy integer thinking_budget, sampling params still honoured.
         ModelNames.GEMINI_25_FLASH: ModelSpec(1_048_576, 65_535, supports_thinking=True),
         ModelNames.GEMINI_25_FLASH_LITE: ModelSpec(1_048_576, 65_535, supports_thinking=True),
-        ModelNames.GEMINI_31_FLASH_LITE: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
-        ModelNames.GEMINI_35_FLASH: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
-        ModelNames.GEMINI_36_FLASH: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
-        ModelNames.GEMINI_35_FLASH_LITE: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
-        ModelNames.GEMINI_31_PRO_PREVIEW: ModelSpec(1_000_000, 64_000, supports_thinking=True, uses_thinking_level=True),
+        # Gemini 3.x: thinking_level enum, sampling params deprecated and ignored.
+        # Defaults per https://ai.google.dev/gemini-api/docs/latest-model
+        ModelNames.GEMINI_31_FLASH_LITE: ModelSpec(
+            1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
+            supports_sampling_params=False,
+            allowed_thinking_levels=("low", "medium", "high"),
+            fallback_thinking_level="low",
+        ),
+        ModelNames.GEMINI_35_FLASH: ModelSpec(
+            1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
+            supports_sampling_params=False,
+            allowed_thinking_levels=("low", "medium", "high"),
+            fallback_thinking_level="medium",
+        ),
+        ModelNames.GEMINI_36_FLASH: ModelSpec(
+            1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
+            supports_sampling_params=False,
+            allowed_thinking_levels=("low", "medium", "high"),
+            fallback_thinking_level="medium",
+        ),
+        ModelNames.GEMINI_35_FLASH_LITE: ModelSpec(
+            1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
+            supports_sampling_params=False,
+            allowed_thinking_levels=("low", "medium", "high"),
+            fallback_thinking_level="low",
+        ),
+        # Pro rejects "medium" (400 INVALID_ARGUMENT); low/high only.
+        ModelNames.GEMINI_31_PRO_PREVIEW: ModelSpec(
+            1_000_000, 64_000, supports_thinking=True, uses_thinking_level=True,
+            supports_sampling_params=False,
+            allowed_thinking_levels=("low", "high"),
+            fallback_thinking_level="high",
+        ),
         "_default": ModelSpec(1_000_000, 32_000, supports_thinking=False),
     },
     "openai": {
