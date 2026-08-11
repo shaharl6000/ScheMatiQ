@@ -129,6 +129,14 @@ export const emptyData: PaginatedData = {
 // finish, short enough that a genuinely emptied table clears without a visible
 // wait. See applyData in index.tsx.
 export const EMPTY_DATA_RECHECK_MS = 900;
+// Automatic retry schedule for a table-data fetch that failed with 503: the
+// backend answers 503 specifically when the session's rows exist in storage
+// but could not be hydrated locally, so a retry is expected to succeed once
+// hydration recovers. The delay doubles per consecutive failure and is capped,
+// so a backend that recovers quickly is retried quickly without hammering one
+// that does not. See noteDataFetchError in index.tsx.
+export const DATA_LOAD_RETRY_BASE_MS = 4000;
+export const DATA_LOAD_RETRY_MAX_MS = 30000;
 export const WORKSPACE_DEFAULT_ADVANCED: AdvancedSettingsValue = {
   ...DEFAULT_ADVANCED_SETTINGS,
   schemaProvider: DEFAULT_PROVIDER,

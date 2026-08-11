@@ -525,6 +525,29 @@
   font-weight: 500;
 }
 
+/* Red variant of the follow-up banner: table data failed to load (503 from the
+   data endpoint — rows exist in storage but could not be read) and is being
+   retried automatically. */
+.workspace-data-error-banner {
+  background: #fdecea;
+  border-bottom-color: #f5c2bd;
+  color: #7a2f26;
+}
+
+.workspace-data-error-banner .workspace-followup-banner-copy strong {
+  color: #5f1d15;
+}
+
+.workspace-data-error-banner .workspace-followup-action-primary {
+  border-color: #c5221f;
+  background: #fce8e6;
+  color: #a50e0e;
+}
+
+.workspace-data-error-banner .workspace-followup-action-primary:hover:not(:disabled) {
+  background: #f8d7d4;
+}
+
 .workspace-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -1367,6 +1390,26 @@
 .dark .workspace-followup-banner {
   background: hsl(38 32% 14%);
   border-bottom-color: hsl(38 28% 26%);
+}
+
+.dark .workspace-data-error-banner {
+  background: hsl(4 40% 14%);
+  border-bottom-color: hsl(4 34% 26%);
+  color: hsl(6 70% 82%);
+}
+
+.dark .workspace-data-error-banner .workspace-followup-banner-copy strong {
+  color: hsl(6 80% 86%);
+}
+
+.dark .workspace-data-error-banner .workspace-followup-action-primary {
+  border-color: hsl(4 60% 45%);
+  background: hsl(4 45% 20%);
+  color: hsl(6 80% 84%);
+}
+
+.dark .workspace-data-error-banner .workspace-followup-action-primary:hover:not(:disabled) {
+  background: hsl(4 45% 24%);
 }
 
 .dark .workspace-sheet-tab[data-active="true"] {
