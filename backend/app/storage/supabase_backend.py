@@ -1,15 +1,51 @@
 """Supabase cloud storage backend implementation."""
 
+import base64
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from supabase import create_client, Client
 
 from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, TemplateInfo, InitialSchemaInfo
 
 logger = logging.getLogger(__name__)
+
+
+def classify_supabase_key(key: str) -> Tuple[str, str]:
+    """Classify SUPABASE_KEY as 'server', 'publishable' or 'unknown'.
+
+    Supabase treats publishable keys (legacy `anon`, newer `sb_publishable_`) as
+    non-secret: they are meant to sit in a browser bundle. The backend needs the
+    opposite property, so knowing which one is live is worth a log line. The
+    newer key formats are opaque strings rather than JWTs, so only legacy keys
+    carry a decodable role claim.
+
+    Returns:
+        (kind, human readable detail). Never raises, and never logs the key.
+    """
+    if key.startswith("sb_secret_"):
+        return "server", "secret key"
+    if key.startswith("sb_publishable_"):
+        return "publishable", "publishable key"
+
+    parts = key.split(".")
+    if len(parts) == 3:
+        try:
+            payload = parts[1]
+            payload += "=" * (-len(payload) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(payload))
+        except Exception:
+            return "unknown", "JWT-shaped but the payload did not decode"
+        role = claims.get("role")
+        if role == "service_role":
+            return "server", "legacy service_role JWT"
+        if role == "anon":
+            return "publishable", "legacy anon JWT"
+        return "unknown", f"JWT with role={role!r}"
+
+    return "unknown", "unrecognised key format"
 
 # Overwrite in a single request instead of remove-then-upload.
 #
@@ -39,23 +75,61 @@ class SupabaseStorageBackend(StorageInterface):
     # Required buckets for the application
     REQUIRED_BUCKETS = ["sessions", "documents", "data", "exports", "datasets", "templates", "initial_schemas"]
 
+    # Buckets whose contents are user research data. A Public flag on any of
+    # these means the objects are served over an open URL with no key at all,
+    # which is a different act from making them reachable through the API.
+    USER_DATA_BUCKETS = {"sessions", "documents", "data", "exports"}
+
     def __init__(self, url: str, key: str):
         """Initialize Supabase storage backend.
 
         Args:
             url: Supabase project URL
-            key: Supabase anon/service key
+            key: Supabase service_role or secret key. A publishable (anon) key
+                works only while storage.objects carries permissive policies for
+                the anon role, and those policies apply to anyone holding the
+                key, so the backend warns when it sees one.
         """
         logger.info(f"Initializing Supabase storage backend with URL: {url[:30]}...")
+        self._warn_if_publishable_key(key)
         self.client: Client = create_client(url, key)
         self._verify_buckets()
         logger.info("Supabase storage backend initialized successfully")
 
+    @staticmethod
+    def _warn_if_publishable_key(key: str) -> None:
+        """Log the key category so a publishable key is not silently in use."""
+        kind, detail = classify_supabase_key(key)
+        if kind == "server":
+            logger.info(f"SUPABASE_KEY is a server-only credential ({detail})")
+            return
+        if kind == "publishable":
+            logger.warning(
+                f"SUPABASE_KEY is a publishable credential ({detail}). Supabase "
+                "treats it as non-secret, so every storage permission granted to "
+                "it is granted to anyone who obtains it. Use the service_role or "
+                "secret key for the backend."
+            )
+            return
+        logger.warning(f"Could not classify SUPABASE_KEY ({detail}); verify it by hand")
+
     def _verify_buckets(self) -> None:
-        """Verify required buckets exist in Supabase."""
+        """Verify required buckets exist and that user data buckets are private."""
         try:
             existing_buckets = self.client.storage.list_buckets()
-            existing_names = {b.name for b in existing_buckets}
+            existing_names = set()
+            public_names = set()
+            for bucket in existing_buckets:
+                if isinstance(bucket, dict):
+                    name, is_public = bucket.get("name"), bucket.get("public")
+                else:
+                    name = getattr(bucket, "name", None)
+                    is_public = getattr(bucket, "public", None)
+                if not name:
+                    continue
+                existing_names.add(name)
+                if is_public:
+                    public_names.add(name)
             logger.info(f"Found Supabase buckets: {existing_names}")
 
             missing = set(self.REQUIRED_BUCKETS) - existing_names
@@ -64,6 +138,22 @@ class SupabaseStorageBackend(StorageInterface):
                 logger.warning("Please create these buckets in your Supabase dashboard.")
             else:
                 logger.info("All required buckets exist")
+
+            exposed_user_data = public_names & self.USER_DATA_BUCKETS
+            if exposed_user_data:
+                logger.error(
+                    f"Supabase buckets holding user data are marked Public: "
+                    f"{sorted(exposed_user_data)}. Their objects are served over an "
+                    f"open URL with no key. Uncheck Public in the dashboard."
+                )
+            other_public = public_names & (set(self.REQUIRED_BUCKETS) - self.USER_DATA_BUCKETS)
+            if other_public:
+                logger.warning(
+                    f"Supabase buckets marked Public: {sorted(other_public)}. The "
+                    f"application never builds a public URL, so this only exposes "
+                    f"their contents to the open internet. Run "
+                    f"scripts/audit_storage_access.py to confirm what is served."
+                )
         except Exception as e:
             logger.error(f"Could not verify Supabase buckets: {e}", exc_info=True)
 

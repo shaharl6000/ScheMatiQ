@@ -164,7 +164,7 @@ npm start
 | `GEMINI_API_KEY` | Google Gemini API key |
 | `TOGETHER_API_KEY` | Together AI API key |
 | `ALLOWED_ORIGINS` | CORS origins (default: `http://localhost:3000`) |
-| `SUPABASE_URL` / `SUPABASE_KEY` | Cloud storage (production) |
+| `SUPABASE_URL` / `SUPABASE_KEY` | Cloud storage (production). `SUPABASE_KEY` must be the service_role or secret key, never the anon key |
 | `MAX_CONCURRENT_SESSIONS` | Concurrent session limit (default: 5) |
 | `DEVELOPER_MODE` | Set `true` to unlock all features (see below) |
 
