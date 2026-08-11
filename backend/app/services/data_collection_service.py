@@ -189,9 +189,15 @@ class DataCollectionService:
         except Exception as e:
             logger.debug("[data-collection] Could not read LLM call stats: %s", e)
 
+        # The query is the user's own text. Withhold it when they opted out of
+        # research collection: the counts below still give us usage metrics, and
+        # the policy can then promise a numeric-only row rather than document
+        # that we keep the query anyway.
+        query = "" if session.opt_out_data_collection else (session.schema_query or "")
+
         self._sheets_logger.log_session(
             session_id=session_id,
-            query=session.schema_query or "",
+            query=query,
             doc_count=stats.total_documents if stats else 0,
             column_count=stats.total_columns if stats else len(session.columns),
             row_count=stats.total_rows if stats else 0,
