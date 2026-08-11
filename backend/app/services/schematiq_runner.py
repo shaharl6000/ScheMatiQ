@@ -29,6 +29,7 @@ from app.services.pipeline.value_extraction import run_value_extraction
 from app.services.pipeline.data_query import (
     compute_statistics, get_status as _get_status, get_schema as _get_schema, get_data as _get_data,
 )
+from app.services.data_utils import persist_session_data_file
 
 from app.services.data_utils import purge_session_data_file
 
@@ -119,6 +120,23 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             sheets.log_llm_usage(session_id, total, counts)
         except Exception as e:
             logger.debug("Could not log LLM usage to Google Sheets: %s", e)
+
+    async def _persist_extracted_data(self, session_id: str) -> None:
+        """Upload this run's extracted rows to the storage backend.
+
+        Value extraction writes ``extracted_data.jsonl`` under the work dir,
+        which on Railway is container-local and does not survive a redeploy.
+        Until this runs the rows exist only there, so ``get_data`` resolves
+        nothing from storage and reports ``data_missing``. Every other writer
+        of this file (data_editor, reextraction) already persists it; the run
+        that creates it did not, which left completed sessions dependent on a
+        later edit to reach durable storage.
+        """
+        data_file = self.work_dir / session_id / "extracted_data.jsonl"
+        if not data_file.exists():
+            return
+        await persist_session_data_file(session_id, data_file)
+        logger.info("Persisted extracted data to storage for session %s", session_id)
 
     def _external_usage_total(self, window_days: int = 0, force: bool = False) -> int:
         """Read the cumulative (or windowed) LLM call total from Google Sheets.
@@ -898,6 +916,8 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             current_step += 1
             await update_progress("Finalizing results", 0.0)
 
+            await self._persist_extracted_data(session_id)
+
             statistics = compute_statistics(
                 session_id,
                 discovered_schema,
@@ -1165,6 +1185,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         if data_file.exists():
             with open(data_file, 'r') as f:
                 rows_saved = sum(1 for _ in f)
+        await self._persist_extracted_data(session_id)
         await self.broadcast_stopped(session_id, {
             "schema_saved": True,
             "data_rows_saved": rows_saved,
