@@ -30,6 +30,8 @@ from app.services.pipeline.data_query import (
     compute_statistics, get_status as _get_status, get_schema as _get_schema, get_data as _get_data,
 )
 
+from app.services.data_utils import purge_session_data_file
+
 logger = logging.getLogger(__name__)
 
 from schematiq.core.schema import ObservationUnit
@@ -463,6 +465,11 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             if artifact.exists():
                 artifact.unlink()
                 logger.info("Removed %s for observation unit rediscovery", fname)
+
+        # Unlinking locally is not enough: get_data hydrates the data file back
+        # from storage whenever the local copy is missing, which would resurrect
+        # the previous run's rows into a session that is being rediscovered.
+        await purge_session_data_file(session_id, session_dir / "extracted_data.jsonl")
 
         session = self.session_manager.get_session(session_id)
         if not session:

@@ -420,6 +420,42 @@ async def ensure_session_data_file_local(
     return True
 
 
+async def purge_session_data_file(
+    session_id: str,
+    local_path: Path,
+    storage=None,
+) -> None:
+    """Remove a data JSONL object from storage so a reset stays reset.
+
+    Deleting only the local file is not enough. ``resolve_session_data_files``
+    hydrates from storage whenever the local copy is absent, and it cannot
+    tell a file wiped by a redeploy (hydrate) from one deleted on purpose for
+    a re-run (do not hydrate). Callers that clear local artifacts must clear
+    the storage object too, or the stale rows come straight back."""
+    storage_path = storage_path_for_data_file(local_path, session_id)
+    if not storage_path:
+        return
+
+    if storage is None:
+        from app.storage import get_storage
+
+        storage = get_storage()
+
+    try:
+        await storage.delete_file("data", storage_path)
+    except Exception as exc:
+        logger.warning(
+            "Failed to purge storage data/%s for session %s: %s",
+            storage_path,
+            session_id,
+            exc,
+        )
+    else:
+        logger.info(
+            "Purged storage data/%s for session %s", storage_path, session_id
+        )
+
+
 async def persist_session_data_file(
     session_id: str,
     local_path: Path,
