@@ -24,8 +24,37 @@ logger = logging.getLogger(__name__)
 # Rate limit retry utilities                                                 #
 ##############################################################################
 
-def _is_rate_limit_error(error_str: str) -> bool:
-    """Check if error is a rate limit / quota error (provider-side)."""
+_RATE_LIMIT_STATUS_CODE = 429
+# Transient failures worth retrying with a fixed backoff. 429 is excluded
+# because it is classified separately and uses the provider's own retry hint.
+_TRANSIENT_STATUS_CODES = frozenset({408, 500, 502, 503, 504})
+_AUTH_STATUS_CODES = frozenset({401, 403})
+
+
+def _status_code(error: BaseException) -> Optional[int]:
+    """Return the HTTP status code a provider SDK error carries, if any.
+
+    ``google.genai.errors.APIError`` exposes it as ``code``, the OpenAI SDK as
+    ``status_code``. Unrelated exception types may also define a ``code``
+    attribute, so only plausible HTTP error values are accepted; anything else
+    returns None and the caller falls back to matching the message text.
+    """
+    for attr in ("code", "status_code"):
+        value = getattr(error, attr, None)
+        if isinstance(value, int) and 400 <= value < 600:
+            return value
+    return None
+
+
+def _is_rate_limit_error(error: BaseException) -> bool:
+    """Check if error is a rate limit / quota error (provider-side).
+
+    The status code is authoritative when the SDK exposes one; the text checks
+    remain for exceptions that do not (transport errors, wrapped exceptions).
+    """
+    if _status_code(error) == _RATE_LIMIT_STATUS_CODE:
+        return True
+    error_str = str(error)
     el = error_str.lower()
     if "429" in error_str and (
         "rate" in el or "quota" in el or "limit" in el or "exhausted" in el
@@ -38,8 +67,16 @@ def _is_rate_limit_error(error_str: str) -> bool:
         return True
     return False
 
-def _is_server_overloaded_error(error_str: str) -> bool:
-    """Check if error is a server overloaded/unavailable error (503)."""
+def _is_retryable_server_error(error: BaseException) -> bool:
+    """Check if error is a transient server-side failure worth retrying.
+
+    Any 408/5xx from the provider qualifies, regardless of message wording:
+    500 INTERNAL and 504 DEADLINE_EXCEEDED are as transient as 503 UNAVAILABLE.
+    The 503 text match stays as a fallback for exceptions with no status code.
+    """
+    if _status_code(error) in _TRANSIENT_STATUS_CODES:
+        return True
+    error_str = str(error)
     if "503" not in error_str:
         return False
     error_lower = error_str.lower()
@@ -49,13 +86,16 @@ def _is_server_overloaded_error(error_str: str) -> bool:
     ])
 
 
-def _is_invalid_api_key_error(error_str: str) -> bool:
-    """Check if error indicates a malformed or invalid API key.
+def _is_invalid_api_key_error(error: BaseException) -> bool:
+    """Check if error indicates a malformed, invalid, or rejected API key.
 
     These errors occur when the API key has invalid characters, is corrupted,
     or is otherwise malformed. The key should be permanently marked as invalid.
+    A 401/403 is treated the same way: the request will never succeed on retry.
     """
-    error_lower = error_str.lower()
+    if _status_code(error) in _AUTH_STATUS_CODES:
+        return True
+    error_lower = str(error).lower()
 
     # gRPC plugin credential errors (malformed key with illegal characters)
     if "illegal header value" in error_lower or "invalid metadata" in error_lower:
@@ -215,7 +255,7 @@ class TogetherLLM(LLMInterface):
                 last_exception = e
                 
                 # Check if this is a retryable error
-                if _is_rate_limit_error(error_str):
+                if _is_rate_limit_error(e):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(error_str)
                         print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
@@ -223,14 +263,14 @@ class TogetherLLM(LLMInterface):
                         continue
                     else:
                         print(f"❌ Rate limit error after {max_retries} retries: {error_str}")
-                elif _is_server_overloaded_error(error_str):
+                elif _is_retryable_server_error(e):
                     if attempt < max_retries:
                         wait_time = 10 + random.randint(5, 15)
-                        print(f"🔄 Server overloaded (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        print(f"🔄 Transient provider error (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
                         time.sleep(wait_time)
                         continue
                     else:
-                        print(f"❌ Server overloaded error after {max_retries} retries: {error_str}")
+                        print(f"❌ Transient provider error after {max_retries} retries: {error_str}")
                 else:
                     # Not a retryable error, don't retry
                     break
@@ -326,7 +366,7 @@ class OpenAILLM(LLMInterface):
                 last_exception = e
                 
                 # Check if this is a retryable error
-                if _is_rate_limit_error(error_str):
+                if _is_rate_limit_error(e):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(error_str)
                         print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
@@ -334,14 +374,14 @@ class OpenAILLM(LLMInterface):
                         continue
                     else:
                         print(f"❌ Rate limit error after {max_retries} retries: {error_str}")
-                elif _is_server_overloaded_error(error_str):
+                elif _is_retryable_server_error(e):
                     if attempt < max_retries:
                         wait_time = 10 + random.randint(5, 15)
-                        print(f"🔄 Server overloaded (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        print(f"🔄 Transient provider error (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
                         time.sleep(wait_time)
                         continue
                     else:
-                        print(f"❌ Server overloaded error after {max_retries} retries: {error_str}")
+                        print(f"❌ Transient provider error after {max_retries} retries: {error_str}")
                 else:
                     # Not a retryable error, don't retry
                     break
@@ -808,12 +848,12 @@ class GeminiLLM(LLMInterface):
                     return "Response blocked by Gemini safety filters. Please try rephrasing your request."
 
                 # Check for invalid/malformed API key errors - don't retry
-                if _is_invalid_api_key_error(error_str):
+                if _is_invalid_api_key_error(e):
                     print(f"Invalid/malformed API key: {error_str[:200]}")
                     raise
 
                 # Check if this is a retryable error
-                if _is_rate_limit_error(error_str):
+                if _is_rate_limit_error(e):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(error_str)
                         snippet = error_str.replace("\n", " ")[:280]
@@ -833,14 +873,14 @@ class GeminiLLM(LLMInterface):
                             f"Last error: {snippet}",
                             flush=True,
                         )
-                elif _is_server_overloaded_error(error_str):
+                elif _is_retryable_server_error(e):
                     if attempt < max_retries:
                         wait_time = 10 + random.randint(5, 15)
-                        print(f"Server overloaded (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        print(f"Transient provider error (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
                         time.sleep(wait_time)
                         continue
                     else:
-                        print(f"Server overloaded error after {max_retries} retries: {error_str}")
+                        print(f"Transient provider error after {max_retries} retries: {error_str}")
                 else:
                     # Not a retryable error, don't retry
                     break
@@ -981,9 +1021,9 @@ class GeminiLLM(LLMInterface):
 
                 if "Invalid operation" in error_str and "finish_reason" in error_str:
                     return "Response blocked by Gemini safety filters."
-                if _is_invalid_api_key_error(error_str):
+                if _is_invalid_api_key_error(e):
                     raise
-                if _is_rate_limit_error(error_str):
+                if _is_rate_limit_error(e):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(error_str)
                         snippet = error_str.replace("\n", " ")[:280]
@@ -1001,10 +1041,10 @@ class GeminiLLM(LLMInterface):
                         f"provider quota/RPM (not app LLM_CALL_GLOBAL_LIMIT). Last error: {snippet}",
                         flush=True,
                     )
-                elif _is_server_overloaded_error(error_str):
+                elif _is_retryable_server_error(e):
                     if attempt < max_retries:
                         wait_time = 10 + random.randint(5, 15)
-                        print(f"Server overloaded (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s...")
+                        print(f"Transient provider error (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s...")
                         time.sleep(wait_time)
                         continue
                 else:
