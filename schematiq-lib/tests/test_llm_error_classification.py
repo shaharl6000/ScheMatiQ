@@ -7,6 +7,9 @@ against real ``google.genai`` exception objects rather than crafted strings.
 import pytest
 
 from schematiq.core.llm_backends import (
+    _MAX_RETRY_WAIT_SECONDS,
+    _MIN_RETRY_WAIT_SECONDS,
+    _extract_wait_time,
     _is_invalid_api_key_error,
     _is_rate_limit_error,
     _is_retryable_server_error,
@@ -16,15 +19,28 @@ from schematiq.core.llm_backends import (
 errors = pytest.importorskip("google.genai.errors")
 
 
-def api_error(code: int, status: str, message: str = "boom"):
+def api_error(code: int, status: str, message: str = "boom", details=None):
     """Build the APIError subclass the SDK would raise for *code*."""
+    error_body = {"code": code, "status": status, "message": message}
+    if details is not None:
+        error_body["details"] = details
     with pytest.raises(errors.APIError) as excinfo:
-        errors.APIError.raise_error(
-            code,
-            {"error": {"code": code, "status": status, "message": message}},
-            None,
-        )
+        errors.APIError.raise_error(code, {"error": error_body}, None)
     return excinfo.value
+
+
+def rate_limited(retry_delay=None):
+    """A 429 carrying google.rpc.RetryInfo, as the API returns it."""
+    details = None
+    if retry_delay is not None:
+        details = [
+            {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": []},
+            {
+                "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                "retryDelay": retry_delay,
+            },
+        ]
+    return api_error(429, "RESOURCE_EXHAUSTED", "quota exceeded", details)
 
 
 class TestStatusCode:
@@ -81,6 +97,11 @@ class TestRetryableServerError:
     def test_text_fallback_without_status_code(self):
         assert _is_retryable_server_error(RuntimeError("503 model is overloaded"))
 
+    def test_transport_failures_are_retryable(self):
+        httpx = pytest.importorskip("httpx")
+        assert _is_retryable_server_error(httpx.ReadTimeout("timed out"))
+        assert _is_retryable_server_error(httpx.ConnectError("refused"))
+
     def test_client_errors_are_not_retryable(self):
         assert not _is_retryable_server_error(api_error(400, "INVALID_ARGUMENT"))
         assert not _is_retryable_server_error(api_error(429, "RESOURCE_EXHAUSTED"))
@@ -101,3 +122,38 @@ class TestInvalidApiKey:
 
     def test_transient_errors_are_not_key_errors(self):
         assert not _is_invalid_api_key_error(api_error(503, "UNAVAILABLE"))
+
+
+class TestExtractWaitTime:
+    def test_uses_provider_retry_delay(self):
+        # 54s + a 5-10s buffer.
+        wait = _extract_wait_time(rate_limited("54s"))
+        assert 59 <= wait <= 64
+
+    def test_fractional_duration(self):
+        wait = _extract_wait_time(rate_limited("0.5s"))
+        # Below the floor, so clamped up rather than retried almost immediately.
+        assert wait == _MIN_RETRY_WAIT_SECONDS
+
+    def test_extreme_delay_is_capped(self):
+        assert _extract_wait_time(rate_limited("86400s")) == _MAX_RETRY_WAIT_SECONDS
+
+    def test_unparseable_delay_falls_back_to_default(self):
+        wait = _extract_wait_time(rate_limited("later"))
+        assert 50 <= wait <= 60
+
+    def test_default_when_no_details(self):
+        wait = _extract_wait_time(rate_limited())
+        assert 50 <= wait <= 60
+
+    def test_per_minute_message_waits_longer(self):
+        wait = _extract_wait_time(RuntimeError("429 quota exceeded per minute"))
+        assert 95 <= wait <= 105
+
+    def test_text_retry_hint(self):
+        wait = _extract_wait_time(RuntimeError("Please retry in 30s"))
+        assert 35 <= wait <= 40
+
+    def test_malformed_text_hint_does_not_raise(self):
+        wait = _extract_wait_time(RuntimeError("retry in 1.2.3s"))
+        assert 50 <= wait <= 60
