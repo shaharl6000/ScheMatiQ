@@ -3,10 +3,10 @@
 import hashlib
 import logging
 import threading
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from datetime import datetime
 
-from app.models.session import VisualizationSession, SessionType, SessionStatus, ColumnBaseline, SchemaBaseline
+from app.models.session import VisualizationSession, SessionStatus, ColumnBaseline, SchemaBaseline
 from app.models.modification import CreationMetadata
 from app.storage import get_storage, StorageInterface
 
@@ -23,32 +23,40 @@ class SessionManager:
             storage: Storage backend instance. If None, uses default from factory.
         """
         self._storage = storage or get_storage()
+        # Cache of sessions loaded so far, not a complete mirror of storage.
+        # Sessions are fetched on first access; see get_session.
         self._sessions: Dict[str, VisualizationSession] = {}
         self._lock = threading.Lock()
-        self._load_sessions()
 
-    def _load_sessions(self):
-        """Load existing sessions from storage."""
+    def _build_session(self, session_data: dict) -> Optional[VisualizationSession]:
+        """Turn a stored session dict into a migrated model, or None if unusable."""
+        # Migrate old "qbsd" type to "schematiq" before validation
+        if session_data.get("type") == "qbsd":
+            session_data["type"] = "schematiq"
+        session = VisualizationSession(**session_data)
+        # Migrate session to include new fields if missing
+        return self.migrate_session(session)
+
+    def _load_session(self, session_id: str) -> Optional[VisualizationSession]:
+        """Fetch one session from storage and cache it. None if absent or invalid."""
         try:
-            # Get list of session IDs using sync method
-            session_ids = self._storage.list_sessions_sync()
-
-            # Load each session
-            for session_id in session_ids:
-                try:
-                    session_data = self._storage.get_session_sync(session_id)
-                    if session_data:
-                        # Migrate old "qbsd" type to "schematiq" before validation
-                        if session_data.get("type") == "qbsd":
-                            session_data["type"] = "schematiq"
-                        session = VisualizationSession(**session_data)
-                        # Migrate session to include new fields if missing
-                        session = self.migrate_session(session)
-                        self._sessions[session.id] = session
-                except Exception as e:
-                    logger.error(f"Error loading session {session_id}: {e}")
+            session_data = self._storage.get_session_sync(session_id)
         except Exception as e:
-            logger.error(f"Error loading sessions: {e}")
+            logger.error(f"Error reading session {session_id} from storage: {e}")
+            return None
+        if not session_data:
+            return None
+        try:
+            session = self._build_session(session_data)
+        except Exception as e:
+            logger.error(f"Error loading session {session_id}: {e}")
+            return None
+        if session is None:
+            return None
+        with self._lock:
+            # Another thread may have cached it first; that copy is equivalent.
+            self._sessions.setdefault(session.id, session)
+            return self._sessions[session.id]
 
     def _save_session(self, session: VisualizationSession):
         """Save session to storage."""
@@ -62,9 +70,12 @@ class SessionManager:
         return session.id
 
     def get_session(self, session_id: str) -> Optional[VisualizationSession]:
-        """Get session by ID."""
+        """Get session by ID, fetching it from storage on a cache miss."""
         with self._lock:
-            return self._sessions.get(session_id)
+            cached = self._sessions.get(session_id)
+        if cached is not None:
+            return cached
+        return self._load_session(session_id)
 
     def update_session(self, session: VisualizationSession):
         """Update existing session."""
@@ -75,11 +86,12 @@ class SessionManager:
 
     def delete_session(self, session_id: str) -> bool:
         """Delete session and all associated data."""
+        # Resolve through get_session: an untouched session is absent from the
+        # cache but present in storage, and must still be deletable.
+        if self.get_session(session_id) is None:
+            return False
         with self._lock:
-            if session_id not in self._sessions:
-                return False
-            # Remove from memory
-            del self._sessions[session_id]
+            self._sessions.pop(session_id, None)
 
         # Remove from storage (this also cleans up associated data)
         import asyncio
@@ -97,14 +109,6 @@ class SessionManager:
                 return loop.run_until_complete(self._storage.delete_session(session_id))
             finally:
                 loop.close()
-
-    def list_sessions(self, session_type: Optional[SessionType] = None) -> List[VisualizationSession]:
-        """List all sessions, optionally filtered by type."""
-        with self._lock:
-            sessions = list(self._sessions.values())
-        if session_type:
-            sessions = [s for s in sessions if s.type == session_type]
-        return sorted(sessions, key=lambda s: s.metadata.created, reverse=True)
 
     def capture_schema_baseline(self, session_id: str) -> bool:
         """
