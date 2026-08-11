@@ -328,3 +328,27 @@ export function formatToolsList(tools: ChatToolInfo[]): string {
     })
     .join('\n');
 }
+
+// The concurrency limiter answers 503 when the server is at capacity. That is a
+// "come back shortly" condition, not a failure of the thing the user asked for,
+// and it was only being distinguished in one of the three Workspace entry points
+// that can provoke it -- so re-extraction and project start reported it as
+// though the operation itself had broken.
+export const SERVER_BUSY_MESSAGE =
+  'The server is at capacity right now. Nothing was lost -- try again in a few minutes.';
+
+export function describeRequestError(
+  err: unknown,
+  fallback: string,
+): { message: string; isBusy: boolean } {
+  const response = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
+  const detail = typeof response?.data?.detail === 'string' ? response.data.detail : '';
+  if (response?.status === 503) {
+    // Prefer the server's wording when it sent any; it names the limit.
+    return { message: detail || SERVER_BUSY_MESSAGE, isBusy: true };
+  }
+  return {
+    message: detail || (err as { message?: string })?.message || fallback,
+    isBusy: false,
+  };
+}

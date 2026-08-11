@@ -11,6 +11,7 @@ import type { DocumentListResponse } from '@/types/unit';
 import { getApiKeyForProvider, getConfiguredProviders } from '@/utils/apiKeyStorage';
 
 import type { SheetId } from '../types';
+import { describeRequestError } from '../helpers';
 
 const normalizeDocName = (s: string) => s.trim().toLowerCase();
 const stripDocExt = (s: string) => s.replace(/\.[^.\\/]+$/, '');
@@ -145,10 +146,7 @@ export function useAddDocuments({
       });
       await refresh({ silent: true });
     } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      const message = err?.response?.status === 503
-        ? (detail || 'The server is busy. Please try again in a few minutes.')
-        : (typeof detail === 'string' ? detail : err?.message || 'Failed to start processing');
+      const { message } = describeRequestError(err, 'Failed to start processing');
       setAddDocsError(message);
     } finally {
       setAddDocsProcessing(false);
