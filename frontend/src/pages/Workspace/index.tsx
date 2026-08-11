@@ -98,6 +98,10 @@ import './Workspace.css';
 // immer's patch APIs are opt-in and must be enabled once before use (undo stack).
 enablePatches();
 
+// Long enough to absorb a burst of single-cell edits, short enough that the
+// server round-trip still feels immediate.
+const EDIT_REFRESH_COALESCE_MS = 400;
+
 type RefreshDataOptions = {
   silent?: boolean;
   force?: boolean;
@@ -307,7 +311,29 @@ function Workspace() {
     refreshDataRef.current = refreshData;
   }, [refreshData]);
 
-  const refreshAfterEdit = useCallback(() => refreshData({ silent: true, force: true }), [refreshData]);
+  // Every edit refetches the whole page to confirm the write landed -- about
+  // 986 kB for a 500-row session. applyCellUpdates already collapses a batch
+  // paste into one refresh, but sequential single-cell edits each fired their
+  // own, so typing through ten cells cost ten full pages.
+  //
+  // Coalesce on the trailing edge: the last edit of a burst is the one that
+  // refreshes, and one always does. The verification is preserved -- it is
+  // deferred by at most EDIT_REFRESH_COALESCE_MS, not skipped. Until it lands
+  // the grid shows the optimistic value, which is already the case today
+  // because the refresh was never synchronous.
+  const editRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refreshAfterEdit = useCallback(() => {
+    if (editRefreshTimerRef.current) clearTimeout(editRefreshTimerRef.current);
+    editRefreshTimerRef.current = setTimeout(() => {
+      editRefreshTimerRef.current = null;
+      void refreshData({ silent: true, force: true });
+    }, EDIT_REFRESH_COALESCE_MS);
+  }, [refreshData]);
+
+  useEffect(() => () => {
+    if (editRefreshTimerRef.current) clearTimeout(editRefreshTimerRef.current);
+  }, []);
 
   const refreshSilent = useCallback(() => refreshData({ silent: true }), [refreshData]);
 
