@@ -62,7 +62,15 @@ import type { DocumentListResponse } from '@/types/unit';
 import { applyPatches, enablePatches, produceWithPatches } from 'immer';
 
 import { ChatPanel } from './chat/ChatPanel';
-import { emptyData, EMPTY_DATA_RECHECK_MS, SHEETS, cellFormatKey } from './constants';
+import {
+  DATA_LOAD_RETRY_BASE_MS,
+  DATA_LOAD_RETRY_MAX_MS,
+  emptyData,
+  EMPTY_DATA_RECHECK_MS,
+  SHEETS,
+  cellFormatKey,
+} from './constants';
+import { DataLoadErrorBanner } from './DataLoadErrorBanner';
 import { useEditHistory } from './hooks/useEditHistory';
 import {
   buildExportFilename,
@@ -218,12 +226,65 @@ function Workspace() {
   const unitDataRowCountRef = useRef(0);
   const emptyRecheckTimerRef = useRef<number | null>(null);
   const refreshDataRef = useRef<((options?: RefreshDataOptions) => Promise<void>) | null>(null);
+  // Surfaced 503 from the table-data endpoint: rows exist in storage but could
+  // not be read. Everything else (network blips during background polls) stays
+  // silent, exactly as before.
+  const [dataLoadError, setDataLoadError] = useState<string | null>(null);
+  const [dataRetrying, setDataRetrying] = useState(false);
+  const dataRetryTimerRef = useRef<number | null>(null);
+  const dataRetryAttemptRef = useRef(0);
 
   const clearEmptyRecheck = useCallback(() => {
     if (emptyRecheckTimerRef.current == null) return;
     window.clearTimeout(emptyRecheckTimerRef.current);
     emptyRecheckTimerRef.current = null;
   }, []);
+
+  const clearDataRetryTimer = useCallback(() => {
+    if (dataRetryTimerRef.current == null) return;
+    window.clearTimeout(dataRetryTimerRef.current);
+    dataRetryTimerRef.current = null;
+  }, []);
+
+  // A successful data fetch clears the surfaced error and resets the backoff,
+  // whether it came from a scheduled retry, the manual button, or any ordinary
+  // refresh that happened to land first.
+  const noteDataFetchSuccess = useCallback(() => {
+    dataRetryAttemptRef.current = 0;
+    clearDataRetryTimer();
+    setDataLoadError(null);
+  }, [clearDataRetryTimer]);
+
+  // The backend answers 503 on the data endpoints only when the session's own
+  // statistics record rows, no data file resolved locally, and the rows are
+  // present in remote storage — i.e. hydration failed, not "the table is
+  // empty". That is the one failure worth telling the user about, and it is
+  // retryable by construction. Other errors keep today's behaviour: the rows
+  // already on screen stay put and nothing is shown.
+  const noteDataFetchError = useCallback((err: unknown) => {
+    const response = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
+    if (response?.status !== 503) return;
+    const detail = typeof response.data?.detail === 'string' ? response.data.detail : '';
+    setDataLoadError(detail || 'Table data could not be loaded right now.');
+    if (dataRetryTimerRef.current != null) return; // a retry is already scheduled
+    const attempt = dataRetryAttemptRef.current;
+    const delay = Math.min(DATA_LOAD_RETRY_BASE_MS * 2 ** attempt, DATA_LOAD_RETRY_MAX_MS);
+    dataRetryAttemptRef.current = attempt + 1;
+    dataRetryTimerRef.current = window.setTimeout(() => {
+      dataRetryTimerRef.current = null;
+      void refreshDataRef.current?.({ silent: true });
+    }, delay);
+  }, []);
+
+  const retryDataLoad = useCallback(async () => {
+    clearDataRetryTimer();
+    setDataRetrying(true);
+    try {
+      await refreshDataRef.current?.({ silent: true });
+    } finally {
+      setDataRetrying(false);
+    }
+  }, [clearDataRetryTimer]);
 
   const cancelChatPendingIfAny = useCallback(async (): Promise<boolean> => {
     if (!cancelChatPendingRef.current) return true;
@@ -300,10 +361,15 @@ function Workspace() {
     // Keep the rows already on screen when the fetch fails instead of blanking
     // the grid. The columns come from the schema, so falling back to emptyData
     // here is exactly what leaves the user looking at headers with no data.
-    const nextData = await fetchData().catch(() => null);
+    // A 503 additionally raises the retry banner (see noteDataFetchError).
+    const nextData = await fetchData().catch((err) => {
+      noteDataFetchError(err);
+      return null;
+    });
     if (!nextData) return;
+    noteDataFetchSuccess();
     applyData(nextData, options);
-  }, [applyData, sessionId, sessionMode]);
+  }, [applyData, noteDataFetchError, noteDataFetchSuccess, sessionId, sessionMode]);
 
   // The re-check scheduled by applyData needs the current refreshData without
   // making applyData depend on it (they are mutually recursive by design).
@@ -397,11 +463,18 @@ function Workspace() {
         const [nextData, nextDocuments] = await Promise.all([
           // Keep the current rows if the fetch fails (null) rather than blanking
           // the grid with emptyData — e.g. a transient error during a
-          // structural refresh right after a column delete.
-          fetchData().catch(() => null),
+          // structural refresh right after a column delete. A 503 additionally
+          // raises the retry banner (see noteDataFetchError).
+          fetchData().catch((err) => {
+            noteDataFetchError(err);
+            return null;
+          }),
           fetchDocuments().catch(() => null),
         ]);
-        if (nextData) applyData(nextData, options);
+        if (nextData) {
+          noteDataFetchSuccess();
+          applyData(nextData, options);
+        }
         setDocuments(nextDocuments);
       } finally {
         if (!silent) setDataLoading(false);
@@ -471,7 +544,7 @@ function Workspace() {
         setLoading(false);
       }
     }
-  }, [applyData, sessionId, sessionMode]);
+  }, [applyData, noteDataFetchError, noteDataFetchSuccess, sessionId, sessionMode]);
 
   const {
     addDocsFiles,
@@ -582,9 +655,15 @@ function Workspace() {
     unitDataRowCountRef.current = 0;
     deferredDataRef.current = null;
     clearEmptyRecheck();
-  }, [clearEmptyRecheck, editHistory, sessionId]);
+    // The retry loop belongs to the session we are leaving.
+    dataRetryAttemptRef.current = 0;
+    clearDataRetryTimer();
+    setDataLoadError(null);
+  }, [clearDataRetryTimer, clearEmptyRecheck, editHistory, sessionId]);
 
   useEffect(() => clearEmptyRecheck, [clearEmptyRecheck]);
+
+  useEffect(() => clearDataRetryTimer, [clearDataRetryTimer]);
 
   // Belt-and-braces re-sync: every commit writes dataRowCountRef eagerly, this
   // keeps it correct for the paths that set `data` directly (optimistic edits).
@@ -1181,6 +1260,14 @@ function Workspace() {
           onReextract={() => requestReextraction(pendingRerunKind === 'schema' ? pendingSchemaColumns : undefined)}
           onRediscover={startSchemaRediscovery}
           onDismiss={clearPendingRerun}
+        />
+      )}
+
+      {dataLoadError && sessionId && (
+        <DataLoadErrorBanner
+          message={dataLoadError}
+          retrying={dataRetrying}
+          onRetry={() => void retryDataLoad()}
         />
       )}
 
