@@ -11,6 +11,20 @@ from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, Templ
 
 logger = logging.getLogger(__name__)
 
+# Overwrite in a single request instead of remove-then-upload.
+#
+# Supabase does not overwrite by default, so every writer used to DELETE the
+# object and then POST the replacement. That is two round trips, and between
+# them the object does not exist: a concurrent read returns nothing and the
+# caller cannot distinguish "being rewritten" from "gone". A single run rewrites
+# the session JSON a dozen times, so that window opened a dozen times per run.
+#
+# ``x-upsert`` is the wire-level header the storage API uses (storage3 ships it
+# in DEFAULT_FILE_OPTIONS as "false"). It is set directly rather than via the
+# newer ``upsert`` alias because requirements.txt pins only ``supabase>=2.0.0``
+# and the header has been the stable mechanism across those versions.
+UPSERT_OPTION = {"x-upsert": "true"}
+
 
 class SupabaseStorageBackend(StorageInterface):
     """Storage backend using Supabase Storage.
@@ -76,16 +90,10 @@ class SupabaseStorageBackend(StorageInterface):
             content = json.dumps(data, indent=2, default=str).encode("utf-8")
             path = f"{session_id}.json"
 
-            # Check if file exists and remove it first (Supabase doesn't overwrite)
-            try:
-                self.client.storage.from_("sessions").remove([path])
-            except Exception:
-                pass  # File might not exist
-
             self.client.storage.from_("sessions").upload(
                 path,
                 content,
-                {"content-type": "application/json"}
+                {"content-type": "application/json", **UPSERT_OPTION},
             )
             return True
         except Exception as e:
@@ -150,20 +158,14 @@ class SupabaseStorageBackend(StorageInterface):
         try:
             storage_path = self._get_storage_path(bucket, path)
 
-            # Remove existing file first (Supabase doesn't overwrite by default)
-            try:
-                self.client.storage.from_(bucket).remove([storage_path])
-            except Exception:
-                pass
-
-            options = {}
+            options = dict(UPSERT_OPTION)
             if content_type:
                 options["content-type"] = content_type
 
             self.client.storage.from_(bucket).upload(
                 storage_path,
                 data,
-                options if options else None
+                options
             )
 
             return f"{bucket}/{storage_path}"
@@ -779,13 +781,10 @@ class SupabaseStorageBackend(StorageInterface):
             if not schema_name.endswith('.json'):
                 schema_name = f"{schema_name}.json"
 
-            # Remove existing file first (Supabase doesn't overwrite by default)
-            try:
-                self.client.storage.from_("initial_schemas").remove([schema_name])
-            except Exception:
-                pass
-
-            options = {"content-type": content_type or "application/json"}
+            options = {
+                "content-type": content_type or "application/json",
+                **UPSERT_OPTION,
+            }
 
             self.client.storage.from_("initial_schemas").upload(
                 schema_name,
