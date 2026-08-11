@@ -13,6 +13,7 @@ import type {
 } from '@/types';
 import { getApiKeyForProvider, getConfiguredProviders } from '@/utils/apiKeyStorage';
 
+import { describeRequestError } from '../helpers';
 import type { PendingRerunKind, SheetId, WorkspaceReextractionState, WorkspaceSessionMode } from '../types';
 
 type UseReextractionOptions = {
@@ -187,10 +188,11 @@ export function useReextraction({
         duration: 4000,
       });
     } catch (err: any) {
+      const { message, isBusy } = describeRequestError(err, 'Could not start re-extraction');
       toast({
-        title: 'Re-extraction failed to start',
-        description: err?.response?.data?.detail || err?.message || 'Could not start re-extraction',
-        variant: 'destructive',
+        title: isBusy ? 'Server busy' : 'Re-extraction failed to start',
+        description: message,
+        variant: isBusy ? 'default' : 'destructive',
       });
     } finally {
       setRerunStarting(false);
@@ -266,10 +268,11 @@ export function useReextraction({
       });
       await refresh({ silent: true });
     } catch (err: any) {
+      const { message, isBusy } = describeRequestError(err, 'Could not start schema rediscovery');
       toast({
-        title: 'Schema rediscovery failed',
-        description: err?.response?.data?.detail || err?.message || 'Could not start schema rediscovery',
-        variant: 'destructive',
+        title: isBusy ? 'Server busy' : 'Schema rediscovery failed',
+        description: message,
+        variant: isBusy ? 'default' : 'destructive',
       });
     } finally {
       setRerunStarting(false);
