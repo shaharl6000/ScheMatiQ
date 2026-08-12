@@ -1640,6 +1640,10 @@ class PaperProcessor:
         )
 
         all_cleaned: Dict[str, Any] = {}
+        # Diagnostics collected per batch so a fully-empty unit can be explained
+        # from the logs without re-running. Each entry records the batch's
+        # finish reason, why it was empty (if it was), and the full raw response.
+        batch_diags: List[Dict[str, Any]] = []
 
         batches = list(
             _chunk_list(columns, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION)
@@ -1685,6 +1689,24 @@ class PaperProcessor:
                 **self._gemini_kwargs(thinking_budget=0),
             )
 
+            # Snapshot backend diagnostics for this call before the next one
+            # overwrites them. Also flag the sentinel strings the Gemini backend
+            # returns for no-candidate / empty-content / safety cases, which
+            # otherwise reach the JSON parser as ordinary (unparseable) text.
+            call_diag = dict(getattr(self.llm, "last_call_diag", {}) or {})
+            empty_signals = getattr(type(self.llm), "EMPTY_SIGNAL_RESPONSES", frozenset())
+            is_empty_signal = isinstance(raw, str) and raw.strip() in empty_signals
+            batch_diags.append({
+                "batch_idx": batch_idx,
+                "columns_requested": [c.name for c in col_batch],
+                "finish_reason": call_diag.get("finish_reason"),
+                "empty_reason": call_diag.get("empty_reason"),
+                "truncated": call_diag.get("truncated"),
+                "response_chars": call_diag.get("response_chars"),
+                "is_empty_signal": is_empty_signal,
+                "raw_response": raw,
+            })
+
             if self._check_stop_requested():
                 return all_cleaned
 
@@ -1718,6 +1740,8 @@ class PaperProcessor:
                 all_cleaned.update(cleaned)
 
             except Exception as e:
+                if batch_diags and batch_diags[-1]["batch_idx"] == batch_idx:
+                    batch_diags[-1]["parse_error"] = repr(e)
                 logger.warning(
                     "[%s] Error extracting values for unit '%s' (batch %d/%d): %s\n"
                     "Raw response was:\n%s",
@@ -1739,6 +1763,31 @@ class PaperProcessor:
             effective_text=eff,
             max_new_tokens=effective_max,
         )
+
+        # When the unit came back completely empty after all passes, dump the
+        # full picture to the logs (Railway-visible) so we can see WHY every
+        # column blanked. This is the anomaly path only, so it stays quiet in
+        # normal operation and needs no env var to enable.
+        final_filled, _ = _count_filled_columns(all_cleaned)
+        if final_filled == 0:
+            for d in batch_diags:
+                logger.warning(
+                    "[%s] EMPTY-UNIT batch %d/%d '%s': finish_reason=%s empty_signal=%s "
+                    "truncated=%s resp_chars=%s parse_error=%s empty_reason=%s\n"
+                    "columns_requested=%s\nFULL raw response:\n%s",
+                    paper_title,
+                    d["batch_idx"] + 1,
+                    len(batch_diags),
+                    unit_name,
+                    d.get("finish_reason"),
+                    d.get("is_empty_signal"),
+                    d.get("truncated"),
+                    d.get("response_chars"),
+                    d.get("parse_error"),
+                    d.get("empty_reason"),
+                    d.get("columns_requested"),
+                    d.get("raw_response"),
+                )
 
         from schematiq.value_extraction.utils.schema_builder import (
             align_extraction_keys_to_schema,
