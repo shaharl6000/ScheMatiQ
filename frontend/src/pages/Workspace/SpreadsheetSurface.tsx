@@ -872,6 +872,40 @@ export function SpreadsheetSurface({
     }
   }, [applyGroupMerges, cellsCallback, formatVersion, gridSize, hotTableRef]);
 
+  // Recompute row heights in place when the compact-rows toggle flips.
+  //
+  // Compact mode swaps the row sizing strategy: `autoRowSize` (measure each
+  // row from its content) off and a fixed `rowHeights` on, and back again.
+  // The React wrapper pushes those two settings via updateSettings, but the
+  // AutoRowSize plugin keeps a per-row height cache that it does NOT clear when
+  // it is disabled, and Handsontable's row-header overlay keeps drawing from
+  // the stale cached heights. The result is the header gutter numbering one
+  // entry per *visual line* of a tall row instead of one per logical row, so
+  // the row numbers run far past the real row count and no longer line up with
+  // their rows (a grouped/merged view makes this most visible). Clearing the
+  // cache and forcing a full recompute + render realigns the header overlay
+  // with the actual row heights. Skip the initial mount: a freshly mounted
+  // table already sizes cleanly, and the key-based remount on sheet/view change
+  // covers those transitions.
+  const prevCompactRef = useRef(compactRows);
+  useEffect(() => {
+    if (prevCompactRef.current === compactRows) return;
+    prevCompactRef.current = compactRows;
+
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+
+    try {
+      const autoRowSize = hot.getPlugin('autoRowSize');
+      if (autoRowSize?.clearCache) {
+        autoRowSize.clearCache();
+        autoRowSize.calculateAllRowsHeight?.();
+      }
+      hot.render();
+      applyGroupMerges();
+    } catch { /* instance may be mid-teardown */ }
+  }, [applyGroupMerges, compactRows, hotTableRef]);
+
   // Coalesce cell edit/clear toasts. Handsontable can split one visual clear
   // into several afterChange batches (e.g. a 1-cell batch plus the rest), which
   // otherwise produces both a per-cell "Cell cleared" toast and a "N cells
