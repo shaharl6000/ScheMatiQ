@@ -266,6 +266,28 @@ export function useReextraction({
 
     setRerunStarting(true);
     try {
+      // The enabled-state gate (canRediscoverSchema) only confirms the rows
+      // reference source documents by name. An imported project can carry those
+      // names without the underlying files being retrievable (a dual-file
+      // import saves no raw documents; a bundle may ship without a documents/
+      // folder). Confirm real availability against the same precheck the
+      // backend uses BEFORE the destructive optimistic clear below, so a run
+      // that is bound to 404/400 does not blank the Schema tab on its way out.
+      // A failing precheck falls through to the authoritative backend gate.
+      if (sessionMode === 'load') {
+        const availability = await schemaAPI
+          .precheckDocuments(sessionId, { operation_type: 'reextraction' })
+          .catch(() => null);
+        if (availability && !availability.can_proceed) {
+          toast({
+            title: 'Rediscovery needs source documents',
+            description: 'No source documents are available for this project. Add the original source documents from the Documents tab, then try again.',
+            variant: 'destructive',
+          });
+          return;
+        }
+      }
+
       const chatPendingCleared = await cancelChatPendingIfAny();
       if (!chatPendingCleared) {
         toast({

@@ -588,12 +588,14 @@ function Workspace() {
   });
 
   // sessionMode reflects only the '?mode=load' URL param captured at page load,
-  // not whether the session's data actually has source documents to rediscover
-  // from. `documents` (unitsAPI.getDocuments) reflects the real, row-level
-  // _source_document data — the same signal the re-extraction pipeline itself
-  // reads — so an imported project whose rows already carry _source_document
-  // (e.g. a dual-file/zip import) is correctly treated as having source docs,
-  // independent of whether the raw files were also re-attached for preview.
+  // not whether the session can actually be rediscovered. `documents`
+  // (unitsAPI.getDocuments) counts the distinct _source_document NAMES carried
+  // by the rows — a necessary but not sufficient signal: a project can
+  // reference document names whose underlying files are not retrievable (a
+  // dual-file import stores no raw documents; a bundle may ship without a
+  // documents/ folder). This cheap check only gates the button's enabled
+  // state; the actual file availability the pipeline needs is confirmed by the
+  // precheck in startSchemaRediscovery (and, authoritatively, by the backend).
   const hasSourceDocuments = (documents?.totalDocuments ?? 0) > 0;
 
   const {
