@@ -201,6 +201,40 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
     if (status?.schema_only !== undefined) {
       setSchemaOnly(status.schema_only);
     }
+
+    // An externally-triggered rediscovery (Observation Unit tab edit ->
+    // "Rediscover schema & re-extract" in the Workspace banner) resets the
+    // backend to the schema phase without going through this monitor's own
+    // handleResume. The backend then reports status='processing' with
+    // schema_completed=false and columns_discovered=0, while this component
+    // still shows the *previous* run's completed phase cards -- the header
+    // reads "Discovering Schema..." while both phase cards still read
+    // "Complete". Detect that transition and reset the phase state so the
+    // monitor tracks the new run. Guarded by "the monitor thinks the last run
+    // finished" so it never fires on the initial run (phases not yet complete)
+    // or during normal extraction (schema_completed=true there).
+    const monitorThinksRunFinished =
+      processingState === 'completed' ||
+      processingState === 'stopped' ||
+      schemaProgress.isComplete ||
+      extractionProgress.isComplete;
+    if (
+      status?.status === 'processing' &&
+      status?.schema_completed === false &&
+      (status?.columns_discovered ?? 0) === 0 &&
+      !stopRequestedRef.current &&
+      monitorThinksRunFinished
+    ) {
+      setProcessingState('schema');
+      setCurrentStepMessage('Rediscovering schema...');
+      setSchemaProgress({ iteration: 0, maxIterations: 5, columnsDiscovered: 0, isComplete: false });
+      setExtractionProgress({ processedDocs: 0, totalDocs: 0, isComplete: false });
+      setStoppedInfo(null);
+      setErrorMessage('');
+      lastLoggedPhaseRef.current = null;
+      return;
+    }
+
     if (status?.status === 'processing' && processingState === 'idle') {
       setProcessingState('starting');
     } else if (status?.status === 'completed' && processingState !== 'completed') {

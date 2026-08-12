@@ -218,6 +218,18 @@ async def get_status(
 async def get_schema(session_id: str, session_manager, work_dir: Path) -> Dict[str, Any]:
     """Get discovered schema."""
     session = session_manager.get_session(session_id)
+
+    # An observation-unit rediscovery reset (see
+    # ScheMatiQRunner._reset_for_observation_unit_rediscovery) clears
+    # session.columns and deletes discovered_schema.json but deliberately keeps
+    # session.observation_unit. Attach that unit to every return path so the
+    # Observation Unit tab does not blank out mid-rediscovery: without this, the
+    # empty-columns branch below dropped the unit until columns were repopulated.
+    def _with_observation_unit(result: Dict[str, Any]) -> Dict[str, Any]:
+        if session and session.observation_unit and not result.get("observation_unit"):
+            result["observation_unit"] = session.observation_unit.model_dump()
+        return result
+
     if session and session.columns:
         result = {
             "query": session.schema_query or "",
@@ -230,10 +242,10 @@ async def get_schema(session_id: str, session_manager, work_dir: Path) -> Dict[s
     schema_file = work_dir / session_id / "discovered_schema.json"
     if schema_file.exists():
         with open(schema_file) as f:
-            return json.load(f)
+            return _with_observation_unit(json.load(f))
 
     if session:
-        return {"query": session.schema_query or "", "schema": []}
+        return _with_observation_unit({"query": session.schema_query or "", "schema": []})
     return {"query": "", "schema": []}
 
 
