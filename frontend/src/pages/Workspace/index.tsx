@@ -593,6 +593,10 @@ function Workspace() {
     refresh,
     setActiveSheet,
     cancelChatPendingIfAny,
+    // Clear the columns as rediscovery starts so the Schema tab reflects the
+    // reset right away. Keep observation_unit so the Observation Unit tab stays
+    // populated (the backend preserves it across the rediscovery reset too).
+    onRediscoveryStart: () => setSchema((prev) => (prev ? { ...prev, schema: [] } : prev)),
     toast,
   });
 

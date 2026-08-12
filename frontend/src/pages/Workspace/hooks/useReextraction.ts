@@ -23,6 +23,11 @@ type UseReextractionOptions = {
   refresh: (options?: { silent?: boolean }) => Promise<void>;
   setActiveSheet: (sheet: SheetId) => void;
   cancelChatPendingIfAny: () => Promise<boolean>;
+  // Called the moment a schema rediscovery is confirmed, before the (possibly
+  // slow) resume request returns. Lets the parent clear the stale schema columns
+  // so the Schema tab reflects the reset immediately instead of showing the
+  // previous run's columns for the duration of the request.
+  onRediscoveryStart?: () => void;
   toast: (props: {
     title: string;
     description?: string;
@@ -40,6 +45,7 @@ export function useReextraction({
   refresh,
   setActiveSheet,
   cancelChatPendingIfAny,
+  onRediscoveryStart,
   toast,
 }: UseReextractionOptions) {
   const [pendingRerunKind, setPendingRerunKind] = useState<PendingRerunKind | null>(null);
@@ -259,6 +265,12 @@ export function useReextraction({
         });
         return;
       }
+      // Drop the previous run's columns now, before the resume round-trip. The
+      // backend resets synchronously inside resume, but that request can be slow
+      // (it stops any in-flight pipeline first), and until it returns the Schema
+      // tab would otherwise keep showing stale columns. The observation unit is
+      // preserved by the parent so the Observation Unit tab stays populated.
+      onRediscoveryStart?.();
       await schematiqAPI.resume(sessionId);
       clearPendingRerun();
       toast({
@@ -268,6 +280,9 @@ export function useReextraction({
       });
       await refresh({ silent: true });
     } catch (err: any) {
+      // The optimistic clear above may have already run; re-sync from the server
+      // so a failed resume does not leave the Schema tab wrongly emptied.
+      await refresh({ silent: true }).catch(() => { /* keep the error toast as the primary signal */ });
       const { message, isBusy } = describeRequestError(err, 'Could not start schema rediscovery');
       toast({
         title: isBusy ? 'Server busy' : 'Schema rediscovery failed',
@@ -277,7 +292,7 @@ export function useReextraction({
     } finally {
       setRerunStarting(false);
     }
-  }, [cancelChatPendingIfAny, clearPendingRerun, refresh, rerunStarting, sessionId, sessionMode, toast]);
+  }, [cancelChatPendingIfAny, clearPendingRerun, onRediscoveryStart, refresh, rerunStarting, sessionId, sessionMode, toast]);
 
   const notifyEditFollowUp = useCallback((kind: PendingRerunKind, columns: string[] = []) => {
     markRerunNeeded(kind, columns);
