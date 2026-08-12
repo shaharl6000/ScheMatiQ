@@ -266,6 +266,17 @@ export const loadAPI = {
     return response.data;
   },
 
+  /**
+   * Start schema rediscovery for an imported (UPLOAD-type) session — the
+   * equivalent of schematiqAPI.resume for a session that never went through
+   * /schematiq/configure. Only succeeds if the session's rows already
+   * reference resolvable source documents.
+   */
+  rediscoverImported: async (sessionId: string): Promise<{ message: string; session_id: string }> => {
+    const response = await api.post(`/load/rediscover/${sessionId}`);
+    return response.data;
+  },
+
   confirmWebSocketReady: async (sessionId: string): Promise<{ status: string; connections: number; session_id: string }> => {
     const response = await api.post(`/load/sessions/${sessionId}/confirm-websocket`);
     return response.data;

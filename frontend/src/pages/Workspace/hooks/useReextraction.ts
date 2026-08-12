@@ -5,7 +5,7 @@ import {
   getDefaultModelForProvider,
   type LLMProviderKey,
 } from '@/constants';
-import { configAPI, schemaAPI, schematiqAPI } from '@/services/api';
+import { configAPI, loadAPI, schemaAPI, schematiqAPI } from '@/services/api';
 import type {
   DocumentAvailabilityResponse,
   ReextractionRequest,
@@ -19,6 +19,11 @@ import type { PendingRerunKind, SheetId, WorkspaceReextractionState, WorkspaceSe
 type UseReextractionOptions = {
   sessionId?: string;
   sessionMode: WorkspaceSessionMode;
+  // Whether the session has any source documents attached (uploaded at import
+  // time, or added afterward via add-documents). sessionMode alone only
+  // reflects the '?mode=load' URL param at page-load time, so an imported
+  // project that later gets documents attached would otherwise stay blocked.
+  hasSourceDocuments: boolean;
   schema: SchemaData | null;
   refresh: (options?: { silent?: boolean }) => Promise<void>;
   setActiveSheet: (sheet: SheetId) => void;
@@ -41,6 +46,7 @@ type UseReextractionOptions = {
 export function useReextraction({
   sessionId,
   sessionMode,
+  hasSourceDocuments,
   schema,
   refresh,
   setActiveSheet,
@@ -48,6 +54,10 @@ export function useReextraction({
   onRediscoveryStart,
   toast,
 }: UseReextractionOptions) {
+  // Rediscovery needs source documents to re-run against. A freshly created
+  // ScheMatiQ session always has them; an imported/dual-file session only has
+  // them if documents were attached afterward via add-documents.
+  const canRediscoverSchema = sessionMode === 'schematiq' || hasSourceDocuments;
   const [pendingRerunKind, setPendingRerunKind] = useState<PendingRerunKind | null>(null);
   const [pendingSchemaColumns, setPendingSchemaColumns] = useState<string[]>([]);
   const [rerunStarting, setRerunStarting] = useState(false);
@@ -245,10 +255,10 @@ export function useReextraction({
   const startSchemaRediscovery = useCallback(async () => {
     if (!sessionId || rerunStarting) return;
 
-    if (sessionMode !== 'schematiq') {
+    if (!canRediscoverSchema) {
       toast({
-        title: 'Rediscovery needs a ScheMatiQ run',
-        description: 'Imported static projects can edit the observation unit, but rediscovering schema requires a ScheMatiQ project with source documents.',
+        title: 'Rediscovery needs source documents',
+        description: 'Imported static projects can edit the observation unit, but rediscovering schema requires source documents attached to this project.',
         variant: 'destructive',
       });
       return;
@@ -271,7 +281,15 @@ export function useReextraction({
       // tab would otherwise keep showing stale columns. The observation unit is
       // preserved by the parent so the Observation Unit tab stays populated.
       onRediscoveryStart?.();
-      await schematiqAPI.resume(sessionId);
+      // Imported (load-mode) sessions never went through /schematiq/configure,
+      // so they have no config.json and schematiqAPI.resume would 404 (it's
+      // scoped to SessionType.SCHEMATIQ). Route them through the dedicated
+      // endpoint that synthesizes a config for the existing session instead.
+      if (sessionMode === 'load') {
+        await loadAPI.rediscoverImported(sessionId);
+      } else {
+        await schematiqAPI.resume(sessionId);
+      }
       clearPendingRerun();
       toast({
         title: 'Schema rediscovery started',
@@ -292,7 +310,7 @@ export function useReextraction({
     } finally {
       setRerunStarting(false);
     }
-  }, [cancelChatPendingIfAny, clearPendingRerun, onRediscoveryStart, refresh, rerunStarting, sessionId, sessionMode, toast]);
+  }, [cancelChatPendingIfAny, canRediscoverSchema, clearPendingRerun, onRediscoveryStart, refresh, rerunStarting, sessionId, sessionMode, toast]);
 
   const notifyEditFollowUp = useCallback((kind: PendingRerunKind, columns: string[] = []) => {
     markRerunNeeded(kind, columns);
@@ -300,13 +318,13 @@ export function useReextraction({
     if (kind === 'unit') {
       // The persistent top banner (driven by markRerunNeeded above) already
       // surfaces the "Rediscover schema & re-extract" action, so we do not fire a
-      // competing toast. Exception: in an imported (non-ScheMatiQ) project
-      // rediscovery is impossible and the banner's action only errors, so we
-      // surface a proactive, action-less explanation instead.
-      if (sessionMode !== 'schematiq') {
+      // competing toast. Exception: when rediscovery is impossible (no source
+      // documents attached) the banner's action only errors, so we surface a
+      // proactive, action-less explanation instead.
+      if (!canRediscoverSchema) {
         toast({
           title: 'Observation unit updated',
-          description: 'Imported static projects can edit the unit, but rediscovery needs a ScheMatiQ project with source documents.',
+          description: 'Imported static projects can edit the unit, but rediscovery needs source documents attached to this project.',
         });
       }
       return;
@@ -317,7 +335,7 @@ export function useReextraction({
     // here. The old toast was also broken — its action captured a stale
     // `requestReextraction` closure (schema not yet refreshed when the toast was
     // created), producing a false "No columns to re-extract" error on click.
-  }, [markRerunNeeded, sessionMode, toast]);
+  }, [canRediscoverSchema, markRerunNeeded, toast]);
 
   const runPendingEdits = useCallback(async () => {
     if (!sessionId || !pendingRerunKind || rerunStarting) return;
@@ -329,6 +347,7 @@ export function useReextraction({
   }, [pendingRerunKind, pendingSchemaColumns, rerunStarting, requestReextraction, sessionId, startSchemaRediscovery]);
 
   return {
+    canRediscoverSchema,
     pendingRerunKind,
     pendingSchemaColumns,
     rerunStarting,

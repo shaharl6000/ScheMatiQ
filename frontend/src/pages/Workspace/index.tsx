@@ -481,27 +481,13 @@ function Workspace() {
       }
     };
 
-    try {
-      if (sessionMode === 'load') {
-        const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
-        if (!loadSession) {
-          setSessionMissing(true);
-          if (!silent) setLoading(false);
-          return;
-        }
-        setSessionMissing(false);
-        setStatus(statusFromLoadSession(loadSession));
-        setSchema(schemaFromLoadSession(loadSession));
-        setSession(loadSession);
-        setConfig(null);
-        if (!silent) setLoading(false);
-        await loadHeavy(
-          () => loadAPI.getData(sessionId, 0, 500),
-          () => unitsAPI.getDocuments(sessionId),
-        );
-        return;
-      }
-
+    // Fetches for a session now known to be SCHEMATIQ-typed (either because
+    // sessionMode already said so, or because a load-mode session was just
+    // promoted after finishing an imported-project rediscovery — see
+    // /load/rediscover and the promotion in schematiq_runner.py). Shared so
+    // the promotion case below doesn't have to wait for a re-render before
+    // reading from the right place.
+    const fetchAsSchematiq = async () => {
       try {
         const [nextStatus, nextSchema, nextConfig, statsSession] = await Promise.all([
           schematiqAPI.getStatus(sessionId),
@@ -539,6 +525,41 @@ function Workspace() {
           () => unitsAPI.getDocuments(sessionId),
         );
       }
+    };
+
+    try {
+      if (sessionMode === 'load') {
+        const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
+        if (!loadSession) {
+          setSessionMissing(true);
+          if (!silent) setLoading(false);
+          return;
+        }
+        // An imported session that just finished a schema-rediscovery run
+        // (see useReextraction's loadAPI.rediscoverImported path) is promoted
+        // server-side from UPLOAD to SCHEMATIQ on completion. Once that
+        // happens, its rows live in schematiq_work/, not the load-mode data
+        // dir — read it as a SCHEMATIQ session from here on instead of
+        // rendering a stale/empty load-mode view.
+        if (loadSession.type === 'schematiq') {
+          setSessionMode('schematiq');
+          await fetchAsSchematiq();
+          return;
+        }
+        setSessionMissing(false);
+        setStatus(statusFromLoadSession(loadSession));
+        setSchema(schemaFromLoadSession(loadSession));
+        setSession(loadSession);
+        setConfig(null);
+        if (!silent) setLoading(false);
+        await loadHeavy(
+          () => loadAPI.getData(sessionId, 0, 500),
+          () => unitsAPI.getDocuments(sessionId),
+        );
+        return;
+      }
+
+      await fetchAsSchematiq();
     } finally {
       if (!silent) {
         setLoading(false);
@@ -566,7 +587,17 @@ function Workspace() {
     toast,
   });
 
+  // sessionMode reflects only the '?mode=load' URL param captured at page load,
+  // not whether the session's data actually has source documents to rediscover
+  // from. `documents` (unitsAPI.getDocuments) reflects the real, row-level
+  // _source_document data — the same signal the re-extraction pipeline itself
+  // reads — so an imported project whose rows already carry _source_document
+  // (e.g. a dual-file/zip import) is correctly treated as having source docs,
+  // independent of whether the raw files were also re-attached for preview.
+  const hasSourceDocuments = (documents?.totalDocuments ?? 0) > 0;
+
   const {
+    canRediscoverSchema,
     pendingRerunKind,
     pendingSchemaColumns,
     rerunStarting,
@@ -589,6 +620,7 @@ function Workspace() {
   } = useReextraction({
     sessionId,
     sessionMode,
+    hasSourceDocuments,
     schema,
     refresh,
     setActiveSheet,
@@ -1069,7 +1101,14 @@ function Workspace() {
 
     // Still working: surface a live, human label instead of the raw status key.
     if (!isDone) {
-      return sessionMode === 'load' ? 'Importing…' : 'Extracting…';
+      // An UPLOAD-type session only ever reaches status='processing' via
+      // /load/rediscover (see useReextraction) — a plain import never sets
+      // this status. Label it distinctly so "Rediscover schema" doesn't
+      // misleadingly read as "Importing…" for the run's whole duration.
+      if (sessionMode === 'load') {
+        return rawStatus === 'processing' ? 'Rediscovering schema…' : 'Importing…';
+      }
+      return 'Extracting…';
     }
 
     // Done: replace the status word (which just repeats what the visible table
@@ -1259,7 +1298,7 @@ function Workspace() {
         <PendingRerunBanner
           kind={pendingRerunKind}
           columns={pendingSchemaColumns}
-          sessionMode={sessionMode}
+          canRediscoverSchema={canRediscoverSchema}
           busy={rerunStarting}
           onReextract={() => requestReextraction(pendingRerunKind === 'schema' ? pendingSchemaColumns : undefined)}
           onRediscover={startSchemaRediscovery}
