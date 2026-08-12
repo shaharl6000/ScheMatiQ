@@ -114,6 +114,37 @@ def _all_tools() -> list[ToolSpec]:
             handler="get_validation",
         ),
         ToolSpec(
+            name="list_skipped_documents",
+            description=(
+                "List the source documents that were skipped during extraction and "
+                "the recorded reason for each — documents that produced no table rows "
+                "because no matching observation unit was found in them. Use this FIRST "
+                "when the user asks why a document is missing, has no data, or was not "
+                "extracted. A skipped document will NOT be re-included by reextract or "
+                "reprocess (both keep skipped documents skipped); re-including one "
+                "requires changing the observation unit so the document matches. Read "
+                "the reason and explain it to the user before proposing any re-run."
+            ),
+            parameters=EMPTY_PARAMS,
+            cost_class="cheap",
+            handler="list_skipped_documents",
+            session_modes=("schematiq",),
+        ),
+        ToolSpec(
+            name="list_documents",
+            description=(
+                "List the source documents in this project and their availability "
+                "(local, cloud, or missing), plus row counts. These are the documents "
+                "that define table rows, NOT the external reference material listed by "
+                "list_reference_sources. Use this to answer what documents the project "
+                "contains, or to check whether documents are present before proposing a "
+                "re-extraction."
+            ),
+            parameters=EMPTY_PARAMS,
+            cost_class="cheap",
+            handler="list_documents",
+        ),
+        ToolSpec(
             name="list_reference_sources",
             description=(
                 "List the external reference documents the user attached to this "
@@ -362,7 +393,9 @@ def _all_tools() -> list[ToolSpec]:
                 "when omitted it defaults to the edited/new columns only (scope='edited_only'). "
                 "Does not touch other columns or the observation unit unless scope='all'. Use "
                 "this for a targeted refresh after add_column/edit_column; use `reprocess` to "
-                "refresh the entire table."
+                "refresh the entire table. Does NOT re-include a document that was skipped "
+                "during extraction (skipped documents stay skipped): if the user asks about a "
+                "missing document, call list_skipped_documents first."
             ),
             parameters={
                 "type": "object",
@@ -405,7 +438,10 @@ def _all_tools() -> list[ToolSpec]:
                 "Re-run value extraction for the ENTIRE table — every column — from the source "
                 "documents (expensive). When `columns` is omitted it re-extracts all columns "
                 "(scope='all'). Use this for a full refresh of every value; prefer `reextract` "
-                "when you only changed specific columns and want to refresh just those."
+                "when you only changed specific columns and want to refresh just those. Does "
+                "NOT re-include a document that was skipped during extraction (skipped "
+                "documents stay skipped): if the user asks about a missing document, call "
+                "list_skipped_documents first."
             ),
             parameters={
                 "type": "object",
@@ -515,6 +551,8 @@ def tool_running_label(tool_name: str) -> str:
         "edit_observation_unit": "Updating observation unit definition",
         "preview_data": "Loading data preview",
         "get_validation": "Validating schema",
+        "list_skipped_documents": "Listing skipped documents",
+        "list_documents": "Listing documents",
         "list_reference_sources": "Listing reference documents",
         "read_reference_source": "Reading reference document",
         "add_column": "Adding column",
