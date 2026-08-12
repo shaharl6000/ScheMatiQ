@@ -330,6 +330,44 @@ def _all_tools() -> list[ToolSpec]:
             handler="remove_unit",
         ),
         ToolSpec(
+            name="merge_units",
+            description=(
+                "Merge two or more table rows that represent the SAME observation unit "
+                "under different names into one row, keeping their data. Use this when "
+                "the same entity appears as separate rows (for example the same judge "
+                "listed once by full name and once as 'Judge X'). This merges DATA ROWS, "
+                "not schema columns (use merge_columns for columns) and not the "
+                "observation unit definition (use edit_observation_unit for that). Get "
+                "the exact row names from preview_data first. Pass the row names in "
+                "`units` (at least two) and optionally a `target_name` for the merged "
+                "row; when omitted the first name in `units` is used."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "units": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 2,
+                        "description": (
+                            "Row / observation-unit names to merge (at least two), "
+                            "exactly as shown by preview_data."
+                        ),
+                    },
+                    "target_name": {
+                        "type": "string",
+                        "description": (
+                            "Name for the merged row. Defaults to the first name in "
+                            "`units`."
+                        ),
+                    },
+                },
+                "required": ["units"],
+            },
+            cost_class="cheap",
+            handler="merge_units",
+        ),
+        ToolSpec(
             name="export_table",
             description="Export the table (csv, rich csv with excerpts, or schema only).",
             parameters={
@@ -524,6 +562,7 @@ def tool_running_label(tool_name: str) -> str:
         "update_cell": "Updating cell",
         "add_unit": "Adding observation unit",
         "remove_unit": "Removing observation unit",
+        "merge_units": "Merging observation units",
         "export_table": "Preparing export",
         "run_schematiq": "Starting ScheMatiQ extraction",
         "reextract": "Starting re-extraction",
