@@ -981,6 +981,122 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/rediscover/{session_id}", response_model=dict)
+async def rediscover_imported_session(session_id: str, background_tasks: BackgroundTasks):
+    """Run schema rediscovery for an imported (UPLOAD-type) session.
+
+    Mirrors POST /schematiq/resume/{session_id}, which is restricted to
+    SessionType.SCHEMATIQ sessions and expects a config.json already written
+    by /schematiq/configure. An imported project (dual-file/zip) never goes
+    through that flow, so this endpoint synthesizes an equivalent config.json
+    from the session's existing query/observation_unit and runs it through the
+    same schematiq_runner used by every other run. Only reachable when the
+    session's rows already reference real source documents (see
+    precheck_document_availability below) — editing the observation unit alone
+    does not make rediscovery possible for a session with no documents behind
+    its data.
+    """
+    from app.core.config import RELEASE_CONFIG, LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
+    from app.models.schematiq import ScheMatiQConfig, LLMConfig
+    from schematiq.core.llm_call_tracker import QuotaExceededError
+    # Both are module-level singletons constructed in routes/schematiq.py, shared
+    # across the app the same way app.main imports schematiq_runner from there.
+    from app.api.routes.schematiq import schematiq_runner, QUOTA_EXCEEDED_USER_MESSAGE
+    from app.api.routes.schema import reextraction_service
+
+    try:
+        set_session_context(session_id)
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if session.type != SessionType.UPLOAD:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rediscovery via this endpoint is only for imported sessions (type='{session.type}').",
+            )
+        if not session.observation_unit:
+            raise HTTPException(
+                status_code=400,
+                detail="Session has no observation unit configured. Set one before rediscovering.",
+            )
+
+        # Same gate re-extraction uses: rediscovery is only meaningful if the
+        # session's rows actually resolve to real source documents somewhere
+        # (local pending_documents/documents, or the session's cloud dataset).
+        paper_discovery = await reextraction_service.discover_papers(session_id)
+        availability = await reextraction_service.precheck_document_availability(
+            session_id, operation_type="reextraction", paper_discovery=paper_discovery,
+        )
+        if not availability.get("can_proceed", False):
+            raise HTTPException(
+                status_code=400,
+                detail="No source documents are available for this project. "
+                       "Add the original source documents from the Documents tab, then try again.",
+            )
+
+        if not DEVELOPER_MODE:
+            try:
+                schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
+            except QuotaExceededError as exc:
+                from app.core.email_alerts import send_quota_exceeded_alert
+                send_quota_exceeded_alert(total_used=exc.used)
+                raise HTTPException(status_code=429, detail=QUOTA_EXCEEDED_USER_MESSAGE)
+
+        # Build a minimal, valid ScheMatiQConfig for this existing session.
+        # docs_path is left unset: resolve_docs_paths() already auto-detects
+        # session-local pending_documents/documents before falling back to it,
+        # which is exactly where an imported project's bundled files live.
+        config = ScheMatiQConfig(
+            query=session.schema_query or "",
+            docs_path=None,
+            schema_creation_backend=LLMConfig(
+                provider=RELEASE_CONFIG["llm_provider"],
+                model=RELEASE_CONFIG["schema_creation_model"],
+                temperature=RELEASE_CONFIG["llm_temperature"],
+            ),
+            value_extraction_backend=LLMConfig(
+                provider=RELEASE_CONFIG["llm_provider"],
+                model=RELEASE_CONFIG["value_extraction_model"],
+                temperature=RELEASE_CONFIG["llm_temperature"],
+            ),
+            output_path="outputs/rediscovered_output.json",
+        )
+        await schematiq_runner.save_config(session_id, config)
+
+        # Mark this run as an observation-unit rediscovery so prepare_resume
+        # clears prior schema/data artifacts and seeds initial_observation_unit
+        # from session.observation_unit, exactly like the SCHEMATIQ-session flow.
+        session = session_manager.get_session(session_id)
+        session.metadata.pending_observation_unit_rediscovery = True
+        session_manager.update_session(session)
+
+        try:
+            await schematiq_runner.prepare_resume(session_id)
+        except RuntimeError as e:
+            msg = str(e)
+            if "already has an active operation" in msg or "Timed out waiting" in msg:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Pipeline is still stopping. Wait a few seconds and try again.",
+                ) from e
+            raise HTTPException(status_code=500, detail=msg) from e
+
+        background_tasks.add_task(schematiq_runner.run_schematiq, session_id)
+
+        return {"message": "Schema rediscovery started", "session_id": session_id}
+
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        await concurrency_limiter.release(session_id)
+        logger.error(f"Exception in rediscover_imported_session: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class CloudDocumentRequest(BaseModel):
     """Request model for adding cloud documents to a session."""
     dataset: str

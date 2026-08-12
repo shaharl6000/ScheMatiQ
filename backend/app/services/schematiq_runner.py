@@ -41,7 +41,7 @@ from schematiq.core.cost_estimator import estimate_from_config
 
 from app.models.schematiq import ScheMatiQConfig, ScheMatiQStatus
 from app.models.session import (
-    ColumnInfo, PaginatedData, SessionStatus,
+    ColumnInfo, PaginatedData, SessionStatus, SessionType,
     ObservationUnitInfo,
     SkippedDocumentInfo
 )
@@ -955,6 +955,18 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 session.metadata.pending_observation_unit_rediscovery = False
                 session.metadata.observation_unit_rediscovery_run = False
                 logger.info("Cleared pending_observation_unit_rediscovery after successful rediscovery")
+                # An imported (UPLOAD-type) session that just completed a
+                # rediscovery run (see /load/rediscover) now has a real,
+                # self-sufficient schematiq_work/{session_id} pipeline output —
+                # promote it so it's treated like any other completed
+                # ScheMatiQ session from here on (status polling, re-extraction,
+                # further rediscovery all assume SessionType.SCHEMATIQ).
+                if session.type == SessionType.UPLOAD:
+                    session.type = SessionType.SCHEMATIQ
+                    logger.info(
+                        "Promoted session %s from UPLOAD to SCHEMATIQ after imported-project rediscovery",
+                        session_id,
+                    )
             self.session_manager.update_session(session)
             self.session_manager.capture_schema_baseline(session_id)
 

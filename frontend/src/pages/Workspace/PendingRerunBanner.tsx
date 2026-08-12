@@ -3,12 +3,12 @@
 
 import { Loader2, RotateCw, Sparkles } from 'lucide-react';
 
-import type { PendingRerunKind, WorkspaceSessionMode } from './types';
+import type { PendingRerunKind } from './types';
 
 export function PendingRerunBanner({
   kind,
   columns,
-  sessionMode,
+  canRediscoverSchema,
   busy,
   onReextract,
   onRediscover,
@@ -16,7 +16,9 @@ export function PendingRerunBanner({
 }: {
   kind: PendingRerunKind;
   columns: string[];
-  sessionMode: WorkspaceSessionMode;
+  // Whether schema rediscovery is possible for this session (a fresh
+  // ScheMatiQ run, or an imported project with source documents attached).
+  canRediscoverSchema: boolean;
   busy: boolean;
   onReextract: () => void;
   onRediscover: () => void;
@@ -44,8 +46,8 @@ export function PendingRerunBanner({
             className="workspace-followup-action workspace-followup-action-primary"
             type="button"
             onClick={onRediscover}
-            disabled={busy || sessionMode !== 'schematiq'}
-            title={sessionMode !== 'schematiq' ? 'Schema rediscovery requires a ScheMatiQ project with source documents' : undefined}
+            disabled={busy || !canRediscoverSchema}
+            title={!canRediscoverSchema ? 'Schema rediscovery requires source documents attached to this project' : undefined}
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             Rediscover schema &amp; re-extract
