@@ -641,6 +641,51 @@ class ToolExecutor:
           unit_name=args["unit_name"],
       )
 
+  async def _handle_merge_units(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Wire the existing By Unit view merge (unit_view_service.merge_units) to the
+      # chat. It relabels the source rows to a single target unit name (strategy
+      # 'rename'), keeping their data. The service is synchronous and touches the
+      # storage backend, so run it off the event loop.
+      session = session_manager.get_session(session_id)
+      if not session:
+          raise ValueError("Session not found")
+      raw_units = args.get("units") or []
+      units = [u.strip() for u in raw_units if isinstance(u, str) and u.strip()]
+      if len(units) < 2:
+          raise ValueError("merge_units needs at least two distinct row names in 'units'.")
+      target = (args.get("target_name") or units[0]).strip()
+      if not target:
+          raise ValueError("Target unit name cannot be empty.")
+
+      from app.models.unit import MergeUnitsRequest
+      from app.services.unit_view_service import unit_view_service
+
+      request = MergeUnitsRequest(source_units=units, target_unit=target, strategy="rename")
+      loop = asyncio.get_running_loop()
+      response = await loop.run_in_executor(
+          None, unit_view_service.merge_units, session_id, request
+      )
+
+      if response.success and response.rows_affected:
+          # Data-only change: row_completed makes the workspace silently re-fetch
+          # rows. Best-effort — a streaming hiccup must never fail the merge.
+          try:
+              await websocket_manager.broadcast_row_completed(
+                  session_id,
+                  {"operation": "merge_units", "target_unit": target},
+              )
+          except Exception:  # streaming is best-effort
+              pass
+
+      return {
+          "status": "success" if response.success else "error",
+          "message": response.message,
+          "target_unit": target,
+          "rows_affected": response.rows_affected,
+      }
+
   async def _handle_export_table(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:

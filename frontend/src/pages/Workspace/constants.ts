@@ -151,6 +151,7 @@ export const CHAT_MUTATION_TOOLS = new Set([
   'update_cell',
   'add_unit',
   'remove_unit',
+  'merge_units',
   'edit_observation_unit',
   'run_schematiq',
   'reextract',
