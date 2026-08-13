@@ -777,12 +777,17 @@ class ToolExecutor:
   async def _handle_continue_discovery(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
+      document_source = (args.get("document_source") or "original").strip().lower()
+      if document_source not in ("original", "upload"):
+          raise ValueError(
+              "document_source must be 'original' or 'upload'."
+          )
       llm_config = load_user_llm_config(session_id)
       await concurrency_limiter.acquire(session_id, "continue_discovery")
       try:
           result = await continue_discovery_service.start_continue_discovery(
               session_id=session_id,
-              document_source="original",
+              document_source=document_source,
               llm_config=llm_config,
           )
       except Exception:

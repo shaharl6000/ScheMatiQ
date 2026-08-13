@@ -519,8 +519,28 @@ def _all_tools() -> list[ToolSpec]:
         ),
         ToolSpec(
             name="continue_discovery",
-            description="Extend schema discovery with more documents (expensive).",
-            parameters=EMPTY_PARAMS,
+            description=(
+                "Extend schema discovery by extracting from more documents (expensive). "
+                "By default it continues over the project's original source documents. "
+                "Pass document_source='upload' to instead extract the documents the user "
+                "just added through the Documents tab (the upload itself happens there; "
+                "this only runs the extraction on the already-added files)."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "document_source": {
+                        "type": "string",
+                        "enum": ["original", "upload"],
+                        "description": (
+                            "'original' (default) continues over the project's source "
+                            "documents; 'upload' extracts documents added via the "
+                            "Documents tab."
+                        ),
+                    },
+                },
+                "required": [],
+            },
             cost_class="expensive",
             handler="continue_discovery",
             hidden_in_load=True,
