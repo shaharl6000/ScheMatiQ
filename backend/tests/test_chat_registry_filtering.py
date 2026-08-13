@@ -18,14 +18,22 @@ from app.services.chat.tool_registry import (
     tool_running_label,
 )
 
-# The four operations that spend the backbone LLM over project documents. These
-# MUST stay expensive so the confirmation gate keeps protecting them.
+# The operations that spend the backbone LLM over project documents. These MUST
+# stay expensive so the confirmation gate keeps protecting them. extract_cells is
+# the granular re-extraction path (specific documents/rows/columns, empty cells);
+# it runs the same inline extraction engine, so it is gated like the rest.
 #
 # fill_column_from_reference is deliberately NOT here. It does spend the model
 # once per row, but it hands off to a background job rather than running inline,
 # and it uses the cheap REFERENCE_FILL_MODEL — so it is registered as cheap and
 # runs without a confirmation gate (see the comment on its ToolSpec).
-EXPECTED_EXPENSIVE = {"run_schematiq", "reextract", "continue_discovery", "reprocess"}
+EXPECTED_EXPENSIVE = {
+    "run_schematiq",
+    "reextract",
+    "extract_cells",
+    "continue_discovery",
+    "reprocess",
+}
 
 
 def test_registry_is_single_source_of_truth() -> None:

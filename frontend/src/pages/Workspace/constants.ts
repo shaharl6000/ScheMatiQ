@@ -155,6 +155,7 @@ export const CHAT_MUTATION_TOOLS = new Set([
   'edit_observation_unit',
   'run_schematiq',
   'reextract',
+  'extract_cells',
   'continue_discovery',
   'reprocess',
 ]);
@@ -170,6 +171,7 @@ export const CHAT_SCHEMA_FOLLOWUP_TOOLS = new Set([
 // or, once completed, already imply a re-run prompt — skip the top banner then.
 export const CHAT_RERUN_FOLLOWUP_TOOLS = new Set([
   'reextract',
+  'extract_cells',
   'reprocess',
   'run_schematiq',
   'continue_discovery',

@@ -462,6 +462,62 @@ def _all_tools() -> list[ToolSpec]:
             session_modes=("schematiq",),
         ),
         ToolSpec(
+            name="extract_cells",
+            description=(
+                "Fill specific cells by running value extraction only where you ask "
+                "(expensive). This is the granular counterpart to reextract/reprocess: "
+                "target specific `documents` (source files), specific `rows` "
+                "(observation-unit names), and/or specific `columns`, and set "
+                "`only_empty` to fill just the blank cells without overwriting values "
+                "that are already there. The most common use is filling gaps: call it "
+                "with only_empty=true (the default) to fill every empty cell, or add "
+                "documents/rows/columns to narrow the scope. A document listed in "
+                "`documents` that was previously skipped is re-evaluated, so this also "
+                "retries skipped documents. Get exact names from list_documents, "
+                "list_skipped_documents, or preview_data first."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "documents": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Restrict to these source documents (names from "
+                            "list_documents / list_skipped_documents). Omit for all."
+                        ),
+                    },
+                    "rows": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Restrict to these observation-unit / row names (as shown by "
+                            "preview_data). Omit for all rows."
+                        ),
+                    },
+                    "columns": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Restrict to these columns. Omit to consider every column."
+                        ),
+                    },
+                    "only_empty": {
+                        "type": "boolean",
+                        "description": (
+                            "When true (default), only blank cells are filled and existing "
+                            "values are never overwritten. Set false to re-extract the "
+                            "targeted cells even if they already have values."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+            cost_class="expensive",
+            handler="extract_cells",
+            session_modes=("schematiq",),
+        ),
+        ToolSpec(
             name="continue_discovery",
             description="Extend schema discovery with more documents (expensive).",
             parameters=EMPTY_PARAMS,
@@ -604,6 +660,7 @@ def tool_running_label(tool_name: str) -> str:
         "export_table": "Preparing export",
         "run_schematiq": "Starting ScheMatiQ extraction",
         "reextract": "Starting re-extraction",
+        "extract_cells": "Filling cells",
         "continue_discovery": "Starting continue discovery",
         "reprocess": "Starting reprocessing",
     }

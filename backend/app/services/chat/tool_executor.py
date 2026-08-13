@@ -749,6 +749,31 @@ class ToolExecutor:
           raise
       return result
 
+  async def _handle_extract_cells(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Granular fill: route through the same gated re-extraction path, but scoped
+      # to specific documents / rows / columns and (by default) only empty cells.
+      # With no columns given, consider all columns (scope='all') and let
+      # only_empty / the document+row scope narrow the actual work.
+      columns = args.get("columns")
+      scope = "explicit" if columns else "all"
+      only_empty = args.get("only_empty", True)
+      await concurrency_limiter.acquire(session_id, "reextraction")
+      try:
+          result = await reextraction_service.start_gated_reextraction(
+              session_id,
+              columns=columns,
+              scope=scope,
+              documents=args.get("documents"),
+              rows=args.get("rows"),
+              only_empty=only_empty,
+          )
+      except Exception:
+          await concurrency_limiter.release(session_id)
+          raise
+      return result
+
   async def _handle_continue_discovery(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
