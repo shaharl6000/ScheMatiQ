@@ -224,6 +224,53 @@ class ToolExecutor:
           "missing_definitions": missing_definitions,
       }
 
+  async def _handle_list_skipped_documents(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Surface documents that produced no rows during extraction, with the
+      # recorded reason. Neither reextract nor reprocess re-includes these, so the
+      # agent needs this to explain a "missing" document instead of proposing a
+      # re-run that cannot bring it back.
+      session = session_manager.get_session(session_id)
+      if not session:
+          raise ValueError("Session not found")
+      skipped = (
+          session.statistics.skipped_documents
+          if session.statistics and session.statistics.skipped_documents
+          else []
+      )
+      return {
+          "status": "success",
+          "count": len(skipped),
+          "skipped_documents": [
+              {"document": entry.document, "reason": entry.reason}
+              for entry in skipped
+          ],
+      }
+
+  async def _handle_list_documents(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Report the source documents that define rows and their availability. Uses
+      # the same discovery the re-extraction precheck relies on, compacted to
+      # names-by-status so the payload stays small.
+      availability = await reextraction_service.precheck_document_availability(session_id)
+      return {
+          "status": "success",
+          "total_documents": availability.get("total_documents", 0),
+          "total_rows": availability.get("total_rows", 0),
+          "local_documents": [
+              doc["name"] for doc in availability.get("local_documents", [])
+          ],
+          "cloud_documents": [
+              doc["name"] for doc in availability.get("cloud_documents", [])
+          ],
+          "missing_documents": [
+              doc["name"] for doc in availability.get("missing_documents", [])
+          ],
+          "rows_with_missing_docs": availability.get("rows_with_missing_docs", 0),
+      }
+
   async def _handle_list_reference_sources(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
