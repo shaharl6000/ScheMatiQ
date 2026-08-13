@@ -290,11 +290,22 @@ export function schemaFromLoadSession(session: VisualizationSession | null): Sch
 export function statusFromLoadSession(session: VisualizationSession | null): ScheMatiQStatus | null {
   if (!session) return null;
   const completed = session.status === 'completed' || session.status === 'schema_extracted';
+  // status='processing' on an UPLOAD-type session only happens mid schema
+  // rediscovery (see /load/rediscover) — a plain import never reaches it (it
+  // uses 'processing_documents'). The raw status string otherwise reads as an
+  // internal state name, not something meant for the bottom-bar step label or
+  // the project-details "Current step" row, both of which read current_step
+  // directly.
+  const currentStep = completed
+    ? 'Imported project loaded'
+    : session.status === 'processing'
+      ? 'Rediscovering schema…'
+      : session.status;
   return {
     session_id: session.id,
     status: session.status,
     progress: completed ? 1 : 0,
-    current_step: completed ? 'Imported project loaded' : session.status,
+    current_step: currentStep,
     steps_completed: completed ? 1 : 0,
     total_steps: 1,
     schema_completed: Boolean(session.columns?.length),
