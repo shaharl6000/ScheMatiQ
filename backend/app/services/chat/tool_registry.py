@@ -399,6 +399,34 @@ def _all_tools() -> list[ToolSpec]:
             handler="merge_units",
         ),
         ToolSpec(
+            name="rename_unit",
+            description=(
+                "Rename a single table row / observation unit, keeping all of its "
+                "data. Use this when a row's label is wrong or inconsistent and you "
+                "want to change just its name (not merge it with another row — use "
+                "merge_units for that, and edit_observation_unit to change the unit "
+                "definition). Get the exact current name from preview_data first. Note: "
+                "if you rename to a name that already exists, the two rows will share "
+                "that name (an effective merge)."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "old_name": {
+                        "type": "string",
+                        "description": "Current row / unit name, exactly as shown by preview_data.",
+                    },
+                    "new_name": {
+                        "type": "string",
+                        "description": "New name for the row / unit.",
+                    },
+                },
+                "required": ["old_name", "new_name"],
+            },
+            cost_class="cheap",
+            handler="rename_unit",
+        ),
+        ToolSpec(
             name="export_table",
             description="Export the table (csv, rich csv with excerpts, or schema only).",
             parameters={
@@ -657,6 +685,7 @@ def tool_running_label(tool_name: str) -> str:
         "add_unit": "Adding observation unit",
         "remove_unit": "Removing observation unit",
         "merge_units": "Merging observation units",
+        "rename_unit": "Renaming row",
         "export_table": "Preparing export",
         "run_schematiq": "Starting ScheMatiQ extraction",
         "reextract": "Starting re-extraction",

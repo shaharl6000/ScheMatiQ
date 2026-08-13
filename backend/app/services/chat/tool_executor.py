@@ -686,6 +686,42 @@ class ToolExecutor:
           "rows_affected": response.rows_affected,
       }
 
+  async def _handle_rename_unit(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Rename one row / observation unit in place via unit_view_service.rename_unit,
+      # which reuses the merge relabel path (keeps data, records _original_units).
+      # The service is synchronous and touches storage, so run it off the loop.
+      old_name = (args.get("old_name") or "").strip()
+      new_name = (args.get("new_name") or "").strip()
+      if not old_name or not new_name:
+          raise ValueError("Both 'old_name' and 'new_name' are required.")
+
+      from app.services.unit_view_service import unit_view_service
+
+      loop = asyncio.get_running_loop()
+      response = await loop.run_in_executor(
+          None, unit_view_service.rename_unit, session_id, old_name, new_name
+      )
+
+      if response.success and response.rows_affected:
+          # Data-only change: row_completed makes the workspace silently re-fetch rows.
+          try:
+              await websocket_manager.broadcast_row_completed(
+                  session_id,
+                  {"operation": "rename_unit", "old_name": old_name, "new_name": new_name},
+              )
+          except Exception:  # streaming is best-effort
+              pass
+
+      return {
+          "status": "success" if response.success else "error",
+          "message": response.message,
+          "old_name": old_name,
+          "new_name": new_name,
+          "rows_affected": response.rows_affected,
+      }
+
   async def _handle_export_table(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:

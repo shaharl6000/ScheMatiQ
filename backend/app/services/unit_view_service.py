@@ -484,6 +484,82 @@ class UnitViewService:
             rows_affected=rows_affected
         )
 
+    def rename_unit(self, session_id: str, old_name: str, new_name: str) -> MergeUnitsResponse:
+        """Rename one observation unit / row in place, preserving its data.
+
+        Reuses the same load/save path as merge_units. Any identity field on a
+        matching row (``_row_name`` / ``row_name`` / ``_unit_name`` / ``unit_name``)
+        whose value equals *old_name* (case-insensitive) is set to *new_name*; when
+        the unit-name field is renamed the previous name is recorded in
+        ``_original_units`` for undo, mirroring merge_units. Renaming to a name that
+        already exists effectively merges into it, which is the expected behavior.
+        """
+        old_name = (old_name or "").strip()
+        new_name = (new_name or "").strip()
+        if not old_name or not new_name:
+            return MergeUnitsResponse(
+                success=False,
+                message="Both the current name and the new name are required.",
+                rows_affected=0,
+            )
+        if old_name == new_name:
+            return MergeUnitsResponse(
+                success=False,
+                message="The new name is the same as the current name.",
+                rows_affected=0,
+            )
+
+        rows = self._load_all_rows(session_id)
+        if not rows:
+            return MergeUnitsResponse(
+                success=False, message="No data found for session", rows_affected=0
+            )
+
+        old_lower = old_name.lower()
+        id_fields = ("_row_name", "row_name", "_unit_name", "unit_name")
+        rows_affected = 0
+        for row in rows:
+            touched = False
+            for field in id_fields:
+                value = row.get(field)
+                if isinstance(value, str) and value.strip().lower() == old_lower:
+                    if field in ("_unit_name", "unit_name"):
+                        original_units = row.get("_original_units", [])
+                        if not original_units:
+                            original_units = [value]
+                        elif value not in original_units:
+                            original_units.append(value)
+                        row["_original_units"] = original_units
+                    row[field] = new_name
+                    touched = True
+            if touched:
+                rows_affected += 1
+
+        if rows_affected == 0:
+            return MergeUnitsResponse(
+                success=False,
+                message=f"No rows found for '{old_name}'.",
+                rows_affected=0,
+            )
+
+        self._save_all_rows(session_id, rows)
+
+        updated_summary = self.get_units_summary(session_id)
+        renamed_unit = next(
+            (u for u in updated_summary.units if u.name == new_name), None
+        )
+
+        logger.info(
+            f"Session {session_id}: Renamed unit '{old_name}' to '{new_name}', "
+            f"{rows_affected} rows affected"
+        )
+        return MergeUnitsResponse(
+            success=True,
+            message=f"Renamed '{old_name}' to '{new_name}' ({rows_affected} row(s)).",
+            merged_unit=renamed_unit,
+            rows_affected=rows_affected,
+        )
+
     def _select_best_name(self, names: List[str]) -> str:
         """Pick the best name from a group: prefer non-all-caps, then longest."""
         non_caps = [n for n in names if n != n.upper() or n == n.lower()]
