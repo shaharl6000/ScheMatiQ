@@ -340,10 +340,121 @@ class ToolExecutor:
   ) -> dict[str, Any]:
       # Delegate to the background fill service: it runs one model call per row and
       # streams cells as they complete, returning immediately so a whole-column
-      # fill never blocks (or times out) the chat turn.
+      # fill never blocks (or times out) the chat turn. `rows` optionally scopes the
+      # fill to specific observation-unit / row names.
       return await reference_fill_service.start_fill(
-          session_id, args.get("column"), args.get("reference_id")
+          session_id,
+          args.get("column"),
+          args.get("reference_id"),
+          rows=args.get("rows"),
       )
+
+  async def _handle_explain_cell(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Read-only: classify one cell so the agent knows whether filling would help.
+      from app.services.data_utils import (
+          get_extraction_column_value,
+          resolve_session_data_files,
+      )
+      from app.services.reextraction_service import _is_empty_cell_value
+
+      row_name = (args.get("row") or "").strip()
+      column = (args.get("column") or "").strip()
+      if not row_name or not column:
+          raise ValueError("Both 'row' and 'column' are required.")
+
+      def _row_id(row: dict[str, Any]) -> Optional[str]:
+          return row.get("_row_name") or row.get("row_name") or row.get("_unit_name")
+
+      def _papers(row: dict[str, Any]) -> list[str]:
+          return row.get("_papers") or row.get("papers") or []
+
+      data_files = await resolve_session_data_files(session_id)
+      matched: Optional[dict[str, Any]] = None
+      for path in data_files:
+          try:
+              with open(path, "r") as handle:
+                  for line in handle:
+                      if not line.strip():
+                          continue
+                      try:
+                          row = json.loads(line)
+                      except json.JSONDecodeError:
+                          continue
+                      if _row_id(row) == row_name:
+                          matched = row
+                          break
+          except OSError:
+              continue
+          if matched is not None:
+              break
+
+      documents = [Path(p).stem for p in _papers(matched)] if matched else []
+
+      # Was the owning document skipped entirely?
+      session = session_manager.get_session(session_id)
+      skipped = {}
+      if session and session.statistics and session.statistics.skipped_documents:
+          skipped = {
+              Path(s.document).stem: s.reason
+              for s in session.statistics.skipped_documents
+          }
+
+      if matched is None:
+          skip_hit = next((skipped[d] for d in documents if d in skipped), None)
+          if documents and skip_hit is not None:
+              return {
+                  "row": row_name,
+                  "column": column,
+                  "state": "document_skipped",
+                  "reason": skip_hit,
+                  "documents": documents,
+              }
+          return {
+              "row": row_name,
+              "column": column,
+              "state": "row_not_found",
+              "message": (
+                  "No row with that name was found. Check the name via preview_data."
+              ),
+          }
+
+      value = get_extraction_column_value(matched, column)
+      if not _is_empty_cell_value(value):
+          excerpts = value.get("excerpts") if isinstance(value, dict) else None
+          answer = value.get("answer") if isinstance(value, dict) else value
+          return {
+              "row": row_name,
+              "column": column,
+              "state": "has_value",
+              "value": answer,
+              "excerpts": excerpts or [],
+              "documents": documents,
+          }
+
+      confirmed = isinstance(value, dict) and bool(value.get("_confirmed_empty"))
+      skip_hit = next((skipped[d] for d in documents if d in skipped), None)
+      if skip_hit is not None:
+          return {
+              "row": row_name,
+              "column": column,
+              "state": "document_skipped",
+              "reason": skip_hit,
+              "documents": documents,
+          }
+      return {
+          "row": row_name,
+          "column": column,
+          "state": "confirmed_empty" if confirmed else "not_extracted",
+          "message": (
+              "The model inspected the source for this cell and found no value; "
+              "re-extraction is unlikely to fill it."
+              if confirmed
+              else "No extraction has produced a value yet; extract_cells can fill it."
+          ),
+          "documents": documents,
+      }
 
   async def _handle_add_column(
       self, session_id: str, session_mode: str, args: dict[str, Any]

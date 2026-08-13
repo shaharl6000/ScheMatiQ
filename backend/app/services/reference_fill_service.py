@@ -169,16 +169,25 @@ class ReferenceFillService:
     # ---- public API -------------------------------------------------------
 
     async def start_fill(
-        self, session_id: str, column: str, reference_id: str
+        self, session_id: str, column: str, reference_id: str,
+        rows: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         """Validate the request, then start the fill in the background.
 
         Returns immediately with the operation id and the number of rows to fill.
+        When ``rows`` is given, only those observation-unit / row names are filled;
+        otherwise every row in the column is filled.
         """
         column = (column or "").strip()
         reference_id = (reference_id or "").strip()
         if not column or not reference_id:
             raise ValueError("Both 'column' and 'reference_id' are required.")
+
+        # Capture the requested row names before the `rows` local is reassigned to the
+        # loaded row dicts below.
+        requested_row_names = {
+            r.strip() for r in (rows or []) if isinstance(r, str) and r.strip()
+        }
 
         session = self._sessions.get_session(session_id)
         if not session:
@@ -196,9 +205,21 @@ class ReferenceFillService:
         if not reference_text.strip():
             raise ValueError(f"Reference '{ref.filename}' is empty.")
 
-        rows = await self._load_all_rows(session_id)
-        if not rows:
+        loaded_rows = await self._load_all_rows(session_id)
+        if not loaded_rows:
             raise ValueError("No rows to fill.")
+
+        if requested_row_names:
+            loaded_rows = [
+                r for r in loaded_rows
+                if (r.get("unit_name") or r.get("row_name")) in requested_row_names
+            ]
+            if not loaded_rows:
+                raise ValueError(
+                    "None of the requested rows were found. Check the names via "
+                    "preview_data."
+                )
+        rows = loaded_rows
 
         column_obj = next(
             (c for c in session.columns if c.name == column), None
