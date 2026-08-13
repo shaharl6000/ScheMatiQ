@@ -39,6 +39,26 @@ SCHEMATIQ_AVAILABLE = True
 logger = logging.getLogger(__name__)
 
 
+def _is_empty_cell_value(value: Any) -> bool:
+    """True when a cell holds no usable value.
+
+    Handles the ScheMatiQ answer-dict format ({"answer": ...}), plain strings,
+    and None. A real scalar such as 0 or False counts as filled, not empty.
+    """
+    if value is None:
+        return True
+    if isinstance(value, dict):
+        answer = value.get("answer")
+        if answer is None:
+            return True
+        if isinstance(answer, str):
+            return not answer.strip()
+        return answer == ""
+    if isinstance(value, str):
+        return not value.strip()
+    return False
+
+
 class ReextractionOperation:
     """Tracks a running re-extraction operation."""
     def __init__(
@@ -48,6 +68,9 @@ class ReextractionOperation:
         columns: List[str],
         status: str = "pending",
         renamed_from: Optional[Dict[str, str]] = None,
+        documents: Optional[List[str]] = None,
+        rows: Optional[List[str]] = None,
+        only_empty: bool = False,
     ):
         self.operation_id = operation_id
         self.session_id = session_id
@@ -62,6 +85,11 @@ class ReextractionOperation:
         self.error: Optional[str] = None
         # new column name -> previous column name (from schema renames)
         self.renamed_from: Dict[str, str] = renamed_from or {}
+        # Granular scope (all optional). documents/rows are paper stems / unit
+        # names; only_empty means never overwrite a cell that already has a value.
+        self.documents: Optional[List[str]] = documents
+        self.rows: Optional[List[str]] = rows
+        self.only_empty: bool = only_empty
         # composite keys already merged incrementally during extraction
         self.incrementally_merged_keys: Set[tuple] = set()
         # paper discovery snapshot for this operation (avoids redundant rescans)
@@ -870,21 +898,149 @@ class ReextractionService(WebSocketBroadcasterMixin):
             raise ValueError("No columns available for re-extraction")
         return resolved
 
+    def _project_document_stems(
+        self,
+        paper_discovery: Dict[str, Any],
+        session: Optional["VisualizationSession"],
+    ) -> set:
+        """All document stems the project knows about: those with rows, those
+        referenced-but-missing, and those skipped during extraction."""
+        stems: set = set()
+        for key in ("available_papers", "missing_papers"):
+            for paper in paper_discovery.get(key) or []:
+                stems.add(Path(paper).stem)
+        if session and session.statistics and session.statistics.skipped_documents:
+            for skipped in session.statistics.skipped_documents:
+                stems.add(Path(skipped.document).stem)
+        return stems
+
+    def _normalize_document_scope(
+        self,
+        documents: Optional[List[str]],
+        paper_discovery: Dict[str, Any],
+        session: Optional["VisualizationSession"],
+    ) -> Optional[List[str]]:
+        """Validate requested document names and normalize them to stems.
+
+        Returns ``None`` when no scope was requested (whole-table). Raises
+        ``ValueError`` listing any names that do not match a known project
+        document, so a mistyped scope fails loudly instead of silently skipping
+        every document.
+        """
+        if not documents:
+            return None
+        requested = [d.strip() for d in documents if isinstance(d, str) and d.strip()]
+        if not requested:
+            return None
+        known_stems = self._project_document_stems(paper_discovery, session)
+        normalized: List[str] = []
+        unknown: List[str] = []
+        for name in requested:
+            stem = Path(name).stem
+            if stem in known_stems:
+                if stem not in normalized:
+                    normalized.append(stem)
+            else:
+                unknown.append(name)
+        if unknown:
+            raise ValueError(
+                "These document(s) are not in this project: "
+                f"{', '.join(unknown)}. Call list_documents to see the available "
+                "source documents."
+            )
+        return normalized
+
+    def _resolve_reextraction_data_files(self, session_id: str) -> List[Path]:
+        """Data files to read current cell values from, newest source first."""
+        files: List[Path] = []
+        schematiq_extracted = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "extracted_data.jsonl"
+        if schematiq_extracted.exists():
+            files.append(schematiq_extracted)
+        if not files:
+            schematiq_data = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "data.jsonl"
+            if schematiq_data.exists():
+                files.append(schematiq_data)
+        load_data = Path(DEFAULT_DATA_DIR) / session_id / "data.jsonl"
+        if load_data.exists() and load_data.resolve() not in [f.resolve() for f in files]:
+            files.append(load_data)
+        return files
+
+    def _find_empty_target_cells(
+        self,
+        session_id: str,
+        columns: List[str],
+        documents: Optional[List[str]],
+    ):
+        """Scan current data for empty cells within the requested scope.
+
+        Returns ``(empty_columns, docs_with_empties)``: the subset of *columns*
+        that are empty in at least one in-scope row, and the paper stems that
+        have at least one empty target cell. Returns ``(None, None)`` when no
+        data files are readable, meaning "cannot determine, do not narrow" — the
+        merge-time guard still guarantees filled cells are never overwritten.
+        """
+        from app.services.data_utils import get_extraction_column_value, extract_papers
+
+        data_files = self._resolve_reextraction_data_files(session_id)
+        if not data_files:
+            return None, None
+        doc_filter = set(documents) if documents else None
+        empty_columns: set = set()
+        docs_with_empties: set = set()
+        seen_any = False
+        for df in data_files:
+            try:
+                with open(df, "r") as handle:
+                    for line in handle:
+                        if not line.strip():
+                            continue
+                        try:
+                            row = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        seen_any = True
+                        paper_stems = {Path(p).stem for p in (extract_papers(row) or [])}
+                        if doc_filter is not None and not (paper_stems & doc_filter):
+                            continue
+                        scope_stems = (
+                            paper_stems & doc_filter if doc_filter is not None else paper_stems
+                        )
+                        for col in columns:
+                            if _is_empty_cell_value(get_extraction_column_value(row, col)):
+                                empty_columns.add(col)
+                                docs_with_empties.update(scope_stems)
+            except Exception as e:  # unreadable file -> fall back to no narrowing
+                logger.warning("Empty-cell scan failed for %s: %s", df, e)
+                return None, None
+        if not seen_any:
+            return None, None
+        return empty_columns, docs_with_empties
+
     async def start_gated_reextraction(
         self,
         session_id: str,
         columns: Optional[List[str]] = None,
         scope: str = "explicit",
         capture_baseline: bool = True,
+        documents: Optional[List[str]] = None,
+        rows: Optional[List[str]] = None,
+        only_empty: bool = False,
     ) -> Dict[str, Any]:
         """Single gated entry point for re-extraction.
 
         Both the manual workspace button (via ``POST /schema/reextract``) and the
-        chat ``reextract`` tool funnel through here so the gating is identical:
-        resolve the column scope, capture a fresh baseline, verify source
-        documents are available, then start the operation. Raises ``ValueError``
-        with a user-facing message when a gate fails; the caller owns the
-        concurrency slot and releases it on error.
+        chat tools funnel through here so the gating is identical: resolve the
+        column scope, capture a fresh baseline, verify source documents are
+        available, then start the operation. Raises ``ValueError`` with a
+        user-facing message when a gate fails; the caller owns the concurrency
+        slot and releases it on error.
+
+        Granular options (used by the ``extract_cells`` tool):
+          - ``documents``: restrict the run to these source files; a previously
+            skipped document listed here is re-evaluated for observation units.
+          - ``rows``: restrict the run to these observation-unit / row names.
+          - ``only_empty``: never overwrite a cell that already holds a value, and
+            skip extraction for columns/documents that have nothing empty.
         """
         resolved = await self.resolve_reextraction_columns(session_id, columns, scope)
 
@@ -899,6 +1055,31 @@ class ReextractionService(WebSocketBroadcasterMixin):
             await self.capture_and_save_baseline(session_id)
 
         paper_discovery = await self.discover_papers(session_id)
+
+        scoped_documents = self._normalize_document_scope(
+            documents, paper_discovery, session
+        )
+        scoped_rows = None
+        if rows:
+            scoped_rows = [r.strip() for r in rows if isinstance(r, str) and r.strip()] or None
+
+        if only_empty:
+            empty_columns, docs_with_empties = self._find_empty_target_cells(
+                session_id, resolved, scoped_documents
+            )
+            if empty_columns is not None:
+                if not empty_columns:
+                    raise ValueError(
+                        "No empty cells to fill in the selected scope."
+                    )
+                # Narrow the extraction to columns/documents that actually have
+                # gaps (cost). The merge guard enforces the empty-only rule.
+                resolved = [c for c in resolved if c in empty_columns]
+                if scoped_documents is None:
+                    scoped_documents = sorted(docs_with_empties)
+                else:
+                    scoped_documents = [d for d in scoped_documents if d in docs_with_empties]
+
         availability = await self.precheck_document_availability(
             session_id,
             operation_type="reextraction",
@@ -921,6 +1102,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
             resolved,
             renamed_from=renamed_from,
             paper_discovery=paper_discovery,
+            documents=scoped_documents,
+            rows=scoped_rows,
+            only_empty=only_empty,
         )
 
     async def start_reextraction(
@@ -929,6 +1113,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
         columns: List[str],
         renamed_from: Optional[Dict[str, str]] = None,
         paper_discovery: Optional[Dict[str, Any]] = None,
+        documents: Optional[List[str]] = None,
+        rows: Optional[List[str]] = None,
+        only_empty: bool = False,
     ) -> Dict[str, Any]:
         """
         Start a re-extraction operation for selected columns.
@@ -1028,6 +1215,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
             columns=columns,
             status="starting",
             renamed_from=renamed_from,
+            documents=documents,
+            rows=rows,
+            only_empty=only_empty,
         )
         operation.total_documents = doc_count
         operation.paper_discovery = paper_discovery
@@ -1044,7 +1234,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "columns": columns,
             "estimated_papers": doc_count,
             "rows_to_process": doc_count,
-            "missing_papers": paper_discovery["missing_papers"]
+            "missing_papers": paper_discovery["missing_papers"],
+            "documents": documents,
+            "rows": rows,
+            "only_empty": only_empty,
         }
 
     def _build_known_units_for_reextraction(
@@ -1108,6 +1301,55 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     known_units[paper_stem] = []
 
         return known_units
+
+    def _scope_known_units(
+        self,
+        known_units: Dict[str, List[str]],
+        documents: Optional[List[str]],
+        rows: Optional[List[str]],
+        all_paper_stems: set,
+    ) -> Dict[str, List[str]]:
+        """Restrict a run to specific documents and/or rows via ``known_units``.
+
+        build_table_jsonl has no document/row filter: it processes every file in
+        the docs directories and keys behavior off ``known_units`` per paper stem
+        (``[]`` = skip without an LLM call, a name list = extract exactly those
+        units, absent = run observation-unit discovery). We use that:
+          - every non-target document is mapped to ``[]`` (skipped for free);
+          - a target document keeps its unit names, optionally intersected with
+            ``rows`` so only the requested units are extracted;
+          - a target document that has no known units (previously skipped) is
+            dropped from the map so the library re-discovers its units.
+        """
+        if not documents and not rows:
+            return known_units
+        explicit = set(documents) if documents else set()
+        # When only rows are given, every document is a candidate; when documents
+        # are given, only those are.
+        targets = explicit if documents else set(all_paper_stems) | set(known_units.keys())
+        row_filter = set(rows) if rows else None
+        scoped: Dict[str, List[str]] = {}
+        universe = set(all_paper_stems) | set(known_units.keys()) | targets
+        for stem in universe:
+            if stem not in targets:
+                scoped[stem] = []  # force-skip every non-target document
+                continue
+            existing = known_units.get(stem)
+            if existing:
+                if row_filter is not None:
+                    kept = [u for u in existing if u in row_filter]
+                    scoped[stem] = kept if kept else []  # [] if none of its rows selected
+                else:
+                    scoped[stem] = existing
+            elif stem in explicit:
+                # Explicitly requested but previously skipped / no known rows:
+                # omit so the library re-discovers observation units for it.
+                continue
+            else:
+                # Implicit target (rows-only mode) with no known rows: skip it
+                # rather than triggering an unwanted rediscovery.
+                scoped[stem] = []
+        return scoped
 
     async def _run_reextraction(self, operation_id: str):
         """Execute re-extraction in background."""
@@ -1337,6 +1579,20 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         "LLM will re-identify observation units from documents"
                     )
 
+                if operation.documents or operation.rows:
+                    all_stems = self._project_document_stems(
+                        operation.paper_discovery or {}, session
+                    )
+                    known_units = self._scope_known_units(
+                        known_units, operation.documents, operation.rows, all_stems
+                    )
+                    logger.info(
+                        "Scoped re-extraction (documents=%s, rows=%s); %d paper(s) skipped",
+                        operation.documents,
+                        operation.rows,
+                        sum(1 for v in known_units.values() if v == []),
+                    )
+
                 if known_units:
                     # Update total count to reflect observation units, not just documents
                     total_units = sum(len(units) for units in known_units.values())
@@ -1387,6 +1643,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 output_file,
                 renamed_from=operation.renamed_from,
                 initial_matched_keys=operation.incrementally_merged_keys,
+                only_empty=operation.only_empty,
             )
 
             # Update baseline after successful extraction
@@ -1578,6 +1835,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 create_backup=False,
                 update_session_stats=False,
                 initial_matched_keys=operation.incrementally_merged_keys,
+                only_empty=operation.only_empty,
             )
             operation.incrementally_merged_keys.add(ext_key)
 
@@ -1588,6 +1846,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         extraction_file: Path,
         renamed_from: Optional[Dict[str, str]] = None,
         initial_matched_keys: Optional[Set[tuple]] = None,
+        only_empty: bool = False,
     ):
         """Merge re-extracted values with existing data across ALL data files."""
         if not extraction_file.exists():
@@ -1620,6 +1879,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             create_backup=True,
             update_session_stats=True,
             initial_matched_keys=matched_keys,
+            only_empty=only_empty,
         )
 
     async def _merge_extracted_index_into_data_files(
@@ -1632,8 +1892,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
         create_backup: bool = True,
         update_session_stats: bool = True,
         initial_matched_keys: Optional[set] = None,
+        only_empty: bool = False,
     ) -> None:
-        """Apply extracted rows to on-disk session data files."""
+        """Apply extracted rows to on-disk session data files.
+
+        When ``only_empty`` is set, an extracted value is written into an existing
+        row only if that cell is currently empty, so values already present (or
+        edited by the user) are never overwritten. Newly appended rows are
+        unaffected because all of their cells start empty.
+        """
         if not extracted_by_key:
             return
 
@@ -1701,6 +1968,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             remove_column_keys_in_row(row, old_name)
                         extracted_value = get_extraction_column_value(extracted, col_name)
                         if extracted_value is not None:
+                            if only_empty and not _is_empty_cell_value(
+                                get_extraction_column_value(row, col_name)
+                            ):
+                                continue  # never overwrite a filled cell
                             if 'data' in row:
                                 row['data'][col_name] = extracted_value
                             else:
@@ -1778,6 +2049,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 extracted, col_name
                             )
                             if extracted_value is not None:
+                                if only_empty and not _is_empty_cell_value(
+                                    get_extraction_column_value(row, col_name)
+                                ):
+                                    continue  # never overwrite a filled cell
                                 if 'data' in row:
                                     row['data'][col_name] = extracted_value
                                 else:
