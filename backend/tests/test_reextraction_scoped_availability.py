@@ -6,8 +6,18 @@ When a document scope is requested, only the scoped documents' availability
 should gate the run.
 """
 
-from unittest.mock import MagicMock
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
+from app.models.session import (
+    ColumnInfo,
+    DataStatistics,
+    SessionMetadata,
+    SessionStatus,
+    SessionType,
+    SkippedDocumentInfo,
+    VisualizationSession,
+)
 from app.services.reextraction_service import ReextractionService
 
 
@@ -83,3 +93,94 @@ def test_scoped_doc_truly_missing_is_reported(tmp_path, monkeypatch):
 
     assert result["missing"] == ["CASA2025-06-27SCt"]
     assert result["available"] == []
+
+
+# --------------------------------------------------------------------------- #
+# only_empty narrowing must preserve previously-skipped docs (end-to-end).
+#
+# extract_cells defaults only_empty=True. A previously-skipped document has no
+# rows, so the empty-cell scan finds nothing for it; without special handling
+# the run would raise "No empty cells to fill" before reaching the availability
+# gate, so re-discovering a skipped document (the CASA case) would be blocked.
+# --------------------------------------------------------------------------- #
+
+def _session_with_skipped(skipped_names: list[str]) -> VisualizationSession:
+    return VisualizationSession(
+        id="sess-skip",
+        type=SessionType.SCHEMATIQ,
+        status=SessionStatus.COMPLETED,
+        metadata=SessionMetadata(source="test", created=datetime.now()),
+        columns=[ColumnInfo(name="ruling_type", definition="Ruling")],
+        statistics=DataStatistics(
+            total_rows=0,
+            total_columns=1,
+            total_documents=1,
+            completeness=0.0,
+            column_stats=[],
+            skipped_documents=[
+                SkippedDocumentInfo(document=n, reason="Broader legal ruling")
+                for n in skipped_names
+            ],
+        ),
+    )
+
+
+def _wire(service: ReextractionService, availability: dict) -> None:
+    service.capture_and_save_baseline = AsyncMock()
+    service.resolve_reextraction_columns = AsyncMock(return_value=["ruling_type"])
+    service.discover_papers = AsyncMock(return_value={
+        "total_rows": 0, "rows_with_papers": 0, "available_papers": [],
+        "missing_papers": [], "paper_to_rows": {}, "cloud_papers": {},
+        "local_papers": [], "session_document_count": 0,
+    })
+    service.precheck_document_availability = AsyncMock(return_value=availability)
+    service.start_reextraction = AsyncMock(return_value={"status": "started"})
+
+
+async def test_only_empty_scoped_skipped_doc_proceeds():
+    """extract_cells (only_empty=True) on a previously-skipped document must NOT
+    raise 'No empty cells' — it has no rows and is re-discovered from scratch."""
+    session = _session_with_skipped(["CASA2025-06-27SCt"])
+    sm = MagicMock()
+    sm.get_session.return_value = session
+    service = ReextractionService(MagicMock(), sm)
+    _wire(service, {
+        "local_documents": [{"name": "CASA2025-06-27SCt"}],
+        "cloud_documents": [], "missing_documents": [], "can_proceed": True,
+    })
+    service._project_document_stems = MagicMock(return_value={"CASA2025-06-27SCt"})
+    service._find_empty_target_cells = MagicMock(return_value=(set(), set()))
+
+    result = await service.start_gated_reextraction(
+        "sess-skip", columns=None, scope="all",
+        documents=["CASA2025-06-27SCt"], only_empty=True,
+    )
+
+    assert result == {"status": "started"}
+    service.start_reextraction.assert_awaited_once()
+    assert service.start_reextraction.await_args.kwargs["documents"] == ["CASA2025-06-27SCt"]
+
+
+async def test_only_empty_scoped_nonskipped_doc_with_no_gaps_still_raises():
+    """A non-skipped scoped doc with no empty cells keeps the original guard."""
+    session = _session_with_skipped([])  # nothing skipped
+    sm = MagicMock()
+    sm.get_session.return_value = session
+    service = ReextractionService(MagicMock(), sm)
+    _wire(service, {
+        "local_documents": [{"name": "SomeDoc"}],
+        "cloud_documents": [], "missing_documents": [], "can_proceed": True,
+    })
+    service._project_document_stems = MagicMock(return_value={"SomeDoc"})
+    service._find_empty_target_cells = MagicMock(return_value=(set(), set()))
+
+    raised = False
+    try:
+        await service.start_gated_reextraction(
+            "sess-skip", columns=None, scope="all",
+            documents=["SomeDoc"], only_empty=True,
+        )
+    except ValueError as e:
+        raised = "No empty cells" in str(e)
+    assert raised
+    service.start_reextraction.assert_not_awaited()
