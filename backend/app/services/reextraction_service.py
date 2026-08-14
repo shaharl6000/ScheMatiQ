@@ -59,6 +59,21 @@ def _is_empty_cell_value(value: Any) -> bool:
     return False
 
 
+def _is_fillable_gap(value: Any) -> bool:
+    """True when a cell is an unresolved gap worth an extraction attempt.
+
+    A cell the model explicitly confirmed empty (``_confirmed_empty``) is treated
+    as resolved, not a gap: only_empty runs skip it so we do not re-bill the model
+    on cells it already judged. Callers that want to retry those cells anyway use
+    only_empty=false, which bypasses the gap check entirely.
+    """
+    if not _is_empty_cell_value(value):
+        return False
+    if isinstance(value, dict) and value.get("_confirmed_empty"):
+        return False
+    return True
+
+
 class ReextractionOperation:
     """Tracks a running re-extraction operation."""
     def __init__(
@@ -1006,7 +1021,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             paper_stems & doc_filter if doc_filter is not None else paper_stems
                         )
                         for col in columns:
-                            if _is_empty_cell_value(get_extraction_column_value(row, col)):
+                            if _is_fillable_gap(get_extraction_column_value(row, col)):
                                 empty_columns.add(col)
                                 docs_with_empties.update(scope_stems)
             except Exception as e:  # unreadable file -> fall back to no narrowing
@@ -1968,7 +1983,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             remove_column_keys_in_row(row, old_name)
                         extracted_value = get_extraction_column_value(extracted, col_name)
                         if extracted_value is not None:
-                            if only_empty and not _is_empty_cell_value(
+                            if only_empty and not _is_fillable_gap(
                                 get_extraction_column_value(row, col_name)
                             ):
                                 continue  # never overwrite a filled cell
@@ -2049,7 +2064,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 extracted, col_name
                             )
                             if extracted_value is not None:
-                                if only_empty and not _is_empty_cell_value(
+                                if only_empty and not _is_fillable_gap(
                                     get_extraction_column_value(row, col_name)
                                 ):
                                     continue  # never overwrite a filled cell

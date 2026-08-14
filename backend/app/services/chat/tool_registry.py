@@ -107,6 +107,36 @@ def _all_tools() -> list[ToolSpec]:
             handler="preview_data",
         ),
         ToolSpec(
+            name="explain_cell",
+            description=(
+                "Explain the state of a single cell (read-only): whether it has a "
+                "value and where that value came from, or — if it is empty — why. "
+                "Distinguishes three empty cases so you know whether filling it will "
+                "help: 'confirmed_empty' (the model already inspected the source and "
+                "found no value, so re-extracting is unlikely to help), 'not_extracted' "
+                "(no extraction has produced a value yet, so extract_cells can fill it), "
+                "and 'document_skipped' (the source document was skipped entirely — see "
+                "list_skipped_documents). For filled cells it returns the value plus any "
+                "source excerpts. Use row/column names from preview_data."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "row": {
+                        "type": "string",
+                        "description": "Observation-unit / row name (as shown by preview_data).",
+                    },
+                    "column": {
+                        "type": "string",
+                        "description": "Column name to inspect.",
+                    },
+                },
+                "required": ["row", "column"],
+            },
+            cost_class="cheap",
+            handler="explain_cell",
+        ),
+        ToolSpec(
             name="get_validation",
             description="Validate the schema for duplicate names, missing definitions, and other issues.",
             parameters=EMPTY_PARAMS,
@@ -193,7 +223,8 @@ def _all_tools() -> list[ToolSpec]:
                 "the reference (so it works even for references too large to read at "
                 "once) and fills each row as it completes. Use this instead of many "
                 "individual update_cell calls when populating a whole column from a "
-                "reference. Get the reference id from list_reference_sources."
+                "reference. Pass `rows` to fill only specific rows instead of the "
+                "whole column. Get the reference id from list_reference_sources."
             ),
             parameters={
                 "type": "object",
@@ -205,6 +236,14 @@ def _all_tools() -> list[ToolSpec]:
                     "reference_id": {
                         "type": "string",
                         "description": "Reference document id from list_reference_sources.",
+                    },
+                    "rows": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional observation-unit / row names to fill (as shown by "
+                            "preview_data). Omit to fill every row in the column."
+                        ),
                     },
                 },
                 "required": ["column", "reference_id"],
@@ -501,7 +540,10 @@ def _all_tools() -> list[ToolSpec]:
                 "with only_empty=true (the default) to fill every empty cell, or add "
                 "documents/rows/columns to narrow the scope. A document listed in "
                 "`documents` that was previously skipped is re-evaluated, so this also "
-                "retries skipped documents. Get exact names from list_documents, "
+                "retries skipped documents. Cells the model already inspected and "
+                "confirmed have no value are left alone by only_empty; set "
+                "only_empty=false to force those (and filled cells) to be re-extracted. "
+                "Get exact names from list_documents, "
                 "list_skipped_documents, or preview_data first."
             ),
             parameters={
@@ -672,6 +714,7 @@ def tool_running_label(tool_name: str) -> str:
         "get_observation_unit": "Loading observation unit",
         "edit_observation_unit": "Updating observation unit definition",
         "preview_data": "Loading data preview",
+        "explain_cell": "Explaining cell",
         "get_validation": "Validating schema",
         "list_skipped_documents": "Listing skipped documents",
         "list_documents": "Listing documents",
