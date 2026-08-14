@@ -158,7 +158,10 @@ def _all_tools() -> list[ToolSpec]:
             parameters=EMPTY_PARAMS,
             cost_class="cheap",
             handler="list_skipped_documents",
-            session_modes=("schematiq",),
+            # Available in load mode too: this is a pure read of persisted
+            # statistics (skipped_documents survive export/import), unlike the
+            # extraction tools that genuinely need source documents. Imported
+            # sessions must be able to explain a "missing" document.
         ),
         ToolSpec(
             name="list_documents",
@@ -166,9 +169,11 @@ def _all_tools() -> list[ToolSpec]:
                 "List the source documents in this project and their availability "
                 "(local, cloud, or missing), plus row counts. These are the documents "
                 "that define table rows, NOT the external reference material listed by "
-                "list_reference_sources. Use this to answer what documents the project "
-                "contains, or to check whether documents are present before proposing a "
-                "re-extraction."
+                "list_reference_sources. Also reports documents that were skipped during "
+                "extraction (with reasons) under skipped_documents, so a document that "
+                "produced no rows is still discoverable here. Use this to answer what "
+                "documents the project contains, or to check whether documents are present "
+                "before proposing a re-extraction."
             ),
             parameters=EMPTY_PARAMS,
             cost_class="cheap",

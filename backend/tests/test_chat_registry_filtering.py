@@ -76,6 +76,17 @@ def test_schematiq_only_tools_hidden_in_load_mode() -> None:
     assert {"run_schematiq", "reextract", "continue_discovery"}.isdisjoint(load)
 
 
+def test_skipped_document_diagnostics_available_in_load_mode() -> None:
+    # Skipped-document visibility is a pure read of persisted statistics, which
+    # imported/load sessions carry (skipped_documents survive export/import).
+    # Unlike the extraction tools, it needs no source documents, so it must be
+    # reachable in load mode — otherwise the agent reports a skipped document as
+    # simply absent from the project.
+    load = {t.name for t in get_tools_for_context("s1", "load")}
+    assert "list_skipped_documents" in load
+    assert "list_documents" in load
+
+
 def test_no_session_exposes_only_entry_point_tools() -> None:
     names = {t.name for t in get_tools_for_context(None, "schematiq")}
     assert names == {"create_project", "import_project", "web_search"}

@@ -255,6 +255,16 @@ class ToolExecutor:
       # the same discovery the re-extraction precheck relies on, compacted to
       # names-by-status so the payload stays small.
       availability = await reextraction_service.precheck_document_availability(session_id)
+      # Skipped documents produce no rows, so they never appear in the row-based
+      # availability lists above. Surface them here (with reasons) so a document
+      # that was skipped during extraction is discoverable from the primary
+      # document listing instead of looking absent from the project.
+      session = session_manager.get_session(session_id)
+      skipped = (
+          session.statistics.skipped_documents
+          if session and session.statistics and session.statistics.skipped_documents
+          else []
+      )
       return {
           "status": "success",
           "total_documents": availability.get("total_documents", 0),
@@ -269,6 +279,10 @@ class ToolExecutor:
               doc["name"] for doc in availability.get("missing_documents", [])
           ],
           "rows_with_missing_docs": availability.get("rows_with_missing_docs", 0),
+          "skipped_documents": [
+              {"document": entry.document, "reason": entry.reason}
+              for entry in skipped
+          ],
       }
 
   async def _handle_list_reference_sources(
