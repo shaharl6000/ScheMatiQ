@@ -985,6 +985,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         session_id: str,
         columns: List[str],
         documents: Optional[List[str]],
+        rows: Optional[List[str]] = None,
     ):
         """Scan current data for empty cells within the requested scope.
 
@@ -993,6 +994,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
         have at least one empty target cell. Returns ``(None, None)`` when no
         data files are readable, meaning "cannot determine, do not narrow" — the
         merge-time guard still guarantees filled cells are never overwritten.
+
+        ``rows`` mirrors the extraction-time scope (``_scope_known_units``):
+        when set, only rows whose observation-unit name is listed are
+        considered, so a row-scoped ``only_empty`` run does not proceed (and bill
+        the model) when the targeted cells are already filled while other,
+        out-of-scope rows still have gaps.
         """
         from app.services.data_utils import get_extraction_column_value, extract_papers
 
@@ -1000,6 +1007,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if not data_files:
             return None, None
         doc_filter = set(documents) if documents else None
+        row_filter = set(rows) if rows else None
         empty_columns: set = set()
         docs_with_empties: set = set()
         seen_any = False
@@ -1014,6 +1022,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         except json.JSONDecodeError:
                             continue
                         seen_any = True
+                        if row_filter is not None and row_name_of(row) not in row_filter:
+                            continue
                         paper_stems = {Path(p).stem for p in (extract_papers(row) or [])}
                         if doc_filter is not None and not (paper_stems & doc_filter):
                             continue
@@ -1080,7 +1090,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         if only_empty:
             empty_columns, docs_with_empties = self._find_empty_target_cells(
-                session_id, resolved, scoped_documents
+                session_id, resolved, scoped_documents, scoped_rows
             )
             if empty_columns is not None:
                 if not empty_columns:
