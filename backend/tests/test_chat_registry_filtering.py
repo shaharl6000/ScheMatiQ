@@ -12,6 +12,7 @@ from app.services.chat.tool_registry import (
     TOOL_BY_NAME,
     ToolSpec,
     _all_tools,
+    available_tools_prompt_addendum,
     get_tools_for_context,
     to_function_declarations,
     to_public_tool_list,
@@ -85,6 +86,24 @@ def test_skipped_document_diagnostics_available_in_load_mode() -> None:
     load = {t.name for t in get_tools_for_context("s1", "load")}
     assert "list_skipped_documents" in load
     assert "list_documents" in load
+
+
+def test_prompt_addendum_advertises_only_callable_tools() -> None:
+    # The static system prompt names extraction tools; in load mode those are
+    # filtered out of the function declarations. The addendum must advertise
+    # exactly the callable set so the model never offers a tool it cannot call.
+    load_addendum = available_tools_prompt_addendum(get_tools_for_context("s1", "load"))
+    assert "list_skipped_documents" in load_addendum
+    assert "list_documents" in load_addendum
+    for unavailable_in_load in ("reextract", "extract_cells", "run_schematiq", "continue_discovery"):
+        assert unavailable_in_load not in load_addendum
+    # web_search is declared-but-unavailable everywhere; it must never be
+    # advertised as callable.
+    schematiq_addendum = available_tools_prompt_addendum(
+        get_tools_for_context("s1", "schematiq")
+    )
+    assert "web_search" not in schematiq_addendum
+    assert "reextract" in schematiq_addendum
 
 
 def test_no_session_exposes_only_entry_point_tools() -> None:
