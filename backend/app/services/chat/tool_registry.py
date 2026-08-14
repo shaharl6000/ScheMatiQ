@@ -144,6 +144,58 @@ def _all_tools() -> list[ToolSpec]:
             handler="get_validation",
         ),
         ToolSpec(
+            name="data_summary",
+            description=(
+                "Table-health overview (read-only): the total row count and, for each "
+                "column, how many cells are filled vs. empty, the coverage percentage, "
+                "and how many of the empties are 'confirmed empty' (the model already "
+                "checked and found no value, so filling them will not help). Also "
+                "reports how many source documents were skipped. Use this to see where "
+                "the gaps are before running extract_cells or reprocess."
+            ),
+            parameters=EMPTY_PARAMS,
+            cost_class="cheap",
+            handler="data_summary",
+        ),
+        ToolSpec(
+            name="find_rows",
+            description=(
+                "Find the rows whose value in a given column matches a condition "
+                "(read-only). Use it to target other tools precisely — e.g. list the "
+                "rows missing a column before extract_cells, or find rows whose name "
+                "contains a string before rename_unit / merge_units. Returns matching "
+                "row names (and their value); large result sets are truncated to `limit`."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "column": {
+                        "type": "string",
+                        "description": "Column to test on each row.",
+                    },
+                    "match": {
+                        "type": "string",
+                        "enum": ["empty", "filled", "equals", "contains"],
+                        "description": (
+                            "How to test the cell: 'empty' / 'filled', or 'equals' / "
+                            "'contains' compared against `value`. Defaults to 'empty'."
+                        ),
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "Comparison text for match='equals' or 'contains'.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max rows to return (default 50, capped at 500).",
+                    },
+                },
+                "required": ["column"],
+            },
+            cost_class="cheap",
+            handler="find_rows",
+        ),
+        ToolSpec(
             name="list_skipped_documents",
             description=(
                 "List the source documents that were skipped during extraction and "
@@ -741,6 +793,8 @@ def tool_running_label(tool_name: str) -> str:
         "preview_data": "Loading data preview",
         "explain_cell": "Explaining cell",
         "get_validation": "Validating schema",
+        "data_summary": "Summarizing the table",
+        "find_rows": "Searching rows",
         "list_skipped_documents": "Listing skipped documents",
         "list_documents": "Listing documents",
         "list_reference_sources": "Listing reference documents",

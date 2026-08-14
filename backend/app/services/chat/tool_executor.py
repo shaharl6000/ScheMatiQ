@@ -224,6 +224,153 @@ class ToolExecutor:
           "missing_definitions": missing_definitions,
       }
 
+  async def _load_table_rows(self, session_id: str) -> list[dict[str, Any]]:
+      # Canonical, deduplicated row list — the same source preview_data uses — so
+      # summaries and row searches agree with what the user sees. Cell values are
+      # kept raw (answer-dicts, including _confirmed_empty), which the coverage
+      # breakdown relies on. Paginated to avoid materializing huge tables at once.
+      from app.services.chat.deps import WORK_DIR
+
+      rows: list[dict[str, Any]] = []
+      page = 0
+      page_size = 200
+      while page < 500:  # hard cap: 100k rows
+          data = await query_get_data(session_id, WORK_DIR, page=page, page_size=page_size)
+          batch = [r.model_dump() for r in data.rows]
+          rows.extend(batch)
+          if len(batch) < page_size:
+              break
+          page += 1
+      return rows
+
+  async def _handle_data_summary(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Read-only table-health overview: row count and, per column, how many cells
+      # are filled vs. empty (with the confirmed-empty subset broken out, since
+      # those are resolved gaps that filling will not help). Makes extract_cells /
+      # reprocess actionable by showing where the gaps are.
+      from app.services.reextraction_service import _is_empty_cell_value
+
+      session = session_manager.get_session(session_id)
+      column_names = (
+          [c.name for c in session.columns if c.name]
+          if session and session.columns
+          else []
+      )
+      rows = await self._load_table_rows(session_id)
+      total = len(rows)
+
+      if not column_names:  # fall back to columns seen in the data
+          seen: list[str] = []
+          for row in rows:
+              for key in (row.get("data") or {}):
+                  if key not in seen:
+                      seen.append(key)
+          column_names = seen
+
+      counts = {c: {"filled": 0, "empty": 0, "confirmed_empty": 0} for c in column_names}
+      for row in rows:
+          data = row.get("data") or {}
+          for col in column_names:
+              value = data.get(col)
+              if _is_empty_cell_value(value):
+                  counts[col]["empty"] += 1
+                  if isinstance(value, dict) and value.get("_confirmed_empty"):
+                      counts[col]["confirmed_empty"] += 1
+              else:
+                  counts[col]["filled"] += 1
+
+      columns = []
+      for col in column_names:
+          c = counts[col]
+          coverage = round(100 * c["filled"] / total) if total else 0
+          columns.append(
+              {
+                  "column": col,
+                  "filled": c["filled"],
+                  "empty": c["empty"],
+                  "confirmed_empty": c["confirmed_empty"],
+                  "coverage_pct": coverage,
+              }
+          )
+
+      skipped = (
+          len(session.statistics.skipped_documents)
+          if session and session.statistics and session.statistics.skipped_documents
+          else 0
+      )
+      return {
+          "total_rows": total,
+          "columns": columns,
+          "skipped_documents": skipped,
+      }
+
+  async def _handle_find_rows(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Read-only: return the rows whose cell in `column` matches a predicate, so
+      # the agent can target rename_unit / merge_units / update_cell / extract_cells
+      # precisely instead of paging the whole table.
+      from app.services.reextraction_service import _is_empty_cell_value
+
+      column = (args.get("column") or "").strip()
+      if not column:
+          raise ValueError("'column' is required.")
+      match = (args.get("match") or "empty").strip().lower()
+      if match not in ("empty", "filled", "equals", "contains"):
+          raise ValueError("match must be one of: empty, filled, equals, contains.")
+      value = args.get("value")
+      if match in ("equals", "contains") and not (isinstance(value, str) and value.strip()):
+          raise ValueError(f"match '{match}' requires a non-empty 'value'.")
+      try:
+          limit = int(args.get("limit") or 50)
+      except (TypeError, ValueError):
+          limit = 50
+      limit = max(1, min(limit, 500))
+
+      def cell_text(v: Any) -> str:
+          if isinstance(v, dict):
+              answer = v.get("answer")
+              return answer if isinstance(answer, str) else ("" if answer is None else str(answer))
+          if v is None:
+              return ""
+          return v if isinstance(v, str) else str(v)
+
+      needle = value.strip().lower() if isinstance(value, str) else ""
+      rows = await self._load_table_rows(session_id)
+      matches: list[dict[str, Any]] = []
+      total_matched = 0
+      for row in rows:
+          v = (row.get("data") or {}).get(column)
+          if match == "empty":
+              ok = _is_empty_cell_value(v)
+          elif match == "filled":
+              ok = not _is_empty_cell_value(v)
+          elif match == "equals":
+              ok = cell_text(v).strip().lower() == needle
+          else:  # contains
+              ok = needle in cell_text(v).lower()
+          if ok:
+              total_matched += 1
+              if len(matches) < limit:
+                  matches.append(
+                      {
+                          "row": row.get("row_name") or row.get("unit_name"),
+                          "value": cell_text(v) or None,
+                      }
+                  )
+
+      return {
+          "column": column,
+          "match": match,
+          "value": value,
+          "count": total_matched,
+          "returned": len(matches),
+          "rows": matches,
+          "truncated": total_matched > len(matches),
+      }
+
   async def _handle_list_skipped_documents(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
