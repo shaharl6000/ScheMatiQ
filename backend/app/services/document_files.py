@@ -50,26 +50,47 @@ async def gather_source_documents(session, session_id: str) -> List[Tuple[str, b
     Order mirrors the viewer: local files first, then the session's cloud dataset
     in Supabase storage. Documents that cannot be located are silently skipped
     (the bundle still imports; those previews simply stay unavailable).
+
+    Row-backed documents (``get_source_documents``) are only part of the story: a
+    document that was skipped during extraction has no rows, and a file the user
+    re-attached via "Show source document" lands on disk without necessarily being
+    referenced by a row. Both must still travel inside the bundle so a re-imported
+    project can preview them and re-run discovery against them. We therefore also
+    include the session's skipped-document names (for cloud lookup) and sweep the
+    local document dirs for any on-disk file not already gathered.
     """
     try:
         names = [d["name"] for d in unit_view_service.get_source_documents(session_id)]
     except Exception:
         names = []
 
+    # Skipped documents have no rows, so append their names too (deduped below).
+    try:
+        stats = getattr(session, "statistics", None)
+        for skipped in (stats.skipped_documents if stats and stats.skipped_documents else []):
+            doc_name = getattr(skipped, "document", None)
+            if doc_name:
+                names.append(doc_name)
+    except Exception:
+        pass
+
     out: List[Tuple[str, bytes]] = []
-    seen: set = set()
+    seen_stems: set = set()
     cloud_dataset = getattr(session.metadata, "cloud_dataset", None)
     storage = None
 
+    def _record(filename: str, content: bytes) -> None:
+        out.append((filename, content))
+        seen_stems.add(Path(filename).stem.lower())
+
     for name in names:
-        if not name or name in seen:
+        if not name or Path(name).stem.lower() in seen_stems:
             continue
-        seen.add(name)
 
         local = _find_local_document(session_id, name)
         if local is not None:
             try:
-                out.append((local.name, local.read_bytes()))
+                _record(local.name, local.read_bytes())
                 continue
             except Exception:
                 pass
@@ -82,6 +103,24 @@ async def gather_source_documents(session, session_id: str) -> List[Tuple[str, b
             except Exception:
                 content = None
             if content:
-                out.append((name, content))
+                _record(name, content)
+
+    # Sweep the local document dirs for any on-disk file not yet gathered. This
+    # captures re-attached originals and skipped documents whose files exist
+    # locally but are not referenced by any row.
+    for base in candidate_data_dirs():
+        for sub in ("documents", "pending_documents"):
+            doc_dir = base / session_id / sub
+            if not doc_dir.is_dir():
+                continue
+            for f in sorted(doc_dir.iterdir()):
+                if not f.is_file() or f.name.startswith("."):
+                    continue
+                if f.stem.lower() in seen_stems:
+                    continue
+                try:
+                    _record(f.name, f.read_bytes())
+                except Exception:
+                    pass
 
     return out
