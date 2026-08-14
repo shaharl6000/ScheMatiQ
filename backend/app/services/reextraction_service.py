@@ -1134,22 +1134,44 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if rows:
             scoped_rows = [r.strip() for r in rows if isinstance(r, str) and r.strip()] or None
 
+        # Previously-skipped documents have no rows yet, so the empty-cell scan
+        # finds nothing for them. Re-including a skipped document is a
+        # re-discovery ("create rows"), not a gap-fill, so it must survive the
+        # only_empty narrowing below instead of being treated as "nothing to do".
+        skipped_scope: Set[str] = set()
+        if scoped_documents:
+            all_skipped = {
+                Path(s.document).stem
+                for s in (
+                    session.statistics.skipped_documents
+                    if session and session.statistics and session.statistics.skipped_documents
+                    else []
+                )
+            }
+            skipped_scope = {d for d in scoped_documents if d in all_skipped}
+
         if only_empty:
             empty_columns, docs_with_empties = self._find_empty_target_cells(
                 session_id, resolved, scoped_documents, scoped_rows
             )
             if empty_columns is not None:
-                if not empty_columns:
+                if not empty_columns and not skipped_scope:
                     raise ValueError(
                         "No empty cells to fill in the selected scope."
                     )
                 # Narrow the extraction to columns/documents that actually have
                 # gaps (cost). The merge guard enforces the empty-only rule.
-                resolved = [c for c in resolved if c in empty_columns]
+                # Skipped documents in scope are kept regardless: they have no
+                # rows to compare against and are re-discovered from scratch.
+                if empty_columns:
+                    resolved = [c for c in resolved if c in empty_columns]
                 if scoped_documents is None:
                     scoped_documents = sorted(docs_with_empties)
                 else:
-                    scoped_documents = [d for d in scoped_documents if d in docs_with_empties]
+                    scoped_documents = [
+                        d for d in scoped_documents
+                        if d in docs_with_empties or d in skipped_scope
+                    ]
 
         availability = await self.precheck_document_availability(
             session_id,
