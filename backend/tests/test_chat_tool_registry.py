@@ -44,3 +44,12 @@ def test_function_declarations_skip_unavailable():
     declarations = to_function_declarations(tools)
     names = {decl.name for decl in declarations}
     assert "web_search" not in names
+
+
+def test_load_mode_includes_rediscover_but_schematiq_does_not():
+    """rediscover is the load-mode path to re-evaluate skipped documents; in
+    schematiq mode run_schematiq/reextract already cover that, so it is hidden."""
+    load = {t.name for t in get_tools_for_context("session-1", "load")}
+    sch = {t.name for t in get_tools_for_context("session-1", "schematiq")}
+    assert "rediscover" in load
+    assert "rediscover" not in sch

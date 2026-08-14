@@ -699,6 +699,31 @@ def _all_tools() -> list[ToolSpec]:
             handler="reprocess",
         ),
         ToolSpec(
+            name="rediscover",
+            description=(
+                "Re-run schema and observation-unit discovery for an IMPORTED "
+                "project from its source documents (expensive). Unlike `reprocess`, "
+                "this DOES re-evaluate documents that were previously skipped, so "
+                "it is the way to pull a skipped document into the table once its "
+                "source file is available and/or the observation unit has been "
+                "updated to match it (call edit_observation_unit first if the unit "
+                "does not fit the document). It re-runs discovery over the whole "
+                "project — schema and rows are rebuilt from scratch — so always "
+                "confirm with the user before running it. Requires the source "
+                "documents to be available; if they are not, tell the user to "
+                "re-attach the originals via \"Show source document\" first, then "
+                "retry. Only for imported (load) sessions."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+            cost_class="expensive",
+            handler="rediscover",
+            session_modes=("load",),
+        ),
+        ToolSpec(
             name="web_search",
             description="Search the web for external information (planned, not yet available).",
             parameters={
@@ -840,5 +865,6 @@ def tool_running_label(tool_name: str) -> str:
         "extract_cells": "Filling cells",
         "continue_discovery": "Starting continue discovery",
         "reprocess": "Starting reprocessing",
+        "rediscover": "Rediscovering schema",
     }
     return labels.get(tool_name, f"Running {tool_name}")

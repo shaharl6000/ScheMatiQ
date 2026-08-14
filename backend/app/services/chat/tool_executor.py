@@ -1126,6 +1126,95 @@ class ToolExecutor:
           raise
       return result
 
+  async def _handle_rediscover(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Chat entry point for imported (UPLOAD) schema rediscovery. Mirrors the
+      # sequence in POST /load/rediscover exactly (that endpoint backs the
+      # workspace "Rediscover schema" button); the only difference is that we
+      # surface gate failures as ValueError (the chat executor renders them as
+      # tool errors) and spawn the pipeline as an asyncio task instead of via
+      # FastAPI BackgroundTasks. Unlike reprocess, rediscovery re-evaluates
+      # previously-skipped documents, so it is the path for pulling a skipped
+      # document into the table.
+      from app.core.config import RELEASE_CONFIG
+      from app.models.schematiq import ScheMatiQConfig, LLMConfig
+
+      set_session_context(session_id)
+      session = session_manager.get_session(session_id)
+      if not session:
+          raise ValueError("Session not found.")
+      if session.type != SessionType.UPLOAD:
+          raise ValueError(
+              "Rediscovery is only available for imported projects."
+          )
+      if not session.observation_unit:
+          raise ValueError(
+              "This project has no observation unit configured. Set one before "
+              "rediscovering."
+          )
+
+      # Same availability gate the UI button and /load/rediscover use: rediscovery
+      # is only meaningful if the project's rows resolve to real source documents
+      # (local pending_documents/documents, or the session's cloud dataset).
+      paper_discovery = await reextraction_service.discover_papers(session_id)
+      availability = await reextraction_service.precheck_document_availability(
+          session_id,
+          operation_type="reextraction",
+          paper_discovery=paper_discovery,
+      )
+      if not availability.get("can_proceed", False):
+          raise ValueError(
+              "No source documents are available for this project. Open a row and "
+              'use "Show source document" to re-attach the original files, then '
+              "try again."
+          )
+
+      if not DEVELOPER_MODE:
+          schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
+
+      # docs_path is left unset: resolve_docs_paths() auto-detects session-local
+      # pending_documents/documents before falling back to it, which is exactly
+      # where an imported project's (re-attached) files live.
+      config = ScheMatiQConfig(
+          query=session.schema_query or "",
+          docs_path=None,
+          schema_creation_backend=LLMConfig(
+              provider=RELEASE_CONFIG["llm_provider"],
+              model=RELEASE_CONFIG["schema_creation_model"],
+              temperature=RELEASE_CONFIG["llm_temperature"],
+          ),
+          value_extraction_backend=LLMConfig(
+              provider=RELEASE_CONFIG["llm_provider"],
+              model=RELEASE_CONFIG["value_extraction_model"],
+              temperature=RELEASE_CONFIG["llm_temperature"],
+          ),
+          output_path="outputs/rediscovered_output.json",
+      )
+      await schematiq_runner.save_config(session_id, config)
+
+      # Mark this run as an observation-unit rediscovery so prepare_resume clears
+      # prior schema/data artifacts and seeds initial_observation_unit from
+      # session.observation_unit, exactly like the SCHEMATIQ-session flow.
+      session = session_manager.get_session(session_id)
+      session.metadata.pending_observation_unit_rediscovery = True
+      session_manager.update_session(session)
+
+      await concurrency_limiter.acquire(session_id, "schematiq")
+      try:
+          await schematiq_runner.prepare_resume(session_id)
+      except Exception:
+          await concurrency_limiter.release(session_id)
+          raise
+      asyncio.create_task(self._run_schematiq_task(session_id))
+      return {
+          "status": "started",
+          "message": (
+              "Schema rediscovery started. Previously-skipped documents will be "
+              "re-evaluated under the current observation unit."
+          ),
+      }
+
   async def _handle_web_search(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
