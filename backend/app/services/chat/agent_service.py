@@ -22,6 +22,7 @@ from .session_store import ChatSessionState, PendingToolCall, chat_session_store
 from .tool_executor import tool_executor
 from .tool_registry import (
     TOOL_BY_NAME,
+    available_tools_prompt_addendum,
     get_tools_for_context,
     to_function_declarations,
     tool_running_label,
@@ -426,7 +427,7 @@ class ChatAgentService:
             tool_config=types.ToolConfig(
                 function_calling_config=types.FunctionCallingConfig(mode="AUTO"),
             ),
-            system_instruction=CHAT_SYSTEM_PROMPT,
+            system_instruction=CHAT_SYSTEM_PROMPT + available_tools_prompt_addendum(tools),
         )
         client = self._get_genai_client()
         resolved_model = model or CHAT_MODEL

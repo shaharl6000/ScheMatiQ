@@ -770,6 +770,32 @@ def to_public_tool_list(tools: list[ToolSpec]) -> list[dict[str, Any]]:
     ]
 
 
+def available_tools_prompt_addendum(tools: list[ToolSpec]) -> str:
+    """A mode-aware system-prompt footer naming the tools that are callable now.
+
+    The static chat system prompt names tools (reextract, extract_cells,
+    run_schematiq, continue_discovery, ...) that ``get_tools_for_context``
+    filters out in load mode, because imported/load sessions have no source
+    documents to extract from. Without this footer the model follows the static
+    prompt and offers such a tool, then contradicts itself when the call turns
+    out to be unavailable. Built from the SAME tool list as
+    ``to_function_declarations`` (only ``available`` tools are callable) so the
+    advertised set can never drift from what the model can actually call.
+    """
+    names = sorted(tool.name for tool in tools if tool.available)
+    if not names:
+        return ""
+    return (
+        "\n\nTools available in THIS session: "
+        + ", ".join(names)
+        + ".\nUse and offer ONLY these tools. If a request would require a tool "
+        "that is not listed here — for example re-running extraction or "
+        "rediscovering the schema in an imported (load) session, which has no "
+        "source documents — tell the user plainly that it is not available in "
+        "this session instead of offering or attempting it."
+    )
+
+
 def to_function_declarations(tools: list[ToolSpec]) -> list[Any]:
     if types is None:
         raise ImportError("google-genai is required for function declarations")
