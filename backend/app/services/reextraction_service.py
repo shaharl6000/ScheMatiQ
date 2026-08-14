@@ -1041,6 +1041,52 @@ class ReextractionService(WebSocketBroadcasterMixin):
             return None, None
         return empty_columns, docs_with_empties
 
+    def _scoped_documents_availability(
+        self,
+        session_id: str,
+        scoped_stems: List[str],
+        availability: Dict[str, Any],
+    ) -> Dict[str, List[str]]:
+        """Split a document-scoped run's targets into available vs. missing.
+
+        A whole-project availability precheck fails as soon as *any* of the
+        project's documents is unreachable, which wrongly blocks a run that only
+        targets a specific document (e.g. ``extract_cells`` on a single skipped
+        file). When a scope is requested we only care whether the *scoped*
+        documents are reachable.
+
+        A scoped stem counts as available when either:
+          - a matching file exists on disk in one of the session's document
+            directories (matched by name or stem — this is what a re-attach via
+            "Show source document" writes to ``pending_documents/``), or
+          - the whole-project precheck already classified it local or cloud.
+
+        Returns ``{"available": [...], "missing": [...]}`` of stems.
+        """
+        wanted = {s for s in scoped_stems if s}
+
+        # Stems the whole-project precheck already found (by stem, tolerating
+        # ".txt"/extension differences between the row reference and the file).
+        reachable: Set[str] = set()
+        for bucket in ("local_documents", "cloud_documents"):
+            for doc in availability.get(bucket) or []:
+                name = doc.get("name")
+                if name:
+                    reachable.add(Path(name).stem)
+
+        # On-disk files (covers skipped documents with no rows and freshly
+        # re-attached originals, which the row-based precheck never sees).
+        for local_dir in self._get_session_document_dirs(session_id):
+            if not local_dir.exists():
+                continue
+            for f in local_dir.iterdir():
+                if f.is_file() and not f.name.startswith('.'):
+                    reachable.add(f.stem)
+
+        available = sorted(s for s in wanted if s in reachable)
+        missing = sorted(s for s in wanted if s not in reachable)
+        return {"available": available, "missing": missing}
+
     async def start_gated_reextraction(
         self,
         session_id: str,
@@ -1110,7 +1156,24 @@ class ReextractionService(WebSocketBroadcasterMixin):
             operation_type="reextraction",
             paper_discovery=paper_discovery,
         )
-        if not availability.get("can_proceed", False):
+        if scoped_documents:
+            # Document-scoped run (e.g. extract_cells on a single skipped file):
+            # gate only on the requested documents, not the whole project, so a
+            # targeted re-extraction is not blocked by unrelated documents that
+            # happen to be unreachable. A skipped document re-attached via "Show
+            # source document" lands on disk and is picked up here.
+            scoped_avail = self._scoped_documents_availability(
+                session_id, scoped_documents, availability
+            )
+            scoped_missing = scoped_avail["missing"]
+            if scoped_missing:
+                raise ValueError(
+                    f"{len(scoped_missing)} source document(s) are unavailable: "
+                    f"{', '.join(scoped_missing)}. Open a row from one of them and "
+                    "use \"Show source document\" to re-attach the file, then try "
+                    "again."
+                )
+        elif not availability.get("can_proceed", False):
             missing = availability.get("missing_documents") or []
             if missing:
                 raise ValueError(
