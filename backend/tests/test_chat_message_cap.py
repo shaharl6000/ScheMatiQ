@@ -20,6 +20,20 @@ from app.services.chat.agent_service import (
 from app.services.chat.session_store import chat_session_store
 
 
+@pytest.fixture(autouse=True)
+def _isolate_chat_store():
+    """Reset the process-wide chat store between tests.
+
+    send_message now reattaches to the one live chat for a workspace session
+    (ChatSessionStore.get_by_workspace_session), so a chat left in the singleton
+    by an earlier test would otherwise be reused here — routing this test's turns
+    to a chat the local fake never recorded. Clearing keeps each test isolated.
+    """
+    chat_session_store._sessions.clear()
+    yield
+    chat_session_store._sessions.clear()
+
+
 class _FakeResponse:
     function_calls: list = []
     text = "done"

@@ -74,6 +74,18 @@ MESSAGE_CAP_CHAT_MESSAGE = (
     "raised."
 )
 
+# The durable source of truth for a conversation is a persisted turn log; the
+# Gemini chat object is a transient cache rebuilt from it after a restart. The
+# transcript lives in its own per-session file (not the session blob, which is
+# rewritten whole on every unrelated edit), matching the existing data.jsonl
+# convention: the `data` bucket keyed by session id.
+CHAT_HISTORY_BUCKET = "data"
+CHAT_HISTORY_VERSION = 1
+
+
+def _chat_history_path(session_id: str) -> str:
+    return f"{session_id}/chat_history.json"
+
 
 class ChatAgentService:
     def __init__(self) -> None:
@@ -214,7 +226,9 @@ class ChatAgentService:
         pinned_tool: Optional[str] = None,
         model: Optional[str] = None,
     ) -> dict[str, Any]:
-        state = self._get_or_create_session(session_id, session_mode, chat_id, model)
+        state = await self._get_or_create_session(
+            session_id, session_mode, chat_id, model
+        )
         outbound_messages: list[dict[str, Any]] = []
         # Enforced before the pending-action handling and the quota check, so a
         # capped session does no Gemini work at all. Creating the chat session
@@ -254,6 +268,8 @@ class ChatAgentService:
         try:
             await self._ensure_quota_available()
             result = await self._run_loop(state, user_text, outbound_messages)
+            if result["status"] == "complete":
+                await self._persist_history(state)
             return {
                 "chat_id": state.chat_id,
                 "status": result["status"],
@@ -276,8 +292,12 @@ class ChatAgentService:
             if self._is_stale_chat_error(exc) and chat_id:
                 logger.warning("Stale chat session %s, starting fresh: %s", chat_id, exc)
                 chat_session_store.delete(chat_id)
-                state = self._get_or_create_session(session_id, session_mode, None, model)
+                state = await self._get_or_create_session(
+                    session_id, session_mode, None, model
+                )
                 result = await self._run_loop(state, user_text, outbound_messages)
+                if result["status"] == "complete":
+                    await self._persist_history(state)
                 return {
                     "chat_id": state.chat_id,
                     "status": result["status"],
@@ -360,6 +380,8 @@ class ChatAgentService:
 
             response = await self._send_function_response(state, pending, tool_result)
             loop_result = await self._continue_after_tool(state, response, outbound_messages)
+            if loop_result["status"] == "complete":
+                await self._persist_history(state)
             return {
                 "chat_id": chat_id,
                 "status": loop_result["status"],
@@ -388,6 +410,8 @@ class ChatAgentService:
             state,
             reason="User declined confirmation.",
         )
+        if not new_pending:
+            await self._persist_history(state)
         await self._flush_llm_usage(state)
         return {
             "chat_id": chat_id,
@@ -430,7 +454,7 @@ class ChatAgentService:
             )
         return outbound_messages, None
 
-    def _get_or_create_session(
+    async def _get_or_create_session(
         self,
         session_id: str,
         session_mode: str,
@@ -442,7 +466,25 @@ class ChatAgentService:
             if existing and existing.workspace_session_id == session_id:
                 return existing
 
-        client, chat = self._create_gemini_chat(session_id, session_mode, model)
+        # Cache miss. Before building a brand-new empty chat, reattach to the one
+        # live chat for this workspace session if it is still in memory — a client
+        # that refreshed (dropping its chat_id) or sent a stale id must not silently
+        # start a second conversation for the same project.
+        existing = chat_session_store.get_by_workspace_session(session_id)
+        if existing:
+            return existing
+
+        # Nothing in memory (first turn, or the store was emptied by a redeploy):
+        # restore the persisted transcript so the model continues with full context
+        # instead of starting from zero. Restore is best-effort and only ever adds
+        # context — a missing/opted-out/unreadable transcript falls back to empty.
+        restored = await self._load_history(session_id)
+        if restored:
+            client, chat = self._create_gemini_chat(
+                session_id, session_mode, model, history=restored
+            )
+        else:
+            client, chat = self._create_gemini_chat(session_id, session_mode, model)
         state = ChatSessionState(
             client=client,
             chat=chat,
@@ -469,7 +511,11 @@ class ChatAgentService:
         return self._genai_client
 
     def _create_gemini_chat(
-        self, session_id: str, session_mode: str, model: Optional[str] = None
+        self,
+        session_id: str,
+        session_mode: str,
+        model: Optional[str] = None,
+        history: Optional[list[Any]] = None,
     ) -> tuple[Any, Any]:
         from google.genai import types
 
@@ -491,8 +537,122 @@ class ChatAgentService:
         client = self._get_genai_client()
         resolved_model = model or CHAT_MODEL
         logger.info("Chat session using model: %s", resolved_model)
-        chat = client.aio.chats.create(model=resolved_model, config=config)
+        chat = client.aio.chats.create(
+            model=resolved_model, config=config, history=history or None
+        )
         return client, chat
+
+    @staticmethod
+    def _get_storage() -> Any:
+        """Return the process-wide storage backend (local or Supabase)."""
+        from app.storage import get_storage
+
+        return get_storage()
+
+    @staticmethod
+    def _history_opted_out(session_id: str) -> bool:
+        """Whether persisting this session's transcript is disallowed.
+
+        Persisting a transcript is a new form of retention, so it is gated by the
+        same ``opt_out_data_collection`` flag that already governs research
+        archival. If opt-out cannot be determined, we treat the session as opted
+        out — the privacy-conservative choice, and consistent with persistence
+        being strictly best-effort.
+        """
+        try:
+            session = session_manager.get_session(session_id)
+            return bool(session and session.opt_out_data_collection)
+        except Exception:
+            logger.debug(
+                "could not read opt-out for session %s; skipping chat persistence",
+                session_id,
+                exc_info=True,
+            )
+            return True
+
+    @staticmethod
+    def _serialize_history(history: list[Any]) -> list[dict[str, Any]]:
+        """Serialize the SDK's live history (``list[types.Content]``) to dicts.
+
+        A turn that cannot be serialized is dropped rather than failing the whole
+        write; restore can only ever add context, never remove function.
+        """
+        turns: list[dict[str, Any]] = []
+        for content in history or []:
+            try:
+                turns.append(content.model_dump(mode="json", exclude_none=True))
+            except Exception:
+                logger.debug(
+                    "skipping non-serializable chat history turn", exc_info=True
+                )
+        return turns
+
+    @staticmethod
+    def _deserialize_history(turns: list[dict[str, Any]]) -> list[Any]:
+        """Rebuild ``list[types.Content]`` from persisted dicts.
+
+        Each turn is validated independently so one malformed entry (e.g. written
+        by a different ``google-genai`` version) is skipped instead of discarding
+        the whole restored conversation.
+        """
+        from google.genai import types
+
+        restored: list[Any] = []
+        for turn in turns or []:
+            try:
+                restored.append(types.Content.model_validate(turn))
+            except Exception:
+                logger.debug("skipping malformed persisted chat turn", exc_info=True)
+        return restored
+
+    async def _load_history(self, session_id: str) -> list[Any]:
+        """Restore a session's SDK history, or ``[]`` when absent/opted-out.
+
+        Best-effort: any read or parse failure falls back to an empty history
+        (today's behavior), so a restore can only add context, never break chat.
+        """
+        try:
+            if self._history_opted_out(session_id):
+                return []
+            payload = await self._get_storage().download_json(
+                CHAT_HISTORY_BUCKET, _chat_history_path(session_id)
+            )
+            if not isinstance(payload, dict):
+                return []
+            turns = payload.get("turns")
+            if not turns:
+                return []
+            return self._deserialize_history(turns)
+        except Exception as exc:
+            logger.warning(
+                "could not restore chat history for session %s: %s", session_id, exc
+            )
+            return []
+
+    async def _persist_history(self, state: ChatSessionState) -> None:
+        """Write the chat's current history to storage (best-effort, gated).
+
+        Mirrors ``_record_message_used``: a failed write logs and continues so a
+        storage hiccup never breaks the user's turn. Gated on opt-out. Callers
+        invoke this only after a turn has settled (no dangling function call), so
+        a restored history never ends on an unanswered tool request.
+        """
+        session_id = state.workspace_session_id
+        try:
+            if self._history_opted_out(session_id):
+                return
+            history = state.chat.get_history()
+            payload = {
+                "version": CHAT_HISTORY_VERSION,
+                "turns": self._serialize_history(history),
+            }
+            await self._get_storage().upload_json(
+                CHAT_HISTORY_BUCKET, _chat_history_path(session_id), payload
+            )
+        except Exception as exc:
+            logger.warning(
+                "could not persist chat history for session %s: %s", session_id, exc
+            )
 
     async def _emit(
         self,
