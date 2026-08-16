@@ -34,6 +34,9 @@ EXPECTED_EXPENSIVE = {
     "extract_cells",
     "continue_discovery",
     "reprocess",
+    # Full schema rediscovery from chat: rebuilds schema + rows across the whole
+    # project, so it must stay behind the confirmation gate.
+    "rediscover",
 }
 
 
@@ -86,7 +89,9 @@ def test_extraction_tools_unlocked_in_load_mode_when_capable() -> None:
     load_capable = {
         t.name for t in get_tools_for_context("s1", "load", extraction_capable=True)
     }
-    assert {"reextract", "extract_cells"} <= load_capable
+    # rediscover (full schema rebuild that re-evaluates skipped documents) is
+    # document-gated too, so it unlocks alongside reextract/extract_cells.
+    assert {"reextract", "extract_cells", "rediscover"} <= load_capable
     # run_schematiq (its handler hard-requires a SCHEMATIQ session) and
     # continue_discovery (separate service, not yet document-gated) are NOT
     # flagged requires_documents, so they stay hidden even when capable.
@@ -98,7 +103,7 @@ def test_extraction_tools_stay_hidden_in_load_mode_without_documents() -> None:
     # behaves exactly as before: no extraction tools. This is the strict
     # subset that guarantees no behavior change for existing doc-less imports.
     load_incapable = {t.name for t in get_tools_for_context("s1", "load")}
-    assert {"reextract", "extract_cells"}.isdisjoint(load_incapable)
+    assert {"reextract", "extract_cells", "rediscover"}.isdisjoint(load_incapable)
     assert get_tools_for_context("s1", "load") == get_tools_for_context(
         "s1", "load", extraction_capable=False
     )

@@ -705,6 +705,34 @@ def _all_tools() -> list[ToolSpec]:
             handler="reprocess",
         ),
         ToolSpec(
+            name="rediscover",
+            description=(
+                "Re-run full schema and observation-unit discovery from the "
+                "source documents (expensive). This rebuilds the schema and "
+                "re-discovers rows across the WHOLE project from scratch under "
+                "the current observation unit, so — unlike reextract/reprocess — "
+                "it re-evaluates documents that were previously skipped. Use it "
+                "to pull a skipped document into the table, or after "
+                "edit_observation_unit when the unit definition changed and the "
+                "table should be rebuilt to match. Because it discards the "
+                "current schema and rows and re-extracts everything, always "
+                "confirm with the user first. Requires the source documents to "
+                "be available; if they are not, tell the user to re-attach the "
+                "originals via \"Show source document\" first, then retry."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+            cost_class="expensive",
+            handler="rediscover",
+            # Same gating as reextract/extract_cells: offered in schematiq always,
+            # and in load mode once source documents are available.
+            session_modes=("schematiq",),
+            requires_documents=True,
+        ),
+        ToolSpec(
             name="web_search",
             description="Search the web for external information (planned, not yet available).",
             parameters={
@@ -863,5 +891,6 @@ def tool_running_label(tool_name: str) -> str:
         "extract_cells": "Filling cells",
         "continue_discovery": "Starting continue discovery",
         "reprocess": "Starting reprocessing",
+        "rediscover": "Rediscovering schema",
     }
     return labels.get(tool_name, f"Running {tool_name}")

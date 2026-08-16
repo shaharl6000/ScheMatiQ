@@ -1126,6 +1126,109 @@ class ToolExecutor:
           raise
       return result
 
+  async def _handle_rediscover(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      # Full schema + observation-unit rediscovery from chat. Mirrors the proven
+      # POST /load/rediscover sequence (which backs the workspace "Rediscover
+      # schema" button): set pending_observation_unit_rediscovery so
+      # prepare_resume clears prior schema/data and re-seeds the observation
+      # unit, then run the pipeline — which re-evaluates previously-skipped
+      # documents. Differences from the route: gate failures surface as
+      # ValueError (rendered as a tool error), and the run is spawned as an
+      # asyncio task instead of via FastAPI BackgroundTasks.
+      #
+      # Works for both session types. The only mode-specific step is the config:
+      # a SCHEMATIQ session already has a runnable config.json from
+      # /schematiq/configure and must NOT have it overwritten with defaults; an
+      # UPLOAD session has none, so we synthesize one exactly like the route.
+      from app.core.config import RELEASE_CONFIG
+      from app.models.schematiq import ScheMatiQConfig, LLMConfig
+      from schematiq.core.llm_call_tracker import QuotaExceededError
+
+      set_session_context(session_id)
+      session = session_manager.get_session(session_id)
+      if not session:
+          raise ValueError("Session not found.")
+      if not session.observation_unit:
+          raise ValueError(
+              "This project has no observation unit configured. Set one "
+              "(edit_observation_unit) before rediscovering."
+          )
+
+      # Same availability gate reextraction and /load/rediscover use. The tool is
+      # only advertised when the session looks extraction-capable, but that
+      # signal is local-disk only, so re-check the authoritative predicate
+      # (local + cloud) here before starting an expensive run.
+      paper_discovery = await reextraction_service.discover_papers(session_id)
+      availability = await reextraction_service.precheck_document_availability(
+          session_id,
+          operation_type="reextraction",
+          paper_discovery=paper_discovery,
+      )
+      if not availability.get("can_proceed", False):
+          raise ValueError(
+              "No source documents are available for this project. Open a row and "
+              'use "Show source document" to re-attach the original files, then '
+              "try again."
+          )
+
+      if not DEVELOPER_MODE:
+          try:
+              schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
+          except QuotaExceededError as exc:
+              from app.core.email_alerts import send_quota_exceeded_alert
+              send_quota_exceeded_alert(total_used=exc.used)
+              raise ValueError(
+                  "The global usage limit has been reached. Please try again later."
+              ) from exc
+
+      if session.type == SessionType.UPLOAD:
+          # Imported session: no runnable config.json exists, so synthesize one
+          # (docs_path unset — resolve_docs_paths auto-detects the session-local
+          # pending_documents/documents where imported files live).
+          config = ScheMatiQConfig(
+              query=session.schema_query or "",
+              docs_path=None,
+              schema_creation_backend=LLMConfig(
+                  provider=RELEASE_CONFIG["llm_provider"],
+                  model=RELEASE_CONFIG["schema_creation_model"],
+                  temperature=RELEASE_CONFIG["llm_temperature"],
+              ),
+              value_extraction_backend=LLMConfig(
+                  provider=RELEASE_CONFIG["llm_provider"],
+                  model=RELEASE_CONFIG["value_extraction_model"],
+                  temperature=RELEASE_CONFIG["llm_temperature"],
+              ),
+              output_path="outputs/rediscovered_output.json",
+          )
+          await schematiq_runner.save_config(session_id, config)
+      # else SCHEMATIQ: keep the existing config.json written by /schematiq/configure.
+
+      session = session_manager.get_session(session_id)
+      session.metadata.pending_observation_unit_rediscovery = True
+      session_manager.update_session(session)
+
+      try:
+          await schematiq_runner.prepare_resume(session_id)
+      except RuntimeError as e:
+          msg = str(e)
+          if "already has an active operation" in msg or "Timed out waiting" in msg:
+              raise ValueError(
+                  "The pipeline is still stopping. Wait a few seconds and try again."
+              ) from e
+          raise
+
+      asyncio.create_task(self._run_schematiq_task(session_id))
+      return {
+          "status": "started",
+          "message": (
+              "Schema rediscovery started. The schema and rows are being rebuilt "
+              "from the source documents under the current observation unit; "
+              "previously-skipped documents are re-evaluated."
+          ),
+      }
+
   async def _handle_web_search(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
