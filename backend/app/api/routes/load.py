@@ -996,8 +996,9 @@ async def rediscover_imported_session(session_id: str, background_tasks: Backgro
     does not make rediscovery possible for a session with no documents behind
     its data.
     """
-    from app.core.config import RELEASE_CONFIG, LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
-    from app.models.schematiq import ScheMatiQConfig, LLMConfig
+    from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
+    from app.models.schematiq import ScheMatiQConfig
+    from app.services.rediscovery_config import build_rediscovery_backends
     from schematiq.core.llm_call_tracker import QuotaExceededError
     # Both are module-level singletons constructed in routes/schematiq.py, shared
     # across the app the same way app.main imports schematiq_runner from there.
@@ -1043,22 +1044,18 @@ async def rediscover_imported_session(session_id: str, background_tasks: Backgro
                 raise HTTPException(status_code=429, detail=QUOTA_EXCEEDED_USER_MESSAGE)
 
         # Build a minimal, valid ScheMatiQConfig for this existing session.
+        # Prefer the project's persisted backends (restored on import from a
+        # complete export) so rediscovery uses the ORIGINAL models rather than
+        # RELEASE_CONFIG defaults; fall back to defaults for an older import.
         # docs_path is left unset: resolve_docs_paths() already auto-detects
         # session-local pending_documents/documents before falling back to it,
         # which is exactly where an imported project's bundled files live.
+        schema_backend, value_backend = build_rediscovery_backends(session, session_id)
         config = ScheMatiQConfig(
             query=session.schema_query or "",
             docs_path=None,
-            schema_creation_backend=LLMConfig(
-                provider=RELEASE_CONFIG["llm_provider"],
-                model=RELEASE_CONFIG["schema_creation_model"],
-                temperature=RELEASE_CONFIG["llm_temperature"],
-            ),
-            value_extraction_backend=LLMConfig(
-                provider=RELEASE_CONFIG["llm_provider"],
-                model=RELEASE_CONFIG["value_extraction_model"],
-                temperature=RELEASE_CONFIG["llm_temperature"],
-            ),
+            schema_creation_backend=schema_backend,
+            value_extraction_backend=value_backend,
             output_path="outputs/rediscovered_output.json",
         )
         await schematiq_runner.save_config(session_id, config)
