@@ -385,22 +385,48 @@ class FileParser:
         else:
             raise ValueError("Unsupported file format")
 
-        # Save documents_batch_size to schematiq_config.json if present (for loaded exports)
+        # Restore pipeline config from a complete export into schematiq_config.json,
+        # so a re-imported project is genuinely extraction-capable without the
+        # server synthesizing a config from RELEASE_CONFIG defaults at rediscover
+        # time. Only fields the export already carries are restored: the batch
+        # size, both LLM backends (from llm_configuration), and the query. This is
+        # the exact file and key shape the re-extraction path reads
+        # (ReextractionService._get_llm_from_session, "schematiq_config.json"
+        # priority) and that a later complete re-export reads back, so it
+        # round-trips. Backward compatible: absent fields are simply not written,
+        # and a malformed block never fails the import.
+        extracted_meta = result.get("extracted_metadata") or {}
+        imported_llm_config = extracted_meta.get("llm_config") or {}
+        config_updates: Dict[str, Any] = {}
         if result.get("documents_batch_size") is not None:
+            config_updates["documents_batch_size"] = result["documents_batch_size"]
+        if isinstance(imported_llm_config, dict):
+            for backend_key in ("schema_creation_backend", "value_extraction_backend"):
+                backend = imported_llm_config.get(backend_key)
+                if backend:
+                    config_updates[backend_key] = backend
+        if extracted_meta.get("query"):
+            config_updates["query"] = extracted_meta["query"]
+
+        if config_updates:
             schematiq_config_file = session_dir / "schematiq_config.json"
             try:
-                # Load existing config or create new one
+                # Load existing config or create new one, then merge the restored
+                # fields (the export is authoritative for a freshly imported session).
                 if schematiq_config_file.exists():
                     with open(schematiq_config_file) as f:
                         config = json.load(f)
                 else:
                     config = {}
-                config["documents_batch_size"] = result["documents_batch_size"]
+                config.update(config_updates)
                 with open(schematiq_config_file, 'w') as f:
                     json.dump(config, f, indent=2)
-                logger.debug("Saved documents_batch_size=%s to schematiq_config.json", result['documents_batch_size'])
+                logger.debug(
+                    "Restored pipeline config on import: keys=%s",
+                    sorted(config_updates.keys()),
+                )
             except Exception as e:
-                logger.debug("Could not save documents_batch_size to config: %s", e)
+                logger.debug("Could not persist imported config to schematiq_config.json: %s", e)
 
         return result
     
