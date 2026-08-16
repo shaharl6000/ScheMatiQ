@@ -165,6 +165,39 @@ async def test_confirm_runs_the_pending_action(agent_with_fake_executor):
 
 
 @pytest.mark.asyncio
+async def test_confirm_reports_tool_failure_back_to_the_model(agent_with_fake_executor):
+    agent, executor = agent_with_fake_executor
+
+    async def fail_execute(tool_name, session_id, session_mode, args):
+        executor.executed.append((tool_name, args))
+        raise ValueError("source documents are unavailable")
+
+    executor.execute = fail_execute
+    chat = FakeChat([FakeResponse(text="Re-extraction did not start.")])
+    state = _make_state(chat)
+    state.pending = PendingToolCall(
+        tool_name="reprocess",
+        args={},
+        function_call_part=FakeFunctionCall("reprocess", {}),
+    )
+
+    result = await agent.confirm_pending(state.workspace_session_id, state.chat_id)
+
+    assert result["status"] == "complete"
+    assert executor.executed == [("reprocess", {})]
+    assert len(chat.sent) == 1  # the failed function result closed Gemini's turn
+    assert any(
+        message.get("role") == "tool" and message.get("tool_status") == "error"
+        for message in result["messages"]
+    )
+    assert any(
+        message.get("role") == "assistant"
+        and "did not start" in message.get("content", "")
+        for message in result["messages"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_confirm_without_pending_raises(agent_with_fake_executor):
     agent, _ = agent_with_fake_executor
     chat = FakeChat([])
