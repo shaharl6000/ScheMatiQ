@@ -21,6 +21,10 @@ class ChatSessionState:
     workspace_session_id: str
     session_mode: str
     chat_id: Optional[str] = None
+    # The resolved model the SDK chat was built with. A Gemini chat is bound to
+    # its model at creation, so this lets a reattach tell a plain refresh (same
+    # model -> reuse) from a model switch (different model -> rebuild).
+    model: Optional[str] = None
     pending: Optional[PendingToolCall] = None
     # Gemini calls made since the last quota flush (chat bypasses the
     # schematiq LLM backends, so calls are counted here explicitly).

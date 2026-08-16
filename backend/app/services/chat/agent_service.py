@@ -466,18 +466,28 @@ class ChatAgentService:
             if existing and existing.workspace_session_id == session_id:
                 return existing
 
+        resolved_model = model or CHAT_MODEL
+
         # Cache miss. Before building a brand-new empty chat, reattach to the one
         # live chat for this workspace session if it is still in memory — a client
         # that refreshed (dropping its chat_id) or sent a stale id must not silently
         # start a second conversation for the same project.
         existing = chat_session_store.get_by_workspace_session(session_id)
         if existing:
-            return existing
+            if existing.model == resolved_model:
+                return existing
+            # A Gemini chat is bound to its model at creation, so a live chat on a
+            # different model cannot honor a switch. The UI signals a switch by
+            # nulling chat_id, which lands here; drop the old chat and rebuild on
+            # the requested model below, carrying the conversation forward via
+            # restore. Keeps the one-chat-per-project invariant.
+            chat_session_store.delete(existing.chat_id)
 
-        # Nothing in memory (first turn, or the store was emptied by a redeploy):
-        # restore the persisted transcript so the model continues with full context
-        # instead of starting from zero. Restore is best-effort and only ever adds
-        # context — a missing/opted-out/unreadable transcript falls back to empty.
+        # Nothing reusable in memory (first turn, a redeploy emptied the store, or a
+        # model switch just dropped the old chat): restore the persisted transcript
+        # so the conversation continues with full context instead of starting from
+        # zero. Restore is best-effort and only ever adds context — a
+        # missing/opted-out/unreadable transcript falls back to empty.
         restored = await self._load_history(session_id)
         if restored:
             client, chat = self._create_gemini_chat(
@@ -490,6 +500,7 @@ class ChatAgentService:
             chat=chat,
             workspace_session_id=session_id,
             session_mode=session_mode,
+            model=resolved_model,
         )
         new_id = chat_session_store.create(state)
         state.chat_id = new_id
