@@ -478,6 +478,20 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         filenames.append(f.name)
         return filenames
 
+    def has_local_source_documents(self, session_id: str) -> bool:
+        """Cheap synchronous check: are any source documents present on disk?
+
+        Used by the chat tool gate to decide whether the document-backed
+        extraction tools should be offered in load mode, matching the frontend's
+        ``hasSourceDocuments`` rule. Local-only by design so it can run per
+        message; documents that live only in cloud storage are not seen here.
+        The downstream gated extraction path (``start_gated_reextraction``)
+        performs the full local+cloud availability precheck, so a tool offered
+        on this signal still fails with a clear message if the files turn out to
+        be unreachable — never a silent no-op.
+        """
+        return bool(self._collect_session_document_filenames(session_id))
+
     async def discover_papers(self, session_id: str) -> Dict[str, Any]:
         """
         Discover papers associated with table rows in storage.

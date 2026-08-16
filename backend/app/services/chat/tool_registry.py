@@ -25,6 +25,10 @@ class ToolSpec:
     requires_session: bool = True
     session_modes: tuple[str, ...] = ("schematiq", "load")
     hidden_in_load: bool = False
+    # Document-backed extraction tools: offered outside their declared
+    # session_modes (i.e. in load mode) only when the session's source documents
+    # are available. See get_tools_for_context's extraction_capable parameter.
+    requires_documents: bool = False
 
 
 EMPTY_PARAMS: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
@@ -584,6 +588,7 @@ def _all_tools() -> list[ToolSpec]:
             cost_class="expensive",
             handler="reextract",
             session_modes=("schematiq",),
+            requires_documents=True,
         ),
         ToolSpec(
             name="extract_cells",
@@ -643,6 +648,7 @@ def _all_tools() -> list[ToolSpec]:
             cost_class="expensive",
             handler="extract_cells",
             session_modes=("schematiq",),
+            requires_documents=True,
         ),
         ToolSpec(
             name="continue_discovery",
@@ -739,8 +745,21 @@ TOOL_BY_NAME: dict[str, ToolSpec] = {tool.name: tool for tool in _all_tools()}
 def get_tools_for_context(
     session_id: Optional[str],
     session_mode: str = "schematiq",
+    extraction_capable: bool = False,
 ) -> list[ToolSpec]:
-    """Return tools available for the current workspace context."""
+    """Return tools available for the current workspace context.
+
+    ``extraction_capable`` unlocks the document-backed extraction tools (those
+    flagged ``requires_documents``) outside their declared ``session_modes`` —
+    in practice, in ``load`` mode once the session's source documents are
+    available. This mirrors the frontend rule
+    ``canRediscoverSchema = sessionMode == 'schematiq' || hasSourceDocuments``:
+    the correct gate for extraction is document availability, not session type.
+
+    It defaults to ``False`` so every existing caller keeps today's mode-only
+    gating, and it affects ONLY ``requires_documents`` tools — every other tool
+    stays gated exactly as before.
+    """
     tools: list[ToolSpec] = []
     for tool in _all_tools():
         if not tool.available:
@@ -749,9 +768,13 @@ def get_tools_for_context(
             continue
         if tool.requires_session and not session_id:
             continue
-        if session_id and session_mode not in tool.session_modes:
+        # A document-backed extraction tool is offered outside its declared
+        # session_modes (and past hidden_in_load) only when the session is
+        # extraction-capable — i.e. load mode with source documents present.
+        doc_unlocked = tool.requires_documents and extraction_capable
+        if session_id and session_mode not in tool.session_modes and not doc_unlocked:
             continue
-        if session_id and session_mode == "load" and tool.hidden_in_load:
+        if session_id and session_mode == "load" and tool.hidden_in_load and not doc_unlocked:
             continue
         tools.append(tool)
     return tools
@@ -774,11 +797,11 @@ def available_tools_prompt_addendum(tools: list[ToolSpec]) -> str:
     """A mode-aware system-prompt footer naming the tools that are callable now.
 
     The static chat system prompt names tools (reextract, extract_cells,
-    run_schematiq, continue_discovery, ...) that ``get_tools_for_context``
-    filters out in load mode, because imported/load sessions have no source
-    documents to extract from. Without this footer the model follows the static
-    prompt and offers such a tool, then contradicts itself when the call turns
-    out to be unavailable. Built from the SAME tool list as
+    run_schematiq, continue_discovery, ...) that ``get_tools_for_context`` may
+    filter out for this session — e.g. extraction tools in a load session with
+    no source documents available. Without this footer the model follows the
+    static prompt and offers such a tool, then contradicts itself when the call
+    turns out to be unavailable. Built from the SAME tool list as
     ``to_function_declarations`` (only ``available`` tools are callable) so the
     advertised set can never drift from what the model can actually call.
     """
@@ -790,9 +813,9 @@ def available_tools_prompt_addendum(tools: list[ToolSpec]) -> str:
         + ", ".join(names)
         + ".\nUse and offer ONLY these tools. If a request would require a tool "
         "that is not listed here — for example re-running extraction or "
-        "rediscovering the schema in an imported (load) session, which has no "
-        "source documents — tell the user plainly that it is not available in "
-        "this session instead of offering or attempting it."
+        "rediscovering the schema when the session has no source documents "
+        "available — tell the user plainly that it is not available in this "
+        "session instead of offering or attempting it."
     )
 
 

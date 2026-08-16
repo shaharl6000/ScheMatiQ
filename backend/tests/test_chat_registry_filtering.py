@@ -77,6 +77,53 @@ def test_schematiq_only_tools_hidden_in_load_mode() -> None:
     assert {"run_schematiq", "reextract", "continue_discovery"}.isdisjoint(load)
 
 
+def test_extraction_tools_unlocked_in_load_mode_when_capable() -> None:
+    # The correct gate for extraction is document availability, not session
+    # type: a load (imported) session whose source documents are available must
+    # offer the document-backed extraction tools, matching the frontend rule
+    # canRediscoverSchema = schematiq || hasSourceDocuments. Only tools flagged
+    # requires_documents are unlocked.
+    load_capable = {
+        t.name for t in get_tools_for_context("s1", "load", extraction_capable=True)
+    }
+    assert {"reextract", "extract_cells"} <= load_capable
+    # run_schematiq (its handler hard-requires a SCHEMATIQ session) and
+    # continue_discovery (separate service, not yet document-gated) are NOT
+    # flagged requires_documents, so they stay hidden even when capable.
+    assert {"run_schematiq", "continue_discovery"}.isdisjoint(load_capable)
+
+
+def test_extraction_tools_stay_hidden_in_load_mode_without_documents() -> None:
+    # Without documents (extraction_capable defaults False) the load session
+    # behaves exactly as before: no extraction tools. This is the strict
+    # subset that guarantees no behavior change for existing doc-less imports.
+    load_incapable = {t.name for t in get_tools_for_context("s1", "load")}
+    assert {"reextract", "extract_cells"}.isdisjoint(load_incapable)
+    assert get_tools_for_context("s1", "load") == get_tools_for_context(
+        "s1", "load", extraction_capable=False
+    )
+
+
+def test_extraction_capable_never_changes_schematiq_mode() -> None:
+    # schematiq is always extraction-capable; the flag must not add or remove
+    # anything there.
+    base = {t.name for t in get_tools_for_context("s1", "schematiq")}
+    capable = {
+        t.name for t in get_tools_for_context("s1", "schematiq", extraction_capable=True)
+    }
+    assert base == capable
+
+
+def test_capable_load_addendum_advertises_extraction_tools() -> None:
+    # When the tools are unlocked, the mode-aware footer must advertise them so
+    # the model actually offers them (parity with the callable declaration set).
+    addendum = available_tools_prompt_addendum(
+        get_tools_for_context("s1", "load", extraction_capable=True)
+    )
+    assert "reextract" in addendum
+    assert "extract_cells" in addendum
+
+
 def test_skipped_document_diagnostics_available_in_load_mode() -> None:
     # Skipped-document visibility is a pure read of persisted statistics, which
     # imported/load sessions carry (skipped_documents survive export/import).
