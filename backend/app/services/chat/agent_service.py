@@ -164,19 +164,27 @@ class ChatAgentService:
         Mirrors the frontend rule
         ``canRediscoverSchema = sessionMode == 'schematiq' || hasSourceDocuments``:
         schematiq sessions are always capable; a load (imported) session becomes
-        capable once its source documents are present. Uses a cheap, synchronous
-        local-disk check so it can run per message. Documents that live only in
-        cloud storage are not seen here (a known limitation); the downstream
-        gated extraction path performs the full local+cloud availability
-        precheck and returns a clear message, so an over-eager offer degrades to
-        a precise error rather than a silent no-op.
+        capable once its source documents are reachable. Cheap and synchronous so
+        it can run per message: a local-disk check, plus a cloud-dataset check for
+        imported projects whose source files live only in Supabase
+        (``session.metadata.cloud_dataset``) and are read from there by the gated
+        extraction path. If neither is present the extraction tools stay hidden.
         """
         if session_mode != "load":
             return True
         if not session_id:
             return False
         try:
-            return reextraction_service.has_local_source_documents(session_id)
+            if reextraction_service.has_local_source_documents(session_id):
+                return True
+            # Cloud-backed imported session: the source files live only in the
+            # session's Supabase dataset, which the local-disk check can't see.
+            # precheck_document_availability resolves and reads them from there
+            # (via session.metadata.cloud_dataset), so such a session is capable
+            # too — otherwise the extraction tools would never be offered for a
+            # cloud-only import even though the pipeline can run.
+            session = session_manager.get_session(session_id)
+            return bool(session and session.metadata and session.metadata.cloud_dataset)
         except Exception:  # pragma: no cover - defensive; the gate must never crash chat
             logger.debug(
                 "extraction-capability check failed for %s", session_id, exc_info=True
