@@ -676,8 +676,14 @@ def _all_tools() -> list[ToolSpec]:
             },
             cost_class="expensive",
             handler="continue_discovery",
-            hidden_in_load=True,
+            # Gated on document availability, identical to reextract/extract_cells:
+            # offered in schematiq always, and in load mode once source documents
+            # are present. The service resolves documents from the session-local
+            # documents/pending_documents dirs and builds its initial schema from
+            # session.columns, so it is session-type-agnostic; it raises clearly
+            # if no documents are found.
             session_modes=("schematiq",),
+            requires_documents=True,
         ),
         ToolSpec(
             name="reprocess",
