@@ -890,6 +890,35 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         if not session:
             raise ValueError(f"Session {session_id} not found")
 
+        # Fail fast, synchronously, when the chosen document source has no
+        # documents — instead of creating an operation and letting the background
+        # task raise "No documents available for schema discovery" later, which
+        # surfaces to the caller as an async operation failure rather than an
+        # immediate error. Uses this service's own directory conventions, so it
+        # cannot drift from what _prepare_documents will actually read. The check
+        # is permissive (it only blocks the clearly-empty case), so it never
+        # rejects a run that would otherwise have succeeded.
+        if document_source == "original":
+            availability = await self.get_available_documents(session_id)
+            if not availability.get("can_use_original"):
+                raise ValueError(
+                    "No source documents are available to continue discovery. "
+                    'Re-attach the originals via "Show source document", or import '
+                    "a project bundle that includes them, then try again."
+                )
+        elif document_source == "upload":
+            pending_dir = self._get_data_dir() / session_id / "pending_documents"
+            has_uploaded = pending_dir.is_dir() and any(
+                f.is_file() and not f.name.startswith(".")
+                for f in pending_dir.iterdir()
+            )
+            if not has_uploaded:
+                raise ValueError(
+                    "No uploaded documents were found for this session. Upload "
+                    "the documents first, then try again."
+                )
+        # 'cloud' requires a cloud_dataset, which _prepare_documents validates.
+
         # Create operation
         operation_id = str(uuid.uuid4())[:8]
         operation = ContinueDiscoveryOperation(
