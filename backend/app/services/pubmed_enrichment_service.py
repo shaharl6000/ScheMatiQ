@@ -17,7 +17,8 @@ from typing import Dict, List, Optional, Set
 import requests
 
 from app.core.config import DEFAULT_DATA_DIR
-from app.models.session import SessionType, VisualizationSession
+from app.models.session import VisualizationSession
+from app.services.session_capabilities import is_imported
 from app.services.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -231,7 +232,7 @@ class PubMedEnrichmentService:
         if not session or not doc_name:
             return False
         meta = session.metadata
-        if session.type == SessionType.UPLOAD and not meta.cloud_dataset:
+        if is_imported(session) and not meta.cloud_dataset:
             return False
         if doc_name in set(meta.pubmed_link_suppressed_stems):
             return False
