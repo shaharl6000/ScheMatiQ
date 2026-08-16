@@ -8,6 +8,7 @@ from app.models.chat import (
     ChatConfirmRequest,
     ChatMessageRequest,
     ChatMessageResponse,
+    ChatMessagesResponse,
     ChatToolsResponse,
     ChatToolInfo,
     ChatTurnMessage,
@@ -51,6 +52,28 @@ async def list_chat_tools(
         _require_session(session_id)
     tools = await chat_agent_service.list_tools(session_id, session_mode)
     return ChatToolsResponse(tools=[ChatToolInfo(**tool) for tool in tools])
+
+
+@router.get("/{session_id}/messages", response_model=ChatMessagesResponse)
+async def get_chat_messages(session_id: str) -> ChatMessagesResponse:
+    """Return the reconstructed transcript so a reloaded client can repaint it.
+
+    Read-only: no Gemini work happens here. Guarded like the other routes so an
+    unknown session is a 404 before the agent service is touched. When there is
+    no persisted history (or the session opted out), ``messages`` is empty and
+    the client keeps its local seed.
+    """
+    _require_session(session_id)
+    try:
+        result = await chat_agent_service.get_transcript(session_id)
+        return ChatMessagesResponse(
+            chat_id=result["chat_id"],
+            messages=[ChatTurnMessage(**msg) for msg in result["messages"]],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/{session_id}/message", response_model=ChatMessageResponse)

@@ -654,6 +654,64 @@ class ChatAgentService:
                 "could not persist chat history for session %s: %s", session_id, exc
             )
 
+    async def get_transcript(self, session_id: str) -> dict[str, Any]:
+        """Reconstruct the UI transcript for a session's persisted chat.
+
+        Reads the same persisted model history that restore uses — honoring
+        opt-out and returning empty when the transcript is absent or unreadable —
+        and maps it to the display messages the client repaints on load. Also
+        returns the ``chat_id`` to resume with when the conversation is already
+        live in memory; otherwise ``None``, and the next send restores it and
+        mints a fresh id.
+        """
+        restored = await self._load_history(session_id)
+        messages = self._reconstruct_transcript(restored)
+        existing = chat_session_store.get_by_workspace_session(session_id)
+        return {
+            "chat_id": existing.chat_id if existing else None,
+            "messages": messages,
+        }
+
+    @staticmethod
+    def _reconstruct_transcript(history: list[Any]) -> list[dict[str, Any]]:
+        """Map persisted model-history turns to display messages.
+
+        The persisted history is model context, not a display list, so it is
+        translated the same way the live UI groups a turn: user and model text
+        parts become chat bubbles, and a model ``function_call`` becomes a compact
+        ``tool_log`` line. ``function_response`` parts are the raw tool output fed
+        back to the model and are never surfaced. Fresh message ids are minted;
+        they are display-only and need not match the ephemeral live-stream ids.
+        """
+        messages: list[dict[str, Any]] = []
+        for content in history or []:
+            role = getattr(content, "role", None)
+            for part in getattr(content, "parts", None) or []:
+                text = getattr(part, "text", None)
+                function_call = getattr(part, "function_call", None)
+                if text and role in ("model", "user"):
+                    messages.append(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "role": "assistant" if role == "model" else "user",
+                            "kind": "text",
+                            "content": text,
+                        }
+                    )
+                elif function_call is not None and role == "model":
+                    name = getattr(function_call, "name", None) or "tool"
+                    messages.append(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "role": "tool",
+                            "kind": "tool_log",
+                            "tool_name": name,
+                            "tool_status": "done",
+                            "content": f"...{tool_running_label(name).lower()}",
+                        }
+                    )
+        return messages
+
     async def _emit(
         self,
         state: ChatSessionState,
