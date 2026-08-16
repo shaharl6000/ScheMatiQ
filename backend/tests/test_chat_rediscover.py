@@ -7,6 +7,8 @@ tests drive the handler with mocked I/O to assert the gate and the
 per-session-type config handling, without running the real pipeline.
 """
 
+import asyncio
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -70,12 +72,18 @@ async def test_rediscover_upload_synthesizes_config(
     session = _make_session(session_manager_fixture, SessionType.UPLOAD)
 
     result = await executor.execute("rediscover", session.id, "load", {})
+    # Let the fire-and-forget pipeline task (asyncio.create_task) run once.
+    await asyncio.sleep(0)
 
     assert result["status"] == "started"
     # UPLOAD has no runnable config.json, so the handler synthesizes and saves one.
     runner.save_config.assert_awaited_once()
     runner.prepare_resume.assert_awaited_once()
-    executor._run_schematiq_task.assert_awaited_once_with(session.id)
+    # The pipeline task is spawned fire-and-forget via asyncio.create_task, so it
+    # is *called* synchronously (recording args) but only *awaited* once the event
+    # loop runs it — which hasn't happened at this point. Assert the call, not the
+    # await, to avoid depending on loop scheduling.
+    executor._run_schematiq_task.assert_called_once_with(session.id)
 
 
 @pytest.mark.asyncio
