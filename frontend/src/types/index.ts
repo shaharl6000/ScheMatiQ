@@ -1017,6 +1017,13 @@ export interface ChatMessageResponse {
   pending_action?: PendingChatToolAction;
 }
 
+export interface ChatMessagesResponse {
+  // The conversation to resume with when it is already live in memory; null
+  // when nothing is loaded yet, in which case the next send restores it.
+  chat_id: string | null;
+  messages: ChatTurnMessage[];
+}
+
 export interface CostEstimate {
   /** Estimate for schema discovery phase */
   schema_discovery: PhaseEstimate;

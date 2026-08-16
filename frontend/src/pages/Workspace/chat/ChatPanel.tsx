@@ -98,6 +98,12 @@ export function ChatPanel({
   const [reextractionRunning, setReextractionRunning] = useState<{ columns: string[] } | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Which session's persisted transcript we've already tried to load, so a model
+  // switch (which resets chatId) or a re-render doesn't refetch and repaint.
+  const historyLoadedForRef = useRef<string | null>(null);
+  // Flips true once the user drives the conversation, so a late-arriving history
+  // load can't clobber messages they've already produced this session.
+  const conversationStartedRef = useRef(false);
 
   useEffect(() => {
     const container = messagesRef.current;
@@ -108,6 +114,32 @@ export function ChatPanel({
       behavior: 'smooth',
     });
   }, [messages, pendingAction, busy]);
+
+  // On entering a project, repaint any persisted conversation so a refresh or a
+  // backend redeploy resumes where the user left off instead of showing only the
+  // seed. Runs once per session id; keeps the seed when there is no history, and
+  // never overwrites a conversation the user has already started this session.
+  useEffect(() => {
+    if (!sessionId) return;
+    if (historyLoadedForRef.current === sessionId) return;
+    historyLoadedForRef.current = sessionId;
+    let cancelled = false;
+    (async () => {
+      try {
+        const history = await chatAPI.getMessages(sessionId);
+        if (cancelled || conversationStartedRef.current) return;
+        if (history.messages.length === 0) return;
+        setMessages(history.messages.map(mapChatTurnMessage));
+        // Adopt the resumable chat id so the next send continues this thread.
+        if (history.chat_id) setChatId(history.chat_id);
+      } catch {
+        // Best-effort: on any failure keep the local seed, exactly as before.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   const loadTools = useCallback(async () => {
     const tools = await chatAPI.getTools(sessionId, sessionMode);
@@ -406,6 +438,9 @@ export function ChatPanel({
   const ask = useCallback(async () => {
     const text = input.trim();
     if (!text || busy) return;
+    // The user is now driving this conversation; block any in-flight history
+    // restore from overwriting what they produce.
+    conversationStartedRef.current = true;
     setInput('');
     appendMessages([{ id: `${Date.now()}-user`, role: 'user', content: text }]);
 

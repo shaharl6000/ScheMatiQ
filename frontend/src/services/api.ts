@@ -34,6 +34,7 @@ import {
   CostEstimate,
   ChatToolInfo,
   ChatMessageResponse,
+  ChatMessagesResponse,
 } from '../types';
 import {
   UnitListResponse,
@@ -1109,6 +1110,12 @@ export const chatAPI = {
     }
     const response = await api.get(`/chat/tools?${params.toString()}`);
     return response.data.tools;
+  },
+
+  getMessages: async (sessionId: string): Promise<ChatMessagesResponse> => {
+    // Read-only transcript for repainting the chat after a refresh/redeploy.
+    const response = await api.get(`/chat/${sessionId}/messages`);
+    return response.data;
   },
 
   sendMessage: async (
