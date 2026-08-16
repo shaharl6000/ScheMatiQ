@@ -2398,6 +2398,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     col_stat.non_null_count = sum(
                         1 for row in all_rows if self._cell_value_present(row, col_stat.name)
                     )
+            # A document skipped at discovery time can start yielding rows once
+            # re-extraction runs (e.g. a newly added column finally matches the
+            # observation unit). Such a document is no longer "skipped", so drop
+            # it from the skipped list here to keep the statistics — and the
+            # skipped-documents banner that reads them — consistent with the data.
+            self._reconcile_skipped_documents(session, all_rows)
         for col in session.columns:
             if col.name in columns:
                 col.non_null_count = sum(
@@ -2412,6 +2418,48 @@ class ReextractionService(WebSocketBroadcasterMixin):
             len(all_rows),
             columns[:5],
         )
+
+    @staticmethod
+    def _reconcile_skipped_documents(
+        session: "VisualizationSession",
+        all_rows: List[Dict[str, Any]],
+    ) -> None:
+        """Un-skip any document that now has at least one row.
+
+        ``skipped_documents`` is captured once at discovery time and is never
+        rewritten by re-extraction, so a document skipped then — but which
+        produces observation units on a later re-extraction — would otherwise
+        stay listed as skipped even though it now contributes rows. Match rows to
+        skipped entries by document stem (the same normalization used elsewhere
+        for document scope) and remove the reconciled entries. Guards against an
+        empty row set so a merge that produced no rows never clears the list.
+        """
+        if not (session.statistics and session.statistics.skipped_documents):
+            return
+
+        from app.services.data_utils import _resolve_source_document
+
+        present_stems = {
+            Path(src).stem.lower()
+            for row in all_rows
+            if (src := _resolve_source_document(row))
+        }
+        if not present_stems:
+            return
+
+        remaining = [
+            skipped
+            for skipped in session.statistics.skipped_documents
+            if Path(skipped.document).stem.lower() not in present_stems
+        ]
+        removed = len(session.statistics.skipped_documents) - len(remaining)
+        if removed:
+            session.statistics.skipped_documents = remaining
+            logger.info(
+                "Un-skipped %d document(s) in session %s that now yield rows",
+                removed,
+                session.id,
+            )
 
     def _get_llm_from_session(self, session_id: str):
         """Get LLM configuration from session, including API key."""
