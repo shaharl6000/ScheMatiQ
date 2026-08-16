@@ -1610,6 +1610,8 @@ class PaperProcessor:
         max_new_tokens: int,
         paper_title: str,
         paper_text: Optional[str] = None,
+        target_columns: Optional[List[str]] = None,
+        already_extracted: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Extract values for a single observation unit using its relevant passages.
@@ -1623,12 +1625,43 @@ class PaperProcessor:
         Args:
             paper_text: Full document text, needed for fallback retrieval passes.
                 Falls back to the joined relevant_passages if not provided.
+            target_columns: When provided (only_empty re-extraction), restricts
+                extraction to exactly these column names for this unit — the
+                model is never asked for cells that are already filled. ``None``
+                keeps the previous behavior (extract every schema column). An
+                empty list means every target cell for this unit is already
+                filled, so the LLM is skipped entirely.
+            already_extracted: Flat ``{col_name: answer}`` of this unit's
+                already-filled columns, passed as context to the prompt to
+                prevent hallucinating dependent columns when the extracted set
+                is narrowed. Ignored when ``target_columns`` is ``None``.
         """
         from schematiq.value_extraction.utils.schema_builder import (
             _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
+            align_extraction_keys_to_schema,
         )
+        from dataclasses import replace as _dc_replace
 
         columns = list(schema.columns)
+        # Per-unit narrowing for only_empty: extract just this unit's empty
+        # columns and let passes 2-4 see the same narrowed schema, so the
+        # already-filled columns are never re-requested. The merge-time guard
+        # remains the correctness backstop: even a wrong target set can only
+        # under-extract, never overwrite a filled cell.
+        effective_schema = schema
+        if target_columns is not None:
+            wanted = set(target_columns)
+            columns = [c for c in schema.columns if c.name in wanted]
+            if not columns:
+                logger.info(
+                    "[extract_values_for_unit] unit %r: no empty target columns, "
+                    "skipping LLM",
+                    unit_name,
+                )
+                return align_extraction_keys_to_schema(
+                    {}, [c.name for c in schema.columns]
+                )
+            effective_schema = _dc_replace(schema, columns=columns)
         eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(relevant_passages)
         system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=unit_name)
 
@@ -1664,6 +1697,7 @@ class PaperProcessor:
                 [c.to_dict() for c in col_batch],
                 mode="all",
                 strict=False,
+                already_extracted=already_extracted,
                 reference_query=unit_name,
             )
             msgs[0]["content"] = system_prompt
@@ -1729,21 +1763,22 @@ class PaperProcessor:
                     raw,
                 )
 
-        # Passes 2-4: reordered → batch fallback → snippet fallback
+        # Passes 2-4: reordered → batch fallback → snippet fallback.
+        # Retry against the (possibly narrowed) effective_schema so already-filled
+        # columns excluded above are not re-requested as "missing".
         fallback_text = paper_text or eff
         self._retry_missing_columns(
             all_cleaned,
-            schema=schema,
+            schema=effective_schema,
             paper_title=f"{paper_title} - {unit_name}",
             paper_text=fallback_text,
             effective_text=eff,
             max_new_tokens=effective_max,
         )
 
-        from schematiq.value_extraction.utils.schema_builder import (
-            align_extraction_keys_to_schema,
-        )
-
+        # Align to the FULL schema so the row shape is unchanged; columns not
+        # extracted this run stay absent/empty and the merge guard leaves their
+        # existing table values untouched.
         return align_extraction_keys_to_schema(
             all_cleaned, [c.name for c in schema.columns]
         )
