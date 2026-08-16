@@ -55,7 +55,9 @@ Rules:
 - When a question may depend on information not in the source documents (e.g. external attributes of an entity), call list_reference_sources to see if the user attached a relevant reference document, then read_reference_source to consult it. You may also combine it with your own knowledge. If a reference document contains an attribute that is not yet a column and looks useful, you may suggest add_column for it. To fill or update an existing column from a reference document, use fill_column_from_reference (it runs the model per row over the full reference and fills each row as it completes) rather than reading the reference and writing cells yourself; do NOT use reextract or reprocess, which only re-run extraction from the source documents.
 - When you fill a cell with a value taken from a reference document (via update_cell), pass that reference's reference_id so the cell is marked as sourced from it and attributed correctly. Do not pass reference_id for values you did not take from a reference.
 - fill_column_from_reference is asynchronous: it returns immediately with status "started" and a background job then fills every row and streams the cells into the table on its own. After you call it, STOP working on that column in this turn — do NOT call read_reference_source, do NOT call update_cell for that column, and do NOT poll preview_data or get_status waiting for the values. Simply tell the user the fill has started and that cells will appear as each row completes. The background job writes the values, not you; filling them yourself would double-write and race with the job.
-- Cheap tools run immediately. Expensive tools (reextract, reprocess, continue_discovery, run_schematiq) require user confirmation.
+- Extraction tools (reextract, extract_cells, reprocess, rediscover, run_schematiq, continue_discovery) start asynchronous work. Claim that a new run started ONLY when that tool's result has status "started" and an operation_id (or explicitly says execution started). get_status reports the overall project state; a "completed" project status is never evidence that a new extraction run started. list_documents, data_summary, and preview_data are also not evidence that a run started. After a successful asynchronous start, stop this turn and report the start; do not poll those read tools.
+- If a tool returns an error, the requested action did not complete or start. State that clearly and never turn read-only follow-up results into a success claim. If the user later explicitly asks to retry the failed action, call the same tool again with the same scope (the normal confirmation gate still applies).
+- Cheap tools run immediately. Expensive extraction tools require user confirmation.
 - Reply concisely in plain English after completing the requested work.
 """
 
@@ -310,19 +312,44 @@ class ChatAgentService:
             self._tool_log(pending.tool_name, "running", f"...{tool_running_label(pending.tool_name).lower()}")
         )
         try:
-            tool_result = await self._executor.execute(
-                pending.tool_name,
-                session_id,
-                state.session_mode,
-                pending.args,
-            )
-            await self._emit(state, outbound_messages,
-                self._tool_log(
+            try:
+                tool_result = await self._executor.execute(
                     pending.tool_name,
-                    "done",
-                    self._tool_done_message(pending.tool_name, tool_result),
+                    session_id,
+                    state.session_mode,
+                    pending.args,
                 )
-            )
+            except QuotaExceededError:
+                outbound_messages.append(self._text_message(QUOTA_EXCEEDED_CHAT_MESSAGE))
+                return {
+                    "chat_id": chat_id,
+                    "status": "complete",
+                    "messages": outbound_messages,
+                }
+            except Exception as exc:
+                # A confirmed tool call is still an open Gemini function call. Feed
+                # the failure back into that turn before accepting another user
+                # message; otherwise the model never learns that the action failed
+                # and may later infer success from unrelated read-only tool results.
+                tool_result = {
+                    "error": str(exc),
+                    "hint": (
+                        "The requested action did not start. Explain the failure "
+                        "without claiming success; retry only if the user asks."
+                    ),
+                }
+                await self._emit(state, outbound_messages,
+                    self._tool_log(pending.tool_name, "error", f"Tool failed: {exc}")
+                )
+            else:
+                await self._emit(state, outbound_messages,
+                    self._tool_log(
+                        pending.tool_name,
+                        "done",
+                        self._tool_done_message(pending.tool_name, tool_result),
+                    )
+                )
+
             response = await self._send_function_response(state, pending, tool_result)
             loop_result = await self._continue_after_tool(state, response, outbound_messages)
             return {
@@ -330,22 +357,6 @@ class ChatAgentService:
                 "status": loop_result["status"],
                 "messages": outbound_messages,
                 "pending_action": loop_result.get("pending_action"),
-            }
-        except QuotaExceededError:
-            outbound_messages.append(self._text_message(QUOTA_EXCEEDED_CHAT_MESSAGE))
-            return {
-                "chat_id": chat_id,
-                "status": "complete",
-                "messages": outbound_messages,
-            }
-        except Exception as exc:
-            await self._emit(state, outbound_messages,
-                self._tool_log(pending.tool_name, "error", f"Tool failed: {exc}")
-            )
-            return {
-                "chat_id": chat_id,
-                "status": "complete",
-                "messages": outbound_messages,
             }
         finally:
             await self._flush_llm_usage(state)
