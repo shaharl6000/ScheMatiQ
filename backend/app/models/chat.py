@@ -43,6 +43,18 @@ class ChatMessageResponse(BaseModel):
     pending_action: Optional[PendingChatAction] = None
 
 
+class ChatMessagesResponse(BaseModel):
+    """The reconstructed transcript for a session's chat, for repaint on load.
+
+    ``chat_id`` is the conversation to resume with when it is already live in
+    memory; it is ``None`` when nothing is loaded yet, in which case the next
+    send restores the persisted history and mints a fresh id.
+    """
+
+    chat_id: Optional[str] = None
+    messages: list[ChatTurnMessage]
+
+
 class ChatToolInfo(BaseModel):
     name: str
     description: str
