@@ -95,6 +95,7 @@ export function ChatPanel({
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [fillRunning, setFillRunning] = useState<{ column: string } | null>(null);
+  const [reextractionRunning, setReextractionRunning] = useState<{ columns: string[] } | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -267,6 +268,45 @@ export function ChatPanel({
             content:
               data.message
               || `Finished filling '${data.column ?? ''}' (${data.filled ?? 0} of ${data.total ?? 0} rows).`,
+          },
+        ]);
+      } else if (message.type === 'reextraction_started') {
+        // A chat-triggered reextract runs in the background after the turn ends;
+        // show a spinner until the completion event posts the model's recap.
+        const data = (message.data ?? {}) as unknown as { columns?: string[] };
+        setReextractionRunning({ columns: data.columns ?? [] });
+      } else if (message.type === 'reextraction_completed') {
+        const data = (message.data ?? {}) as unknown as {
+          columns?: string[]; summary?: string;
+          coverage?: { column: string; filled: number; empty: number }[];
+          total_rows?: number;
+        };
+        setReextractionRunning(null);
+        const fallback = () => {
+          const cols = data.coverage ?? [];
+          if (cols.length) {
+            return `Re-extraction finished. ${cols
+              .map((c) => `'${c.column}': ${c.filled} of ${data.total_rows ?? c.filled + c.empty} rows filled`)
+              .join('; ')}.`;
+          }
+          const names = data.columns?.length ? ` for ${data.columns.map((c) => `'${c}'`).join(', ')}` : '';
+          return `Re-extraction finished${names}.`;
+        };
+        appendMessages([
+          {
+            id: `${Date.now()}-reextract-summary`,
+            role: 'assistant',
+            content: data.summary || fallback(),
+          },
+        ]);
+      } else if (message.type === 'reextraction_failed') {
+        const data = (message.data ?? {}) as unknown as { error?: string };
+        setReextractionRunning(null);
+        appendMessages([
+          {
+            id: `${Date.now()}-reextract-failed`,
+            role: 'assistant',
+            content: `Re-extraction failed: ${data.error ?? 'unknown error'}.`,
           },
         ]);
       }
@@ -544,6 +584,21 @@ export function ChatPanel({
                 {fillRunning.column
                   ? `Filling '${fillRunning.column}' in the background…`
                   : 'Filling column in the background…'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {reextractionRunning && (
+          <div className="workspace-chat-message" data-role="assistant">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>
+                {reextractionRunning.columns.length
+                  ? `Re-extracting ${reextractionRunning.columns
+                      .map((c) => `'${c}'`)
+                      .join(', ')} in the background…`
+                  : 'Re-extracting in the background…'}
               </span>
             </div>
           </div>
