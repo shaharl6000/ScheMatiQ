@@ -309,6 +309,25 @@ export function ChatPanel({
             content: `Re-extraction failed: ${data.error ?? 'unknown error'}.`,
           },
         ]);
+      } else if (message.type === 'reextraction_stopped') {
+        // A user-halted run still merges whatever it processed before stopping,
+        // so report partial progress rather than treating it as a failure. This
+        // is the third and final terminal event that must clear the spinner.
+        const data = (message.data ?? {}) as unknown as {
+          processed_documents?: number; total_documents?: number; message?: string;
+        };
+        setReextractionRunning(null);
+        const progress =
+          data.processed_documents != null && data.total_documents != null
+            ? ` Kept results from ${data.processed_documents} of ${data.total_documents} documents processed so far.`
+            : '';
+        appendMessages([
+          {
+            id: `${Date.now()}-reextract-stopped`,
+            role: 'assistant',
+            content: `${data.message ?? 'Re-extraction stopped'}.${progress}`,
+          },
+        ]);
       }
     };
     webSocketService.addMessageHandler(handler);
