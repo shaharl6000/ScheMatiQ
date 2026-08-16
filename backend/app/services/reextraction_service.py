@@ -4,6 +4,7 @@ Handles schema change detection, paper discovery, and selective re-extraction.
 """
 
 import json
+import os
 import asyncio
 import hashlib
 import threading
@@ -1883,13 +1884,37 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
             logger.info(f"Re-extraction completed successfully for operation {operation_id}")
 
+            # Post-run recap for the chat panel. Mirrors the reference-fill flow:
+            # compute per-column coverage from the merged data, then make one model
+            # call to phrase it in plain language. Best-effort throughout — a failure
+            # here must never change the run's own "completed" status, so the whole
+            # block is guarded and the broadcast falls back to counts-only.
+            summary_text = ""
+            coverage: List[Dict[str, Any]] = []
+            total_rows = 0
+            try:
+                coverage, total_rows = await self._compute_column_coverage(
+                    operation.session_id, operation.columns
+                )
+            except Exception as exc:
+                logger.debug("Re-extraction coverage computation skipped: %s", exc)
+            try:
+                summary_text = await self._summarize_reextraction(
+                    operation.columns, coverage, total_rows
+                )
+            except Exception as exc:
+                logger.debug("Re-extraction summary skipped: %s", exc)
+
             await self.broadcast_event(
                 operation.session_id,
                 "reextraction_completed",
                 {
                     "operation_id": operation_id,
                     "columns": operation.columns,
-                    "status": "success"
+                    "status": "success",
+                    "coverage": coverage,
+                    "total_rows": total_rows,
+                    "summary": summary_text,
                 }
             )
 
@@ -2494,6 +2519,103 @@ class ReextractionService(WebSocketBroadcasterMixin):
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
         logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
         return GeminiLLM(model=ModelNames.DEFAULT_VALUE_EXTRACTION, temperature=0)
+
+    async def _compute_column_coverage(
+        self, session_id: str, columns: List[str]
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """Filled / empty counts per re-extracted column, from the merged data.
+
+        Uses the same canonical row source and emptiness test as the chat
+        data-summary tool, so the recap agrees with what the user sees. Returns
+        (per-column stats, total_rows). Columns absent from the data are reported
+        with zero fills rather than dropped, so the recap can still mention them.
+        """
+        from app.services.pipeline.data_query import get_data as query_get_data
+        from app.services.chat.deps import WORK_DIR
+
+        rows: List[Dict[str, Any]] = []
+        page = 0
+        page_size = 200
+        while page < 500:  # hard cap: 100k rows, matches the chat tool
+            data = await query_get_data(session_id, WORK_DIR, page=page, page_size=page_size)
+            batch = [r.model_dump() for r in data.rows]
+            rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            page += 1
+
+        total = len(rows)
+        stats: List[Dict[str, Any]] = []
+        for col in columns:
+            filled = 0
+            empty = 0
+            confirmed_empty = 0
+            for row in rows:
+                value = (row.get("data") or {}).get(col)
+                if _is_empty_cell_value(value):
+                    empty += 1
+                    if isinstance(value, dict) and value.get("_confirmed_empty"):
+                        confirmed_empty += 1
+                else:
+                    filled += 1
+            stats.append({
+                "column": col,
+                "filled": filled,
+                "empty": empty,
+                "confirmed_empty": confirmed_empty,
+                "coverage_pct": round(100 * filled / total) if total else 0,
+            })
+        return stats, total
+
+    def _get_summary_client(self) -> Any:
+        """Lazily build a genai client for the recap call (mirrors reference-fill)."""
+        from google import genai
+        from app.services.chat.deps import get_gemini_api_key
+
+        return genai.Client(api_key=get_gemini_api_key())
+
+    async def _summarize_reextraction(
+        self, columns: List[str], coverage: List[Dict[str, Any]], total_rows: int
+    ) -> str:
+        """One model call that recaps the re-extraction for the user in plain text.
+
+        Grounded entirely in the coverage counts (never the documents), so it is a
+        single cheap call. Returns "" on any failure so the caller can fall back to
+        a deterministic message on the frontend.
+        """
+        from google.genai import types
+
+        if not columns:
+            return ""
+
+        lines = []
+        for c in coverage:
+            lines.append(
+                f"- {c['column']}: {c['filled']} of {total_rows} rows filled, "
+                f"{c['empty']} empty"
+                + (f" ({c['confirmed_empty']} confirmed not present in the source)"
+                   if c.get("confirmed_empty") else "")
+            )
+        coverage_block = "\n".join(lines) or "(no per-column counts available)"
+        column_label = ", ".join(f"'{c}'" for c in columns)
+
+        prompt = (
+            f"A background re-extraction just finished, re-reading the source "
+            f"documents to populate the column(s) {column_label}. The table has "
+            f"{total_rows} rows. Per-column results:\n\n{coverage_block}\n\n"
+            "Write a plain-language recap for the user (2-4 sentences, no markdown "
+            "headers, no preamble). State how many rows were filled vs left empty "
+            "for each column. If some cells are confirmed not present in the source, "
+            "explain briefly that those rows have no value to extract rather than a "
+            "failure. Keep it concise and factual; do not invent numbers."
+        )
+        client = self._get_summary_client()
+        response = await client.aio.models.generate_content(
+            model=os.getenv("REFERENCE_SUMMARY_MODEL", ModelNames.GEMINI_35_FLASH),
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0),
+        )
+        return (getattr(response, "text", None) or "").strip()
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):
         """Broadcast an event via WebSocket."""
