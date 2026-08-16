@@ -17,7 +17,13 @@ from app.core.config import (
 from app.services import websocket_manager
 from schematiq.core.llm_call_tracker import LLMCallTracker, QuotaExceededError
 
-from .deps import CHAT_MODEL, get_gemini_api_key, schematiq_runner, session_manager
+from .deps import (
+    CHAT_MODEL,
+    get_gemini_api_key,
+    reextraction_service,
+    schematiq_runner,
+    session_manager,
+)
 from .session_store import ChatSessionState, PendingToolCall, chat_session_store
 from .tool_executor import tool_executor
 from .tool_registry import (
@@ -149,6 +155,32 @@ class ChatAgentService:
         except Exception as exc:
             logger.debug("Could not record chat LLM usage: %s", exc)
 
+    @staticmethod
+    def _extraction_capable(session_id: Optional[str], session_mode: str) -> bool:
+        """Whether document-backed extraction tools should be offered.
+
+        Mirrors the frontend rule
+        ``canRediscoverSchema = sessionMode == 'schematiq' || hasSourceDocuments``:
+        schematiq sessions are always capable; a load (imported) session becomes
+        capable once its source documents are present. Uses a cheap, synchronous
+        local-disk check so it can run per message. Documents that live only in
+        cloud storage are not seen here (a known limitation); the downstream
+        gated extraction path performs the full local+cloud availability
+        precheck and returns a clear message, so an over-eager offer degrades to
+        a precise error rather than a silent no-op.
+        """
+        if session_mode != "load":
+            return True
+        if not session_id:
+            return False
+        try:
+            return reextraction_service.has_local_source_documents(session_id)
+        except Exception:  # pragma: no cover - defensive; the gate must never crash chat
+            logger.debug(
+                "extraction-capability check failed for %s", session_id, exc_info=True
+            )
+            return False
+
     async def list_tools(
         self,
         session_id: Optional[str],
@@ -156,7 +188,11 @@ class ChatAgentService:
     ) -> list[dict[str, Any]]:
         from .tool_registry import to_public_tool_list
 
-        tools = get_tools_for_context(session_id, session_mode)
+        tools = get_tools_for_context(
+            session_id,
+            session_mode,
+            extraction_capable=self._extraction_capable(session_id, session_mode),
+        )
         return to_public_tool_list(tools)
 
     async def send_message(
@@ -418,7 +454,11 @@ class ChatAgentService:
     ) -> tuple[Any, Any]:
         from google.genai import types
 
-        tools = get_tools_for_context(session_id, session_mode)
+        tools = get_tools_for_context(
+            session_id,
+            session_mode,
+            extraction_capable=self._extraction_capable(session_id, session_mode),
+        )
         declarations = to_function_declarations(tools)
         tool = types.Tool(function_declarations=declarations)
         config = types.GenerateContentConfig(
