@@ -39,6 +39,22 @@ class ChatSessionStore:
     def get(self, chat_id: str) -> Optional[ChatSessionState]:
         return self._sessions.get(chat_id)
 
+    def get_by_workspace_session(
+        self, workspace_session_id: str
+    ) -> Optional[ChatSessionState]:
+        """Return the live chat for a workspace session, if one is in memory.
+
+        One chat per project: a client that lost its ``chat_id`` (page refresh)
+        or holds a stale id (after a redeploy repopulated the store) reattaches
+        to the existing conversation instead of starting a new empty one. At
+        most one state exists per workspace session under the current flow, so
+        the first match is authoritative.
+        """
+        for state in self._sessions.values():
+            if state.workspace_session_id == workspace_session_id:
+                return state
+        return None
+
     def delete(self, chat_id: str) -> None:
         self._sessions.pop(chat_id, None)
 
