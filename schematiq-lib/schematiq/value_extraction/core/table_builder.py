@@ -258,7 +258,8 @@ class TableBuilder:
                                     mode: str = "all",
                                     retrieval_k: int = 8,
                                     max_workers: int = DEFAULT_MAX_WORKERS,
-                                    known_units: Optional[Dict[str, List[str]]] = None) -> None:
+                                    known_units: Optional[Dict[str, List[str]]] = None,
+                                    unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
         """
         Extract values from papers across multiple directories and write to JSONL.
         """
@@ -280,7 +281,8 @@ class TableBuilder:
             schema_path, all_docs_with_source, output_path,
             max_new_tokens=max_new_tokens, resume=resume, mode=mode,
             retrieval_k=retrieval_k, max_workers=max_workers,
-            known_units=known_units
+            known_units=known_units,
+            unit_targets_by_paper=unit_targets_by_paper
         )
     
     def _build_table_multi_dirs_impl(self,
@@ -293,7 +295,8 @@ class TableBuilder:
                                     mode: str,
                                     retrieval_k: int,
                                     max_workers: int,
-                                    known_units: Optional[Dict[str, List[str]]] = None) -> None:
+                                    known_units: Optional[Dict[str, List[str]]] = None,
+                                    unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
         """Implementation for multi-directory process
         ing."""
         schema = self._load_schema(schema_path)
@@ -342,7 +345,8 @@ class TableBuilder:
                 row_name, papers, doc_to_source, schema, mode, retrieval_k,
                 max_new_tokens, max_workers, existing_rows, processed_papers,
                 written_rows, completed_rows, output_path,
-                known_units=known_units
+                known_units=known_units,
+                unit_targets_by_paper=unit_targets_by_paper
             )
 
         print(f"\n✅ Processing complete! Wrote {len(written_rows)} rows to {output_path}")
@@ -364,7 +368,8 @@ class TableBuilder:
                                written_rows: set,
                                completed_rows: set,
                                output_path: Path,
-                               known_units: Optional[Dict[str, List[str]]] = None) -> None:
+                               known_units: Optional[Dict[str, List[str]]] = None,
+                               unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
         """Process a single row across multiple directories.
 
         Uses observation unit extraction - each document may produce multiple rows
@@ -383,7 +388,8 @@ class TableBuilder:
             row_name, papers, doc_to_source, schema, retrieval_k,
             max_new_tokens, existing_rows, processed_papers,
             written_rows, output_path,
-            known_units=known_units
+            known_units=known_units,
+            unit_targets_by_paper=unit_targets_by_paper
         )
 
     def _process_papers_with_observation_units(
@@ -399,6 +405,7 @@ class TableBuilder:
         written_rows: set,
         output_path: Path,
         known_units: Optional[Dict[str, List[str]]] = None,
+        unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
         """
         Process papers using observation unit extraction, potentially producing
@@ -443,6 +450,7 @@ class TableBuilder:
 
                 # Extract values with observation units (may return multiple rows)
                 paper_known_units = known_units.get(paper_title) if known_units else None
+                paper_unit_targets = unit_targets_by_paper.get(paper_title) if unit_targets_by_paper else None
                 extraction_result = self.paper_processor.extract_values_for_paper_with_units(
                     paper_title=paper_title,
                     paper_text=paper_text,
@@ -451,6 +459,7 @@ class TableBuilder:
                     mode="all",
                     retrieval_k=retrieval_k,
                     known_units=paper_known_units,
+                    unit_targets=paper_unit_targets,
                 )
                 unit_rows = extraction_result.rows
                 skip_reason = extraction_result.skip_reason
