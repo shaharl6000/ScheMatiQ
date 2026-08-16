@@ -70,7 +70,15 @@ def patched_reextraction(monkeypatch):
 
     captured: dict[str, list] = {}
 
-    async def fake_start(session_id, columns, renamed_from=None, paper_discovery=None):
+    async def fake_start(
+        session_id,
+        columns,
+        renamed_from=None,
+        paper_discovery=None,
+        documents=None,
+        rows=None,
+        only_empty=False,
+    ):
         captured["columns"] = list(columns)
         return {"status": "started", "columns": list(columns)}
 
@@ -190,7 +198,7 @@ async def test_fill_tool_delegates_to_background_service(executor, sample_sessio
 
     captured: dict = {}
 
-    async def fake_start(session_id, column, reference_id):
+    async def fake_start(session_id, column, reference_id, rows=None):
         captured.update(
             {"session_id": session_id, "column": column, "reference_id": reference_id}
         )

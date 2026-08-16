@@ -80,6 +80,9 @@ async def test_gated_reextraction_collects_renamed_from_before_baseline_recaptur
         ["judge_name"],
         renamed_from={"judge_name": "appointing_president"},
         paper_discovery=discovery,
+        documents=None,
+        rows=None,
+        only_empty=False,
     )
     service.capture_and_save_baseline.assert_awaited_once_with("sess-1")
     assert service.start_reextraction.await_args.kwargs["renamed_from"] == {
