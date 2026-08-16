@@ -1793,6 +1793,7 @@ class PaperProcessor:
         retrieval_k: int = 8,
         on_unit_extracted: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         known_units: Optional[List[str]] = None,
+        unit_targets: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> ExtractionResult:
         """
         Extract values from a paper, potentially producing multiple rows
@@ -1897,6 +1898,12 @@ class PaperProcessor:
                 )
                 unit_start = time_module.time()
 
+                # Per-unit only_empty plan (keyed by unit name). Absent unit ->
+                # target_columns=None -> full extraction (unchanged behavior).
+                unit_plan = unit_targets.get(unit_name) if unit_targets else None
+                unit_target_columns = unit_plan.get("targets") if unit_plan else None
+                unit_already_extracted = unit_plan.get("filled") if unit_plan else None
+
                 # Extract values for this specific unit
                 unit_values = self.extract_values_for_unit(
                     unit_name=unit_name,
@@ -1905,6 +1912,8 @@ class PaperProcessor:
                     max_new_tokens=max_new_tokens,
                     paper_title=paper_title,
                     paper_text=paper_text,
+                    target_columns=unit_target_columns,
+                    already_extracted=unit_already_extracted,
                 )
 
                 unit_elapsed = time_module.time() - unit_start
