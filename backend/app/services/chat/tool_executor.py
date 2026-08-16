@@ -12,7 +12,8 @@ from typing import Any, Optional
 from app.core.config import DEFAULT_DATA_DIR, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT
 from app.core.logging_utils import set_session_context
 from app.models.modification import ModificationAction
-from app.models.session import ColumnInfo, SessionType
+from app.models.session import ColumnInfo
+from app.services.session_capabilities import has_live_pipeline, is_imported
 from app.services import concurrency_limiter, session_manager
 from app.services.data_utils import _resolve_source_document, canonicalize_column_name
 from app.services.pipeline.data_query import get_data as query_get_data
@@ -1025,7 +1026,7 @@ class ToolExecutor:
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
       session = session_manager.get_session(session_id)
-      if not session or session.type != SessionType.SCHEMATIQ:
+      if not has_live_pipeline(session):
           raise ValueError("ScheMatiQ session not found")
       if not DEVELOPER_MODE:
           schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
@@ -1183,7 +1184,7 @@ class ToolExecutor:
                   "The global usage limit has been reached. Please try again later."
               ) from exc
 
-      if session.type == SessionType.UPLOAD:
+      if is_imported(session):
           # Imported session: no runnable config.json exists, so synthesize one.
           # Prefer the project's persisted backends (restored on import from a
           # complete export) so rediscovery uses the ORIGINAL models rather than

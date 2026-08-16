@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.models.session import VisualizationSession, SessionType, SessionMetadata, PaginatedData, SessionStatus, FilterSortRequest
+from app.services.session_capabilities import has_live_pipeline, is_imported
 from app.models.upload import (
     ColumnMappingRequest, CompatibilityCheck
 )
@@ -741,7 +742,7 @@ async def extract_schema(session_id: str, query: str = ""):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        if session.type != SessionType.UPLOAD:
+        if not is_imported(session):
             raise HTTPException(status_code=400, detail="Schema extraction only available for upload sessions")
 
         # Ensure session data is processed
@@ -813,11 +814,11 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
 
         # Allow both upload sessions (various states) and ScheMatiQ sessions (created or completed)
         is_valid_upload_session = (
-            session.type == SessionType.UPLOAD and
+            is_imported(session) and
             session.status in [SessionStatus.SCHEMA_EXTRACTED, SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]
         )
         is_valid_schematiq_session = (
-            session.type == SessionType.SCHEMATIQ and
+            has_live_pipeline(session) and
             session.status in [SessionStatus.CREATED, SessionStatus.COMPLETED, SessionStatus.STOPPED]
         )
 
@@ -1010,7 +1011,7 @@ async def rediscover_imported_session(session_id: str, background_tasks: Backgro
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        if session.type != SessionType.UPLOAD:
+        if not is_imported(session):
             raise HTTPException(
                 status_code=400,
                 detail=f"Rediscovery via this endpoint is only for imported sessions (type='{session.type}').",
@@ -1170,7 +1171,7 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
         # Update session status if no more documents
         if not session.metadata.uploaded_documents:
             # Revert to previous state
-            if session.type == SessionType.UPLOAD:
+            if is_imported(session):
                 session.status = SessionStatus.COMPLETED if session.statistics else SessionStatus.SCHEMA_EXTRACTED
             else:
                 session.status = SessionStatus.COMPLETED
@@ -1220,11 +1221,11 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
 
         # Validate session status
         is_valid_upload_session = (
-            session.type == SessionType.UPLOAD and
+            is_imported(session) and
             session.status in [SessionStatus.SCHEMA_EXTRACTED, SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]
         )
         is_valid_schematiq_session = (
-            session.type == SessionType.SCHEMATIQ and
+            has_live_pipeline(session) and
             session.status == SessionStatus.COMPLETED
         )
 
@@ -1367,11 +1368,11 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
         
         # Allow both upload sessions (with documents) and ScheMatiQ sessions (completed or with documents uploaded)
         is_valid_upload_session = (
-            session.type == SessionType.UPLOAD and
+            is_imported(session) and
             session.status in [SessionStatus.DOCUMENTS_UPLOADED, SessionStatus.COMPLETED]
         )
         is_valid_schematiq_session = (
-            session.type == SessionType.SCHEMATIQ and
+            has_live_pipeline(session) and
             session.status in [SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]
         )
 
@@ -1549,7 +1550,7 @@ async def get_processing_status(session_id: str):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        if session.type != SessionType.UPLOAD:
+        if not is_imported(session):
             raise HTTPException(status_code=400, detail="Processing status only available for upload sessions")
         
         # Build status response

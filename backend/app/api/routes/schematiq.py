@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 
 from app.models.session import VisualizationSession, SessionType, SessionStatus, SessionMetadata, FilterSortRequest
+from app.services.session_capabilities import has_live_pipeline
 from app.models.schematiq import ScheMatiQConfig, ScheMatiQStatus, CostEstimate, CostEstimateRequest, PhaseEstimate, DocumentStats
 from app.services.schematiq_runner import ScheMatiQRunner
 from app.services.pipeline.data_query import session_data_read_failed
@@ -284,7 +285,7 @@ async def run_schematiq(session_id: str, background_tasks: BackgroundTasks):
     """Start ScheMatiQ execution."""
     try:
         session = session_manager.get_session(session_id)
-        if not session or session.type != SessionType.SCHEMATIQ:
+        if not has_live_pipeline(session):
             raise HTTPException(status_code=404, detail="ScheMatiQ session not found")
 
         # Pre-check global LLM quota before starting background task.
@@ -329,7 +330,7 @@ async def resume_schematiq(session_id: str, background_tasks: BackgroundTasks):
     """
     try:
         session = session_manager.get_session(session_id)
-        if not session or session.type != SessionType.SCHEMATIQ:
+        if not has_live_pipeline(session):
             raise HTTPException(status_code=404, detail="ScheMatiQ session not found")
 
         allowed_statuses = {
