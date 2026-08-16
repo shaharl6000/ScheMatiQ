@@ -89,13 +89,13 @@ def test_extraction_tools_unlocked_in_load_mode_when_capable() -> None:
     load_capable = {
         t.name for t in get_tools_for_context("s1", "load", extraction_capable=True)
     }
-    # rediscover (full schema rebuild that re-evaluates skipped documents) is
-    # document-gated too, so it unlocks alongside reextract/extract_cells.
-    assert {"reextract", "extract_cells", "rediscover"} <= load_capable
-    # run_schematiq (its handler hard-requires a SCHEMATIQ session) and
-    # continue_discovery (separate service, not yet document-gated) are NOT
-    # flagged requires_documents, so they stay hidden even when capable.
-    assert {"run_schematiq", "continue_discovery"}.isdisjoint(load_capable)
+    # rediscover (full schema rebuild that re-evaluates skipped documents) and
+    # continue_discovery (extends the schema over more documents) are
+    # document-gated too, so they unlock alongside reextract/extract_cells.
+    assert {"reextract", "extract_cells", "rediscover", "continue_discovery"} <= load_capable
+    # run_schematiq (its handler hard-requires a SCHEMATIQ session) is NOT
+    # flagged requires_documents, so it stays hidden even when capable.
+    assert "run_schematiq" not in load_capable
 
 
 def test_extraction_tools_stay_hidden_in_load_mode_without_documents() -> None:
