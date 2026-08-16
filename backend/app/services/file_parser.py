@@ -367,12 +367,27 @@ class FileParser:
         """Parse file and extract data."""
         session_dir = self.data_dir / session_id
         
-        # Find the uploaded file
+        # Find the uploaded file. Skip pipeline-generated artifacts: on a
+        # re-import the session dir can already hold files this parser (or the
+        # pipeline) writes, e.g. schematiq_config.json. Selecting one of those
+        # instead of the actual export makes the import parse the wrong file
+        # and silently skip the config restore below.
+        _GENERATED_ARTIFACTS = frozenset({
+            "schematiq_config.json", "config.json", "user_llm_config.json",
+            "data.json", "schema.json", "parsed_schema.json",
+            "discovered_schema.json", "extracted_schema.json",
+            "processing_schema.json", "value_extraction_schema.json",
+            "comprehensive_schema_context.json", "schema_discovery_skips.json",
+            "global_llm_usage.json", "llm_call_stats.json",
+        })
         file_path = None
         for f in session_dir.glob("*"):
-            if f.is_file() and not f.name.startswith('.'):
-                file_path = f
-                break
+            if not f.is_file() or f.name.startswith('.'):
+                continue
+            if f.name in _GENERATED_ARTIFACTS:
+                continue
+            file_path = f
+            break
         
         if not file_path:
             raise FileNotFoundError("No uploaded file found")
