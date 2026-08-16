@@ -86,6 +86,7 @@ class ReextractionOperation:
         documents: Optional[List[str]] = None,
         rows: Optional[List[str]] = None,
         only_empty: bool = False,
+        only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
     ):
         self.operation_id = operation_id
         self.session_id = session_id
@@ -105,6 +106,11 @@ class ReextractionOperation:
         self.documents: Optional[List[str]] = documents
         self.rows: Optional[List[str]] = rows
         self.only_empty: bool = only_empty
+        # Per-unit only_empty plan: {paper_stem -> {unit_name -> {targets, filled}}}.
+        # Lets the extractor ask the model for only each unit's empty columns.
+        self.only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = (
+            only_empty_targets
+        )
         # composite keys already merged incrementally during extraction
         self.incrementally_merged_keys: Set[tuple] = set()
         # paper discovery snapshot for this operation (avoids redundant rescans)
@@ -1055,6 +1061,80 @@ class ReextractionService(WebSocketBroadcasterMixin):
             return None, None
         return empty_columns, docs_with_empties
 
+    def _build_only_empty_targets(
+        self,
+        session_id: str,
+        columns: List[str],
+        documents: Optional[List[str]],
+        rows: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Dict[str, Dict[str, Any]]]]:
+        """Per-unit column plan for only_empty, keyed exactly like known_units.
+
+        Returns ``{paper_stem -> {unit_name -> {"targets": [...], "filled": {...}}}}``
+        over the same in-scope rows the extraction will process. ``targets`` are
+        the unit's fillable-gap columns (respecting ``_is_fillable_gap``, so
+        confirmed-empty cells are treated as resolved); ``filled`` are the
+        remaining in-scope columns' current values, handed to the model as
+        context. A unit whose targets list is empty is still included so the
+        extractor skips the LLM for it rather than re-extracting every column.
+
+        Keys mirror ``_build_known_units_for_reextraction`` (``Path(paper).stem``
+        and ``row_name_of``) so the lib can look the plan up by the same
+        ``paper_title``/``unit_name`` it already uses for known_units. Returns
+        ``None`` when no data files are readable — the caller then extracts
+        normally and the merge guard stays the only gate.
+        """
+        from app.services.data_utils import get_extraction_column_value, extract_papers
+
+        data_files = self._resolve_reextraction_data_files(session_id)
+        if not data_files:
+            return None
+        doc_filter = set(documents) if documents else None
+        row_filter = set(rows) if rows else None
+        plan: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        seen_any = False
+        for df in data_files:
+            try:
+                with open(df, "r") as handle:
+                    for line in handle:
+                        if not line.strip():
+                            continue
+                        try:
+                            row = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        seen_any = True
+                        unit_name = row_name_of(row)
+                        if not unit_name:
+                            continue
+                        if row_filter is not None and unit_name not in row_filter:
+                            continue
+                        paper_stems = {Path(p).stem for p in (extract_papers(row) or [])}
+                        if doc_filter is not None and not (paper_stems & doc_filter):
+                            continue
+                        scope_stems = (
+                            paper_stems & doc_filter if doc_filter is not None else paper_stems
+                        )
+                        targets: List[str] = []
+                        filled: Dict[str, Any] = {}
+                        for col in columns:
+                            value = get_extraction_column_value(row, col)
+                            if _is_fillable_gap(value):
+                                targets.append(col)
+                            elif value is not None:
+                                filled[col] = value
+                        for stem in scope_stems:
+                            plan.setdefault(stem, {})[unit_name] = {
+                                "targets": targets,
+                                "filled": filled,
+                            }
+            except Exception as e:  # unreadable file -> no narrowing
+                logger.warning("only_empty target scan failed for %s: %s", df, e)
+                return None
+        if not seen_any:
+            return None
+        return plan
+
     def _scoped_documents_availability(
         self,
         session_id: str,
@@ -1164,6 +1244,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             }
             skipped_scope = {d for d in scoped_documents if d in all_skipped}
 
+        only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None
         if only_empty:
             empty_columns, docs_with_empties = self._find_empty_target_cells(
                 session_id, resolved, scoped_documents, scoped_rows
@@ -1186,6 +1267,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         d for d in scoped_documents
                         if d in docs_with_empties or d in skipped_scope
                     ]
+                # Per-unit plan so the extractor asks the model only for each
+                # unit's empty columns (a unit with none is skipped entirely),
+                # rather than re-extracting filled columns and discarding them at
+                # merge. Keyed like known_units; unmatched units (e.g. under unit
+                # rediscovery) fall back to full extraction in the lib.
+                only_empty_targets = self._build_only_empty_targets(
+                    session_id, resolved, scoped_documents, scoped_rows
+                )
 
         availability = await self.precheck_document_availability(
             session_id,
@@ -1229,6 +1318,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             documents=scoped_documents,
             rows=scoped_rows,
             only_empty=only_empty,
+            only_empty_targets=only_empty_targets,
         )
 
     async def start_reextraction(
@@ -1240,6 +1330,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         documents: Optional[List[str]] = None,
         rows: Optional[List[str]] = None,
         only_empty: bool = False,
+        only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
     ) -> Dict[str, Any]:
         """
         Start a re-extraction operation for selected columns.
@@ -1343,6 +1434,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             rows=rows,
             only_empty=only_empty,
         )
+        operation.only_empty_targets = only_empty_targets
         operation.total_documents = doc_count
         operation.paper_discovery = paper_discovery
         with self._state_lock:
@@ -1750,6 +1842,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         on_document_started=on_document_started,
                         should_stop=should_stop,  # Allow graceful stop
                         known_units=known_units if known_units else None,
+                        unit_targets_by_paper=operation.only_empty_targets,
                         write_skip_rationale_artifact=session.write_artifacts,
                         reference_context=reference_context,
                     )

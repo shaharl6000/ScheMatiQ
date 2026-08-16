@@ -37,6 +37,7 @@ def build_table_jsonl(
     should_stop: Optional[ShouldStopCallback] = None,
     on_warning: Optional[OnWarningCallback] = None,
     known_units: Optional[Dict[str, List[str]]] = None,
+    unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None,
     on_document_started: Optional[Callable[[str], None]] = None,
     write_skip_rationale_artifact: Optional[bool] = None,
     reference_context: Optional[str] = None,
@@ -92,6 +93,7 @@ def build_table_jsonl(
         retrieval_k=retrieval_k,
         max_workers=max_workers,
         known_units=known_units,
+        unit_targets_by_paper=unit_targets_by_paper,
     )
     # Return extraction results including suggested values and skipped documents
     return {
