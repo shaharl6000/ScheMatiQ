@@ -265,11 +265,15 @@ class ChatAgentService:
         if pinned_tool:
             user_text = f"[User suggested tool: {pinned_tool}]\n{message}"
 
+        # A fresh turn clears any stale Stop intent from a prior turn.
+        state.stop_requested = False
         try:
             await self._ensure_quota_available()
             result = await self._run_loop(state, user_text, outbound_messages)
             if result["status"] == "complete":
                 await self._persist_history(state)
+            elif result["status"] == "stopped":
+                self._discard_stopped_turn(state)
             return {
                 "chat_id": state.chat_id,
                 "status": result["status"],
@@ -295,9 +299,12 @@ class ChatAgentService:
                 state = await self._get_or_create_session(
                     session_id, session_mode, None, model
                 )
+                state.stop_requested = False
                 result = await self._run_loop(state, user_text, outbound_messages)
                 if result["status"] == "complete":
                     await self._persist_history(state)
+                elif result["status"] == "stopped":
+                    self._discard_stopped_turn(state)
                 return {
                     "chat_id": state.chat_id,
                     "status": result["status"],
@@ -335,6 +342,8 @@ class ChatAgentService:
 
         pending = state.pending
         state.pending = None
+        # A confirmation resumes the turn, so clear any stale Stop intent first.
+        state.stop_requested = False
         outbound_messages: list[dict[str, Any]] = []
         await self._emit(state, outbound_messages,
             self._tool_log(pending.tool_name, "running", f"...{tool_running_label(pending.tool_name).lower()}")
@@ -382,6 +391,8 @@ class ChatAgentService:
             loop_result = await self._continue_after_tool(state, response, outbound_messages)
             if loop_result["status"] == "complete":
                 await self._persist_history(state)
+            elif loop_result["status"] == "stopped":
+                self._discard_stopped_turn(state)
             return {
                 "chat_id": chat_id,
                 "status": loop_result["status"],
@@ -419,6 +430,32 @@ class ChatAgentService:
             "messages": outbound_messages,
             "pending_action": new_pending,
         }
+
+    def request_stop(self, session_id: str) -> bool:
+        """Ask the in-flight turn for a workspace session to halt.
+
+        Sets a cooperative flag the run loop checks at its next step boundary.
+        Fire-and-forget from the client's side: the HTTP turn is already being
+        abandoned, so this only tells the backend to stop working and discard
+        the turn. Returns whether a live chat existed to signal.
+        """
+        state = chat_session_store.get_by_workspace_session(session_id)
+        if state is None:
+            return False
+        state.stop_requested = True
+        return True
+
+    def _discard_stopped_turn(self, state: ChatSessionState) -> None:
+        """Drop the in-memory chat so a stopped turn leaves no trace.
+
+        The turn is not persisted, and the live SDK chat may hold a model
+        function call whose response was never sent (we bailed before running
+        the tool). Deleting the chat forces the next message to rebuild from the
+        last *completed* persisted history, so the discarded turn cannot corrupt
+        the balanced-history invariant the SDK requires.
+        """
+        if state.chat_id:
+            chat_session_store.delete(state.chat_id)
 
     async def _abort_pending(
         self,
@@ -834,6 +871,13 @@ class ChatAgentService:
         outbound_messages: list[dict[str, Any]],
     ) -> dict[str, Any]:
         for _ in range(MAX_TOOL_ITERATIONS):
+            # Bail at the step boundary if the user pressed Stop. This is a safe
+            # point: any tool batch from a previous iteration already sent its
+            # function responses, so the SDK chat is balanced. The turn is
+            # discarded by the caller (no persist), so an unanswered function
+            # call sitting in `response` here is dropped with it.
+            if state.stop_requested:
+                return {"status": "stopped"}
             function_calls = getattr(response, "function_calls", None) or []
             if function_calls:
                 # Execute every tool call the model issued this turn. The model often
@@ -921,6 +965,10 @@ class ChatAgentService:
 
             text = (getattr(response, "text", None) or "").strip()
             if text:
+                # A Stop that arrived while this reply was being generated drops
+                # the answer instead of emitting it.
+                if state.stop_requested:
+                    return {"status": "stopped"}
                 await self._emit(state, outbound_messages, self._text_message(text))
                 return {"status": "complete"}
 

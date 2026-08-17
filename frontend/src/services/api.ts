@@ -1127,16 +1127,18 @@ export const chatAPI = {
       pinned_tool?: string;
       model?: string;
     },
+    signal?: AbortSignal,
   ): Promise<ChatMessageResponse> => {
-    const response = await api.post(`/chat/${sessionId}/message`, payload, { timeout: CHAT_REQUEST_TIMEOUT_MS });
+    const response = await api.post(`/chat/${sessionId}/message`, payload, { timeout: CHAT_REQUEST_TIMEOUT_MS, signal });
     return response.data;
   },
 
   confirmAction: async (
     sessionId: string,
     chatId: string,
+    signal?: AbortSignal,
   ): Promise<ChatMessageResponse> => {
-    const response = await api.post(`/chat/${sessionId}/confirm`, { chat_id: chatId }, { timeout: CHAT_REQUEST_TIMEOUT_MS });
+    const response = await api.post(`/chat/${sessionId}/confirm`, { chat_id: chatId }, { timeout: CHAT_REQUEST_TIMEOUT_MS, signal });
     return response.data;
   },
 
@@ -1145,6 +1147,14 @@ export const chatAPI = {
     chatId: string,
   ): Promise<ChatMessageResponse> => {
     const response = await api.post(`/chat/${sessionId}/cancel`, { chat_id: chatId });
+    return response.data;
+  },
+
+  // Tells the backend to halt the in-flight turn and discard it. Fire-and-forget:
+  // the client aborts its own request separately, so a failure here only means
+  // the server keeps working until the turn ends on its own.
+  stopChat: async (sessionId: string): Promise<{ stopped: boolean }> => {
+    const response = await api.post(`/chat/${sessionId}/stop`);
     return response.data;
   },
 };

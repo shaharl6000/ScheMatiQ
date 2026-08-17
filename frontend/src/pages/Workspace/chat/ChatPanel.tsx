@@ -2,7 +2,7 @@
 // Parent: Workspace (index.tsx).
 
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, Bot, Check, FileText, Loader2, Paperclip, X } from 'lucide-react';
+import { ArrowUp, Bot, Check, FileText, Loader2, Paperclip, Square, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -29,6 +29,7 @@ import { formatToolsList, mapChatTurnMessage } from '../helpers';
 import type { PendingChatAction, PendingRerunKind, WorkspaceMessage, WorkspaceSessionMode } from '../types';
 import { ChatMessageBody } from './ChatMessageBody';
 import { ToolActivityGroup } from './ToolActivityGroup';
+import { useChatTurn } from './hooks/useChatTurn';
 
 // Fold a flat message list into render groups so that consecutive tool_log
 // messages collapse into a single expandable block, while text/user messages
@@ -84,7 +85,10 @@ export function ChatPanel({
     },
   ]);
   const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
+  // The chat turn lifecycle (busy flag + abort wiring) lives in its own hook so
+  // Stop can cancel the in-flight request and every handler shares one busy
+  // source instead of toggling it by hand.
+  const { busy, runTurn, stop } = useChatTurn();
   const [chatId, setChatId] = useState<string | null>(null);
   const [chatModel, setChatModel] = useState<string>(() => getDefaultModelForProvider('gemini'));
   const [pinnedTool, setPinnedTool] = useState<string | null>(null);
@@ -104,6 +108,10 @@ export function ChatPanel({
   // Flips true once the user drives the conversation, so a late-arriving history
   // load can't clobber messages they've already produced this session.
   const conversationStartedRef = useRef(false);
+  // Set when the user presses Stop: the backend may still emit a message or two
+  // from the step that was already running, so drop live chat_message events
+  // until the next turn starts rather than letting the stopped reply trickle in.
+  const suppressStreamRef = useRef(false);
 
   useEffect(() => {
     const container = messagesRef.current;
@@ -283,7 +291,9 @@ export function ChatPanel({
       if (message.type === 'chat_message' && message.data) {
         // Emitted by agent_service as each assistant/tool message is produced,
         // so the panel fills in while the turn is still running instead of
-        // staying empty until the HTTP response returns.
+        // staying empty until the HTTP response returns. After a Stop we ignore
+        // these so the halted turn's reply does not keep landing.
+        if (suppressStreamRef.current) return;
         appendMessages([mapChatTurnMessage(message.data as unknown as ChatTurnMessage)]);
       } else if (message.type === 'reference_fill_started') {
         const data = (message.data ?? {}) as unknown as { column?: string };
@@ -412,9 +422,9 @@ export function ChatPanel({
   }, [appendMessages, onEditFollowUp, onRefresh]);
 
   const showToolsList = useCallback(async () => {
-    setBusy(true);
     try {
-      const tools = await loadTools();
+      const tools = await runTurn(() => loadTools());
+      if (!tools) return; // stopped
       appendMessages([
         {
           id: `${Date.now()}-tools`,
@@ -430,10 +440,8 @@ export function ChatPanel({
           content: err?.response?.data?.detail || err?.message || 'Could not load tools.',
         },
       ]);
-    } finally {
-      setBusy(false);
     }
-  }, [appendMessages, loadTools]);
+  }, [appendMessages, loadTools, runTurn]);
 
   const ask = useCallback(async () => {
     const text = input.trim();
@@ -460,16 +468,24 @@ export function ChatPanel({
       return;
     }
 
-    setBusy(true);
+    // A new turn re-opens the live stream that a prior Stop had muted.
+    suppressStreamRef.current = false;
     try {
-      const response = await chatAPI.sendMessage(sessionId, {
-        message: text,
-        chat_id: chatId || undefined,
-        session_mode: sessionMode,
-        pinned_tool: pinnedTool || undefined,
-        model: chatModel || undefined,
-      });
-      applyChatResponse(response);
+      const response = await runTurn((signal) =>
+        chatAPI.sendMessage(
+          sessionId,
+          {
+            message: text,
+            chat_id: chatId || undefined,
+            session_mode: sessionMode,
+            pinned_tool: pinnedTool || undefined,
+            model: chatModel || undefined,
+          },
+          signal,
+        ),
+      );
+      // null means the user pressed Stop; leave the transcript as-is.
+      if (response) applyChatResponse(response);
     } catch (err: any) {
       appendMessages([
         {
@@ -478,16 +494,16 @@ export function ChatPanel({
           content: err?.response?.data?.detail || err?.message || 'That workspace action failed.',
         },
       ]);
-    } finally {
-      setBusy(false);
     }
   }, [
     appendMessages,
     applyChatResponse,
     busy,
     chatId,
+    chatModel,
     input,
     pinnedTool,
+    runTurn,
     sessionId,
     sessionMode,
     showToolsList,
@@ -495,10 +511,12 @@ export function ChatPanel({
 
   const confirmPendingAction = useCallback(async () => {
     if (!pendingAction || !sessionId) return;
-    setBusy(true);
+    suppressStreamRef.current = false;
     try {
-      const response = await chatAPI.confirmAction(sessionId, pendingAction.chatId);
-      applyChatResponse(response);
+      const response = await runTurn((signal) =>
+        chatAPI.confirmAction(sessionId, pendingAction.chatId, signal),
+      );
+      if (response) applyChatResponse(response); // null => stopped
     } catch (err: any) {
       appendMessages([
         {
@@ -507,16 +525,16 @@ export function ChatPanel({
           content: err?.response?.data?.detail || err?.message || 'The confirmed action failed.',
         },
       ]);
-    } finally {
-      setBusy(false);
     }
-  }, [appendMessages, applyChatResponse, pendingAction, sessionId]);
+  }, [appendMessages, applyChatResponse, pendingAction, runTurn, sessionId]);
 
   const cancelPendingAction = useCallback(async (): Promise<boolean> => {
     if (!pendingAction || !sessionId) return true;
-    setBusy(true);
     try {
-      const response = await chatAPI.cancelAction(sessionId, pendingAction.chatId);
+      const response = await runTurn(() =>
+        chatAPI.cancelAction(sessionId, pendingAction.chatId),
+      );
+      if (!response) return false; // stopped; the pending action still stands
       setPendingAction(null);
       applyChatResponse(response);
       return true;
@@ -532,10 +550,22 @@ export function ChatPanel({
         },
       ]);
       return false;
-    } finally {
-      setBusy(false);
     }
-  }, [appendMessages, applyChatResponse, pendingAction, sessionId]);
+  }, [appendMessages, applyChatResponse, pendingAction, runTurn, sessionId]);
+
+  // Stop the running turn: mute the live stream so the halted reply stops
+  // landing, abort the client's wait so the composer frees up immediately, and
+  // tell the backend to bail and discard the turn. The backend call is
+  // best-effort -- the UI is already unblocked regardless of its outcome.
+  const handleStop = useCallback(() => {
+    suppressStreamRef.current = true;
+    stop();
+    if (sessionId) {
+      chatAPI.stopChat(sessionId).catch(() => {
+        // Best-effort: the turn ends server-side on its own if this misses.
+      });
+    }
+  }, [sessionId, stop]);
 
   useEffect(() => {
     if (!onRegisterCancelPending) return;
@@ -546,6 +576,15 @@ export function ChatPanel({
     }
     return () => onRegisterCancelPending(null);
   }, [cancelPendingAction, onRegisterCancelPending, pendingAction]);
+
+  // The assistant reply streams in over the WebSocket before the HTTP turn
+  // resolves and clears `busy`, so gating the "Thinking…" indicator on `busy`
+  // alone leaves it rendered below the reply until the response returns. Once a
+  // non-tool assistant message is the latest entry the reply is already on
+  // screen, so hide the indicator immediately instead of waiting for `busy`.
+  const lastMessage = messages[messages.length - 1];
+  const assistantHasReplied =
+    lastMessage?.role === 'assistant' && lastMessage.kind !== 'tool_log';
 
   return (
     <aside
@@ -616,7 +655,7 @@ export function ChatPanel({
           ),
         )}
 
-        {busy && (
+        {busy && !assistantHasReplied && (
           <div className="workspace-chat-message" data-role="assistant">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <img
@@ -749,21 +788,31 @@ export function ChatPanel({
             )}
             Attach reference
           </Button>
-          <Button
-            type="button"
-            size="icon"
-            onClick={ask}
-            disabled={busy || !input.trim()}
-            className="ml-auto h-8 w-8 rounded-lg"
-            aria-label="Send message"
-            title="Send message (Enter)"
-          >
-            {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
+          {busy ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="destructive"
+              onClick={handleStop}
+              className="ml-auto h-8 w-8 rounded-lg"
+              aria-label="Stop"
+              title="Stop"
+            >
+              <Square className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="icon"
+              onClick={ask}
+              disabled={!input.trim()}
+              className="ml-auto h-8 w-8 rounded-lg"
+              aria-label="Send message"
+              title="Send message (Enter)"
+            >
               <ArrowUp className="h-4 w-4" />
-            )}
-          </Button>
+            </Button>
+          )}
         </div>
       </div>
     </aside>
