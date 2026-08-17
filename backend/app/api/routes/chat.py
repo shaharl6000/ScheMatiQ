@@ -153,3 +153,16 @@ async def cancel_chat_action(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/{session_id}/stop")
+async def stop_chat_turn(session_id: str) -> dict[str, bool]:
+    """Halt the in-flight chat turn for a session.
+
+    Fire-and-forget companion to the client aborting its request: the run loop
+    checks a cooperative flag at its next step boundary, then discards the turn
+    without persisting it. Returns ``stopped`` = whether a live turn existed.
+    """
+    _require_session(session_id)
+    stopped = chat_agent_service.request_stop(session_id)
+    return {"stopped": stopped}

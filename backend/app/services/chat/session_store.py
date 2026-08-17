@@ -29,6 +29,10 @@ class ChatSessionState:
     # Gemini calls made since the last quota flush (chat bypasses the
     # schematiq LLM backends, so calls are counted here explicitly).
     pending_llm_calls: int = 0
+    # Set by a Stop request to cooperatively halt the running turn. The run loop
+    # checks it at step boundaries and bails without persisting, so the turn is
+    # discarded rather than half-committed. Reset at the start of every turn.
+    stop_requested: bool = False
 
 
 class ChatSessionStore:
