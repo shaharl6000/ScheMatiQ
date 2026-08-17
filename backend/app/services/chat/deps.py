@@ -58,7 +58,7 @@ reference_fill_service = ReferenceFillService(
     schematiq_runner=schematiq_runner,
 )
 
-CHAT_MODEL = ModelNames.GEMINI_36_FLASH
+CHAT_MODEL = ModelNames.GEMINI_37_FLASH
 WORK_DIR = Path(DEFAULT_SCHEMATIQ_WORK_DIR)
 
 
