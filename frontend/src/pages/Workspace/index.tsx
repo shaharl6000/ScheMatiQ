@@ -45,7 +45,7 @@ import SkippedDocumentsBanner from '@/components/DataTable/SkippedDocumentsBanne
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
-import api, { configAPI, loadAPI, schematiqAPI, unitsAPI } from '@/services/api';
+import api, { configAPI, loadAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
 import { rememberProject } from '@/utils/recentProjects';
 import type {
   CostEstimate,
@@ -1186,8 +1186,19 @@ function Workspace() {
       if (!sessionId || files.length === 0) return;
       setAttachingSourceDocs(true);
       try {
-        await unitsAPI.attachSourceDocuments(sessionId, files);
+        const res = await unitsAPI.attachSourceDocuments(sessionId, files);
         setSourceDocReloadToken((t) => t + 1);
+        // Some files can be attached while others are skipped (e.g. over the
+        // size limit). The backend still returns 200 in that case, so without
+        // this the user is never told those specific previews won't resolve.
+        const skipped = res.skipped ?? [];
+        if (skipped.length > 0) {
+          toast({
+            title: `${skipped.length} file${skipped.length === 1 ? '' : 's'} skipped`,
+            description: `${describeSkippedAttachments(skipped)}. The other files were attached.`,
+            variant: 'destructive',
+          });
+        }
       } catch (err) {
         toast({
           title: 'Upload failed',

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FileText, Upload, Loader2 } from 'lucide-react';
 
-import { unitsAPI } from '../../services/api';
+import { unitsAPI, describeSkippedAttachments } from '../../services/api';
 import { DocumentSummary } from '../../types/unit';
 import { SkippedDocument } from '../../types';
 import DocumentPreview from './DocumentPreview';
@@ -20,6 +20,12 @@ interface DocumentViewerProps {
 const extractErrorMessage = (err: any): string => {
   const detail = err?.response?.data?.detail;
   if (typeof detail === 'string') return detail;
+  // The attach endpoint returns 400 with { skipped: [...] } when nothing could
+  // be stored (e.g. every file was over the size limit). Report the specific
+  // reasons instead of a generic "try again", which would be misleading.
+  if (detail && Array.isArray(detail.skipped) && detail.skipped.length > 0) {
+    return `No files were attached. Skipped: ${describeSkippedAttachments(detail.skipped)}`;
+  }
   if (detail && Array.isArray(detail.errors) && detail.errors.length > 0) {
     return detail.errors.join(' ');
   }
@@ -91,9 +97,17 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey, 
       setUploading(true);
       setUploadError(null);
       try {
-        await unitsAPI.attachSourceDocuments(sessionId, files);
+        const res = await unitsAPI.attachSourceDocuments(sessionId, files);
         // Refetch the list and re-probe the preview against the newly stored files.
         setReloadToken((t) => t + 1);
+        // Partial success (200) can still carry skipped files; tell the user so
+        // they know why those specific previews won't resolve.
+        const skipped = res.skipped ?? [];
+        if (skipped.length > 0) {
+          setUploadError(
+            `${skipped.length} file${skipped.length === 1 ? '' : 's'} skipped: ${describeSkippedAttachments(skipped)}`,
+          );
+        }
       } catch (err: any) {
         setUploadError(extractErrorMessage(err));
       } finally {
