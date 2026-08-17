@@ -1127,16 +1127,18 @@ export const chatAPI = {
       pinned_tool?: string;
       model?: string;
     },
+    signal?: AbortSignal,
   ): Promise<ChatMessageResponse> => {
-    const response = await api.post(`/chat/${sessionId}/message`, payload, { timeout: CHAT_REQUEST_TIMEOUT_MS });
+    const response = await api.post(`/chat/${sessionId}/message`, payload, { timeout: CHAT_REQUEST_TIMEOUT_MS, signal });
     return response.data;
   },
 
   confirmAction: async (
     sessionId: string,
     chatId: string,
+    signal?: AbortSignal,
   ): Promise<ChatMessageResponse> => {
-    const response = await api.post(`/chat/${sessionId}/confirm`, { chat_id: chatId }, { timeout: CHAT_REQUEST_TIMEOUT_MS });
+    const response = await api.post(`/chat/${sessionId}/confirm`, { chat_id: chatId }, { timeout: CHAT_REQUEST_TIMEOUT_MS, signal });
     return response.data;
   },
 
