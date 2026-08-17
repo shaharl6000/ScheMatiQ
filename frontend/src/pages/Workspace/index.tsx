@@ -1447,6 +1447,7 @@ function Workspace() {
                     reloadToken={sourceDocReloadToken}
                     highlightTexts={groundingHighlights}
                     scrollNonce={groundingScrollNonce}
+                    uploading={attachingSourceDocs}
                     onRequestUpload={attachingSourceDocs ? undefined : () => sourceDocInputRef.current?.click()}
                   />
                 </div>
