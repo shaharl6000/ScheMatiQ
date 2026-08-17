@@ -1046,17 +1046,11 @@ class ToolExecutor:
       # Funnel through the same gated entry point as the manual workspace
       # button: scope resolution (explicit / all / edited_only), baseline
       # capture, document precheck, then start. Keeps both routes identical.
-      await concurrency_limiter.acquire(session_id, "reextraction")
-      try:
-          result = await reextraction_service.start_gated_reextraction(
-              session_id,
-              columns=args.get("columns"),
-              scope=args.get("scope", "edited_only"),
-          )
-      except Exception:
-          await concurrency_limiter.release(session_id)
-          raise
-      return result
+      return await reextraction_service.start_gated_reextraction_guarded(
+          session_id,
+          columns=args.get("columns"),
+          scope=args.get("scope", "edited_only"),
+      )
 
   async def _handle_extract_cells(
       self, session_id: str, session_mode: str, args: dict[str, Any]
@@ -1067,21 +1061,14 @@ class ToolExecutor:
       # only_empty / the document+row scope narrow the actual work.
       columns = args.get("columns")
       scope = "explicit" if columns else "all"
-      only_empty = args.get("only_empty", True)
-      await concurrency_limiter.acquire(session_id, "reextraction")
-      try:
-          result = await reextraction_service.start_gated_reextraction(
-              session_id,
-              columns=columns,
-              scope=scope,
-              documents=args.get("documents"),
-              rows=args.get("rows"),
-              only_empty=only_empty,
-          )
-      except Exception:
-          await concurrency_limiter.release(session_id)
-          raise
-      return result
+      return await reextraction_service.start_gated_reextraction_guarded(
+          session_id,
+          columns=columns,
+          scope=scope,
+          documents=args.get("documents"),
+          rows=args.get("rows"),
+          only_empty=args.get("only_empty", True),
+      )
 
   async def _handle_continue_discovery(
       self, session_id: str, session_mode: str, args: dict[str, Any]
@@ -1115,17 +1102,12 @@ class ToolExecutor:
       # from storage and fails clearly when none are available.
       columns = args.get("columns")
       scope = args.get("scope", "all" if not columns else "edited_only")
-      await concurrency_limiter.acquire(session_id, "reprocess")
-      try:
-          result = await reextraction_service.start_gated_reextraction(
-              session_id,
-              columns=columns,
-              scope=scope,
-          )
-      except Exception:
-          await concurrency_limiter.release(session_id)
-          raise
-      return result
+      return await reextraction_service.start_gated_reextraction_guarded(
+          session_id,
+          operation_label="reprocess",
+          columns=columns,
+          scope=scope,
+      )
 
   async def _handle_rediscover(
       self, session_id: str, session_mode: str, args: dict[str, Any]
