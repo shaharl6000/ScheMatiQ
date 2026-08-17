@@ -492,23 +492,17 @@ async def reprocess_documents(
             if not any(col.name == col_name for col in session.columns):
                 raise HTTPException(status_code=404, detail=f"Column '{col_name}' not found")
 
-        # Reserve a concurrency slot
-        await concurrency_limiter.acquire(session_id, "reextraction")
-
-        try:
-            # Shared gated entry point (same as POST /reextract): the legacy
-            # reprocess_documents path silently no-ops on the Supabase backend,
-            # so route through the gated path, which materializes documents first.
-            scope = "explicit" if reprocess_request.columns else "all"
-            result = await reextraction_service.start_gated_reextraction(
-                session_id,
-                columns=reprocess_request.columns,
-                scope=scope,
-            )
-        except Exception:
-            # Release slot if the gated start fails before creating its task
-            await concurrency_limiter.release(session_id)
-            raise
+        # Shared gated entry point (same as POST /reextract): the legacy
+        # reprocess_documents path silently no-ops on the Supabase backend,
+        # so route through the gated path, which materializes documents first.
+        # start_gated_reextraction_guarded reserves the concurrency slot and
+        # releases it if the gated start fails before spawning its task.
+        scope = "explicit" if reprocess_request.columns else "all"
+        result = await reextraction_service.start_gated_reextraction_guarded(
+            session_id,
+            columns=reprocess_request.columns,
+            scope=scope,
+        )
 
         return result
 
@@ -1031,21 +1025,15 @@ async def start_reextraction(
             has_api_key = 'api_key' in request.llm_config and request.llm_config['api_key']
             logger.debug(f"Saved user LLM config for re-extraction: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
 
-        # Reserve a concurrency slot
-        await concurrency_limiter.acquire(session_id, "reextraction")
-
-        try:
-            # Shared gated entry point (also used by the chat reextract tool):
-            # scope resolution + baseline capture + document precheck + start.
-            result = await reextraction_service.start_gated_reextraction(
-                session_id,
-                columns=request.columns,
-                scope="explicit",
-            )
-        except Exception:
-            # Release slot if the gated start fails before creating its task
-            await concurrency_limiter.release(session_id)
-            raise
+        # Shared gated entry point (also used by the chat reextract tool):
+        # scope resolution + baseline capture + document precheck + start.
+        # start_gated_reextraction_guarded reserves the concurrency slot and
+        # releases it if the gated start fails before spawning its task.
+        result = await reextraction_service.start_gated_reextraction_guarded(
+            session_id,
+            columns=request.columns,
+            scope="explicit",
+        )
 
         return ReextractionResponse(**result)
 
