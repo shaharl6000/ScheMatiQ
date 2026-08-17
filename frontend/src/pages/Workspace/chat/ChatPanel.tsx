@@ -577,6 +577,15 @@ export function ChatPanel({
     return () => onRegisterCancelPending(null);
   }, [cancelPendingAction, onRegisterCancelPending, pendingAction]);
 
+  // The assistant reply streams in over the WebSocket before the HTTP turn
+  // resolves and clears `busy`, so gating the "Thinking…" indicator on `busy`
+  // alone leaves it rendered below the reply until the response returns. Once a
+  // non-tool assistant message is the latest entry the reply is already on
+  // screen, so hide the indicator immediately instead of waiting for `busy`.
+  const lastMessage = messages[messages.length - 1];
+  const assistantHasReplied =
+    lastMessage?.role === 'assistant' && lastMessage.kind !== 'tool_log';
+
   return (
     <aside
       className="workspace-chat"
@@ -646,7 +655,7 @@ export function ChatPanel({
           ),
         )}
 
-        {busy && (
+        {busy && !assistantHasReplied && (
           <div className="workspace-chat-message" data-role="assistant">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <img
