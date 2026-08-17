@@ -633,6 +633,18 @@ class ReferenceFillService:
             pass
 
     async def _broadcast_complete(self, op: FillOperation) -> None:
+        # Persist the recap keyed by fill_id so it survives a reload. The same
+        # fill_id is already in the persisted model history (inside this tool
+        # call's function_response), which is how transcript reconstruction
+        # re-anchors this message at the right position. Best-effort and separate
+        # from the broadcast so a persist failure never suppresses the live event.
+        if op.message:
+            try:
+                from app.services.chat.chat_summary_store import save_summary
+
+                await save_summary(op.session_id, op.fill_id, op.message)
+            except Exception:
+                pass
         try:
             await self._ws.broadcast_to_session(
                 op.session_id,

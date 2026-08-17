@@ -676,7 +676,17 @@ class ChatAgentService:
         mints a fresh id.
         """
         restored = await self._load_history(session_id)
-        messages = self._reconstruct_transcript(restored)
+        # WS-only summaries (re-extraction / reference-fill recaps) live outside
+        # the model history; load them so reconstruction can splice each one back
+        # in at the position of the tool call that produced it.
+        summaries: dict[str, str] = {}
+        try:
+            from app.services.chat.chat_summary_store import load_summaries
+
+            summaries = await load_summaries(session_id)
+        except Exception:
+            summaries = {}
+        messages = self._reconstruct_transcript(restored, summaries)
         existing = chat_session_store.get_by_workspace_session(session_id)
         return {
             "chat_id": existing.chat_id if existing else None,
@@ -684,17 +694,62 @@ class ChatAgentService:
         }
 
     @staticmethod
-    def _reconstruct_transcript(history: list[Any]) -> list[dict[str, Any]]:
+    def _summary_id_from_function_response(part: Any) -> Optional[str]:
+        """Return the operation id embedded in a ``function_response`` part, if any.
+
+        Tool results are stored as ``response={"result": <tool_result>}`` (see
+        ``_function_response_part``). Asynchronous starts carry the id under
+        ``operation_id`` (re-extraction) or ``fill_id`` (reference fill); either
+        is the key a persisted summary is stored under. Returns ``None`` for any
+        other tool result, which simply means "no summary to anchor here".
+        """
+        function_response = getattr(part, "function_response", None)
+        if function_response is None:
+            return None
+        response = getattr(function_response, "response", None)
+        if not isinstance(response, dict):
+            return None
+        result = response.get("result")
+        if not isinstance(result, dict):
+            return None
+        op_id = result.get("operation_id") or result.get("fill_id")
+        return str(op_id) if op_id else None
+
+    @staticmethod
+    def _reconstruct_transcript(
+        history: list[Any], summaries: Optional[dict[str, str]] = None
+    ) -> list[dict[str, Any]]:
         """Map persisted model-history turns to display messages.
 
         The persisted history is model context, not a display list, so it is
         translated the same way the live UI groups a turn: user and model text
         parts become chat bubbles, and a model ``function_call`` becomes a compact
         ``tool_log`` line. ``function_response`` parts are the raw tool output fed
-        back to the model and are never surfaced. Fresh message ids are minted;
-        they are display-only and need not match the ephemeral live-stream ids.
+        back to the model and are never surfaced as bubbles -- but when one starts
+        an asynchronous operation whose recap was persisted out of band, that
+        recap is spliced in right here, so a re-extraction / reference-fill
+        summary lands in the same chronological spot the user saw it live. Fresh
+        message ids are minted; they are display-only and need not match the
+        ephemeral live-stream ids.
         """
+        summaries = summaries or {}
         messages: list[dict[str, Any]] = []
+        # Summaries whose tool call we have passed but whose model acknowledgement
+        # ("Re-extraction started…") we have not yet emitted. Deferring injection
+        # until just after that ack reproduces the live order the user saw:
+        # tool_log -> started -> (async, later) summary. Each is a (id, text) pair.
+        pending_summaries: list[str] = []
+
+        def _emit_summary(content: str) -> None:
+            messages.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "role": "assistant",
+                    "kind": "text",
+                    "content": content,
+                }
+            )
+
         for content in history or []:
             role = getattr(content, "role", None)
             for part in getattr(content, "parts", None) or []:
@@ -709,6 +764,12 @@ class ChatAgentService:
                             "content": text,
                         }
                     )
+                    # The model's post-tool acknowledgement is the anchor point:
+                    # flush any summaries whose tool call preceded this reply.
+                    if role == "model" and pending_summaries:
+                        for summary in pending_summaries:
+                            _emit_summary(summary)
+                        pending_summaries = []
                 elif function_call is not None and role == "model":
                     name = getattr(function_call, "name", None) or "tool"
                     messages.append(
@@ -721,6 +782,15 @@ class ChatAgentService:
                             "content": f"...{tool_running_label(name).lower()}",
                         }
                     )
+                else:
+                    op_id = ChatAgentService._summary_id_from_function_response(part)
+                    summary = summaries.get(op_id) if op_id else None
+                    if summary:
+                        pending_summaries.append(summary)
+        # A summary whose tool call had no following model text still belongs in
+        # the transcript; emit any leftovers at the end rather than dropping them.
+        for summary in pending_summaries:
+            _emit_summary(summary)
         return messages
 
     async def _emit(

@@ -1905,6 +1905,18 @@ class ReextractionService(WebSocketBroadcasterMixin):
             except Exception as exc:
                 logger.debug("Re-extraction summary skipped: %s", exc)
 
+            # Persist the recap keyed by operation_id so it survives a reload.
+            # The same operation_id is already in the persisted model history
+            # (inside this tool call's function_response), which is how the
+            # transcript reconstruction re-anchors this message at the right spot.
+            if summary_text:
+                try:
+                    from app.services.chat.chat_summary_store import save_summary
+
+                    await save_summary(operation.session_id, operation_id, summary_text)
+                except Exception as exc:
+                    logger.debug("Re-extraction summary persist skipped: %s", exc)
+
             await self.broadcast_event(
                 operation.session_id,
                 "reextraction_completed",
