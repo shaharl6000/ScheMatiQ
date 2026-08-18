@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FileText, ExternalLink, Download, FileX, Upload } from 'lucide-react';
+import { FileText, ExternalLink, Download, FileX, Upload, Loader2 } from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
 import { findHighlightRanges } from './highlightUtils';
@@ -51,6 +51,13 @@ interface DocumentPreviewProps {
    */
   onRequestUpload?: () => void;
   /**
+   * True while re-attached source files are being uploaded and processed on the
+   * server. Converting several documents can take a while, so the "not
+   * available" state shows a spinner instead of a static message — otherwise the
+   * panel looks frozen and the user assumes the upload silently failed.
+   */
+  uploading?: boolean;
+  /**
    * Grounding excerpts to highlight in the document. Passing this prop at all
    * (even `null`/`[]`) enables the highlight-capable inline text renderer for
    * text-based formats; the Documents tab omits it and keeps the plain iframe.
@@ -89,6 +96,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   emptyHint,
   reloadToken,
   onRequestUpload,
+  uploading,
   highlightTexts,
   scrollNonce,
 }) => {
@@ -243,6 +251,19 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
       );
     }
     if (availability === 'unavailable') {
+      // Uploading/converting the re-attached files can take a while. Show a
+      // spinner instead of the static prompt so the panel doesn't look frozen
+      // (the button is hidden while uploading, so without this it appears as if
+      // nothing happened and the upload silently failed).
+      if (uploading) {
+        return (
+          <div className="h-full flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground text-center px-6">
+            <Loader2 className="h-8 w-8 opacity-60 animate-spin" />
+            <span>Uploading and processing documents&hellip;</span>
+            <span className="text-xs">This can take a moment for large files.</span>
+          </div>
+        );
+      }
       return (
         <div className="h-full flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground text-center px-6">
           <FileX className="h-8 w-8 opacity-40" />
