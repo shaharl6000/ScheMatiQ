@@ -1238,11 +1238,18 @@ function Workspace() {
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
       />
-      {(loading || importingProject) && sessionId && (
+      {/*
+        Show the blocking overlay while a project is loading or importing.
+        `loading` only makes sense once a session exists (we're fetching its
+        data), but an import happens BEFORE the route has a session id — so it
+        must not be gated on `sessionId`, otherwise the slow upload+parse shows
+        no feedback at all until navigation completes.
+      */}
+      {(importingProject || (loading && sessionId)) && (
         <div className="workspace-loading-overlay" role="status" aria-live="polite">
           <div className="workspace-loading-card">
             <Loader2 className="h-5 w-5 animate-spin" />
-            <span>Loading project…</span>
+            <span>{importingProject ? 'Importing project…' : 'Loading project…'}</span>
           </div>
         </div>
       )}
