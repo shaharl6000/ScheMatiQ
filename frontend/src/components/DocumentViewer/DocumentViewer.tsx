@@ -212,6 +212,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey, 
         sessionId={sessionId}
         documentName={selected}
         reloadToken={reloadToken}
+        uploading={uploading}
         onRequestUpload={openFilePicker}
       />
     </div>
