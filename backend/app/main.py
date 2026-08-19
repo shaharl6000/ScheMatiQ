@@ -196,7 +196,7 @@ async def get_llm_usage():
     ``used``/``remaining`` honor the optional rolling window
     (LLM_CALL_LIMIT_WINDOW_DAYS); ``lifetime_total`` is always cumulative.
     """
-    from app.api.routes.schematiq import schematiq_runner
+    from app.services.orchestration import schematiq_runner
     from app.services import concurrency_limiter
 
     report = schematiq_runner.get_usage_report()
