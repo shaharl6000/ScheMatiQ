@@ -72,10 +72,10 @@ def _is_fillable_gap(value: Any, retry_confirmed_empty: bool = False) -> bool:
     A cell the model explicitly confirmed empty (``_confirmed_empty``) is treated
     as resolved, not a gap, by default: only_empty runs skip it so we do not
     re-bill the model on cells it already judged. Callers that want to retry
-    those cells anyway pass ``retry_confirmed_empty=True`` (the automatic
-    follow-up the frontend fires right after a fill request found nothing but
-    confirmed-empty cells), or use only_empty=false, which bypasses the gap
-    check entirely.
+    those cells anyway pass ``retry_confirmed_empty=True`` -- set automatically
+    by ``start_gated_reextraction``'s own one-time rescan when a plain request
+    finds nothing but confirmed-empty cells -- or use only_empty=false, which
+    bypasses the gap check entirely.
     """
     if not _is_empty_cell_value(value):
         return False
@@ -89,9 +89,11 @@ class ConfirmedEmptyScopeError(ValueError):
     every target cell was already confirmed empty by a prior extraction.
 
     A ValueError subclass so existing ``except ValueError`` handlers still
-    catch it, but distinguishable so a caller (the /reextract route) can
-    automatically retry with retry_confirmed_empty=True instead of just
-    surfacing a generic failure.
+    catch it. In practice this should not reach a caller: start_gated_reextraction
+    already retries once internally with retry_confirmed_empty=True before
+    raising, and that retry always finds every confirmed-empty cell in scope
+    fillable, so this is a defensive fallback for a concurrent write racing
+    the two scans rather than the primary "nothing to fill" signal.
     """
 
 
@@ -129,9 +131,9 @@ class ReextractionOperation:
         self.rows: Optional[List[str]] = rows
         self.only_empty: bool = only_empty
         # When set, only_empty treats already-_confirmed_empty cells as fillable
-        # gaps too (the automatic retry the frontend fires after a fill found
-        # nothing but confirmed-empty cells), instead of skipping them to
-        # avoid re-billing.
+        # gaps too, instead of skipping them to avoid re-billing.
+        # start_gated_reextraction sets this itself on its one-time internal
+        # rescan; see its docstring.
         self.retry_confirmed_empty: bool = retry_confirmed_empty
         # Per-unit only_empty plan: {paper_stem -> {unit_name -> {targets, filled}}}.
         # Lets the extractor ask the model for only each unit's empty columns.
@@ -1247,13 +1249,17 @@ class ReextractionService(WebSocketBroadcasterMixin):
             skipped document listed here is re-evaluated for observation units.
           - ``rows``: restrict the run to these observation-unit / row names.
           - ``only_empty``: never overwrite a cell that already holds a value, and
-            skip extraction for columns/documents that have nothing empty.
+            skip extraction for columns/documents that have nothing empty. If a
+            plain (``retry_confirmed_empty=False``) request resolves to nothing
+            *only* because every target cell was already confirmed empty by a
+            prior extraction, this method transparently rescans once with
+            ``retry_confirmed_empty`` forced on before giving up, so a caller
+            never needs to notice that no-op case and ask again itself.
           - ``retry_confirmed_empty``: with only_empty, also target cells the
             model already checked and explicitly confirmed empty (normally
             skipped to avoid re-billing). Raises ``ConfirmedEmptyScopeError``
-            instead of ``ValueError`` when the scope has nothing to fill *only*
-            because every target cell was confirmed empty, so the caller can
-            retry automatically instead of surfacing a generic failure.
+            instead of ``ValueError`` if the scope still has nothing to fill
+            after the automatic rescan above.
         """
         resolved = await self.resolve_reextraction_columns(session_id, columns, scope)
 
@@ -1330,13 +1336,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             "try again."
                         )
                     if confirmed_empty_hits:
-                        # These cells were seen and explicitly judged empty by a
-                        # prior extraction; only_empty deliberately skips them so
-                        # the model is not re-billed for cells it already
-                        # checked. Distinct exception (not plain ValueError) so
-                        # the route can automatically retry with
-                        # retry_confirmed_empty=True instead of just
-                        # surfacing a generic failure.
+                        # The automatic rescan above already retries a plain
+                        # (retry_confirmed_empty=False) request once, and that
+                        # retry always finds every confirmed-empty cell in scope
+                        # fillable (by construction), so this can only fire if a
+                        # concurrent write raced the two scans -- kept as a
+                        # defensive fallback rather than the primary signal to
+                        # the caller.
                         raise ConfirmedEmptyScopeError(
                             "The selected cell(s) were already checked and "
                             "confirmed empty by a previous extraction run, so "

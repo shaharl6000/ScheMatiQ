@@ -1075,9 +1075,10 @@ async def start_reextraction(
     except CapacityExceededError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except ConfirmedEmptyScopeError as e:
-        # Distinct code (not just a string) so the frontend can automatically
-        # retry with retry_confirmed_empty=True, rather than treating this
-        # the same as a generic failure. Must be
+        # start_gated_reextraction already retries once internally before
+        # raising this, so it reaches here only in the rare case that retry
+        # also found nothing new. Distinct code (not just a string) so the
+        # frontend can still tell this apart from a generic failure. Must be
         # caught before the plain ValueError handler below, since this is a
         # ValueError subclass.
         raise HTTPException(status_code=400, detail={"message": str(e), "code": "confirmed_empty_only"})
