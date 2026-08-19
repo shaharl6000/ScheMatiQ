@@ -207,7 +207,13 @@ async def edit_column(
     except CapacityExceededError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        detail = (
+            "This session is already busy with another operation. Please "
+            "wait for it to finish, then try again."
+            if "already has an active operation" in str(e)
+            else str(e)
+        )
+        raise HTTPException(status_code=409, detail=detail)
     except HTTPException:
         raise
     except Exception as e:
@@ -517,7 +523,13 @@ async def reprocess_documents(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        detail = (
+            "Already filling cells for this session. Please wait for it to "
+            "finish, then try again."
+            if "already has an active operation" in str(e)
+            else str(e)
+        )
+        raise HTTPException(status_code=409, detail=detail)
     except HTTPException:
         raise
     except Exception as e:
@@ -1085,7 +1097,13 @@ async def start_reextraction(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        detail = (
+            "Already filling cells for this session. Please wait for it to "
+            "finish, then try again."
+            if "already has an active operation" in str(e)
+            else str(e)
+        )
+        raise HTTPException(status_code=409, detail=detail)
     except HTTPException:
         raise
     except Exception as e:
