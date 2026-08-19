@@ -931,6 +931,28 @@ export const observationUnitAPI = {
   },
 };
 
+/** A source file the attach endpoint declined to store, with a human-readable reason. */
+export interface SkippedAttachment {
+  name: string;
+  reason: string;
+}
+
+/**
+ * Build a concise, human-readable summary of files the attach endpoint skipped
+ * (e.g. over the size limit), for a toast or inline notice. Returns '' when
+ * nothing was skipped. Caps the list so a large batch doesn't overflow the UI.
+ */
+export const describeSkippedAttachments = (skipped: SkippedAttachment[]): string => {
+  if (!skipped || skipped.length === 0) return '';
+  const MAX_SHOWN = 5;
+  const shown = skipped
+    .slice(0, MAX_SHOWN)
+    .map((s) => `${s.name} (${s.reason})`)
+    .join(', ');
+  const extra = skipped.length > MAX_SHOWN ? `, and ${skipped.length - MAX_SHOWN} more` : '';
+  return shown + extra;
+};
+
 // Units API (Observation Unit View and Merge)
 export const unitsAPI = {
   /**
@@ -1014,7 +1036,7 @@ export const unitsAPI = {
   attachSourceDocuments: async (
     sessionId: string,
     files: File[],
-  ): Promise<{ status: string; attached: string[]; skipped: { name: string; reason: string }[] }> => {
+  ): Promise<{ status: string; attached: string[]; skipped: SkippedAttachment[] }> => {
     const formData = new FormData();
     files.forEach((file) => formData.append('files', file));
     const response = await api.post(

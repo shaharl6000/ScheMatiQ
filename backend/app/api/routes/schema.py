@@ -15,10 +15,9 @@ from app.core.config import DEFAULT_DATA_DIR
 from app.models.session import ColumnInfo
 from app.models.modification import ModificationAction
 from app.services.schema_manager import SchemaManager
-from app.services.reextraction_service import ReextractionService, ConfirmedEmptyScopeError
-from app.services.continue_discovery_service import ContinueDiscoveryService
+from app.services.reextraction_service import ConfirmedEmptyScopeError
 from app.services.data_editor import DataEditor
-from app.services import session_manager, websocket_manager, concurrency_limiter, data_collection_service
+from app.services import session_manager, websocket_manager, concurrency_limiter
 from app.core.exceptions import CapacityExceededError
 from app.core.logging_utils import set_session_context
 
@@ -28,18 +27,10 @@ router = APIRouter(tags=["schema"])
 # Create schema manager instance
 schema_manager = SchemaManager(websocket_manager, session_manager)
 
-# Create reextraction service instance
-from app.services import pubmed_enrichment_service, uniprot_enrichment_service
-reextraction_service = ReextractionService(websocket_manager, session_manager,
-                                           data_collection_service=data_collection_service,
-                                           pubmed_enrichment_service=pubmed_enrichment_service,
-                                           uniprot_enrichment_service=uniprot_enrichment_service)
-
-# Create continue discovery service instance
-continue_discovery_service = ContinueDiscoveryService(websocket_manager, session_manager,
-                                                      data_collection_service=data_collection_service,
-                                                      pubmed_enrichment_service=pubmed_enrichment_service,
-                                                      uniprot_enrichment_service=uniprot_enrichment_service)
+# Shared reextraction + continue-discovery singletons (see
+# app.services.orchestration): the same instances the chat tools and the
+# /load/rediscover route operate on, so stop/resume see the in-flight task.
+from app.services.orchestration import continue_discovery_service, reextraction_service
 
 # Create data editor instance
 data_editor = DataEditor()
@@ -498,23 +489,17 @@ async def reprocess_documents(
             if not any(col.name == col_name for col in session.columns):
                 raise HTTPException(status_code=404, detail=f"Column '{col_name}' not found")
 
-        # Reserve a concurrency slot
-        await concurrency_limiter.acquire(session_id, "reextraction")
-
-        try:
-            # Shared gated entry point (same as POST /reextract): the legacy
-            # reprocess_documents path silently no-ops on the Supabase backend,
-            # so route through the gated path, which materializes documents first.
-            scope = "explicit" if reprocess_request.columns else "all"
-            result = await reextraction_service.start_gated_reextraction(
-                session_id,
-                columns=reprocess_request.columns,
-                scope=scope,
-            )
-        except Exception:
-            # Release slot if the gated start fails before creating its task
-            await concurrency_limiter.release(session_id)
-            raise
+        # Shared gated entry point (same as POST /reextract): the legacy
+        # reprocess_documents path silently no-ops on the Supabase backend,
+        # so route through the gated path, which materializes documents first.
+        # start_gated_reextraction_guarded reserves the concurrency slot and
+        # releases it if the gated start fails before spawning its task.
+        scope = "explicit" if reprocess_request.columns else "all"
+        result = await reextraction_service.start_gated_reextraction_guarded(
+            session_id,
+            columns=reprocess_request.columns,
+            scope=scope,
+        )
 
         return result
 
@@ -1059,29 +1044,22 @@ async def start_reextraction(
             has_api_key = 'api_key' in request.llm_config and request.llm_config['api_key']
             logger.debug(f"Saved user LLM config for re-extraction: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
 
-        # Reserve a concurrency slot
-        await concurrency_limiter.acquire(session_id, "reextraction")
-
-        try:
-            # Shared gated entry point (also used by the chat reextract /
-            # extract_cells tools): scope resolution + baseline capture +
-            # document precheck + start. With no columns given, scope="all"
-            # lets documents/rows/only_empty narrow the actual work, same as
-            # the chat extract_cells tool.
-            result = await reextraction_service.start_gated_reextraction(
-                session_id,
-                columns=request.columns,
-                scope="explicit" if request.columns else "all",
-                documents=request.documents,
-                rows=request.rows,
-                only_empty=request.only_empty,
-                retry_confirmed_empty=request.retry_confirmed_empty,
-            )
-        except Exception:
-            # Release slot if the gated start fails before creating its task
-            await concurrency_limiter.release(session_id)
-            raise
-
+        # Shared gated entry point (also used by the chat reextract /
+        # extract_cells tools): scope resolution + baseline capture +
+        # document precheck + start. With no columns given, scope="all"
+        # lets documents/rows/only_empty narrow the actual work, same as
+        # the chat extract_cells tool. start_gated_reextraction_guarded
+        # reserves the concurrency slot and releases it if the gated start
+        # fails before spawning its task.
+        result = await reextraction_service.start_gated_reextraction_guarded(
+            session_id,
+            columns=request.columns,
+            scope="explicit" if request.columns else "all",
+            documents=request.documents,
+            rows=request.rows,
+            only_empty=request.only_empty,
+            retry_confirmed_empty=request.retry_confirmed_empty,
+        )
         return ReextractionResponse(**result)
 
     except CapacityExceededError as e:

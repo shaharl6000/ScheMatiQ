@@ -358,7 +358,7 @@ export interface ObservationUnitReadyData {
 }
 
 export interface WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'reextraction_started' | 'reextraction_progress' | 'reextraction_completed' | 'reextraction_failed' | 'reextraction_stopped' | 'document_started' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready' | 'observation_unit_definition_updated' | 'reference_fill_started' | 'reference_fill_completed' | 'chat_message';
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'reextraction_started' | 'reextraction_progress' | 'reextraction_completed' | 'reextraction_failed' | 'reextraction_stopped' | 'document_started' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready' | 'observation_unit_definition_updated' | 'reference_fill_started' | 'reference_fill_completed' | 'chat_message' | 'chat_message_delta' | 'chat_message_discard';
   timestamp?: string;
   session_id?: string;
   message?: string;

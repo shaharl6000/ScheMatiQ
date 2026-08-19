@@ -1224,6 +1224,34 @@ class ReextractionService(WebSocketBroadcasterMixin):
         missing = sorted(s for s in wanted if s not in reachable)
         return {"available": available, "missing": missing}
 
+    async def start_gated_reextraction_guarded(
+        self,
+        session_id: str,
+        *,
+        operation_label: str = "reextraction",
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Reserve a concurrency slot, then start a gated re-extraction.
+
+        Wraps :meth:`start_gated_reextraction` with the slot bookkeeping that
+        every caller (the chat reextract / reprocess / extract_cells tools and
+        the ``POST /schema/reprocess`` and ``POST /schema/reextract`` routes)
+        previously duplicated: acquire the slot up front and release it *only*
+        if the gated start raises before it spawns its background task. On
+        success the slot stays held and is released later by the running
+        operation, exactly as the inline callers did.
+
+        ``operation_label`` is the tag recorded on the slot for logging /
+        capacity messages (defaults to ``"reextraction"``); all other keyword
+        arguments are forwarded verbatim to :meth:`start_gated_reextraction`.
+        """
+        await concurrency_limiter.acquire(session_id, operation_label)
+        try:
+            return await self.start_gated_reextraction(session_id, **kwargs)
+        except Exception:
+            await concurrency_limiter.release(session_id)
+            raise
+
     async def start_gated_reextraction(
         self,
         session_id: str,
@@ -2074,7 +2102,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 llm_calls_after = LLMCallTracker.get_instance().get_counts().get("reextraction", 0)
                 delta = max(0, llm_calls_after - llm_calls_before)
                 if delta > 0:
-                    from app.services.chat.deps import schematiq_runner
+                    from app.services.orchestration import schematiq_runner
                     record_id = f"reextraction-{operation.session_id[:8]}-{int(datetime.now().timestamp())}"
                     await asyncio.to_thread(
                         schematiq_runner.record_external_usage, record_id, {"reextraction": delta}

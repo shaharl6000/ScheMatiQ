@@ -13,7 +13,7 @@ from app.core.config import DEFAULT_DATA_DIR, DEVELOPER_MODE, LLM_CALL_GLOBAL_LI
 from app.core.logging_utils import set_session_context
 from app.models.modification import ModificationAction
 from app.models.session import ColumnInfo
-from app.services.session_capabilities import has_live_pipeline, is_imported
+from app.services.session_capabilities import has_live_pipeline
 from app.services import concurrency_limiter, session_manager
 from app.services.data_utils import _resolve_source_document, canonicalize_column_name
 from app.services.pipeline.data_query import get_data as query_get_data
@@ -1046,17 +1046,11 @@ class ToolExecutor:
       # Funnel through the same gated entry point as the manual workspace
       # button: scope resolution (explicit / all / edited_only), baseline
       # capture, document precheck, then start. Keeps both routes identical.
-      await concurrency_limiter.acquire(session_id, "reextraction")
-      try:
-          result = await reextraction_service.start_gated_reextraction(
-              session_id,
-              columns=args.get("columns"),
-              scope=args.get("scope", "edited_only"),
-          )
-      except Exception:
-          await concurrency_limiter.release(session_id)
-          raise
-      return result
+      return await reextraction_service.start_gated_reextraction_guarded(
+          session_id,
+          columns=args.get("columns"),
+          scope=args.get("scope", "edited_only"),
+      )
 
   async def _handle_extract_cells(
       self, session_id: str, session_mode: str, args: dict[str, Any]
@@ -1067,21 +1061,14 @@ class ToolExecutor:
       # only_empty / the document+row scope narrow the actual work.
       columns = args.get("columns")
       scope = "explicit" if columns else "all"
-      only_empty = args.get("only_empty", True)
-      await concurrency_limiter.acquire(session_id, "reextraction")
-      try:
-          result = await reextraction_service.start_gated_reextraction(
-              session_id,
-              columns=columns,
-              scope=scope,
-              documents=args.get("documents"),
-              rows=args.get("rows"),
-              only_empty=only_empty,
-          )
-      except Exception:
-          await concurrency_limiter.release(session_id)
-          raise
-      return result
+      return await reextraction_service.start_gated_reextraction_guarded(
+          session_id,
+          columns=columns,
+          scope=scope,
+          documents=args.get("documents"),
+          rows=args.get("rows"),
+          only_empty=args.get("only_empty", True),
+      )
 
   async def _handle_continue_discovery(
       self, session_id: str, session_mode: str, args: dict[str, Any]
@@ -1115,106 +1102,61 @@ class ToolExecutor:
       # from storage and fails clearly when none are available.
       columns = args.get("columns")
       scope = args.get("scope", "all" if not columns else "edited_only")
-      await concurrency_limiter.acquire(session_id, "reprocess")
-      try:
-          result = await reextraction_service.start_gated_reextraction(
-              session_id,
-              columns=columns,
-              scope=scope,
-          )
-      except Exception:
-          await concurrency_limiter.release(session_id)
-          raise
-      return result
+      return await reextraction_service.start_gated_reextraction_guarded(
+          session_id,
+          operation_label="reprocess",
+          columns=columns,
+          scope=scope,
+      )
 
   async def _handle_rediscover(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
-      # Full schema + observation-unit rediscovery from chat. Mirrors the proven
-      # POST /load/rediscover sequence (which backs the workspace "Rediscover
-      # schema" button): set pending_observation_unit_rediscovery so
-      # prepare_resume clears prior schema/data and re-seeds the observation
-      # unit, then run the pipeline — which re-evaluates previously-skipped
-      # documents. Differences from the route: gate failures surface as
-      # ValueError (rendered as a tool error), and the run is spawned as an
-      # asyncio task instead of via FastAPI BackgroundTasks.
-      #
-      # Works for both session types. The only mode-specific step is the config:
-      # a SCHEMATIQ session already has a runnable config.json from
-      # /schematiq/configure and must NOT have it overwritten with defaults; an
-      # UPLOAD session has none, so we synthesize one exactly like the route.
-      from app.models.schematiq import ScheMatiQConfig
-      from app.services.rediscovery_config import build_rediscovery_backends
-      from schematiq.core.llm_call_tracker import QuotaExceededError
+      # Full schema + observation-unit rediscovery from chat. The preparation
+      # sequence (observation-unit + document gates, quota check, config
+      # synthesis for imported sessions, pending_observation_unit_rediscovery
+      # flag, prepare_resume) is shared with POST /load/rediscover via
+      # prepare_rediscovery. This handler only translates the typed gate errors
+      # into tool-facing ValueErrors and spawns the run as an asyncio task
+      # (the route uses FastAPI BackgroundTasks). require_imported=False: unlike
+      # the route, the chat tool rediscovers both imported and SCHEMATIQ sessions.
+      from app.services.rediscovery_service import (
+          prepare_rediscovery,
+          RediscoverySessionNotFound,
+          RediscoveryNoObservationUnit,
+          RediscoveryDocumentsUnavailable,
+          RediscoveryQuotaExceeded,
+          RediscoveryPipelineBusy,
+      )
 
-      set_session_context(session_id)
-      session = session_manager.get_session(session_id)
-      if not session:
+      try:
+          await prepare_rediscovery(
+              session_id,
+              runner=schematiq_runner,
+              reextraction_service=reextraction_service,
+              require_imported=False,
+          )
+      except RediscoverySessionNotFound:
           raise ValueError("Session not found.")
-      if not session.observation_unit:
+      except RediscoveryNoObservationUnit:
           raise ValueError(
               "This project has no observation unit configured. Set one "
               "(edit_observation_unit) before rediscovering."
           )
-
-      # Same availability gate reextraction and /load/rediscover use. The tool is
-      # only advertised when the session looks extraction-capable, but that
-      # signal is local-disk only, so re-check the authoritative predicate
-      # (local + cloud) here before starting an expensive run.
-      paper_discovery = await reextraction_service.discover_papers(session_id)
-      availability = await reextraction_service.precheck_document_availability(
-          session_id,
-          operation_type="reextraction",
-          paper_discovery=paper_discovery,
-      )
-      if not availability.get("can_proceed", False):
+      except RediscoveryDocumentsUnavailable:
           raise ValueError(
               "No source documents are available for this project. Open a row and "
               'use "Show source document" to re-attach the original files, then '
               "try again."
           )
-
-      if not DEVELOPER_MODE:
-          try:
-              schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
-          except QuotaExceededError as exc:
-              from app.core.email_alerts import send_quota_exceeded_alert
-              send_quota_exceeded_alert(total_used=exc.used)
-              raise ValueError(
-                  "The global usage limit has been reached. Please try again later."
-              ) from exc
-
-      if is_imported(session):
-          # Imported session: no runnable config.json exists, so synthesize one.
-          # Prefer the project's persisted backends (restored on import from a
-          # complete export) so rediscovery uses the ORIGINAL models rather than
-          # RELEASE_CONFIG defaults; fall back to defaults for an older import.
-          # docs_path unset — resolve_docs_paths auto-detects the session-local
-          # pending_documents/documents where imported files live.
-          schema_backend, value_backend = build_rediscovery_backends(session, session_id)
-          config = ScheMatiQConfig(
-              query=session.schema_query or "",
-              docs_path=None,
-              schema_creation_backend=schema_backend,
-              value_extraction_backend=value_backend,
-              output_path="outputs/rediscovered_output.json",
+      except RediscoveryQuotaExceeded:
+          raise ValueError(
+              "The global usage limit has been reached. Please try again later."
           )
-          await schematiq_runner.save_config(session_id, config)
-      # else SCHEMATIQ: keep the existing config.json written by /schematiq/configure.
-
-      session = session_manager.get_session(session_id)
-      session.metadata.pending_observation_unit_rediscovery = True
-      session_manager.update_session(session)
-
-      try:
-          await schematiq_runner.prepare_resume(session_id)
-      except RuntimeError as e:
-          msg = str(e)
-          if "already has an active operation" in msg or "Timed out waiting" in msg:
-              raise ValueError(
-                  "The pipeline is still stopping. Wait a few seconds and try again."
-              ) from e
-          raise
+      except RediscoveryPipelineBusy:
+          raise ValueError(
+              "The pipeline is still stopping. Wait a few seconds and try again."
+          )
 
       asyncio.create_task(self._run_schematiq_task(session_id))
       return {

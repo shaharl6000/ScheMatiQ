@@ -38,6 +38,30 @@ type ChatRenderItem =
   | { kind: 'message'; message: WorkspaceMessage }
   | { kind: 'tool_group'; id: string; logs: WorkspaceMessage[] };
 
+type ActiveChatStream = {
+  id: string;
+  pending: string;
+  finalMessage?: WorkspaceMessage;
+};
+
+function upsertWorkspaceMessages(
+  current: WorkspaceMessage[],
+  next: WorkspaceMessage[],
+): WorkspaceMessage[] {
+  const updated = [...current];
+  const indexById = new Map(updated.map((message, index) => [message.id, index]));
+  next.forEach((message) => {
+    const existingIndex = indexById.get(message.id);
+    if (existingIndex == null) {
+      indexById.set(message.id, updated.length);
+      updated.push(message);
+    } else {
+      updated[existingIndex] = message;
+    }
+  });
+  return updated;
+}
+
 function groupChatMessages(messages: WorkspaceMessage[]): ChatRenderItem[] {
   const items: ChatRenderItem[] = [];
   let pending: WorkspaceMessage[] = [];
@@ -112,11 +136,21 @@ export function ChatPanel({
   // from the step that was already running, so drop live chat_message events
   // until the next turn starts rather than letting the stopped reply trickle in.
   const suppressStreamRef = useRef(false);
+  // Gemini chunks vary considerably in size. Queue them here and reveal a small,
+  // adaptive slice per animation frame so the UI advances at a steady cadence.
+  const activeStreamRef = useRef<ActiveChatStream | null>(null);
+  const streamFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     const container = messagesRef.current;
     if (!container) return;
 
+    if (activeStreamRef.current) {
+      // Repeated smooth-scroll animations restart on every rendered slice and
+      // produce visible jumps. Keep the bottom pinned directly while streaming.
+      container.scrollTop = container.scrollHeight;
+      return;
+    }
     container.scrollTo({
       top: container.scrollHeight,
       behavior: 'smooth',
@@ -265,22 +299,113 @@ export function ChatPanel({
     [sessionId, references],
   );
 
-  // Ids are the deduplication key. Assistant and tool messages now arrive over
-  // two channels -- live over the WebSocket as the agent produces them, and
-  // again in the HTTP response at the end of the turn -- so whichever lands
-  // first wins and the other copy is dropped. The HTTP response stays the source
-  // of truth: if the socket is down, nothing is lost.
+  // Ids are the deduplication key. The final HTTP response is authoritative, so
+  // replace a live WebSocket copy with the completed message instead of dropping
+  // it. This also finalizes a message assembled from streaming deltas.
   const appendMessages = useCallback((next: WorkspaceMessage[]) => {
-    setMessages((current) => {
-      const seen = new Set(current.map((message) => message.id));
-      const fresh = next.filter((message) => {
-        if (seen.has(message.id)) return false;
-        seen.add(message.id);
-        return true;
-      });
-      return fresh.length ? [...current, ...fresh] : current;
-    });
+    setMessages((current) => upsertWorkspaceMessages(current, next));
   }, []);
+
+  const cancelStreamFrame = useCallback(() => {
+    if (streamFrameRef.current == null) return;
+    window.cancelAnimationFrame(streamFrameRef.current);
+    streamFrameRef.current = null;
+  }, []);
+
+  const ensureStreamFrame = useCallback(() => {
+    if (streamFrameRef.current != null) return;
+
+    const paint = (): void => {
+      streamFrameRef.current = null;
+      const stream = activeStreamRef.current;
+      if (!stream) return;
+
+      if (stream.pending) {
+        // Catch up when Gemini sends a large chunk, while keeping each paint
+        // small enough to look continuous. At 60 fps the cap is ~1,440 chars/s.
+        const count = Math.min(24, Math.max(2, Math.ceil(stream.pending.length / 8)));
+        const delta = stream.pending.slice(0, count);
+        stream.pending = stream.pending.slice(count);
+        setMessages((current) => {
+          const existingIndex = current.findIndex((message) => message.id === stream.id);
+          if (existingIndex < 0) {
+            return [
+              ...current,
+              { id: stream.id, role: 'assistant', kind: 'text', content: delta },
+            ];
+          }
+          const updated = [...current];
+          updated[existingIndex] = {
+            ...updated[existingIndex],
+            content: `${updated[existingIndex].content}${delta}`,
+          };
+          return updated;
+        });
+      }
+
+      if (stream.pending) {
+        streamFrameRef.current = window.requestAnimationFrame(paint);
+      } else if (stream.finalMessage) {
+        const completed = stream.finalMessage;
+        activeStreamRef.current = null;
+        setMessages((current) => upsertWorkspaceMessages(current, [completed]));
+      }
+    };
+
+    streamFrameRef.current = window.requestAnimationFrame(paint);
+  }, []);
+
+  const appendChatDelta = useCallback((id: string, delta: string) => {
+    if (!id || !delta) return;
+    const currentStream = activeStreamRef.current;
+    if (!currentStream || currentStream.id !== id) {
+      if (currentStream) {
+        const staleId = currentStream.id;
+        const completed = currentStream.finalMessage;
+        setMessages((current) =>
+          completed
+            ? upsertWorkspaceMessages(current, [completed])
+            : current.filter((message) => message.id !== staleId),
+        );
+      }
+      activeStreamRef.current = { id, pending: delta };
+    } else {
+      currentStream.pending += delta;
+    }
+    ensureStreamFrame();
+  }, [ensureStreamFrame]);
+
+  const appendCompletedMessages = useCallback((next: WorkspaceMessage[]) => {
+    const ready: WorkspaceMessage[] = [];
+    next.forEach((message) => {
+      const stream = activeStreamRef.current;
+      if (stream?.id !== message.id) {
+        ready.push(message);
+        return;
+      }
+
+      stream.finalMessage = message;
+      if (!stream.pending) {
+        activeStreamRef.current = null;
+        cancelStreamFrame();
+        ready.push(message);
+      } else {
+        ensureStreamFrame();
+      }
+    });
+    if (ready.length) appendMessages(ready);
+  }, [appendMessages, cancelStreamFrame, ensureStreamFrame]);
+
+  const discardStreamedMessage = useCallback((id: string) => {
+    if (!id) return;
+    if (activeStreamRef.current?.id === id) {
+      activeStreamRef.current = null;
+      cancelStreamFrame();
+    }
+    setMessages((current) => current.filter((message) => message.id !== id));
+  }, [cancelStreamFrame]);
+
+  useEffect(() => () => cancelStreamFrame(), [cancelStreamFrame]);
 
   // A column fill runs in the background after the chat turn ends, streaming cells
   // into the table. Show a spinner while it runs, then post the model's recap as an
@@ -294,7 +419,16 @@ export function ChatPanel({
         // staying empty until the HTTP response returns. After a Stop we ignore
         // these so the halted turn's reply does not keep landing.
         if (suppressStreamRef.current) return;
-        appendMessages([mapChatTurnMessage(message.data as unknown as ChatTurnMessage)]);
+        appendCompletedMessages([
+          mapChatTurnMessage(message.data as unknown as ChatTurnMessage),
+        ]);
+      } else if (message.type === 'chat_message_delta' && message.data) {
+        if (suppressStreamRef.current) return;
+        const data = message.data as unknown as { id?: string; delta?: string };
+        if (data.id && data.delta) appendChatDelta(data.id, data.delta);
+      } else if (message.type === 'chat_message_discard' && message.data) {
+        const data = message.data as unknown as { id?: string };
+        if (data.id) discardStreamedMessage(data.id);
       } else if (message.type === 'reference_fill_started') {
         const data = (message.data ?? {}) as unknown as { column?: string };
         setFillRunning({ column: data.column ?? '' });
@@ -374,11 +508,17 @@ export function ChatPanel({
     };
     webSocketService.addMessageHandler(handler);
     return () => webSocketService.removeMessageHandler(handler);
-  }, [sessionId, appendMessages]);
+  }, [
+    sessionId,
+    appendChatDelta,
+    appendCompletedMessages,
+    appendMessages,
+    discardStreamedMessage,
+  ]);
 
   const applyChatResponse = useCallback((response: Awaited<ReturnType<typeof chatAPI.sendMessage>>) => {
     setChatId(response.chat_id);
-    appendMessages(response.messages.map(mapChatTurnMessage));
+    appendCompletedMessages(response.messages.map(mapChatTurnMessage));
     if (response.pending_action) {
       setPendingAction({
         id: response.pending_action.tool_name,
@@ -419,7 +559,7 @@ export function ChatPanel({
         onEditFollowUp('schema', editedColumns);
       }
     }
-  }, [appendMessages, onEditFollowUp, onRefresh]);
+  }, [appendCompletedMessages, onEditFollowUp, onRefresh]);
 
   const showToolsList = useCallback(async () => {
     try {
@@ -558,6 +698,8 @@ export function ChatPanel({
   // tell the backend to bail and discard the turn. The backend call is
   // best-effort -- the UI is already unblocked regardless of its outcome.
   const handleStop = useCallback(() => {
+    const streamingMessageId = activeStreamRef.current?.id;
+    if (streamingMessageId) discardStreamedMessage(streamingMessageId);
     suppressStreamRef.current = true;
     stop();
     if (sessionId) {
@@ -565,7 +707,7 @@ export function ChatPanel({
         // Best-effort: the turn ends server-side on its own if this misses.
       });
     }
-  }, [sessionId, stop]);
+  }, [discardStreamedMessage, sessionId, stop]);
 
   useEffect(() => {
     if (!onRegisterCancelPending) return;

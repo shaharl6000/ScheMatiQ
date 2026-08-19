@@ -38,6 +38,24 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
 
+
+class _StreamedChatResponse:
+    """Aggregate Gemini stream chunks into the shape used by the agent loop."""
+
+    def __init__(
+        self,
+        *,
+        text: str = "",
+        function_calls: Optional[list[Any]] = None,
+        message_emitted: bool = False,
+        stopped: bool = False,
+    ) -> None:
+        self.text = text
+        self.function_calls = function_calls or []
+        self.message_emitted = message_emitted
+        self.stopped = stopped
+
+
 CHAT_SYSTEM_PROMPT = """You are the ScheMatiQ workspace assistant.
 
 Terminology (do not confuse these):
@@ -387,7 +405,9 @@ class ChatAgentService:
                     )
                 )
 
-            response = await self._send_function_response(state, pending, tool_result)
+            response = await self._send_function_response(
+                state, pending, tool_result, outbound_messages
+            )
             loop_result = await self._continue_after_tool(state, response, outbound_messages)
             if loop_result["status"] == "complete":
                 await self._persist_history(state)
@@ -475,6 +495,7 @@ class ChatAgentService:
                 state,
                 pending,
                 {"cancelled": True, "message": reason},
+                outbound_messages,
             )
             loop_result = await self._continue_after_tool(
                 state,
@@ -846,14 +867,106 @@ class ChatAgentService:
         Broadcast failures are swallowed for the same reason.
         """
         outbound_messages.append(message)
+        await self._broadcast_chat_event(state, "chat_message", message)
+        return message
+
+    @staticmethod
+    async def _broadcast_chat_event(
+        state: ChatSessionState,
+        event_type: str,
+        data: dict[str, Any],
+    ) -> None:
+        """Best-effort live delivery; the completed HTTP response is authoritative."""
         try:
             await websocket_manager.broadcast_to_session(
                 state.workspace_session_id,
-                {"type": "chat_message", "data": message},
+                {"type": event_type, "data": data},
             )
         except Exception as exc:
-            logger.debug("Could not stream chat message over WS: %s", exc)
-        return message
+            logger.debug("Could not stream %s over WS: %s", event_type, exc)
+
+    async def _send_chat_message(
+        self,
+        state: ChatSessionState,
+        content: Any,
+        outbound_messages: list[dict[str, Any]],
+    ) -> Any:
+        """Send one Gemini message and live-stream text chunks to the workspace.
+
+        Tool-call chunks are accumulated for the existing manual tool loop. If a
+        provider ever emits text before a function call, discard that provisional
+        UI message so internal tool-planning text is not left in the transcript.
+        The non-streaming fallback keeps tests and older SDK clients compatible.
+        """
+        LLMCallTracker.get_instance().set_stage("chat")
+        state.pending_llm_calls += 1
+
+        send_stream = getattr(state.chat, "send_message_stream", None)
+        if not callable(send_stream):
+            return await state.chat.send_message(content)
+
+        stream = await send_stream(content)
+
+        async def _close_stream() -> None:
+            close = getattr(stream, "aclose", None)
+            if callable(close):
+                await close()
+
+        message_id = str(uuid.uuid4())
+        text_chunks: list[str] = []
+        function_calls: list[Any] = []
+        message_visible = False
+
+        async for chunk in stream:
+            if state.stop_requested:
+                if message_visible:
+                    await self._broadcast_chat_event(
+                        state, "chat_message_discard", {"id": message_id}
+                    )
+                await _close_stream()
+                return _StreamedChatResponse(stopped=True)
+
+            chunk_calls = getattr(chunk, "function_calls", None) or []
+            if chunk_calls:
+                function_calls.extend(chunk_calls)
+                if message_visible:
+                    await self._broadcast_chat_event(
+                        state, "chat_message_discard", {"id": message_id}
+                    )
+                    message_visible = False
+
+            delta = getattr(chunk, "text", None) or ""
+            if delta:
+                text_chunks.append(delta)
+                if not function_calls:
+                    message_visible = True
+                    await self._broadcast_chat_event(
+                        state,
+                        "chat_message_delta",
+                        {"id": message_id, "delta": delta},
+                    )
+
+        if state.stop_requested:
+            if message_visible:
+                await self._broadcast_chat_event(
+                    state, "chat_message_discard", {"id": message_id}
+                )
+            await _close_stream()
+            return _StreamedChatResponse(stopped=True)
+
+        text = "".join(text_chunks).strip()
+        if function_calls:
+            return _StreamedChatResponse(text=text, function_calls=function_calls)
+
+        if text:
+            await self._emit(
+                state,
+                outbound_messages,
+                self._text_message(text, message_id=message_id),
+            )
+            return _StreamedChatResponse(text=text, message_emitted=True)
+
+        return _StreamedChatResponse()
 
     async def _run_loop(
         self,
@@ -861,7 +974,7 @@ class ChatAgentService:
         user_text: str,
         outbound_messages: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        response = await self._send_user_message(state, user_text)
+        response = await self._send_user_message(state, user_text, outbound_messages)
         return await self._continue_after_tool(state, response, outbound_messages)
 
     async def _continue_after_tool(
@@ -876,7 +989,7 @@ class ChatAgentService:
             # function responses, so the SDK chat is balanced. The turn is
             # discarded by the caller (no persist), so an unanswered function
             # call sitting in `response` here is dropped with it.
-            if state.stop_requested:
+            if state.stop_requested or getattr(response, "stopped", False):
                 return {"status": "stopped"}
             function_calls = getattr(response, "function_calls", None) or []
             if function_calls:
@@ -960,7 +1073,9 @@ class ChatAgentService:
                         self._function_response_part(tool_name, tool_result)
                     )
 
-                response = await self._send_function_response_parts(state, response_parts)
+                response = await self._send_function_response_parts(
+                    state, response_parts, outbound_messages
+                )
                 continue
 
             text = (getattr(response, "text", None) or "").strip()
@@ -969,7 +1084,10 @@ class ChatAgentService:
                 # the answer instead of emitting it.
                 if state.stop_requested:
                     return {"status": "stopped"}
-                await self._emit(state, outbound_messages, self._text_message(text))
+                if not getattr(response, "message_emitted", False):
+                    await self._emit(
+                        state, outbound_messages, self._text_message(text)
+                    )
                 return {"status": "complete"}
 
             break
@@ -979,21 +1097,25 @@ class ChatAgentService:
         )
         return {"status": "complete"}
 
-    async def _send_user_message(self, state: ChatSessionState, user_text: str) -> Any:
-        LLMCallTracker.get_instance().set_stage("chat")
-        state.pending_llm_calls += 1
-        return await state.chat.send_message(user_text)
+    async def _send_user_message(
+        self,
+        state: ChatSessionState,
+        user_text: str,
+        outbound_messages: list[dict[str, Any]],
+    ) -> Any:
+        return await self._send_chat_message(state, user_text, outbound_messages)
 
     async def _send_function_response(
         self,
         state: ChatSessionState,
         pending: PendingToolCall,
         tool_result: dict[str, Any],
+        outbound_messages: list[dict[str, Any]],
     ) -> Any:
-        LLMCallTracker.get_instance().set_stage("chat")
-        state.pending_llm_calls += 1
-        return await state.chat.send_message(
-            self._function_response_part(pending.tool_name, tool_result)
+        return await self._send_chat_message(
+            state,
+            self._function_response_part(pending.tool_name, tool_result),
+            outbound_messages,
         )
 
     @staticmethod
@@ -1006,20 +1128,23 @@ class ChatAgentService:
         )
 
     async def _send_function_response_parts(
-        self, state: ChatSessionState, parts: list[Any]
+        self,
+        state: ChatSessionState,
+        parts: list[Any],
+        outbound_messages: list[dict[str, Any]],
     ) -> Any:
         """Send one function response per tool call the model issued this turn.
 
         Gemini expects a response for every function call it emitted; sending all of
         them together lets a batch of tool calls (e.g. several update_cell) all run.
         """
-        LLMCallTracker.get_instance().set_stage("chat")
-        state.pending_llm_calls += 1
-        return await state.chat.send_message(parts)
+        return await self._send_chat_message(state, parts, outbound_messages)
 
-    def _text_message(self, content: str) -> dict[str, Any]:
+    def _text_message(
+        self, content: str, *, message_id: Optional[str] = None
+    ) -> dict[str, Any]:
         return {
-            "id": str(uuid.uuid4()),
+            "id": message_id or str(uuid.uuid4()),
             "role": "assistant",
             "kind": "text",
             "content": content,

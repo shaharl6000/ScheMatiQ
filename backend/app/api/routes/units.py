@@ -162,6 +162,21 @@ def _strip_doc_extension(filename: str) -> str:
     return filename
 
 
+def _doc_names_match(target: str, candidate: str) -> bool:
+    """True if a recorded source name matches a stored file name.
+
+    Compares the exact names and each name with a known document extension
+    stripped (case-insensitive), so ``NAME`` matches ``NAME.txt`` and a recorded
+    ``NAME.pdf`` matches a converted ``NAME.txt``. Single source of truth for
+    both the local and cloud lookups so they resolve the same names.
+    """
+    target_name = target.lower()
+    target_base = _strip_doc_extension(target).lower()
+    cand_name = candidate.lower()
+    cand_base = _strip_doc_extension(candidate).lower()
+    return target_name in (cand_name, cand_base) or target_base in (cand_name, cand_base)
+
+
 def _find_local_document(session_id: str, name: str) -> Optional[Path]:
     """Locate an uploaded source document on the local filesystem.
 
@@ -171,8 +186,6 @@ def _find_local_document(session_id: str, name: str) -> Optional[Path]:
     source_document name may omit the extension or differ from the stored file
     (e.g. an original ``.pdf`` converted to ``.txt``).
     """
-    target_name = name.lower()
-    target_base = _strip_doc_extension(name).lower()
     for base in candidate_data_dirs():
         for sub in ("documents", "pending_documents"):
             doc_dir = base / session_id / sub
@@ -184,10 +197,36 @@ def _find_local_document(session_id: str, name: str) -> Optional[Path]:
             for f in doc_dir.iterdir():
                 if not f.is_file() or f.name.startswith("."):
                     continue
-                file_name = f.name.lower()
-                file_base = _strip_doc_extension(f.name).lower()
-                if target_name in (file_name, file_base) or target_base in (file_name, file_base):
+                if _doc_names_match(name, f.name):
                     return f
+    return None
+
+
+async def _safe_cloud_download(storage, cloud_dataset: str, name: str) -> Optional[bytes]:
+    """Download datasets/{cloud_dataset}/{name}, swallowing errors (returns None)."""
+    try:
+        return await storage.download_file("datasets", f"{cloud_dataset}/{name}")
+    except Exception:
+        return None
+
+
+async def _match_cloud_document_name(storage, cloud_dataset: str, name: str) -> Optional[str]:
+    """Return the actual file name in the cloud dataset folder that matches the
+    recorded source name, ignoring a known extension on either side.
+
+    Mirrors _find_local_document's stem tolerance for cloud-backed sessions,
+    whose source files were never on the local filesystem. Only called after an
+    exact-key fetch misses, so the extra folder listing stays off the hot path.
+    """
+    try:
+        names = await storage.list_folder_files("datasets", cloud_dataset)
+    except Exception:
+        return None
+    for candidate in names or ():
+        if not candidate or candidate.startswith("."):
+            continue
+        if _doc_names_match(name, candidate):
+            return candidate
     return None
 
 
@@ -206,12 +245,18 @@ async def _load_document_bytes(session, session_id: str, name: str) -> Tuple[Opt
     cloud_dataset = getattr(session.metadata, "cloud_dataset", None)
     if cloud_dataset:
         storage = get_storage()
-        try:
-            content = await storage.download_file("datasets", f"{cloud_dataset}/{name}")
-        except Exception:
-            content = None
+        # Exact key first (single round-trip in the common case).
+        content = await _safe_cloud_download(storage, cloud_dataset, name)
         if content:
             return content, _media_type_for(name)
+        # Stem-tolerant fallback: the recorded name may omit the extension the
+        # stored cloud file has (e.g. "NAME" vs "NAME.txt"), so resolve the real
+        # file name from the folder listing, then fetch it.
+        actual = await _match_cloud_document_name(storage, cloud_dataset, name)
+        if actual and actual != name:
+            content = await _safe_cloud_download(storage, cloud_dataset, actual)
+            if content:
+                return content, _media_type_for(actual)
 
     return None, None
 
@@ -569,11 +614,14 @@ async def head_document_content(
     cloud_dataset = getattr(session.metadata, "cloud_dataset", None)
     if cloud_dataset:
         storage = get_storage()
+        # Exact key first via a metadata check (no byte transfer for a HEAD).
         try:
-            content = await storage.download_file("datasets", f"{cloud_dataset}/{name}")
+            if await storage.file_exists("datasets", f"{cloud_dataset}/{name}"):
+                return Response(status_code=200)
         except Exception:
-            content = None
-        if content:
+            pass
+        # Stem-tolerant fallback: a hit in the folder listing confirms existence.
+        if await _match_cloud_document_name(storage, cloud_dataset, name) is not None:
             return Response(status_code=200)
 
     raise HTTPException(status_code=404, detail="Document file is not available")
