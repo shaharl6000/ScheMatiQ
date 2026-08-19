@@ -997,91 +997,57 @@ async def rediscover_imported_session(session_id: str, background_tasks: Backgro
     does not make rediscovery possible for a session with no documents behind
     its data.
     """
-    from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
-    from app.models.schematiq import ScheMatiQConfig
-    from app.services.rediscovery_config import build_rediscovery_backends
-    from schematiq.core.llm_call_tracker import QuotaExceededError
-    # Shared orchestration singletons (see app.services.orchestration): the same
-    # runner/reextraction instances the chat tools and Stop button operate on.
     from app.api.routes.schematiq import QUOTA_EXCEEDED_USER_MESSAGE
     from app.services.orchestration import reextraction_service, schematiq_runner
+    from app.services.rediscovery_service import (
+        prepare_rediscovery,
+        RediscoverySessionNotFound,
+        RediscoveryNotImported,
+        RediscoveryNoObservationUnit,
+        RediscoveryDocumentsUnavailable,
+        RediscoveryQuotaExceeded,
+        RediscoveryPipelineBusy,
+        RediscoveryPrepareFailed,
+    )
 
     try:
-        set_session_context(session_id)
-        session = session_manager.get_session(session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-        if not is_imported(session):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Rediscovery via this endpoint is only for imported sessions (type='{session.type}').",
-            )
-        if not session.observation_unit:
-            raise HTTPException(
-                status_code=400,
-                detail="Session has no observation unit configured. Set one before rediscovering.",
-            )
-
-        # Same gate re-extraction uses: rediscovery is only meaningful if the
-        # session's rows actually resolve to real source documents somewhere
-        # (local pending_documents/documents, or the session's cloud dataset).
-        paper_discovery = await reextraction_service.discover_papers(session_id)
-        availability = await reextraction_service.precheck_document_availability(
-            session_id, operation_type="reextraction", paper_discovery=paper_discovery,
+        await prepare_rediscovery(
+            session_id,
+            runner=schematiq_runner,
+            reextraction_service=reextraction_service,
+            require_imported=True,
         )
-        if not availability.get("can_proceed", False):
-            raise HTTPException(
-                status_code=400,
-                detail="No source documents are available for this project. "
-                       "Add the original source documents from the Documents tab, then try again.",
-            )
-
-        if not DEVELOPER_MODE:
-            try:
-                schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
-            except QuotaExceededError as exc:
-                from app.core.email_alerts import send_quota_exceeded_alert
-                send_quota_exceeded_alert(total_used=exc.used)
-                raise HTTPException(status_code=429, detail=QUOTA_EXCEEDED_USER_MESSAGE)
-
-        # Build a minimal, valid ScheMatiQConfig for this existing session.
-        # Prefer the project's persisted backends (restored on import from a
-        # complete export) so rediscovery uses the ORIGINAL models rather than
-        # RELEASE_CONFIG defaults; fall back to defaults for an older import.
-        # docs_path is left unset: resolve_docs_paths() already auto-detects
-        # session-local pending_documents/documents before falling back to it,
-        # which is exactly where an imported project's bundled files live.
-        schema_backend, value_backend = build_rediscovery_backends(session, session_id)
-        config = ScheMatiQConfig(
-            query=session.schema_query or "",
-            docs_path=None,
-            schema_creation_backend=schema_backend,
-            value_extraction_backend=value_backend,
-            output_path="outputs/rediscovered_output.json",
-        )
-        await schematiq_runner.save_config(session_id, config)
-
-        # Mark this run as an observation-unit rediscovery so prepare_resume
-        # clears prior schema/data artifacts and seeds initial_observation_unit
-        # from session.observation_unit, exactly like the SCHEMATIQ-session flow.
-        session = session_manager.get_session(session_id)
-        session.metadata.pending_observation_unit_rediscovery = True
-        session_manager.update_session(session)
-
-        try:
-            await schematiq_runner.prepare_resume(session_id)
-        except RuntimeError as e:
-            msg = str(e)
-            if "already has an active operation" in msg or "Timed out waiting" in msg:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Pipeline is still stopping. Wait a few seconds and try again.",
-                ) from e
-            raise HTTPException(status_code=500, detail=msg) from e
-
         background_tasks.add_task(schematiq_runner.run_schematiq, session_id)
 
         return {"message": "Schema rediscovery started", "session_id": session_id}
+
+    except RediscoverySessionNotFound:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except RediscoveryNotImported as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Rediscovery via this endpoint is only for imported sessions (type='{e.session_type}').",
+        )
+    except RediscoveryNoObservationUnit:
+        raise HTTPException(
+            status_code=400,
+            detail="Session has no observation unit configured. Set one before rediscovering.",
+        )
+    except RediscoveryDocumentsUnavailable:
+        raise HTTPException(
+            status_code=400,
+            detail="No source documents are available for this project. "
+                   "Add the original source documents from the Documents tab, then try again.",
+        )
+    except RediscoveryQuotaExceeded:
+        raise HTTPException(status_code=429, detail=QUOTA_EXCEEDED_USER_MESSAGE)
+    except RediscoveryPipelineBusy:
+        raise HTTPException(
+            status_code=409,
+            detail="Pipeline is still stopping. Wait a few seconds and try again.",
+        )
+    except RediscoveryPrepareFailed as e:
+        raise HTTPException(status_code=500, detail=e.message)
 
     except CapacityExceededError as e:
         raise HTTPException(status_code=503, detail=str(e))
