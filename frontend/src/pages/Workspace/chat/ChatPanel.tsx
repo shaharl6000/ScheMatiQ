@@ -112,6 +112,9 @@ export function ChatPanel({
   // from the step that was already running, so drop live chat_message events
   // until the next turn starts rather than letting the stopped reply trickle in.
   const suppressStreamRef = useRef(false);
+  // Stable id of the assistant message currently receiving Gemini text chunks.
+  // Stop and tool-call fallback use it to remove a provisional partial reply.
+  const streamingMessageIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const container = messagesRef.current;
@@ -265,21 +268,49 @@ export function ChatPanel({
     [sessionId, references],
   );
 
-  // Ids are the deduplication key. Assistant and tool messages now arrive over
-  // two channels -- live over the WebSocket as the agent produces them, and
-  // again in the HTTP response at the end of the turn -- so whichever lands
-  // first wins and the other copy is dropped. The HTTP response stays the source
-  // of truth: if the socket is down, nothing is lost.
+  // Ids are the deduplication key. The final HTTP response is authoritative, so
+  // replace a live WebSocket copy with the completed message instead of dropping
+  // it. This also finalizes a message that was assembled from streaming deltas.
   const appendMessages = useCallback((next: WorkspaceMessage[]) => {
     setMessages((current) => {
-      const seen = new Set(current.map((message) => message.id));
-      const fresh = next.filter((message) => {
-        if (seen.has(message.id)) return false;
-        seen.add(message.id);
-        return true;
+      const updated = [...current];
+      const indexById = new Map(updated.map((message, index) => [message.id, index]));
+      next.forEach((message) => {
+        const existingIndex = indexById.get(message.id);
+        if (existingIndex == null) {
+          indexById.set(message.id, updated.length);
+          updated.push(message);
+        } else {
+          updated[existingIndex] = message;
+        }
       });
-      return fresh.length ? [...current, ...fresh] : current;
+      return updated;
     });
+  }, []);
+
+  const appendChatDelta = useCallback((id: string, delta: string) => {
+    if (!id || !delta) return;
+    streamingMessageIdRef.current = id;
+    setMessages((current) => {
+      const existingIndex = current.findIndex((message) => message.id === id);
+      if (existingIndex < 0) {
+        return [...current, { id, role: 'assistant', content: delta }];
+      }
+      const updated = [...current];
+      updated[existingIndex] = {
+        ...updated[existingIndex],
+        content: `${updated[existingIndex].content}${delta}`,
+      };
+      return updated;
+    });
+  }, []);
+
+  const discardStreamedMessage = useCallback((id: string) => {
+    if (!id) return;
+    if (streamingMessageIdRef.current === id) {
+      streamingMessageIdRef.current = null;
+    }
+    setMessages((current) => current.filter((message) => message.id !== id));
   }, []);
 
   // A column fill runs in the background after the chat turn ends, streaming cells
@@ -294,7 +325,18 @@ export function ChatPanel({
         // staying empty until the HTTP response returns. After a Stop we ignore
         // these so the halted turn's reply does not keep landing.
         if (suppressStreamRef.current) return;
-        appendMessages([mapChatTurnMessage(message.data as unknown as ChatTurnMessage)]);
+        const completed = mapChatTurnMessage(message.data as unknown as ChatTurnMessage);
+        appendMessages([completed]);
+        if (streamingMessageIdRef.current === completed.id) {
+          streamingMessageIdRef.current = null;
+        }
+      } else if (message.type === 'chat_message_delta' && message.data) {
+        if (suppressStreamRef.current) return;
+        const data = message.data as unknown as { id?: string; delta?: string };
+        if (data.id && data.delta) appendChatDelta(data.id, data.delta);
+      } else if (message.type === 'chat_message_discard' && message.data) {
+        const data = message.data as unknown as { id?: string };
+        if (data.id) discardStreamedMessage(data.id);
       } else if (message.type === 'reference_fill_started') {
         const data = (message.data ?? {}) as unknown as { column?: string };
         setFillRunning({ column: data.column ?? '' });
@@ -374,7 +416,7 @@ export function ChatPanel({
     };
     webSocketService.addMessageHandler(handler);
     return () => webSocketService.removeMessageHandler(handler);
-  }, [sessionId, appendMessages]);
+  }, [sessionId, appendChatDelta, appendMessages, discardStreamedMessage]);
 
   const applyChatResponse = useCallback((response: Awaited<ReturnType<typeof chatAPI.sendMessage>>) => {
     setChatId(response.chat_id);
@@ -558,6 +600,8 @@ export function ChatPanel({
   // tell the backend to bail and discard the turn. The backend call is
   // best-effort -- the UI is already unblocked regardless of its outcome.
   const handleStop = useCallback(() => {
+    const streamingMessageId = streamingMessageIdRef.current;
+    if (streamingMessageId) discardStreamedMessage(streamingMessageId);
     suppressStreamRef.current = true;
     stop();
     if (sessionId) {
@@ -565,7 +609,7 @@ export function ChatPanel({
         // Best-effort: the turn ends server-side on its own if this misses.
       });
     }
-  }, [sessionId, stop]);
+  }, [discardStreamedMessage, sessionId, stop]);
 
   useEffect(() => {
     if (!onRegisterCancelPending) return;
