@@ -602,15 +602,21 @@ def _all_tools() -> list[ToolSpec]:
                 "with only_empty=true (the default) to fill every empty cell, or add "
                 "documents/rows/columns to narrow the scope. A document listed in "
                 "`documents` that was previously skipped is re-evaluated, so this also "
-                "retries skipped documents. Cells the model already inspected and "
-                "confirmed have no value are left alone by only_empty; set "
-                "only_empty=false to force those (and filled cells) to be re-extracted. "
-                "If the user's request ('fill in this row/column') does not make clear "
-                "whether to fill just the empty cells or overwrite every value in scope, "
-                "ask them which before calling this tool instead of guessing — "
-                "only_empty=false overwrites cells that already hold correct data, which "
-                "is not reversible. Default to only_empty=true when they say to fill "
-                "empty/missing/blank cells specifically. "
+                "retries skipped documents. only_empty=true also retries cells the model "
+                "previously inspected and confirmed empty, without overwriting any cell "
+                "that already holds a value, so it is the correct choice for 'fill the "
+                "missing/blank cells' even when those blanks were checked before — do NOT "
+                "reach for only_empty=false to re-check confirmed-empty cells. "
+                "only_empty=false re-extracts and OVERWRITES every targeted cell, "
+                "including ones that already hold correct values; this is destructive and "
+                "not reversible, so use it only when the user explicitly asks to discard "
+                "and redo existing values. If a fill request is ambiguous about whether to "
+                "overwrite existing values, default to only_empty=true (or ask). "
+                "Note: re-extraction can only fill values that are actually present in the "
+                "source documents. If a column holds information that is typically not in "
+                "the documents themselves (e.g. biographical facts), extract_cells will "
+                "keep confirming those cells empty; suggest fill_column_from_reference with "
+                "an external source instead. "
                 "Get exact names from list_documents, "
                 "list_skipped_documents, or preview_data first."
             ),
@@ -643,9 +649,12 @@ def _all_tools() -> list[ToolSpec]:
                     "only_empty": {
                         "type": "boolean",
                         "description": (
-                            "When true (default), only blank cells are filled and existing "
-                            "values are never overwritten. Set false to re-extract the "
-                            "targeted cells even if they already have values."
+                            "When true (default), only blank cells are filled -- including "
+                            "cells previously confirmed empty -- and existing values are "
+                            "never overwritten. Set false only to re-extract and OVERWRITE "
+                            "every targeted cell even when it already holds a correct value "
+                            "(destructive, not reversible); requires an explicit user "
+                            "request to discard and redo values."
                         ),
                     },
                 },
