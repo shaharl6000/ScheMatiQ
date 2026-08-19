@@ -6,7 +6,7 @@ import {
   type LLMProviderKey,
 } from '@/constants';
 import { configAPI, loadAPI, schemaAPI, schematiqAPI } from '@/services/api';
-import { ToastAction, type ToastActionElement } from '@/components/ui/toast';
+import { type ToastActionElement } from '@/components/ui/toast';
 import type {
   DocumentAvailabilityResponse,
   ReextractionRequest,
@@ -158,10 +158,10 @@ export function useReextraction({
     // already holds a value; `retryConfirmedEmpty` (only meaningful with
     // onlyEmpty) also targets cells the model already checked and explicitly
     // confirmed empty, normally skipped to avoid re-billing -- set on the
-    // "Check again" retry offered after a first onlyEmpty call comes back
-    // with nothing to fill for that specific reason. All three map straight
-    // onto the backend's ReextractionRequest.rows / .only_empty /
-    // .retry_confirmed_empty.
+    // automatic follow-up call this function makes when a first onlyEmpty
+    // call comes back with nothing to fill for that specific reason. All
+    // three map straight onto the backend's ReextractionRequest.rows /
+    // .only_empty / .retry_confirmed_empty.
     scope?: { rows?: string[]; onlyEmpty?: boolean; retryConfirmedEmpty?: boolean },
   ) => {
     if (!sessionId || rerunStarting || targetColumns.length === 0) return;
@@ -241,23 +241,12 @@ export function useReextraction({
       if (code === 'confirmed_empty_only' && !scope?.retryConfirmedEmpty) {
         // The selected cell(s) are blank on screen but were already checked
         // and explicitly confirmed empty by a prior run -- only_empty skips
-        // them by default to avoid re-billing the model. Offer a one-click
-        // way to force a recheck instead of just reporting a dead end.
-        toast({
-          title: 'Nothing to fill yet',
-          description: message,
-          duration: 10000,
-          action: (
-            <ToastAction
-              altText="Check again"
-              onClick={() => {
-                void startReextraction(targetColumns, { ...scope, retryConfirmedEmpty: true });
-              }}
-            >
-              Check again
-            </ToastAction>
-          ),
-        });
+        // them by default to avoid re-billing the model on cells it already
+        // judged. A user pressing "Fill empty cells" again (e.g. after
+        // attaching a new source document) clearly wants a fresh look, so
+        // retry immediately with retryConfirmedEmpty instead of making them
+        // notice the no-op and click a follow-up "Check again" prompt.
+        void startReextraction(targetColumns, { ...scope, retryConfirmedEmpty: true });
         return;
       }
       toast({
