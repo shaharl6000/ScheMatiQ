@@ -15,6 +15,7 @@ from app.core.config import DEFAULT_DATA_DIR
 from app.models.session import ColumnInfo
 from app.models.modification import ModificationAction
 from app.services.schema_manager import SchemaManager
+from app.services.reextraction_service import ConfirmedEmptyScopeError
 from app.services.data_editor import DataEditor
 from app.services import session_manager, websocket_manager, concurrency_limiter
 from app.core.exceptions import CapacityExceededError
@@ -197,7 +198,13 @@ async def edit_column(
     except CapacityExceededError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        detail = (
+            "This session is already busy with another operation. Please "
+            "wait for it to finish, then try again."
+            if "already has an active operation" in str(e)
+            else str(e)
+        )
+        raise HTTPException(status_code=409, detail=detail)
     except HTTPException:
         raise
     except Exception as e:
@@ -501,7 +508,13 @@ async def reprocess_documents(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        detail = (
+            "Already filling cells for this session. Please wait for it to "
+            "finish, then try again."
+            if "already has an active operation" in str(e)
+            else str(e)
+        )
+        raise HTTPException(status_code=409, detail=detail)
     except HTTPException:
         raise
     except Exception as e:
@@ -866,8 +879,19 @@ class PaperDiscoveryResponse(BaseModel):
 
 
 class ReextractionRequest(BaseModel):
-    columns: List[str]
+    columns: Optional[List[str]] = None
     llm_config: Optional[Dict[str, Any]] = None  # User-provided LLM config with API key
+    # Granular fill scope (mirrors the chat `extract_cells` tool): restrict the
+    # run to these source documents / observation-unit row names, and, with
+    # only_empty=True, never overwrite a cell that already holds a value.
+    documents: Optional[List[str]] = None
+    rows: Optional[List[str]] = None
+    only_empty: bool = False
+    # With only_empty, also target cells already confirmed empty by a prior
+    # extraction (normally skipped to avoid re-billing the model). Set this on
+    # a follow-up call after a first only_empty request comes back with a
+    # "confirmed empty" ConfirmedEmptyScopeError, to force a recheck.
+    retry_confirmed_empty: bool = False
 
 
 class ReextractionResponse(BaseModel):
@@ -993,15 +1017,20 @@ async def start_reextraction(
     request: ReextractionRequest,
     background_tasks: BackgroundTasks
 ) -> ReextractionResponse:
-    """Start selective re-extraction for specified columns."""
+    """Start selective re-extraction for specified columns, optionally narrowed
+    to specific documents / rows and gated to empty cells only (see
+    ReextractionRequest.documents / .rows / .only_empty)."""
     try:
         set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        if not request.columns:
-            raise HTTPException(status_code=400, detail="No columns specified for re-extraction")
+        if not (request.columns or request.documents or request.rows):
+            raise HTTPException(
+                status_code=400,
+                detail="No columns, documents, or rows specified for re-extraction",
+            )
 
         # Save user-provided LLM config if provided
         if request.llm_config:
@@ -1015,24 +1044,44 @@ async def start_reextraction(
             has_api_key = 'api_key' in request.llm_config and request.llm_config['api_key']
             logger.debug(f"Saved user LLM config for re-extraction: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
 
-        # Shared gated entry point (also used by the chat reextract tool):
-        # scope resolution + baseline capture + document precheck + start.
-        # start_gated_reextraction_guarded reserves the concurrency slot and
-        # releases it if the gated start fails before spawning its task.
+        # Shared gated entry point (also used by the chat reextract /
+        # extract_cells tools): scope resolution + baseline capture +
+        # document precheck + start. With no columns given, scope="all"
+        # lets documents/rows/only_empty narrow the actual work, same as
+        # the chat extract_cells tool. start_gated_reextraction_guarded
+        # reserves the concurrency slot and releases it if the gated start
+        # fails before spawning its task.
         result = await reextraction_service.start_gated_reextraction_guarded(
             session_id,
             columns=request.columns,
-            scope="explicit",
+            scope="explicit" if request.columns else "all",
+            documents=request.documents,
+            rows=request.rows,
+            only_empty=request.only_empty,
+            retry_confirmed_empty=request.retry_confirmed_empty,
         )
-
         return ReextractionResponse(**result)
 
     except CapacityExceededError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except ConfirmedEmptyScopeError as e:
+        # start_gated_reextraction already retries once internally before
+        # raising this, so it reaches here only in the rare case that retry
+        # also found nothing new. Distinct code (not just a string) so the
+        # frontend can still tell this apart from a generic failure. Must be
+        # caught before the plain ValueError handler below, since this is a
+        # ValueError subclass.
+        raise HTTPException(status_code=400, detail={"message": str(e), "code": "confirmed_empty_only"})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        detail = (
+            "Already filling cells for this session. Please wait for it to "
+            "finish, then try again."
+            if "already has an active operation" in str(e)
+            else str(e)
+        )
+        raise HTTPException(status_code=409, detail=detail)
     except HTTPException:
         raise
     except Exception as e:

@@ -60,19 +60,41 @@ def _is_empty_cell_value(value: Any) -> bool:
     return False
 
 
-def _is_fillable_gap(value: Any) -> bool:
+def _is_confirmed_empty(value: Any) -> bool:
+    """True when a cell was explicitly checked and confirmed to have no value
+    (as opposed to simply never being extracted)."""
+    return isinstance(value, dict) and bool(value.get("_confirmed_empty"))
+
+
+def _is_fillable_gap(value: Any, retry_confirmed_empty: bool = False) -> bool:
     """True when a cell is an unresolved gap worth an extraction attempt.
 
     A cell the model explicitly confirmed empty (``_confirmed_empty``) is treated
-    as resolved, not a gap: only_empty runs skip it so we do not re-bill the model
-    on cells it already judged. Callers that want to retry those cells anyway use
-    only_empty=false, which bypasses the gap check entirely.
+    as resolved, not a gap, by default: only_empty runs skip it so we do not
+    re-bill the model on cells it already judged. Callers that want to retry
+    those cells anyway pass ``retry_confirmed_empty=True`` -- set automatically
+    by ``start_gated_reextraction``'s own one-time rescan when a plain request
+    finds nothing but confirmed-empty cells -- or use only_empty=false, which
+    bypasses the gap check entirely.
     """
     if not _is_empty_cell_value(value):
         return False
-    if isinstance(value, dict) and value.get("_confirmed_empty"):
+    if not retry_confirmed_empty and _is_confirmed_empty(value):
         return False
     return True
+
+
+class ConfirmedEmptyScopeError(ValueError):
+    """Raised when an only_empty fill scope resolves to nothing solely because
+    every target cell was already confirmed empty by a prior extraction.
+
+    A ValueError subclass so existing ``except ValueError`` handlers still
+    catch it. In practice this should not reach a caller: start_gated_reextraction
+    already retries once internally with retry_confirmed_empty=True before
+    raising, and that retry always finds every confirmed-empty cell in scope
+    fillable, so this is a defensive fallback for a concurrent write racing
+    the two scans rather than the primary "nothing to fill" signal.
+    """
 
 
 class ReextractionOperation:
@@ -88,6 +110,7 @@ class ReextractionOperation:
         rows: Optional[List[str]] = None,
         only_empty: bool = False,
         only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
+        retry_confirmed_empty: bool = False,
     ):
         self.operation_id = operation_id
         self.session_id = session_id
@@ -107,6 +130,11 @@ class ReextractionOperation:
         self.documents: Optional[List[str]] = documents
         self.rows: Optional[List[str]] = rows
         self.only_empty: bool = only_empty
+        # When set, only_empty treats already-_confirmed_empty cells as fillable
+        # gaps too, instead of skipping them to avoid re-billing.
+        # start_gated_reextraction sets this itself on its one-time internal
+        # rescan; see its docstring.
+        self.retry_confirmed_empty: bool = retry_confirmed_empty
         # Per-unit only_empty plan: {paper_stem -> {unit_name -> {targets, filled}}}.
         # Lets the extractor ask the model for only each unit's empty columns.
         self.only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = (
@@ -1007,14 +1035,21 @@ class ReextractionService(WebSocketBroadcasterMixin):
         columns: List[str],
         documents: Optional[List[str]],
         rows: Optional[List[str]] = None,
+        retry_confirmed_empty: bool = False,
     ):
         """Scan current data for empty cells within the requested scope.
 
-        Returns ``(empty_columns, docs_with_empties)``: the subset of *columns*
-        that are empty in at least one in-scope row, and the paper stems that
-        have at least one empty target cell. Returns ``(None, None)`` when no
-        data files are readable, meaning "cannot determine, do not narrow" — the
-        merge-time guard still guarantees filled cells are never overwritten.
+        Returns ``(empty_columns, docs_with_empties, scoped_rows_matched,
+        confirmed_empty_hits)``: the subset of *columns* that are empty in at
+        least one in-scope row, the paper stems that have at least one empty
+        target cell, whether the row/document scope matched any row at all,
+        and whether any in-scope target cell was skipped specifically because
+        it was already ``_confirmed_empty`` (as opposed to genuinely filled).
+        The last two let the caller give a precise reason when nothing ends up
+        empty, instead of one generic message for three different causes.
+        Returns ``(None, None, False, False)`` when no data files are
+        readable, meaning "cannot determine, do not narrow" — the merge-time
+        guard still guarantees filled cells are never overwritten.
 
         ``rows`` mirrors the extraction-time scope (``_scope_known_units``):
         when set, only rows whose observation-unit name is listed are
@@ -1026,11 +1061,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         data_files = self._resolve_reextraction_data_files(session_id)
         if not data_files:
-            return None, None
+            return None, None, False, False
         doc_filter = set(documents) if documents else None
         row_filter = set(rows) if rows else None
         empty_columns: set = set()
         docs_with_empties: set = set()
+        scoped_rows_matched = False
+        confirmed_empty_hits = False
         seen_any = False
         for df in data_files:
             try:
@@ -1048,19 +1085,23 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         paper_stems = {Path(p).stem for p in (extract_papers(row) or [])}
                         if doc_filter is not None and not (paper_stems & doc_filter):
                             continue
+                        scoped_rows_matched = True
                         scope_stems = (
                             paper_stems & doc_filter if doc_filter is not None else paper_stems
                         )
                         for col in columns:
-                            if _is_fillable_gap(get_extraction_column_value(row, col)):
+                            value = get_extraction_column_value(row, col)
+                            if _is_fillable_gap(value, retry_confirmed_empty=retry_confirmed_empty):
                                 empty_columns.add(col)
                                 docs_with_empties.update(scope_stems)
+                            elif _is_empty_cell_value(value) and _is_confirmed_empty(value):
+                                confirmed_empty_hits = True
             except Exception as e:  # unreadable file -> fall back to no narrowing
                 logger.warning("Empty-cell scan failed for %s: %s", df, e)
-                return None, None
+                return None, None, False, False
         if not seen_any:
-            return None, None
-        return empty_columns, docs_with_empties
+            return None, None, False, False
+        return empty_columns, docs_with_empties, scoped_rows_matched, confirmed_empty_hits
 
     def _build_only_empty_targets(
         self,
@@ -1068,6 +1109,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         columns: List[str],
         documents: Optional[List[str]],
         rows: Optional[List[str]] = None,
+        retry_confirmed_empty: bool = False,
     ) -> Optional[Dict[str, Dict[str, Dict[str, Any]]]]:
         """Per-unit column plan for only_empty, keyed exactly like known_units.
 
@@ -1120,7 +1162,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         filled: Dict[str, Any] = {}
                         for col in columns:
                             value = get_extraction_column_value(row, col)
-                            if _is_fillable_gap(value):
+                            if _is_fillable_gap(value, retry_confirmed_empty=retry_confirmed_empty):
                                 targets.append(col)
                             elif value is not None:
                                 filled[col] = value
@@ -1219,6 +1261,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         documents: Optional[List[str]] = None,
         rows: Optional[List[str]] = None,
         only_empty: bool = False,
+        retry_confirmed_empty: bool = False,
     ) -> Dict[str, Any]:
         """Single gated entry point for re-extraction.
 
@@ -1234,7 +1277,17 @@ class ReextractionService(WebSocketBroadcasterMixin):
             skipped document listed here is re-evaluated for observation units.
           - ``rows``: restrict the run to these observation-unit / row names.
           - ``only_empty``: never overwrite a cell that already holds a value, and
-            skip extraction for columns/documents that have nothing empty.
+            skip extraction for columns/documents that have nothing empty. If a
+            plain (``retry_confirmed_empty=False``) request resolves to nothing
+            *only* because every target cell was already confirmed empty by a
+            prior extraction, this method transparently rescans once with
+            ``retry_confirmed_empty`` forced on before giving up, so a caller
+            never needs to notice that no-op case and ask again itself.
+          - ``retry_confirmed_empty``: with only_empty, also target cells the
+            model already checked and explicitly confirmed empty (normally
+            skipped to avoid re-billing). Raises ``ConfirmedEmptyScopeError``
+            instead of ``ValueError`` if the scope still has nothing to fill
+            after the automatic rescan above.
         """
         resolved = await self.resolve_reextraction_columns(session_id, columns, scope)
 
@@ -1275,11 +1328,55 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None
         if only_empty:
-            empty_columns, docs_with_empties = self._find_empty_target_cells(
-                session_id, resolved, scoped_documents, scoped_rows
+            empty_columns, docs_with_empties, scoped_rows_matched, confirmed_empty_hits = self._find_empty_target_cells(
+                session_id, resolved, scoped_documents, scoped_rows,
+                retry_confirmed_empty=retry_confirmed_empty,
             )
+            if (
+                empty_columns is not None
+                and not empty_columns
+                and not skipped_scope
+                and confirmed_empty_hits
+                and not retry_confirmed_empty
+            ):
+                # Nothing to do only because every target cell was already
+                # confirmed empty -- rescan once, transparently, with
+                # retry_confirmed_empty forced on before giving up. This is the
+                # single gate both the workspace button and the chat tool's
+                # extract_cells funnel through, so a caller rechecking after
+                # attaching a new document (or just trying again) gets a fresh
+                # look without needing to know about ConfirmedEmptyScopeError
+                # and retry it themselves.
+                retry_confirmed_empty = True
+                empty_columns, docs_with_empties, scoped_rows_matched, confirmed_empty_hits = self._find_empty_target_cells(
+                    session_id, resolved, scoped_documents, scoped_rows,
+                    retry_confirmed_empty=retry_confirmed_empty,
+                )
             if empty_columns is not None:
                 if not empty_columns and not skipped_scope:
+                    if scoped_rows is not None and not scoped_rows_matched:
+                        # The row-name(s) in scope were never found in the stored
+                        # data at all -- a real scoping problem, not "nothing to
+                        # do" (e.g. a stale selection after a rename/reload).
+                        raise ValueError(
+                            "None of the selected row(s) were found in the "
+                            "table's stored data. Refresh and reselect, then "
+                            "try again."
+                        )
+                    if confirmed_empty_hits:
+                        # The automatic rescan above already retries a plain
+                        # (retry_confirmed_empty=False) request once, and that
+                        # retry always finds every confirmed-empty cell in scope
+                        # fillable (by construction), so this can only fire if a
+                        # concurrent write raced the two scans -- kept as a
+                        # defensive fallback rather than the primary signal to
+                        # the caller.
+                        raise ConfirmedEmptyScopeError(
+                            "The selected cell(s) were already checked and "
+                            "confirmed empty by a previous extraction run, so "
+                            "there is nothing to re-run here (this avoids "
+                            "re-billing the model for the same cells)."
+                        )
                     raise ValueError(
                         "No empty cells to fill in the selected scope."
                     )
@@ -1302,7 +1399,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # merge. Keyed like known_units; unmatched units (e.g. under unit
                 # rediscovery) fall back to full extraction in the lib.
                 only_empty_targets = self._build_only_empty_targets(
-                    session_id, resolved, scoped_documents, scoped_rows
+                    session_id, resolved, scoped_documents, scoped_rows,
+                    retry_confirmed_empty=retry_confirmed_empty,
                 )
 
         availability = await self.precheck_document_availability(
@@ -1348,6 +1446,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             rows=scoped_rows,
             only_empty=only_empty,
             only_empty_targets=only_empty_targets,
+            retry_confirmed_empty=retry_confirmed_empty,
         )
 
     async def start_reextraction(
@@ -1359,6 +1458,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         documents: Optional[List[str]] = None,
         rows: Optional[List[str]] = None,
         only_empty: bool = False,
+        retry_confirmed_empty: bool = False,
         only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
     ) -> Dict[str, Any]:
         """
@@ -1462,6 +1562,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             documents=documents,
             rows=rows,
             only_empty=only_empty,
+            retry_confirmed_empty=retry_confirmed_empty,
         )
         operation.only_empty_targets = only_empty_targets
         operation.total_documents = doc_count
@@ -1483,6 +1584,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "documents": documents,
             "rows": rows,
             "only_empty": only_empty,
+            "retry_confirmed_empty": retry_confirmed_empty,
         }
 
     def _build_known_units_for_reextraction(
@@ -1921,6 +2023,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 renamed_from=operation.renamed_from,
                 initial_matched_keys=operation.incrementally_merged_keys,
                 only_empty=operation.only_empty,
+                retry_confirmed_empty=operation.retry_confirmed_empty,
             )
 
             # Update baseline after successful extraction
@@ -2149,6 +2252,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 update_session_stats=False,
                 initial_matched_keys=operation.incrementally_merged_keys,
                 only_empty=operation.only_empty,
+                retry_confirmed_empty=operation.retry_confirmed_empty,
             )
             operation.incrementally_merged_keys.add(ext_key)
 
@@ -2160,6 +2264,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         renamed_from: Optional[Dict[str, str]] = None,
         initial_matched_keys: Optional[Set[tuple]] = None,
         only_empty: bool = False,
+        retry_confirmed_empty: bool = False,
     ):
         """Merge re-extracted values with existing data across ALL data files."""
         if not extraction_file.exists():
@@ -2193,6 +2298,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             update_session_stats=True,
             initial_matched_keys=matched_keys,
             only_empty=only_empty,
+            retry_confirmed_empty=retry_confirmed_empty,
         )
 
     async def _merge_extracted_index_into_data_files(
@@ -2206,13 +2312,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
         update_session_stats: bool = True,
         initial_matched_keys: Optional[set] = None,
         only_empty: bool = False,
+        retry_confirmed_empty: bool = False,
     ) -> None:
         """Apply extracted rows to on-disk session data files.
 
         When ``only_empty`` is set, an extracted value is written into an existing
         row only if that cell is currently empty, so values already present (or
         edited by the user) are never overwritten. Newly appended rows are
-        unaffected because all of their cells start empty.
+        unaffected because all of their cells start empty. ``retry_confirmed_empty``
+        additionally allows overwriting a cell that is empty only because it was
+        previously ``_confirmed_empty`` -- must mirror the same flag used to plan
+        the extraction (``_build_only_empty_targets``), otherwise a freshly
+        re-checked confirmed-empty cell would run the model and then have its
+        result silently discarded here.
         """
         if not extracted_by_key:
             return
@@ -2282,7 +2394,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         extracted_value = get_extraction_column_value(extracted, col_name)
                         if extracted_value is not None:
                             if only_empty and not _is_fillable_gap(
-                                get_extraction_column_value(row, col_name)
+                                get_extraction_column_value(row, col_name),
+                                retry_confirmed_empty=retry_confirmed_empty,
                             ):
                                 continue  # never overwrite a filled cell
                             if 'data' in row:
@@ -2363,7 +2476,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             )
                             if extracted_value is not None:
                                 if only_empty and not _is_fillable_gap(
-                                    get_extraction_column_value(row, col_name)
+                                    get_extraction_column_value(row, col_name),
+                                    retry_confirmed_empty=retry_confirmed_empty,
                                 ):
                                     continue  # never overwrite a filled cell
                                 if 'data' in row:

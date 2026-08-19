@@ -48,13 +48,19 @@ def row_dedup_key(row: dict) -> Tuple[str, str]:
 
 
 def row_name_of(row: dict) -> Optional[str]:
-    """Return a data row's name, tolerating both 'row_name' and '_row_name'.
+    """Return a data row's name, tolerating 'row_name', '_row_name', and
+    '_unit_name'.
 
     Non-underscore key takes precedence to match existing call sites; rows
     written by the library carry '_row_name', API-shaped rows carry 'row_name',
-    and in practice only one is present.
+    and in practice only one is present. Falls back to '_unit_name' (instance
+    names, not a type name -- see DataRow.unit_name) for rows that carry no
+    row_name/_row_name at all, e.g. some loaded/imported projects. Mirrors the
+    frontend's identity rule (row.row_name || row._unit_name) in
+    SpreadsheetSurface.tsx/helpers.ts, so a row selected there resolves to the
+    same identity here.
     """
-    return row.get('row_name') or row.get('_row_name')
+    return row.get('row_name') or row.get('_row_name') or row.get('_unit_name')
 
 
 def extract_papers(row: dict) -> List[str]:

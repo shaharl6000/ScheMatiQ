@@ -84,6 +84,7 @@ async def test_gated_reextraction_collects_renamed_from_before_baseline_recaptur
         rows=None,
         only_empty=False,
         only_empty_targets=None,
+        retry_confirmed_empty=False,
     )
     service.capture_and_save_baseline.assert_awaited_once_with("sess-1")
     assert service.start_reextraction.await_args.kwargs["renamed_from"] == {
