@@ -17,10 +17,9 @@ from fastapi.responses import StreamingResponse
 from app.models.session import VisualizationSession, SessionType, SessionStatus, SessionMetadata, FilterSortRequest
 from app.services.session_capabilities import has_live_pipeline
 from app.models.schematiq import ScheMatiQConfig, ScheMatiQStatus, CostEstimate, CostEstimateRequest, PhaseEstimate, DocumentStats
-from app.services.schematiq_runner import ScheMatiQRunner
 from app.services.pipeline.data_query import session_data_read_failed
 from app.services.data_editor import DataEditor
-from app.services import websocket_manager, session_manager, concurrency_limiter, data_collection_service
+from app.services import session_manager, concurrency_limiter
 from app.core.exceptions import CapacityExceededError
 from app.utils.csv_helpers import format_excerpt_for_csv
 from app.services.file_parser import format_column_header
@@ -29,12 +28,10 @@ from schematiq.core.cost_estimator import estimate_from_config
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-# Create shared ScheMatiQ runner instance with shared managers
-from app.services import pubmed_enrichment_service, uniprot_enrichment_service
-schematiq_runner = ScheMatiQRunner(websocket_manager=websocket_manager, session_manager=session_manager,
-                         data_collection_service=data_collection_service,
-                         pubmed_enrichment_service=pubmed_enrichment_service,
-                         uniprot_enrichment_service=uniprot_enrichment_service)
+# Shared ScheMatiQ runner singleton (see app.services.orchestration). The chat
+# tools, the /load/rediscover route and app.main all bind this same instance, so
+# a run started from any entry point can be stopped and resumed from any other.
+from app.services.orchestration import schematiq_runner
 # Create data editor instance
 data_editor = DataEditor()
 

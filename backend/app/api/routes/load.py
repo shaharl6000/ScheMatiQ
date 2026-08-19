@@ -1001,10 +1001,10 @@ async def rediscover_imported_session(session_id: str, background_tasks: Backgro
     from app.models.schematiq import ScheMatiQConfig
     from app.services.rediscovery_config import build_rediscovery_backends
     from schematiq.core.llm_call_tracker import QuotaExceededError
-    # Both are module-level singletons constructed in routes/schematiq.py, shared
-    # across the app the same way app.main imports schematiq_runner from there.
-    from app.api.routes.schematiq import schematiq_runner, QUOTA_EXCEEDED_USER_MESSAGE
-    from app.api.routes.schema import reextraction_service
+    # Shared orchestration singletons (see app.services.orchestration): the same
+    # runner/reextraction instances the chat tools and Stop button operate on.
+    from app.api.routes.schematiq import QUOTA_EXCEEDED_USER_MESSAGE
+    from app.services.orchestration import reextraction_service, schematiq_runner
 
     try:
         set_session_context(session_id)

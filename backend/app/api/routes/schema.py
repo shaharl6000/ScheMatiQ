@@ -15,10 +15,8 @@ from app.core.config import DEFAULT_DATA_DIR
 from app.models.session import ColumnInfo
 from app.models.modification import ModificationAction
 from app.services.schema_manager import SchemaManager
-from app.services.reextraction_service import ReextractionService
-from app.services.continue_discovery_service import ContinueDiscoveryService
 from app.services.data_editor import DataEditor
-from app.services import session_manager, websocket_manager, concurrency_limiter, data_collection_service
+from app.services import session_manager, websocket_manager, concurrency_limiter
 from app.core.exceptions import CapacityExceededError
 from app.core.logging_utils import set_session_context
 
@@ -28,18 +26,10 @@ router = APIRouter(tags=["schema"])
 # Create schema manager instance
 schema_manager = SchemaManager(websocket_manager, session_manager)
 
-# Create reextraction service instance
-from app.services import pubmed_enrichment_service, uniprot_enrichment_service
-reextraction_service = ReextractionService(websocket_manager, session_manager,
-                                           data_collection_service=data_collection_service,
-                                           pubmed_enrichment_service=pubmed_enrichment_service,
-                                           uniprot_enrichment_service=uniprot_enrichment_service)
-
-# Create continue discovery service instance
-continue_discovery_service = ContinueDiscoveryService(websocket_manager, session_manager,
-                                                      data_collection_service=data_collection_service,
-                                                      pubmed_enrichment_service=pubmed_enrichment_service,
-                                                      uniprot_enrichment_service=uniprot_enrichment_service)
+# Shared reextraction + continue-discovery singletons (see
+# app.services.orchestration): the same instances the chat tools and the
+# /load/rediscover route operate on, so stop/resume see the in-flight task.
+from app.services.orchestration import continue_discovery_service, reextraction_service
 
 # Create data editor instance
 data_editor = DataEditor()

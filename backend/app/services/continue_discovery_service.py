@@ -1401,7 +1401,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 llm_calls_after = LLMCallTracker.get_instance().get_counts().get("continue_discovery", 0)
                 delta = max(0, llm_calls_after - llm_calls_before)
                 if delta > 0:
-                    from app.services.chat.deps import schematiq_runner
+                    from app.services.orchestration import schematiq_runner
                     record_id = f"continue_discovery-{operation.session_id[:8]}-{int(datetime.now().timestamp())}"
                     await asyncio.to_thread(
                         schematiq_runner.record_external_usage, record_id, {"continue_discovery": delta}
