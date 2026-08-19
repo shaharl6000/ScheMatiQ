@@ -673,8 +673,8 @@ export function SpreadsheetSurface({
     registerFormatShortcuts(hot);
   });
 
-  const markFilterSettingsInitOnly = useCallback(() => {
-    const hot = hotTableRef.current?.hotInstance;
+  const markFilterSettingsInitOnly = useCallback((instance?: HotTableClass['hotInstance']) => {
+    const hot = instance ?? hotTableRef.current?.hotInstance;
     if (!hot) return;
     try {
       const settings = hot.getSettings() as { _initOnlySettings?: string[] };
@@ -692,6 +692,26 @@ export function SpreadsheetSurface({
       }
     } catch { /* instance may be mid-teardown */ }
   }, [hotTableRef]);
+
+  // Drive `markFilterSettingsInitOnly` from an effect rather than `afterInit`.
+  // `afterInit` fires from inside Handsontable's constructor, before
+  // @handsontable/react has assigned the instance onto the ref, so the
+  // afterInit call read `hotTableRef.current?.hotInstance` as undefined and
+  // silently no-opped -- leaving `filters`/`dropdownMenu`/`contextMenu` OUT of
+  // `_initOnlySettings`. The wrapper then re-pushed `filters` through
+  // updateSettings on the next unrelated re-render, re-initializing the filters
+  // plugin and wiping the active filter, so a filter set from the dropdown
+  // appeared to do nothing. This is the same ref-timing gotcha already handled
+  // for `registerFormatShortcuts` above; the identity guard makes it a no-op
+  // except on the first render after a new grid instance appears (the grid
+  // remounts on sheet/view `key` changes, resetting `_initOnlySettings`).
+  const filterInitInstanceRef = useRef<HotTableClass['hotInstance'] | null>(null);
+  useEffect(() => {
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot || filterInitInstanceRef.current === hot) return;
+    filterInitInstanceRef.current = hot;
+    markFilterSettingsInitOnly(hot);
+  });
 
   // Renderer for the active grouping column: plain text plus a count badge on
   // the group's first row. With cells merged, only the top row of a group is
@@ -1663,7 +1683,9 @@ export function SpreadsheetSurface({
         afterInit={() => {
           syncHotTableDimensions();
           applyGroupMerges();
-          markFilterSettingsInitOnly();
+          // markFilterSettingsInitOnly is driven by a post-mount effect instead:
+          // at afterInit the wrapper has not yet assigned the instance onto the
+          // ref, so calling it here would read undefined and silently no-op.
           syncHeaderOverlayScroll();
         }}
         // Runs after Handsontable has drawn and (mis)clamped the header overlay's
