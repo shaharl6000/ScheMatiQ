@@ -155,14 +155,13 @@ export function useReextraction({
     targetColumns: string[],
     // `rows` narrows to specific observation-unit rows (e.g. "Fill empty
     // cells" on a grid selection); `onlyEmpty` never overwrites a cell that
-    // already holds a value; `retryConfirmedEmpty` (only meaningful with
-    // onlyEmpty) also targets cells the model already checked and explicitly
-    // confirmed empty, normally skipped to avoid re-billing -- set on the
-    // automatic follow-up call this function makes when a first onlyEmpty
-    // call comes back with nothing to fill for that specific reason. All
-    // three map straight onto the backend's ReextractionRequest.rows /
-    // .only_empty / .retry_confirmed_empty.
-    scope?: { rows?: string[]; onlyEmpty?: boolean; retryConfirmedEmpty?: boolean },
+    // already holds a value. Both map straight onto the backend's
+    // ReextractionRequest.rows / .only_empty. (The backend also has a
+    // retry_confirmed_empty option, for rechecking cells already confirmed
+    // empty by a prior run, but it now retries those itself internally
+    // before giving up -- see start_gated_reextraction -- so this hook never
+    // needs to ask for it.)
+    scope?: { rows?: string[]; onlyEmpty?: boolean },
   ) => {
     if (!sessionId || rerunStarting || targetColumns.length === 0) return;
     // A re-extraction is already running for this session (rerunStarting only
@@ -206,7 +205,6 @@ export function useReextraction({
       }
       if (scope?.rows?.length) request.rows = scope.rows;
       if (scope?.onlyEmpty) request.only_empty = true;
-      if (scope?.retryConfirmedEmpty) request.retry_confirmed_empty = true;
 
       const response = await schemaAPI.startReextraction(sessionId, request);
       const docCount = response.rows_to_process || response.estimated_papers || 0;
@@ -237,18 +235,14 @@ export function useReextraction({
         duration: 4000,
       });
     } catch (err: any) {
-      const { message, isBusy, code } = describeRequestError(err, 'Could not start re-extraction');
-      if (code === 'confirmed_empty_only' && !scope?.retryConfirmedEmpty) {
-        // The selected cell(s) are blank on screen but were already checked
-        // and explicitly confirmed empty by a prior run -- only_empty skips
-        // them by default to avoid re-billing the model on cells it already
-        // judged. A user pressing "Fill empty cells" again (e.g. after
-        // attaching a new source document) clearly wants a fresh look, so
-        // retry immediately with retryConfirmedEmpty instead of making them
-        // notice the no-op and click a follow-up "Check again" prompt.
-        void startReextraction(targetColumns, { ...scope, retryConfirmedEmpty: true });
-        return;
-      }
+      // Note: a scope that resolves to only already-confirmed-empty cells no
+      // longer reaches here in the normal case -- the backend
+      // (start_gated_reextraction) retries that once internally before
+      // failing, so a "Fill empty cells" press against such cells (e.g.
+      // after attaching a new source document) just works. This generic
+      // toast only fires for a genuine failure, or the rare case where even
+      // that backend retry found nothing new.
+      const { message, isBusy } = describeRequestError(err, 'Could not start re-extraction');
       toast({
         title: isBusy ? 'Server busy' : 'Re-extraction failed to start',
         description: message,
