@@ -15,7 +15,7 @@ from app.core.config import DEFAULT_DATA_DIR
 from app.models.session import ColumnInfo
 from app.models.modification import ModificationAction
 from app.services.schema_manager import SchemaManager
-from app.services.reextraction_service import ReextractionService
+from app.services.reextraction_service import ReextractionService, ConfirmedEmptyScopeError
 from app.services.continue_discovery_service import ContinueDiscoveryService
 from app.services.data_editor import DataEditor
 from app.services import session_manager, websocket_manager, concurrency_limiter, data_collection_service
@@ -882,8 +882,19 @@ class PaperDiscoveryResponse(BaseModel):
 
 
 class ReextractionRequest(BaseModel):
-    columns: List[str]
+    columns: Optional[List[str]] = None
     llm_config: Optional[Dict[str, Any]] = None  # User-provided LLM config with API key
+    # Granular fill scope (mirrors the chat `extract_cells` tool): restrict the
+    # run to these source documents / observation-unit row names, and, with
+    # only_empty=True, never overwrite a cell that already holds a value.
+    documents: Optional[List[str]] = None
+    rows: Optional[List[str]] = None
+    only_empty: bool = False
+    # With only_empty, also target cells already confirmed empty by a prior
+    # extraction (normally skipped to avoid re-billing the model). Set this on
+    # a follow-up call after a first only_empty request comes back with a
+    # "confirmed empty" ConfirmedEmptyScopeError, to force a recheck.
+    retry_confirmed_empty: bool = False
 
 
 class ReextractionResponse(BaseModel):
@@ -1009,15 +1020,20 @@ async def start_reextraction(
     request: ReextractionRequest,
     background_tasks: BackgroundTasks
 ) -> ReextractionResponse:
-    """Start selective re-extraction for specified columns."""
+    """Start selective re-extraction for specified columns, optionally narrowed
+    to specific documents / rows and gated to empty cells only (see
+    ReextractionRequest.documents / .rows / .only_empty)."""
     try:
         set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        if not request.columns:
-            raise HTTPException(status_code=400, detail="No columns specified for re-extraction")
+        if not (request.columns or request.documents or request.rows):
+            raise HTTPException(
+                status_code=400,
+                detail="No columns, documents, or rows specified for re-extraction",
+            )
 
         # Save user-provided LLM config if provided
         if request.llm_config:
@@ -1035,12 +1051,19 @@ async def start_reextraction(
         await concurrency_limiter.acquire(session_id, "reextraction")
 
         try:
-            # Shared gated entry point (also used by the chat reextract tool):
-            # scope resolution + baseline capture + document precheck + start.
+            # Shared gated entry point (also used by the chat reextract /
+            # extract_cells tools): scope resolution + baseline capture +
+            # document precheck + start. With no columns given, scope="all"
+            # lets documents/rows/only_empty narrow the actual work, same as
+            # the chat extract_cells tool.
             result = await reextraction_service.start_gated_reextraction(
                 session_id,
                 columns=request.columns,
-                scope="explicit",
+                scope="explicit" if request.columns else "all",
+                documents=request.documents,
+                rows=request.rows,
+                only_empty=request.only_empty,
+                retry_confirmed_empty=request.retry_confirmed_empty,
             )
         except Exception:
             # Release slot if the gated start fails before creating its task
@@ -1051,6 +1074,13 @@ async def start_reextraction(
 
     except CapacityExceededError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except ConfirmedEmptyScopeError as e:
+        # Distinct code (not just a string) so the frontend can offer a
+        # one-click "Check again" retry with retry_confirmed_empty=True,
+        # rather than treating this the same as a generic failure. Must be
+        # caught before the plain ValueError handler below, since this is a
+        # ValueError subclass.
+        raise HTTPException(status_code=400, detail={"message": str(e), "code": "confirmed_empty_only"})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:

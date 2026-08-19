@@ -1077,6 +1077,17 @@
   pointer-events: none;
 }
 
+/* Cell the model explicitly checked and confirmed has no value, vs. one that
+   was simply never extracted -- both are blank otherwise, so this placeholder
+   is the only visual difference. hsl(var(--muted-foreground)) is theme-aware,
+   so no separate .dark override is needed (unlike has-grounding above). */
+.workspace-hot .handsontable td.cell-confirmed-empty::after {
+  content: 'Not found';
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+  pointer-events: none;
+}
+
 .workspace-hot .handsontable td.workspace-cell-font-inter {
   font-family: Inter, system-ui, sans-serif;
 }

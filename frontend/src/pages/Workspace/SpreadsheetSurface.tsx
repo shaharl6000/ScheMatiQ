@@ -31,10 +31,13 @@ import {
 } from './constants';
 import {
   documentDisplayName,
+  emptyCellScope,
   formatSheetColHeader,
   getCellFormatClasses,
   parseAllowedValues,
   renderObservationUnitFieldCell,
+  schemaColumnKeysForCols,
+  selectedColumnIndices,
 } from './helpers';
 import type {
   CellFormatMap,
@@ -80,6 +83,7 @@ export function SpreadsheetSurface({
   onOptimisticCellEdit,
   onEditFollowUp,
   onEditEnd,
+  onFillEmptyCells,
   onToggleFormatShortcut,
   onUndo,
   onRedo,
@@ -124,6 +128,12 @@ export function SpreadsheetSurface({
   ) => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
   onEditEnd: () => void;
+  // "Fill empty cells": re-run extraction scoped to just the blank cells
+  // covered by the current selection (unit row names + schema column keys),
+  // without touching cells that already hold a value. Optional so the menu
+  // item can still render (disabled when there's nothing blank to fill)
+  // wherever this component is used without wiring the handler.
+  onFillEmptyCells?: (scope: { rows: string[]; columns: string[] }) => void;
   // Toggle a text format (bold/italic/underline) on the current selection,
   // invoked by the Ctrl/Cmd+B/I/U keyboard shortcuts registered below.
   onToggleFormatShortcut?: (key: 'bold' | 'italic' | 'underline') => void;
@@ -449,6 +459,24 @@ export function SpreadsheetSurface({
     });
   }, [data.rows, dataColumnNames]);
 
+  // Per-cell "confirmed empty" flags: the model looked and explicitly found
+  // nothing (vs. a cell that was never extracted). Both display blank, so this
+  // is a separate lookup from dataRows (whose flattened string values lose the
+  // marker) -- same physical-row indexing as dataGrounding above.
+  const dataConfirmedEmpty = useMemo(() => {
+    return data.rows.map((row) => {
+      const perColumn: Record<string, boolean> = {};
+      const rowData = row.data || {};
+      for (const key of Object.keys(rowData)) {
+        const value = rowData[key] as { _confirmed_empty?: boolean } | undefined;
+        if (value && typeof value === 'object' && value._confirmed_empty) {
+          perColumn[key] = true;
+        }
+      }
+      return perColumn;
+    });
+  }, [data.rows]);
+
   const [groundingModal, setGroundingModal] = useState<{
     title: string;
     content: { answer: string; excerpts: CellGrounding['excerpts'] };
@@ -572,6 +600,8 @@ export function SpreadsheetSurface({
   undoRef.current = onUndo;
   const redoRef = useRef(onRedo);
   redoRef.current = onRedo;
+  const fillEmptyCellsRef = useRef(onFillEmptyCells);
+  fillEmptyCellsRef.current = onFillEmptyCells;
 
   // Register Ctrl/Cmd+B/I/U through Handsontable's built-in ShortcutManager
   // rather than a hand-rolled keydown handler. The shortcuts live in the 'grid'
@@ -838,8 +868,11 @@ export function SpreadsheetSurface({
     if (activeSheet === 'data' && column && dataGrounding[row]?.[column.key]) {
       props.className = [props.className, 'has-grounding'].filter(Boolean).join(' ');
     }
+    if (activeSheet === 'data' && column && dataConfirmedEmpty[row]?.[column.key]) {
+      props.className = [props.className, 'cell-confirmed-empty'].filter(Boolean).join(' ');
+    }
     return props;
-  }, [activeSheet, cellFormats, dataGrounding, sheet]);
+  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, sheet]);
 
   const prevFormatVersionRef = useRef(formatVersion);
 
@@ -1350,20 +1383,28 @@ export function SpreadsheetSurface({
   const selectedSchemaColumnNames = useCallback(
     (hot: any): string[] => {
       const selection: number[][] = typeof hot?.getSelected === 'function' ? hot.getSelected() || [] : [];
-      const cols = new Set<number>();
-      for (const range of selection) {
-        const [, c1, , c2] = range;
-        const from = Math.min(c1, c2);
-        const to = Math.max(c1, c2);
-        for (let c = from; c <= to; c += 1) if (c >= 0) cols.add(c);
-      }
-      const keys = Array.from(cols)
-        .map((c) => sheet.columns[c]?.key)
-        .filter((key): key is string => Boolean(key) && !key.startsWith('_'));
-      // Keep only keys that are real schema columns (never provenance/grouping).
-      return keys.filter((key) => schemaColumns.some((col) => col.name === key));
+      const colIndices = selectedColumnIndices(selection);
+      return schemaColumnKeysForCols(colIndices, sheet.columns, schemaColumns);
     },
     [schemaColumns, sheet.columns],
+  );
+
+  // Resolve the "Fill empty cells" scope for the current selection: the unit
+  // row names and schema column keys that are covered AND still blank. Cells
+  // that already hold a value are excluded from both sets, so a row/column
+  // that is entirely filled in never appears in the resulting scope (and a
+  // selection with nothing blank resolves to null, disabling the menu item).
+  // Provenance columns (_row_name / _source_document) never count as targets.
+  const selectedEmptyCellScope = useCallback(
+    (hot: any): { rows: string[]; columns: string[] } | null => {
+      if (activeSheet !== 'data') return null;
+      const selection: number[][] = typeof hot?.getSelected === 'function' ? hot.getSelected() || [] : [];
+      if (selection.length === 0) return null;
+
+      const toPhysicalRow = typeof hot.toPhysicalRow === 'function' ? hot.toPhysicalRow.bind(hot) : undefined;
+      return emptyCellScope(selection, dataRows, sheet.columns, schemaColumns, toPhysicalRow);
+    },
+    [activeSheet, dataRows, schemaColumns, sheet.columns],
   );
 
   // Delete one or more schema columns (header + values, from both the Schema
@@ -1439,10 +1480,14 @@ export function SpreadsheetSurface({
   const menuActionsRef = useRef<{
     selectedNames: (hot: any) => string[];
     deleteColumns: (names: string[]) => void;
-  }>({ selectedNames: () => [], deleteColumns: () => {} });
+    emptyScope: (hot: any) => { rows: string[]; columns: string[] } | null;
+    fillEmptyCells: (scope: { rows: string[]; columns: string[] }) => void;
+  }>({ selectedNames: () => [], deleteColumns: () => {}, emptyScope: () => null, fillEmptyCells: () => {} });
   menuActionsRef.current = {
     selectedNames: selectedSchemaColumnNames,
     deleteColumns: deleteSchemaColumns,
+    emptyScope: selectedEmptyCellScope,
+    fillEmptyCells: (scope: { rows: string[]; columns: string[] }) => fillEmptyCellsRef.current?.(scope),
   };
 
   // Custom Data-sheet menu items shared by the right-click context menu and the
@@ -1475,6 +1520,16 @@ export function SpreadsheetSurface({
           // Routes through afterChange -> handleChanges, which persists the
           // empties and shows a single summary toast.
           if (typeof this?.emptySelectedCells === 'function') this.emptySelectedCells('edit');
+        },
+      },
+      fill_empty_cells: {
+        name: 'Fill empty cells',
+        disabled(this: any): boolean {
+          return menuActionsRef.current.emptyScope(this) === null;
+        },
+        callback(this: any): void {
+          const scope = menuActionsRef.current.emptyScope(this);
+          if (scope) menuActionsRef.current.fillEmptyCells(scope);
         },
       },
     }),

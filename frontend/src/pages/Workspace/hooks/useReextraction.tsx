@@ -6,6 +6,7 @@ import {
   type LLMProviderKey,
 } from '@/constants';
 import { configAPI, loadAPI, schemaAPI, schematiqAPI } from '@/services/api';
+import { ToastAction, type ToastActionElement } from '@/components/ui/toast';
 import type {
   DocumentAvailabilityResponse,
   ReextractionRequest,
@@ -38,6 +39,7 @@ type UseReextractionOptions = {
     description?: string;
     variant?: 'default' | 'destructive';
     duration?: number;
+    action?: ToastActionElement;
   }) => void;
 };
 
@@ -149,8 +151,34 @@ export function useReextraction({
     void runReextractPrecheck();
   }, [pendingSchemaColumns, rerunStarting, runReextractPrecheck, schema?.schema, sessionId, toast]);
 
-  const startReextraction = useCallback(async (targetColumns: string[]) => {
+  const startReextraction = useCallback(async (
+    targetColumns: string[],
+    // `rows` narrows to specific observation-unit rows (e.g. "Fill empty
+    // cells" on a grid selection); `onlyEmpty` never overwrites a cell that
+    // already holds a value; `retryConfirmedEmpty` (only meaningful with
+    // onlyEmpty) also targets cells the model already checked and explicitly
+    // confirmed empty, normally skipped to avoid re-billing -- set on the
+    // "Check again" retry offered after a first onlyEmpty call comes back
+    // with nothing to fill for that specific reason. All three map straight
+    // onto the backend's ReextractionRequest.rows / .only_empty /
+    // .retry_confirmed_empty.
+    scope?: { rows?: string[]; onlyEmpty?: boolean; retryConfirmedEmpty?: boolean },
+  ) => {
     if (!sessionId || rerunStarting || targetColumns.length === 0) return;
+    // A re-extraction is already running for this session (rerunStarting only
+    // covers the brief window until the start request itself returns -- the
+    // background operation can run for minutes after that). Pressing the same
+    // button again in that window would just 409 from the backend's
+    // single-slot-per-session concurrency guard; give a quiet heads-up instead
+    // of surfacing that as a failure.
+    if (reextraction) {
+      toast({
+        title: 'Already filling cells',
+        description: 'Please wait a few seconds for the current run to finish, then try again.',
+        duration: 3000,
+      });
+      return;
+    }
 
     const chatPendingCleared = await cancelChatPendingIfAny();
     if (!chatPendingCleared) {
@@ -176,6 +204,9 @@ export function useReextraction({
       if (apiKey) {
         request.llm_config = { provider, model, api_key: apiKey, temperature: 0 };
       }
+      if (scope?.rows?.length) request.rows = scope.rows;
+      if (scope?.onlyEmpty) request.only_empty = true;
+      if (scope?.retryConfirmedEmpty) request.retry_confirmed_empty = true;
 
       const response = await schemaAPI.startReextraction(sessionId, request);
       const docCount = response.rows_to_process || response.estimated_papers || 0;
@@ -199,12 +230,36 @@ export function useReextraction({
         currentColumn: response.columns[0],
       });
       toast({
-        title: 'Re-extraction started',
-        description: `Re-extracting ${response.columns.join(', ')} across ${docCount} document(s). Other columns stay unchanged.`,
+        title: scope?.onlyEmpty ? 'Filling empty cells' : 'Re-extraction started',
+        description: scope?.onlyEmpty
+          ? `Filling ${response.columns.join(', ')} for ${scope.rows?.length ?? 0} row(s). Existing values stay unchanged.`
+          : `Re-extracting ${response.columns.join(', ')} across ${docCount} document(s). Other columns stay unchanged.`,
         duration: 4000,
       });
     } catch (err: any) {
-      const { message, isBusy } = describeRequestError(err, 'Could not start re-extraction');
+      const { message, isBusy, code } = describeRequestError(err, 'Could not start re-extraction');
+      if (code === 'confirmed_empty_only' && !scope?.retryConfirmedEmpty) {
+        // The selected cell(s) are blank on screen but were already checked
+        // and explicitly confirmed empty by a prior run -- only_empty skips
+        // them by default to avoid re-billing the model. Offer a one-click
+        // way to force a recheck instead of just reporting a dead end.
+        toast({
+          title: 'Nothing to fill yet',
+          description: message,
+          duration: 10000,
+          action: (
+            <ToastAction
+              altText="Check again"
+              onClick={() => {
+                void startReextraction(targetColumns, { ...scope, retryConfirmedEmpty: true });
+              }}
+            >
+              Check again
+            </ToastAction>
+          ),
+        });
+        return;
+      }
       toast({
         title: isBusy ? 'Server busy' : 'Re-extraction failed to start',
         description: message,
@@ -213,7 +268,19 @@ export function useReextraction({
     } finally {
       setRerunStarting(false);
     }
-  }, [cancelChatPendingIfAny, clearPendingRerun, rerunStarting, sessionId, toast]);
+  }, [cancelChatPendingIfAny, clearPendingRerun, reextraction, rerunStarting, sessionId, toast]);
+
+  // Entry point for the Data-sheet "Fill empty cells" menu item: the scope
+  // (unit-row names + schema-column keys) is resolved by
+  // SpreadsheetSurface's selectedEmptyCellScope/emptyCellScope helper, which
+  // only tracks *which* rows/columns contain a blank cell, not exact (row,
+  // col) pairs -- so onlyEmpty:true is required here to keep the backend from
+  // overwriting already-filled cells that share a row or column with a blank
+  // one.
+  const fillEmptyCells = useCallback((scope: { rows: string[]; columns: string[] }) => {
+    if (scope.rows.length === 0 || scope.columns.length === 0) return;
+    void startReextraction(scope.columns, { rows: scope.rows, onlyEmpty: true });
+  }, [startReextraction]);
 
   const confirmReextraction = useCallback(async () => {
     if (!reextractConfirm) return;
@@ -385,6 +452,7 @@ export function useReextraction({
     runReextractPrecheck,
     requestReextraction,
     confirmReextraction,
+    fillEmptyCells,
     stopReextraction,
     startSchemaRediscovery,
     notifyEditFollowUp,
