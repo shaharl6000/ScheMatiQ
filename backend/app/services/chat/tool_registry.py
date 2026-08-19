@@ -559,7 +559,10 @@ def _all_tools() -> list[ToolSpec]:
                 "when omitted it defaults to the edited/new columns only (scope='edited_only'). "
                 "Does not touch other columns or the observation unit unless scope='all'. Use "
                 "this for a targeted refresh after add_column/edit_column; use `reprocess` to "
-                "refresh the entire table. Does NOT re-include a document that was skipped "
+                "refresh the entire table. By default this OVERWRITES existing values in the "
+                "targeted columns; pass only_empty=true to fill just the blank cells and leave "
+                "existing values untouched (the safe choice when the user says fill/complete "
+                "missing cells rather than redo the column). Does NOT re-include a document that was skipped "
                 "during extraction (skipped documents stay skipped): if the user asks about a "
                 "missing document, call list_skipped_documents first."
             ),
@@ -580,6 +583,14 @@ def _all_tools() -> list[ToolSpec]:
                         "description": (
                             "Fallback when `columns` is omitted: 'edited_only' re-extracts the "
                             "edited/new columns, 'all' re-extracts every column."
+                        ),
+                    },
+                    "only_empty": {
+                        "type": "boolean",
+                        "description": (
+                            "When false (default) every targeted cell is re-extracted and "
+                            "existing values are overwritten. Set true to fill only blank "
+                            "cells and never overwrite a value that is already present."
                         ),
                     },
                 },
