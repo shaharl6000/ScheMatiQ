@@ -6,6 +6,7 @@ import {
 import type {
   ChatToolInfo,
   ChatTurnMessage,
+  ColumnInfo,
   CostEstimate,
   DataRow,
   PaginatedData,
@@ -105,6 +106,100 @@ export const selectionArea = (selection: SheetSelection) => {
   if (!selection) return 0;
   return (selection.toRow - selection.fromRow + 1) * (selection.toCol - selection.fromCol + 1);
 };
+
+// Union of column indices covered by Handsontable's `getSelected()` ranges
+// (each `[r1, c1, r2, c2]`). Row bounds are ignored -- this is only safe to
+// use when the caller doesn't need row/column pairing (e.g. whole-column
+// operations like column delete). Do not use it to derive a row index union
+// too: flattening multi-range selections into separate row and column unions
+// and then crossing them back together produces (row, col) pairs that were
+// never actually selected -- see emptyCellScope below, which instead walks
+// each range's own row x col rectangle.
+export function selectedColumnIndices(selection: number[][]): number[] {
+  const cols = new Set<number>();
+  for (const range of selection) {
+    const [, c1, , c2] = range;
+    const fromCol = Math.min(c1, c2);
+    const toCol = Math.max(c1, c2);
+    for (let c = fromCol; c <= toCol; c += 1) if (c >= 0) cols.add(c);
+  }
+  return Array.from(cols);
+}
+
+// Resolve the real schema-column keys (never provenance/grouping columns like
+// _row_name / _source_document) covered by a set of grid column indices.
+export function schemaColumnKeysForCols(
+  colIndices: number[],
+  sheetColumns: SheetColumn[],
+  schemaColumns: ColumnInfo[],
+): string[] {
+  const keys = colIndices
+    .map((c) => sheetColumns[c]?.key)
+    .filter((key): key is string => Boolean(key) && !key.startsWith('_'));
+  return keys.filter((key) => schemaColumns.some((col) => col.name === key));
+}
+
+// Resolve the "Fill empty cells" scope for a Handsontable selection: the
+// unit-row names and schema-column keys covered AND still blank. Cells that
+// already hold a value are excluded from both sets, so a row/column that is
+// entirely filled in never appears in the result, and a selection with
+// nothing blank resolves to null (used to disable the menu item).
+// Walks each selection range's own row x col rectangle (rather than a
+// flattened row-index union crossed with a column-index union) so a
+// multi-range (ctrl+click) selection never pulls in a (row, col) pair that
+// wasn't actually part of any selected range.
+// `toPhysicalRow` translates visual -> physical row (pass the grid instance's
+// own mapper so sorting/filtering don't shift which rows are meant); omit it
+// when visual and physical rows are already the same (no active sort/filter).
+export function emptyCellScope(
+  selection: number[][],
+  dataRows: Array<Record<string, string>>,
+  sheetColumns: SheetColumn[],
+  schemaColumns: ColumnInfo[],
+  toPhysicalRow?: (visualRow: number) => number,
+): { rows: string[]; columns: string[] } | null {
+  const rowNames = new Set<string>();
+  const columnKeys = new Set<string>();
+
+  // A column's key and whether it's a real (non-provenance) schema column
+  // depend only on its index -- never on the row or which range it's in --
+  // so resolve that once per column here instead of re-deriving it (including
+  // the schemaColumns scan) for every row that happens to cover it.
+  const columnKeyByIndex: Array<string | undefined> = sheetColumns.map((column) => {
+    const key = column.key;
+    if (!key || key.startsWith('_')) return undefined;
+    return schemaColumns.some((c) => c.name === key) ? key : undefined;
+  });
+
+  for (const range of selection) {
+    const [r1, c1, r2, c2] = range;
+    const fromRow = Math.min(r1, r2);
+    const toRow = Math.max(r1, r2);
+    const fromCol = Math.min(c1, c2);
+    const toCol = Math.max(c1, c2);
+
+    for (let visualRow = fromRow; visualRow <= toRow; visualRow += 1) {
+      const physicalRow = toPhysicalRow ? toPhysicalRow(visualRow) : visualRow;
+      if (physicalRow == null || physicalRow < 0) continue;
+      const rowData = dataRows[physicalRow];
+      const rowName = String(rowData?._row_name || '').trim();
+      if (!rowData || !rowName) continue;
+
+      for (let col = fromCol; col <= toCol; col += 1) {
+        const key = columnKeyByIndex[col];
+        if (!key) continue;
+        const value = rowData[key];
+        if (value != null && String(value).trim() !== '') continue; // already filled
+
+        rowNames.add(rowName);
+        columnKeys.add(key);
+      }
+    }
+  }
+
+  if (rowNames.size === 0 || columnKeys.size === 0) return null;
+  return { rows: Array.from(rowNames), columns: Array.from(columnKeys) };
+}
 
 export const getCellFormatClasses = (format?: CellFormat) => {
   if (!format) return '';
@@ -351,15 +446,27 @@ export const SERVER_BUSY_MESSAGE =
 export function describeRequestError(
   err: unknown,
   fallback: string,
-): { message: string; isBusy: boolean } {
+): { message: string; isBusy: boolean; code?: string } {
   const response = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
-  const detail = typeof response?.data?.detail === 'string' ? response.data.detail : '';
+  const rawDetail = response?.data?.detail;
+  // `detail` is usually a plain string, but a few backend errors (e.g.
+  // ConfirmedEmptyScopeError on /schema/reextract) send {message, code} so the
+  // caller can react to the specific error, not just display text.
+  const detailObj = rawDetail && typeof rawDetail === 'object' ? (rawDetail as Record<string, unknown>) : null;
+  let detail = '';
+  if (typeof rawDetail === 'string') {
+    detail = rawDetail;
+  } else if (typeof detailObj?.message === 'string') {
+    detail = detailObj.message;
+  }
+  const code = typeof detailObj?.code === 'string' ? detailObj.code : undefined;
   if (response?.status === 503) {
     // Prefer the server's wording when it sent any; it names the limit.
-    return { message: detail || SERVER_BUSY_MESSAGE, isBusy: true };
+    return { message: detail || SERVER_BUSY_MESSAGE, isBusy: true, code };
   }
   return {
     message: detail || (err as { message?: string })?.message || fallback,
     isBusy: false,
+    code,
   };
 }

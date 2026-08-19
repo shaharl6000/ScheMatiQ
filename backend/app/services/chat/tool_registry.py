@@ -605,6 +605,12 @@ def _all_tools() -> list[ToolSpec]:
                 "retries skipped documents. Cells the model already inspected and "
                 "confirmed have no value are left alone by only_empty; set "
                 "only_empty=false to force those (and filled cells) to be re-extracted. "
+                "If the user's request ('fill in this row/column') does not make clear "
+                "whether to fill just the empty cells or overwrite every value in scope, "
+                "ask them which before calling this tool instead of guessing — "
+                "only_empty=false overwrites cells that already hold correct data, which "
+                "is not reversible. Default to only_empty=true when they say to fill "
+                "empty/missing/blank cells specifically. "
                 "Get exact names from list_documents, "
                 "list_skipped_documents, or preview_data first."
             ),

@@ -79,6 +79,7 @@ def patched_reextraction(monkeypatch):
         rows=None,
         only_empty=False,
         only_empty_targets=None,
+        retry_confirmed_empty=False,
     ):
         captured["columns"] = list(columns)
         return {"status": "started", "columns": list(columns)}

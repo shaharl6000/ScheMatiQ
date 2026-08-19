@@ -615,6 +615,7 @@ function Workspace() {
     runReextractPrecheck,
     requestReextraction,
     confirmReextraction,
+    fillEmptyCells,
     stopReextraction,
     startSchemaRediscovery,
     notifyEditFollowUp,
@@ -1241,6 +1242,7 @@ function Workspace() {
         onUndo={undoEdit}
         onRedo={redoEdit}
         onRecordEdit={editHistory.push}
+        onFillEmptyCells={fillEmptyCells}
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}
         sessionMissing={sessionMissing}
