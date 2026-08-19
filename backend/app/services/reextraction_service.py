@@ -1553,6 +1553,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         documents: Optional[List[str]],
         rows: Optional[List[str]],
         all_paper_stems: set,
+        on_disk_stems: Optional[set] = None,
     ) -> Dict[str, List[str]]:
         """Restrict a run to specific documents and/or rows via ``known_units``.
 
@@ -1565,6 +1566,17 @@ class ReextractionService(WebSocketBroadcasterMixin):
             ``rows`` so only the requested units are extracted;
           - a target document that has no known units (previously skipped) is
             dropped from the map so the library re-discovers its units.
+
+        ``on_disk_stems`` is the set of document stems actually present in the
+        session's document directories (what the library will walk). It must be
+        included so on-disk files that are absent from the row/skip metadata --
+        e.g. a collision-renamed ``<name>_N`` duplicate (see unique_dest_path)
+        or any orphan file -- are force-skipped to ``[]`` rather than left absent
+        and re-discovered. Without it, a scoped run still runs full unit
+        discovery + extraction on every such file, ballooning a targeted fill
+        into unrequested units. Only affects scoped runs (this method is called
+        only when documents/rows are given), where skipping non-targets is the
+        intent.
         """
         if not documents and not rows:
             return known_units
@@ -1574,7 +1586,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
         targets = explicit if documents else set(all_paper_stems) | set(known_units.keys())
         row_filter = set(rows) if rows else None
         scoped: Dict[str, List[str]] = {}
-        universe = set(all_paper_stems) | set(known_units.keys()) | targets
+        universe = (
+            set(all_paper_stems)
+            | set(known_units.keys())
+            | targets
+            | (on_disk_stems or set())
+        )
         for stem in universe:
             if stem not in targets:
                 scoped[stem] = []  # force-skip every non-target document
@@ -1828,8 +1845,22 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     all_stems = self._project_document_stems(
                         operation.paper_discovery or {}, session
                     )
+                    # Stems the library will actually walk. Passed so on-disk
+                    # files absent from the row/skip metadata (e.g. a
+                    # collision-renamed <name>_N duplicate) are force-skipped
+                    # instead of triggering unit discovery on a scoped run.
+                    on_disk_stems = {
+                        p.stem
+                        for d in docs_directories
+                        for p in d.iterdir()
+                        if p.is_file() and not p.name.startswith(".")
+                    }
                     known_units = self._scope_known_units(
-                        known_units, operation.documents, operation.rows, all_stems
+                        known_units,
+                        operation.documents,
+                        operation.rows,
+                        all_stems,
+                        on_disk_stems,
                     )
                     logger.info(
                         "Scoped re-extraction (documents=%s, rows=%s); %d paper(s) skipped",
