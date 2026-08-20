@@ -1035,6 +1035,33 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
         return normalized
 
+    async def _hydrate_reextraction_data_files(self, session_id: str) -> None:
+        """Pull the data files the only_empty scan reads down to local disk.
+
+        ``_scan_only_empty_scope`` reads ``extracted_data.jsonl`` / ``data.jsonl``
+        straight off local disk via ``_resolve_reextraction_data_files``. On a
+        fresh worker -- e.g. after a Railway redeploy wipes the container, or a
+        worker that did not run the original extraction -- those files live only
+        in Supabase, so the scan reads nothing, returns ``readable=False``,
+        silently skips the only_empty narrowing, and runs a full (expensive)
+        extraction whose 'nothing to fill' gates never fire. Hydrating first
+        makes the scan see the current cell values. Best-effort: a candidate
+        with no storage mapping or an absent object is left as-is, as before.
+        """
+        from app.services.data_utils import (
+            ensure_session_data_file_local,
+            session_data_file_candidates,
+        )
+
+        for path in session_data_file_candidates(session_id):
+            try:
+                await ensure_session_data_file_local(session_id, path)
+            except Exception as exc:  # storage hiccup -> fall back to local view
+                logger.debug(
+                    "reextraction hydrate skipped for %s (session %s): %s",
+                    path, session_id, exc,
+                )
+
     def _resolve_reextraction_data_files(self, session_id: str) -> List[Path]:
         """Data files to read current cell values from, newest source first."""
         files: List[Path] = []
@@ -1291,6 +1318,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None
         if only_empty:
+            # The scan below reads cell values off local disk; on a fresh worker
+            # they may live only in storage. Hydrate first so the narrowing is
+            # computed from real data instead of silently skipped (readable=False).
+            await self._hydrate_reextraction_data_files(session_id)
             scan = self._scan_only_empty_scope(
                 session_id, resolved, scoped_documents, scoped_rows,
                 retry_confirmed_empty=retry_confirmed_empty,
