@@ -74,6 +74,7 @@ export function SpreadsheetSurface({
   cellFormats,
   formatVersion,
   hotTableRef,
+  searchTermRef,
   onSelectionChange,
   onGroundingHighlight,
   onGroundingScrollRequest,
@@ -103,6 +104,11 @@ export function SpreadsheetSurface({
   cellFormats: CellFormatMap;
   formatVersion: number;
   hotTableRef: MutableRefObject<HotTableClass | null>;
+  // Active "Find in table" term, owned by the workspace (which drives the
+  // search). The grid re-applies it on every view render so the highlight
+  // survives unrelated re-renders, and clears it on Escape (see below). `null`
+  // when no search is active.
+  searchTermRef?: MutableRefObject<string | null>;
   onSelectionChange: (selection: SheetSelection) => void;
   // Reports all grounding excerpts of the newly selected data cell (or null when
   // the cell has no grounding), so the source panel can highlight them.
@@ -685,8 +691,30 @@ export function SpreadsheetSurface({
         stopPropagation: true,
         group: 'schematiq:formatting',
       });
+      // Escape clears the active "Find in table" search + its highlight, the way
+      // browsers and spreadsheets do. `runOnlyIf` gates it on there being an
+      // active search, so when nothing is being searched Escape keeps whatever
+      // default grid behaviour it would otherwise have. Lives in the 'grid'
+      // context, so it does not fire while a cell editor is open (Escape there
+      // still cancels the edit).
+      context.addShortcut({
+        keys: [['escape']],
+        callback: () => {
+          const active = hotTableRef.current?.hotInstance;
+          if (!active) return;
+          try {
+            if (searchTermRef) searchTermRef.current = null;
+            active.getPlugin('search').query('');
+            active.render();
+          } catch { /* instance may be mid-teardown */ }
+        },
+        runOnlyIf: () => Boolean(searchTermRef?.current),
+        preventDefault: true,
+        stopPropagation: true,
+        group: 'schematiq:search',
+      });
     } catch { /* instance may be mid-teardown or context unavailable */ }
-  }, [hotTableRef]);
+  }, [hotTableRef, searchTermRef]);
 
   // Runs after every render, but the identity guard makes it a no-op except on
   // the first render after a new grid instance appears. Deliberately without a
@@ -740,6 +768,34 @@ export function SpreadsheetSurface({
     filterInitInstanceRef.current = hot;
     markFilterSettingsInitOnly(hot);
   });
+
+  // Keep the "Find in table" highlight alive across re-renders.
+  //
+  // The Search plugin marks matches with transient `isSearchResult` cell meta
+  // that a plain render preserves, but a @handsontable/react re-render (which
+  // re-pushes the full settings through updateSettings) rebuilds it, so the
+  // yellow highlight silently vanished on the next unrelated re-render
+  // (selection, toast, background refresh poll) even though the query itself
+  // was never cleared. Re-applying the active query in `beforeViewRender` -- so
+  // the meta is set again before the cells paint -- restores it in the same
+  // render with no extra render() call (and thus no risk of a render loop). The
+  // reentrancy guard covers any nested render the plugin might trigger, and the
+  // work is skipped entirely when no search is active.
+  const reapplyingSearchRef = useRef(false);
+  const reapplySearchHighlight = useCallback(() => {
+    if (reapplyingSearchRef.current) return;
+    const term = searchTermRef?.current;
+    if (!term) return;
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+    try {
+      const search = hot.getPlugin('search');
+      if (!search?.isEnabled?.()) return;
+      reapplyingSearchRef.current = true;
+      search.query(term);
+    } catch { /* instance may be mid-teardown */ }
+    finally { reapplyingSearchRef.current = false; }
+  }, [hotTableRef, searchTermRef]);
 
   // Renderer for the active grouping column: plain text plus a count badge on
   // the group's first row. With cells merged, only the top row of a group is
@@ -1720,6 +1776,9 @@ export function SpreadsheetSurface({
         // scroll position, so the compensation above lands on final values.
         afterScrollHorizontally={syncHeaderOverlayScroll}
         afterScrollVertically={syncHeaderOverlayScroll}
+        // Re-mark search matches before each paint so a wrapper re-render that
+        // rebuilt the cell meta does not drop the active Find highlight.
+        beforeViewRender={reapplySearchHighlight}
         afterViewRender={syncHeaderOverlayScroll}
         afterColumnSort={applyGroupMerges}
         afterFilter={applyGroupMerges}

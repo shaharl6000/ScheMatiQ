@@ -10,7 +10,7 @@ import hashlib
 import threading
 import uuid
 import logging
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, NamedTuple
 from pathlib import Path
 from datetime import datetime
 
@@ -38,6 +38,27 @@ from schematiq.core.llm_call_tracker import LLMCallTracker
 SCHEMATIQ_AVAILABLE = True
 
 logger = logging.getLogger(__name__)
+
+
+class _OnlyEmptyScan(NamedTuple):
+    """Result of a single pass over in-scope stored rows for an only_empty run.
+
+    Bundles the two things the caller needs together: the *summary* used to
+    decide whether (and why) to proceed, and the per-unit *plan* used to tell
+    the extractor which columns to ask the model for. Deriving both from one
+    scan keeps them from drifting and avoids reading the data files twice.
+
+    ``readable`` is False when no data files could be read ("cannot determine,
+    do not narrow"); the caller then extracts normally and the merge-time guard
+    stays the only gate.
+    """
+
+    readable: bool
+    empty_columns: set
+    docs_with_empties: set
+    scoped_rows_matched: bool
+    confirmed_empty_hits: bool
+    plan: Dict[str, Dict[str, Dict[str, Any]]]
 
 
 def _is_empty_cell_value(value: Any) -> bool:
@@ -1029,43 +1050,42 @@ class ReextractionService(WebSocketBroadcasterMixin):
             files.append(load_data)
         return files
 
-    def _find_empty_target_cells(
+    def _scan_only_empty_scope(
         self,
         session_id: str,
         columns: List[str],
         documents: Optional[List[str]],
         rows: Optional[List[str]] = None,
         retry_confirmed_empty: bool = False,
-    ):
-        """Scan current data for empty cells within the requested scope.
+    ) -> _OnlyEmptyScan:
+        """Single pass over in-scope stored rows producing both the only_empty
+        summary and the per-unit extraction plan (see ``_OnlyEmptyScan``).
 
-        Returns ``(empty_columns, docs_with_empties, scoped_rows_matched,
-        confirmed_empty_hits)``: the subset of *columns* that are empty in at
-        least one in-scope row, the paper stems that have at least one empty
-        target cell, whether the row/document scope matched any row at all,
-        and whether any in-scope target cell was skipped specifically because
-        it was already ``_confirmed_empty`` (as opposed to genuinely filled).
-        The last two let the caller give a precise reason when nothing ends up
-        empty, instead of one generic message for three different causes.
-        Returns ``(None, None, False, False)`` when no data files are
-        readable, meaning "cannot determine, do not narrow" — the merge-time
-        guard still guarantees filled cells are never overwritten.
+        One scan answers the two questions the caller asks together: is there
+        anything to do (and, if not, why -- ``empty_columns``,
+        ``scoped_rows_matched``, ``confirmed_empty_hits``), and which columns to
+        ask the model for, per unit (``plan``). ``rows`` mirrors the
+        extraction-time scope (``_scope_known_units``): when set, only rows whose
+        observation-unit name is listed are considered.
 
-        ``rows`` mirrors the extraction-time scope (``_scope_known_units``):
-        when set, only rows whose observation-unit name is listed are
-        considered, so a row-scoped ``only_empty`` run does not proceed (and bill
-        the model) when the targeted cells are already filled while other,
-        out-of-scope rows still have gaps.
+        ``plan`` is ``{paper_stem -> {unit_name -> {"targets": [...],
+        "filled": {...}}}}`` keyed like ``_build_known_units_for_reextraction``;
+        ``targets`` are a unit's fillable-gap columns and ``filled`` the
+        remaining in-scope columns' current values (context for the model). A
+        nameless row still contributes to the summary but cannot be planned (it
+        has no lookup key). ``readable`` is False when no data files can be read.
         """
         from app.services.data_utils import get_extraction_column_value, extract_papers
 
+        unreadable = _OnlyEmptyScan(False, set(), set(), False, False, {})
         data_files = self._resolve_reextraction_data_files(session_id)
         if not data_files:
-            return None, None, False, False
+            return unreadable
         doc_filter = set(documents) if documents else None
         row_filter = set(rows) if rows else None
         empty_columns: set = set()
         docs_with_empties: set = set()
+        plan: Dict[str, Dict[str, Dict[str, Any]]] = {}
         scoped_rows_matched = False
         confirmed_empty_hits = False
         seen_any = False
@@ -1080,81 +1100,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         except json.JSONDecodeError:
                             continue
                         seen_any = True
-                        if row_filter is not None and row_name_of(row) not in row_filter:
-                            continue
-                        paper_stems = {Path(p).stem for p in (extract_papers(row) or [])}
-                        if doc_filter is not None and not (paper_stems & doc_filter):
-                            continue
-                        scoped_rows_matched = True
-                        scope_stems = (
-                            paper_stems & doc_filter if doc_filter is not None else paper_stems
-                        )
-                        for col in columns:
-                            value = get_extraction_column_value(row, col)
-                            if _is_fillable_gap(value, retry_confirmed_empty=retry_confirmed_empty):
-                                empty_columns.add(col)
-                                docs_with_empties.update(scope_stems)
-                            elif _is_empty_cell_value(value) and _is_confirmed_empty(value):
-                                confirmed_empty_hits = True
-            except Exception as e:  # unreadable file -> fall back to no narrowing
-                logger.warning("Empty-cell scan failed for %s: %s", df, e)
-                return None, None, False, False
-        if not seen_any:
-            return None, None, False, False
-        return empty_columns, docs_with_empties, scoped_rows_matched, confirmed_empty_hits
-
-    def _build_only_empty_targets(
-        self,
-        session_id: str,
-        columns: List[str],
-        documents: Optional[List[str]],
-        rows: Optional[List[str]] = None,
-        retry_confirmed_empty: bool = False,
-    ) -> Optional[Dict[str, Dict[str, Dict[str, Any]]]]:
-        """Per-unit column plan for only_empty, keyed exactly like known_units.
-
-        Returns ``{paper_stem -> {unit_name -> {"targets": [...], "filled": {...}}}}``
-        over the same in-scope rows the extraction will process. ``targets`` are
-        the unit's fillable-gap columns (respecting ``_is_fillable_gap``, so
-        confirmed-empty cells are treated as resolved); ``filled`` are the
-        remaining in-scope columns' current values, handed to the model as
-        context. A unit whose targets list is empty is still included so the
-        extractor skips the LLM for it rather than re-extracting every column.
-
-        Keys mirror ``_build_known_units_for_reextraction`` (``Path(paper).stem``
-        and ``row_name_of``) so the lib can look the plan up by the same
-        ``paper_title``/``unit_name`` it already uses for known_units. Returns
-        ``None`` when no data files are readable — the caller then extracts
-        normally and the merge guard stays the only gate.
-        """
-        from app.services.data_utils import get_extraction_column_value, extract_papers
-
-        data_files = self._resolve_reextraction_data_files(session_id)
-        if not data_files:
-            return None
-        doc_filter = set(documents) if documents else None
-        row_filter = set(rows) if rows else None
-        plan: Dict[str, Dict[str, Dict[str, Any]]] = {}
-        seen_any = False
-        for df in data_files:
-            try:
-                with open(df, "r") as handle:
-                    for line in handle:
-                        if not line.strip():
-                            continue
-                        try:
-                            row = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        seen_any = True
                         unit_name = row_name_of(row)
-                        if not unit_name:
-                            continue
                         if row_filter is not None and unit_name not in row_filter:
                             continue
                         paper_stems = {Path(p).stem for p in (extract_papers(row) or [])}
                         if doc_filter is not None and not (paper_stems & doc_filter):
                             continue
+                        scoped_rows_matched = True
                         scope_stems = (
                             paper_stems & doc_filter if doc_filter is not None else paper_stems
                         )
@@ -1164,19 +1116,30 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             value = get_extraction_column_value(row, col)
                             if _is_fillable_gap(value, retry_confirmed_empty=retry_confirmed_empty):
                                 targets.append(col)
-                            elif value is not None:
-                                filled[col] = value
-                        for stem in scope_stems:
-                            plan.setdefault(stem, {})[unit_name] = {
-                                "targets": targets,
-                                "filled": filled,
-                            }
-            except Exception as e:  # unreadable file -> no narrowing
-                logger.warning("only_empty target scan failed for %s: %s", df, e)
-                return None
+                                empty_columns.add(col)
+                                docs_with_empties.update(scope_stems)
+                            else:
+                                if _is_empty_cell_value(value) and _is_confirmed_empty(value):
+                                    confirmed_empty_hits = True
+                                if value is not None:
+                                    filled[col] = value
+                        # A nameless row still counts toward the summary above but
+                        # cannot be planned (no unit key to look it up by).
+                        if unit_name:
+                            for stem in scope_stems:
+                                plan.setdefault(stem, {})[unit_name] = {
+                                    "targets": targets,
+                                    "filled": filled,
+                                }
+            except Exception as e:  # unreadable file -> fall back to no narrowing
+                logger.warning("only_empty scope scan failed for %s: %s", df, e)
+                return unreadable
         if not seen_any:
-            return None
-        return plan
+            return unreadable
+        return _OnlyEmptyScan(
+            True, empty_columns, docs_with_empties, scoped_rows_matched,
+            confirmed_empty_hits, plan,
+        )
 
     def _scoped_documents_availability(
         self,
@@ -1328,15 +1291,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None
         if only_empty:
-            empty_columns, docs_with_empties, scoped_rows_matched, confirmed_empty_hits = self._find_empty_target_cells(
+            scan = self._scan_only_empty_scope(
                 session_id, resolved, scoped_documents, scoped_rows,
                 retry_confirmed_empty=retry_confirmed_empty,
             )
             if (
-                empty_columns is not None
-                and not empty_columns
+                scan.readable
+                and not scan.empty_columns
                 and not skipped_scope
-                and confirmed_empty_hits
+                and scan.confirmed_empty_hits
                 and not retry_confirmed_empty
             ):
                 # Nothing to do only because every target cell was already
@@ -1348,13 +1311,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # look without needing to know about ConfirmedEmptyScopeError
                 # and retry it themselves.
                 retry_confirmed_empty = True
-                empty_columns, docs_with_empties, scoped_rows_matched, confirmed_empty_hits = self._find_empty_target_cells(
+                scan = self._scan_only_empty_scope(
                     session_id, resolved, scoped_documents, scoped_rows,
                     retry_confirmed_empty=retry_confirmed_empty,
                 )
-            if empty_columns is not None:
-                if not empty_columns and not skipped_scope:
-                    if scoped_rows is not None and not scoped_rows_matched:
+            if scan.readable:
+                if not scan.empty_columns and not skipped_scope:
+                    if scoped_rows is not None and not scan.scoped_rows_matched:
                         # The row-name(s) in scope were never found in the stored
                         # data at all -- a real scoping problem, not "nothing to
                         # do" (e.g. a stale selection after a rename/reload).
@@ -1363,14 +1326,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             "table's stored data. Refresh and reselect, then "
                             "try again."
                         )
-                    if confirmed_empty_hits:
+                    if scan.confirmed_empty_hits:
                         # The automatic rescan above already retries a plain
                         # (retry_confirmed_empty=False) request once, and that
                         # retry always finds every confirmed-empty cell in scope
                         # fillable (by construction), so this can only fire if a
-                        # concurrent write raced the two scans -- kept as a
-                        # defensive fallback rather than the primary signal to
-                        # the caller.
+                        # concurrent write raced a rescan -- kept as a defensive
+                        # fallback rather than the primary signal to the caller.
                         raise ConfirmedEmptyScopeError(
                             "The selected cell(s) were already checked and "
                             "confirmed empty by a previous extraction run, so "
@@ -1384,24 +1346,22 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # gaps (cost). The merge guard enforces the empty-only rule.
                 # Skipped documents in scope are kept regardless: they have no
                 # rows to compare against and are re-discovered from scratch.
-                if empty_columns:
-                    resolved = [c for c in resolved if c in empty_columns]
+                if scan.empty_columns:
+                    resolved = [c for c in resolved if c in scan.empty_columns]
                 if scoped_documents is None:
-                    scoped_documents = sorted(docs_with_empties)
+                    scoped_documents = sorted(scan.docs_with_empties)
                 else:
                     scoped_documents = [
                         d for d in scoped_documents
-                        if d in docs_with_empties or d in skipped_scope
+                        if d in scan.docs_with_empties or d in skipped_scope
                     ]
-                # Per-unit plan so the extractor asks the model only for each
-                # unit's empty columns (a unit with none is skipped entirely),
-                # rather than re-extracting filled columns and discarding them at
-                # merge. Keyed like known_units; unmatched units (e.g. under unit
-                # rediscovery) fall back to full extraction in the lib.
-                only_empty_targets = self._build_only_empty_targets(
-                    session_id, resolved, scoped_documents, scoped_rows,
-                    retry_confirmed_empty=retry_confirmed_empty,
-                )
+                # Per-unit plan from the same scan so the extractor asks the
+                # model only for each unit's empty columns (a unit with none is
+                # skipped entirely), rather than re-extracting filled columns and
+                # discarding them at merge. Keyed like known_units; unmatched
+                # units (e.g. under unit rediscovery) fall back to full
+                # extraction in the lib.
+                only_empty_targets = scan.plan
 
         availability = await self.precheck_document_availability(
             session_id,
@@ -2333,7 +2293,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         unaffected because all of their cells start empty. ``retry_confirmed_empty``
         additionally allows overwriting a cell that is empty only because it was
         previously ``_confirmed_empty`` -- must mirror the same flag used to plan
-        the extraction (``_build_only_empty_targets``), otherwise a freshly
+        the extraction (``_scan_only_empty_scope``), otherwise a freshly
         re-checked confirmed-empty cell would run the model and then have its
         result silently discarded here.
         """
