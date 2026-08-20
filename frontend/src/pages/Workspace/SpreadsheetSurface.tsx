@@ -626,6 +626,15 @@ export function SpreadsheetSurface({
   // skips re-pushing any init-only prop whose value is unchanged, so the plugin
   // is configured once and never torn down on subsequent renders. The list is
   // wrapper-facing metadata that Handsontable's core never reads at runtime.
+  //
+  // This re-push is inherent to the wrapper's update model, not a quirk of the
+  // pinned version: the newer functional @handsontable/react-wrapper (17.x,
+  // which would also align the current wrapper/core version skew) uses the
+  // identical update path -- same shouldSkipProp / `_initOnlySettings` check,
+  // re-pushing every non-init-only prop through updateSettings on each render
+  // (verified against its published source). Migrating to it would therefore
+  // remove neither this init-only workaround nor the analogous transient-state
+  // re-applies the same behaviour forces elsewhere; it is not a fix for this.
   // Latest-value ref so the shortcut callback (registered once at afterInit) is
   // never stale, without re-registering on every render. Mirrors menuActionsRef.
   const formatShortcutRef = useRef(onToggleFormatShortcut);
