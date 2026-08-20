@@ -137,6 +137,11 @@ function Workspace() {
   const { toast } = useToast();
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const hotTableRef = useRef<HotTableClass | null>(null);
+  // Active "Find in table" term. Held in a ref (not state) because it only
+  // needs to be read by the grid's beforeViewRender hook to re-apply the
+  // highlight after re-renders -- it never needs to trigger a React render
+  // itself. `null` when no search is active.
+  const activeSearchTermRef = useRef<string | null>(null);
   const [activeSheet, setActiveSheet] = useState<SheetId>('data');
   const [sessionMode, setSessionMode] = useState<WorkspaceSessionMode>(requestedMode);
   const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
@@ -1040,9 +1045,18 @@ function Workspace() {
 
   const searchPage = useCallback(() => {
     const term = window.prompt('Find in table')?.trim();
-    if (!term) return;
     const hot = hotTableRef.current?.hotInstance;
     if (!hot) return;
+    // Empty / cancelled prompt clears any active search. The grid now re-applies
+    // the active term on every render, so without a clear path an old highlight
+    // would persist until the sheet remounts.
+    if (!term) {
+      activeSearchTermRef.current = null;
+      hot.getPlugin('search').query('');
+      hot.render();
+      return;
+    }
+    activeSearchTermRef.current = term;
     const results = hot.getPlugin('search').query(term);
     hot.render();
     if (results.length === 0) {
@@ -1229,6 +1243,7 @@ function Workspace() {
         cellFormats={cellFormats}
         formatVersion={formatVersion}
         hotTableRef={hotTableRef}
+        searchTermRef={activeSearchTermRef}
         onSelectionChange={updateSheetSelection}
         onGroundingHighlight={handleGroundingHighlight}
         onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
