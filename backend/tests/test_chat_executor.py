@@ -200,9 +200,14 @@ async def test_fill_tool_delegates_to_background_service(executor, sample_sessio
 
     captured: dict = {}
 
-    async def fake_start(session_id, column, reference_id, rows=None):
+    async def fake_start(session_id, column, reference_id, rows=None, only_empty=False):
         captured.update(
-            {"session_id": session_id, "column": column, "reference_id": reference_id}
+            {
+                "session_id": session_id,
+                "column": column,
+                "reference_id": reference_id,
+                "only_empty": only_empty,
+            }
         )
         return {"status": "started", "fill_id": "f1", "total": 3}
 
@@ -212,4 +217,9 @@ async def test_fill_tool_delegates_to_background_service(executor, sample_sessio
         {"column": "Year", "reference_id": "r1"},
     )
     assert result["status"] == "started"
-    assert captured == {"session_id": sample_session.id, "column": "Year", "reference_id": "r1"}
+    assert captured == {
+        "session_id": sample_session.id,
+        "column": "Year",
+        "reference_id": "r1",
+        "only_empty": False,
+    }
