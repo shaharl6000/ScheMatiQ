@@ -1050,6 +1050,7 @@ class ToolExecutor:
           session_id,
           columns=args.get("columns"),
           scope=args.get("scope", "edited_only"),
+          only_empty=args.get("only_empty", False),
       )
 
   async def _handle_extract_cells(
