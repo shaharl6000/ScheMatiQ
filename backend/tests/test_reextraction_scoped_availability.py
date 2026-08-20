@@ -149,7 +149,10 @@ async def test_only_empty_scoped_skipped_doc_proceeds():
         "cloud_documents": [], "missing_documents": [], "can_proceed": True,
     })
     service._project_document_stems = MagicMock(return_value={"CASA2025-06-27SCt"})
-    service._find_empty_target_cells = MagicMock(return_value=(set(), set(), False, False))
+    from app.services.reextraction_service import _OnlyEmptyScan
+    service._scan_only_empty_scope = MagicMock(
+        return_value=_OnlyEmptyScan(True, set(), set(), False, False, {})
+    )
 
     result = await service.start_gated_reextraction(
         "sess-skip", columns=None, scope="all",
@@ -172,7 +175,10 @@ async def test_only_empty_scoped_nonskipped_doc_with_no_gaps_still_raises():
         "cloud_documents": [], "missing_documents": [], "can_proceed": True,
     })
     service._project_document_stems = MagicMock(return_value={"SomeDoc"})
-    service._find_empty_target_cells = MagicMock(return_value=(set(), set(), False, False))
+    from app.services.reextraction_service import _OnlyEmptyScan
+    service._scan_only_empty_scope = MagicMock(
+        return_value=_OnlyEmptyScan(True, set(), set(), False, False, {})
+    )
 
     raised = False
     try:
