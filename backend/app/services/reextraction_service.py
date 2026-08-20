@@ -2178,17 +2178,28 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         if row_name and row_name in extracted_by_row_name:
             candidates = extracted_by_row_name[row_name]
-            if len(candidates) == 1:
-                return candidates[0]
-            for paper in papers:
-                paper_stem = (
-                    paper.split("_")[0].lower()
-                    if "_" in paper
-                    else paper.rsplit(".", 1)[0].lower()
-                )
+            # Prefer a candidate whose source document matches this row's own, so
+            # a same-name unit extracted from a *different* document is never
+            # merged in. row_dedup_key separates rows by (name, source) and the
+            # exact-key match above already handles the in-scope row; reaching
+            # here means this row's (name, source) was not re-extracted this run,
+            # so a blind same-name match would pull another document's values in.
+            row_stems = {
+                (p.split("_")[0].lower() if "_" in p else p.rsplit(".", 1)[0].lower())
+                for p in papers
+            }
+            if row_src:
+                row_stems.add(row_src.lower())
+            if row_stems:
                 for cand in candidates:
-                    if _resolve_source_document(cand).lower() == paper_stem:
+                    if _resolve_source_document(cand).lower() in row_stems:
                         return cand
+                # Known source but no candidate matches it: do not guess by name
+                # alone; fall through to the loose / paper-stem matching below.
+            elif len(candidates) == 1:
+                # No source on this row to disambiguate against; the single
+                # same-name candidate is the best available match.
+                return candidates[0]
 
         # OU rediscovery may shorten unit names — match by last name + source document.
         if row_name:
