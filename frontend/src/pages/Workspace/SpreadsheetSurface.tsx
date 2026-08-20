@@ -237,23 +237,51 @@ export function SpreadsheetSurface({
   // position. Both numbers are recomputed from the live DOM on every call, so
   // this is a no-op whenever Handsontable sizes the overlay correctly (overhang
   // 0 means the target width is the width Handsontable itself assigns).
+  //
+  // The row-header numbers (.ht_clone_inline_start) have the exact vertical
+  // twin of this bug. InlineStartOverlay.adjustRootElementSize sizes that
+  // overlay's viewport height as
+  // `min(workspaceHeight - (hasHorizontalScroll() ? scrollbarWidth : 0), rootScrollHeight)`,
+  // so when the horizontal-scroll check disagrees with the master's real
+  // viewport the row-header overlay ends up one scrollbar taller and runs out
+  // of vertical scroll range one scrollbar early: once scrolled to the bottom,
+  // every row number sits ~15px above the row it labels (its baseline no longer
+  // matches the adjacent cell content). The same hider-extend + scroll re-apply,
+  // on the height axis and driven by afterScrollVertically, realigns it.
   const syncHeaderOverlayScroll = useCallback(() => {
     const root = hotTableRef.current?.hotInstance?.rootElement;
     if (!root) return;
 
     const masterHolder = root.querySelector<HTMLElement>('.ht_master .wtHolder');
-    const headerHolder = root.querySelector<HTMLElement>('.ht_clone_top .wtHolder');
     const masterHider = root.querySelector<HTMLElement>('.ht_master .wtHider');
-    const headerHider = root.querySelector<HTMLElement>('.ht_clone_top .wtHider');
-    if (!masterHolder || !headerHolder || !masterHider || !headerHider) return;
+    if (!masterHolder || !masterHider) return;
 
-    const overhang = Math.max(0, headerHolder.clientWidth - masterHolder.clientWidth);
-    const targetHiderWidth = masterHider.offsetWidth + overhang;
-    if (Math.abs(headerHider.offsetWidth - targetHiderWidth) >= 1) {
-      headerHider.style.width = `${targetHiderWidth}px`;
+    // Top overlay (column headers) -- horizontal axis.
+    const headerHolder = root.querySelector<HTMLElement>('.ht_clone_top .wtHolder');
+    const headerHider = root.querySelector<HTMLElement>('.ht_clone_top .wtHider');
+    if (headerHolder && headerHider) {
+      const overhang = Math.max(0, headerHolder.clientWidth - masterHolder.clientWidth);
+      const targetHiderWidth = masterHider.offsetWidth + overhang;
+      if (Math.abs(headerHider.offsetWidth - targetHiderWidth) >= 1) {
+        headerHider.style.width = `${targetHiderWidth}px`;
+      }
+      if (headerHolder.scrollLeft !== masterHolder.scrollLeft) {
+        headerHolder.scrollLeft = masterHolder.scrollLeft;
+      }
     }
-    if (headerHolder.scrollLeft !== masterHolder.scrollLeft) {
-      headerHolder.scrollLeft = masterHolder.scrollLeft;
+
+    // Inline-start overlay (row-header numbers) -- vertical axis.
+    const rowHeaderHolder = root.querySelector<HTMLElement>('.ht_clone_inline_start .wtHolder');
+    const rowHeaderHider = root.querySelector<HTMLElement>('.ht_clone_inline_start .wtHider');
+    if (rowHeaderHolder && rowHeaderHider) {
+      const overhang = Math.max(0, rowHeaderHolder.clientHeight - masterHolder.clientHeight);
+      const targetHiderHeight = masterHider.offsetHeight + overhang;
+      if (Math.abs(rowHeaderHider.offsetHeight - targetHiderHeight) >= 1) {
+        rowHeaderHider.style.height = `${targetHiderHeight}px`;
+      }
+      if (rowHeaderHolder.scrollTop !== masterHolder.scrollTop) {
+        rowHeaderHolder.scrollTop = masterHolder.scrollTop;
+      }
     }
   }, [hotTableRef]);
 
@@ -1691,6 +1719,7 @@ export function SpreadsheetSurface({
         // Runs after Handsontable has drawn and (mis)clamped the header overlay's
         // scroll position, so the compensation above lands on final values.
         afterScrollHorizontally={syncHeaderOverlayScroll}
+        afterScrollVertically={syncHeaderOverlayScroll}
         afterViewRender={syncHeaderOverlayScroll}
         afterColumnSort={applyGroupMerges}
         afterFilter={applyGroupMerges}
