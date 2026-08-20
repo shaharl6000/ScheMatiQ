@@ -285,7 +285,10 @@ def _all_tools() -> list[ToolSpec]:
                 "once) and fills each row as it completes. Use this instead of many "
                 "individual update_cell calls when populating a whole column from a "
                 "reference. Pass `rows` to fill only specific rows instead of the "
-                "whole column. Get the reference id from list_reference_sources."
+                "whole column. By default this OVERWRITES cells that already hold a "
+                "value (the reference is treated as authoritative); pass only_empty=true "
+                "to fill just the blank cells and leave existing values untouched. "
+                "Get the reference id from list_reference_sources."
             ),
             parameters={
                 "type": "object",
@@ -304,6 +307,14 @@ def _all_tools() -> list[ToolSpec]:
                         "description": (
                             "Optional observation-unit / row names to fill (as shown by "
                             "preview_data). Omit to fill every row in the column."
+                        ),
+                    },
+                    "only_empty": {
+                        "type": "boolean",
+                        "description": (
+                            "When false (default) the reference value overwrites cells "
+                            "that already hold a value. Set true to fill only cells that "
+                            "are currently empty and never overwrite an existing value."
                         ),
                     },
                 },
