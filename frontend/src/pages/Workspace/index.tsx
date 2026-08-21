@@ -84,6 +84,7 @@ import {
 } from './helpers';
 import { NewProjectDialog } from './NewProjectDialog';
 import { PendingRerunBanner } from './PendingRerunBanner';
+import { CiteDialog } from './CiteDialog';
 import { KeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
 import { ProjectDetailsDialog } from './ProjectDetailsDialog';
 import ReportIssueDialog from '@/components/ReportIssueDialog/ReportIssueDialog';
@@ -147,6 +148,7 @@ function Workspace() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [citeOpen, setCiteOpen] = useState(false);
   const [status, setStatus] = useState<ScheMatiQStatus | null>(null);
   const [session, setSession] = useState<VisualizationSession | null>(null);
   const [schema, setSchema] = useState<SchemaData | null>(null);
@@ -1320,6 +1322,7 @@ function Workspace() {
         onAddDocuments={() => setActiveSheet('documents')}
         onApplyFormat={applyTableFormat}
         onReportIssue={() => setReportOpen(true)}
+        onCite={() => setCiteOpen(true)}
         rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
       />
 
@@ -1687,6 +1690,8 @@ function Workspace() {
         config={config}
         costEstimate={costEstimate}
       />
+
+      <CiteDialog open={citeOpen} onOpenChange={setCiteOpen} />
 
       <ReportIssueDialog
         open={reportOpen}
