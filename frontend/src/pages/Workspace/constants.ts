@@ -19,6 +19,8 @@ export const SCHEMA_COLUMN_HEADER_TOOLTIPS = {
     'Optional limits: categories (yes/no), numbers, ranges, or one saved date style per column. Leave empty for plain text.',
   auto_expand_threshold:
     'Automatically add new values to allowed_values when they appear in at least this many documents. Set to -1 to disable auto-expansion.',
+  extraction_strategy:
+    'Where values come from: document (only the attached documents), web (grounded web search), or document_then_web (documents first, web only for cells left empty).',
 } as const;
 
 export const SCHEMA_COLUMN_HEADER_INFO_ICON =

@@ -876,6 +876,7 @@ export function SpreadsheetSurface({
       rationale: column.rationale || '',
       allowed_values: Array.isArray(column.allowed_values) ? column.allowed_values.join(', ') : '',
       auto_expand_threshold: column.auto_expand_threshold ?? '',
+      extraction_strategy: column.extraction_strategy || 'document',
     }));
   }, [schemaColumns]);
 
@@ -921,6 +922,14 @@ export function SpreadsheetSurface({
             width: 150,
             headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.auto_expand_threshold,
           },
+          {
+            key: 'extraction_strategy',
+            label: 'source',
+            width: 170,
+            type: 'dropdown',
+            source: ['document', 'web', 'document_then_web'],
+            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.extraction_strategy,
+          },
         ],
       };
     }
@@ -956,12 +965,16 @@ export function SpreadsheetSurface({
         ...dataColumnNames.map((name) => {
           // Mirror the legacy DataTable header behaviour: the data column's
           // header explains itself with the schema definition on hover.
-          const definition = schemaColumns.find((c) => c.name === name)?.definition?.trim();
+          const schemaCol = schemaColumns.find((c) => c.name === name);
+          const definition = schemaCol?.definition?.trim();
+          const isWeb = schemaCol?.extraction_strategy === 'web' || schemaCol?.extraction_strategy === 'document_then_web';
           return {
             key: name,
-            label: columnDisplayLabel(name),
+            label: isWeb ? `${columnDisplayLabel(name)} \u{1F310}` : columnDisplayLabel(name),
             width: 190,
-            headerTooltip: definition || undefined,
+            headerTooltip: isWeb
+              ? `${definition ? definition + ' \u2014 ' : ''}Filled from web search.`
+              : (definition || undefined),
           };
         }),
       ],
@@ -1236,7 +1249,7 @@ export function SpreadsheetSurface({
 
       if (activeSheet === 'schema') {
         const existing = schemaColumns[rowIndex];
-        const editable = ['name', 'definition', 'rationale', 'allowed_values', 'auto_expand_threshold'];
+        const editable = ['name', 'definition', 'rationale', 'allowed_values', 'auto_expand_threshold', 'extraction_strategy'];
         if (!editable.includes(key)) continue;
 
         if (!existing && key === 'name' && String(newValue || '').trim()) {
@@ -1253,6 +1266,7 @@ export function SpreadsheetSurface({
             hot ? String(hot.getDataAtRowProp(rowIndex, field) ?? '') : '';
           const pendingRationale = readRowCell('rationale').trim();
           const pendingAllowedValues = parseAllowedValues(readRowCell('allowed_values'));
+          const pendingStrategy = readRowCell('extraction_strategy').trim();
 
           schemaAPI.addColumn(sessionId, {
             name: String(newValue).trim(),
@@ -1261,6 +1275,10 @@ export function SpreadsheetSurface({
             allowed_values:
               pendingAllowedValues && pendingAllowedValues.length > 0
                 ? pendingAllowedValues
+                : undefined,
+            extraction_strategy:
+              pendingStrategy === 'web' || pendingStrategy === 'document_then_web'
+                ? pendingStrategy
                 : undefined,
           })
             .then(() => {
@@ -1307,6 +1325,9 @@ export function SpreadsheetSurface({
           // Emptying the cell intentionally clears allowed_values; send [] so the
           // backend distinguishes "cleared" from "unchanged" (undefined is dropped by axios).
           request.allowed_values = parseAllowedValues(newValue) ?? [];
+        }
+        if (key === 'extraction_strategy') {
+          request.extraction_strategy = String(newValue || 'document');
         }
 
         const affectedColumn = key === 'name' ? String(newValue || '').trim() : existing.name;
@@ -1739,6 +1760,8 @@ export function SpreadsheetSurface({
           readOnly: column.readOnly,
           width: column.width,
           ...(column.renderer ? { renderer: column.renderer } : {}),
+          ...(column.type ? { type: column.type } : {}),
+          ...(column.source ? { source: column.source } : {}),
         }))}
         colHeaders={sheet.columns.map(formatSheetColHeader)}
         rowHeaders
