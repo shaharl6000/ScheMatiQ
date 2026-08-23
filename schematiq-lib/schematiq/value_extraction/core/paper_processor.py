@@ -1776,6 +1776,36 @@ class PaperProcessor:
             max_new_tokens=effective_max,
         )
 
+        # Excerpt grounding: verify each excerpt against the source text so
+        # per-unit extractions get the same hallucination signal as the paper
+        # path (extract_values_for_paper). Without this, per-unit rows carry
+        # excerpts tagged with a source filename by _attach_source_to_excerpts
+        # but no grounding_status, so a fabricated excerpt is indistinguishable
+        # from a verified one. Grounds against the full document text when
+        # available (fallback_text = paper_text or eff) to avoid false
+        # "not_found" on legitimate excerpts outside the retrieved passages.
+        grounding_stats = self.excerpt_grounder.ground_all_excerpts(
+            all_cleaned, fallback_text
+        )
+        if grounding_stats.get("not_found", 0) > 0:
+            logger.warning(
+                "[%s - %s] Excerpt grounding: %d not found "
+                "(exact=%d, case_insensitive=%d, fuzzy=%d)",
+                paper_title,
+                unit_name,
+                grounding_stats["not_found"],
+                grounding_stats["exact"],
+                grounding_stats.get("case_insensitive", 0),
+                grounding_stats["fuzzy"],
+            )
+            print(
+                f"📍 Excerpt grounding for {paper_title} - {unit_name}: "
+                f"{grounding_stats['exact']} exact, "
+                f"{grounding_stats.get('case_insensitive', 0)} case_insensitive, "
+                f"{grounding_stats['fuzzy']} fuzzy, "
+                f"{grounding_stats['not_found']} not found"
+            )
+
         # Align to the FULL schema so the row shape is unchanged; columns not
         # extracted this run stay absent/empty and the merge guard leaves their
         # existing table values untouched.
