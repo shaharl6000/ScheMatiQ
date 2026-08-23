@@ -37,6 +37,9 @@ from app.services import (
 from app.services.continue_discovery_service import ContinueDiscoveryService
 from app.services.reextraction_service import ReextractionService
 from app.services.schematiq_runner import ScheMatiQRunner
+from app.services.web_enrichment_service import WebEnrichmentService
+
+web_enrichment_service = WebEnrichmentService(session_manager=session_manager)
 
 schematiq_runner = ScheMatiQRunner(
     websocket_manager=websocket_manager,
@@ -52,6 +55,7 @@ reextraction_service = ReextractionService(
     data_collection_service=data_collection_service,
     pubmed_enrichment_service=pubmed_enrichment_service,
     uniprot_enrichment_service=uniprot_enrichment_service,
+    web_enrichment_service=web_enrichment_service,
 )
 
 continue_discovery_service = ContinueDiscoveryService(

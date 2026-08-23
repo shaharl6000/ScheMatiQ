@@ -1,13 +1,13 @@
 """Session management service."""
 
-import hashlib
 import logging
 import threading
 from typing import Dict, Optional
 from datetime import datetime
 
-from app.models.session import VisualizationSession, SessionStatus, ColumnBaseline, SchemaBaseline
+from app.models.session import VisualizationSession, SessionStatus
 from app.models.modification import CreationMetadata
+from app.services.schema_baseline import build_schema_baseline
 from app.storage import get_storage, StorageInterface
 
 logger = logging.getLogger(__name__)
@@ -122,30 +122,14 @@ class SessionManager:
         if not session:
             return False
 
-        columns_dict = {}
-        for col in session.columns:
-            if col.name and not col.name.lower().endswith('_excerpt'):
-                # Calculate checksum from definition + rationale + allowed_values
-                content = f"{col.definition or ''}{col.rationale or ''}"
-                if col.allowed_values:
-                    content += "|".join(sorted(col.allowed_values))
-                checksum = hashlib.md5(content.encode()).hexdigest()
-
-                columns_dict[col.name] = ColumnBaseline(
-                    name=col.name,
-                    definition=col.definition or "",
-                    rationale=col.rationale or "",
-                    allowed_values=col.allowed_values,
-                    checksum=checksum
-                )
-
-        session.schema_baseline = SchemaBaseline(
-            columns=columns_dict,
-            captured_at=datetime.now()
-        )
+        session.schema_baseline = build_schema_baseline(session.columns)
 
         self.update_session(session)
-        logger.debug(f"Captured schema baseline for session {session_id} with {len(columns_dict)} columns")
+        logger.debug(
+            "Captured schema baseline for session %s with %d columns",
+            session_id,
+            len(session.schema_baseline.columns),
+        )
         return True
 
     def finalize_creation(self, session_id: str, llm_model: str = "", llm_provider: str = "") -> bool:

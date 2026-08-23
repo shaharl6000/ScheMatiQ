@@ -437,3 +437,34 @@ For unit "GPT-4 on MMLU":
   }}
 }}
 """.strip()
+
+# ============================================================================
+# WEB-GROUNDED SINGLE-CELL EXTRACTION
+# ============================================================================
+
+SYSTEM_PROMPT_WEB_VALUE = """
+You are resolving one table cell from public web sources.
+
+Use Google Search to verify the value for the exact entity described by the
+entity name and identifying context. Do not answer from memory. If the entity
+is ambiguous, the sources conflict, or no reliable source supports the value,
+return null.
+
+Return only one JSON object with this shape and no markdown:
+{"value": <string or null>}
+""".strip()
+
+
+USER_PROMPT_WEB_VALUE = """
+Entity: {entity_name}
+Identifying context: {entity_context}
+
+Column: {column_name}
+Definition: {column_definition}
+Extraction guidance: {column_rationale}
+Allowed values / format constraint: {allowed_values}
+
+Find and verify the value for this entity. When allowed values are listed,
+return the matching value spelling. Return null when the fact cannot be
+verified for this exact entity.
+""".strip()

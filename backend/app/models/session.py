@@ -26,6 +26,9 @@ class SessionStatus(str, Enum):
     PROCESSING_DOCUMENTS = "processing_documents"  # Processing documents with ScheMatiQ pipeline
     OBSERVATION_UNIT_REVIEW = "observation_unit_review"  # Paused for user to review observation unit
 
+
+ColumnExtractionStrategy = Literal["document", "web", "document_then_web"]
+
 class ObservationUnitInfo(BaseModel):
     """
     Defines what constitutes a single row (observation unit) in the extracted table.
@@ -80,6 +83,7 @@ class ColumnInfo(BaseModel):
     allowed_values: Optional[List[str]] = None  # Closed set of valid values for categorical columns
     auto_expand_threshold: Optional[int] = 2  # Auto-add new value if seen in N+ docs (None/0 = disabled)
     pending_values: Optional[List[PendingValue]] = None  # Values pending approval
+    extraction_strategy: ColumnExtractionStrategy = "document"
 
 
 class ColumnBaseline(BaseModel):
@@ -88,6 +92,7 @@ class ColumnBaseline(BaseModel):
     definition: str = ""
     rationale: str = ""
     allowed_values: Optional[List[str]] = None
+    extraction_strategy: ColumnExtractionStrategy = "document"
     checksum: str = ""  # MD5 hash of definition + rationale + allowed_values
 
 
