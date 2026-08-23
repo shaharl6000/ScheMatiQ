@@ -42,6 +42,7 @@ class ColumnEditRequest(BaseModel):
     definition: Optional[str] = None
     rationale: Optional[str] = None
     allowed_values: Optional[List[str]] = None  # Closed set of valid values
+    extraction_strategy: Optional[str] = None  # document | web | document_then_web
     reprocess: bool = True
 
 class ColumnAddRequest(BaseModel):
@@ -51,6 +52,7 @@ class ColumnAddRequest(BaseModel):
     allowed_values: Optional[List[str]] = None  # Closed set of valid values
     documents_path: Optional[str] = None
     data_type: str = "text"
+    extraction_strategy: str = "document"  # document | web | document_then_web
     llm_config: Optional[Dict[str, Any]] = None  # User-provided LLM config with API key
 
 class ColumnMergeRequest(BaseModel):
@@ -133,6 +135,10 @@ async def edit_column(
                 if edit_request.allowed_values is not None:
                     # Empty list means clear allowed_values, otherwise set the list
                     col.allowed_values = edit_request.allowed_values if edit_request.allowed_values else None
+                if edit_request.extraction_strategy is not None:
+                    if edit_request.extraction_strategy not in ("document", "web", "document_then_web"):
+                        raise HTTPException(status_code=400, detail="extraction_strategy must be document, web, or document_then_web")
+                    col.extraction_strategy = edit_request.extraction_strategy
                 column_found = True
                 break
 
@@ -149,6 +155,7 @@ async def edit_column(
                 "definition_changed": edit_request.definition is not None,
                 "rationale_changed": edit_request.rationale is not None,
                 "allowed_values_changed": edit_request.allowed_values is not None,
+                "extraction_strategy_changed": edit_request.extraction_strategy is not None,
             }
         )
         session.modification_history.append(modification)
@@ -316,6 +323,9 @@ async def add_column(
             if col.name == canonical_name:
                 raise HTTPException(status_code=400, detail=f"Column '{canonical_name}' already exists")
         
+        if add_request.extraction_strategy not in ("document", "web", "document_then_web"):
+            raise HTTPException(status_code=400, detail="extraction_strategy must be document, web, or document_then_web")
+
         # Create new column
         new_column = ColumnInfo(
             name=canonical_name,
@@ -323,7 +333,8 @@ async def add_column(
             definition=add_request.definition,
             rationale=add_request.rationale or "",
             data_type=add_request.data_type,
-            allowed_values=add_request.allowed_values if add_request.allowed_values else None
+            allowed_values=add_request.allowed_values if add_request.allowed_values else None,
+            extraction_strategy=add_request.extraction_strategy
         )
         
         session.columns.append(new_column)

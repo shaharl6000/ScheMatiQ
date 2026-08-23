@@ -498,6 +498,7 @@ export interface EditColumnRequest {
   rationale?: string;
   new_name?: string; // For renaming
   allowed_values?: string[]; // Closed set of valid values
+  extraction_strategy?: 'document' | 'web' | 'document_then_web'; // Where values come from
   reprocess?: boolean; // Whether to reprocess documents (default: true on backend, set false for metadata-only edits)
 }
 
@@ -507,6 +508,7 @@ export interface AddColumnRequest {
   rationale?: string;
   document_paths?: string[]; // Specific documents to process
   allowed_values?: string[]; // Closed set of valid values
+  extraction_strategy?: 'document' | 'web' | 'document_then_web'; // Where values come from
   llm_config?: {
     provider: string;
     model: string;
