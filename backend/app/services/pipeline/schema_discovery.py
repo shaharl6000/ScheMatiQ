@@ -519,6 +519,13 @@ def _save_partial_schema(schema: Schema, query: str, session_dir: Path) -> None:
         }
         if col_dict.get("allowed_values"):
             frontend_col["allowed_values"] = col_dict["allowed_values"]
+        # Mirror the session.columns model_dump path in get_schema: that branch
+        # always carries auto_expand_threshold, this file-served branch must too.
+        # Without it, the Schema tab's auto_expand_threshold column renders empty
+        # while discovery is still running (session.columns is not yet set, so
+        # get_schema falls back to this file) and only fills in once discovery
+        # completes and get_schema starts serving from session.columns.
+        frontend_col["auto_expand_threshold"] = col_dict.get("auto_expand_threshold")
         frontend_schema.append(frontend_col)
     partial_schema_data = {"query": query, "schema": frontend_schema}
     if schema.observation_unit:
