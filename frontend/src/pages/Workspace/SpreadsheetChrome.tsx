@@ -9,6 +9,7 @@ import {
   Italic,
   LifeBuoy,
   Printer,
+  Quote,
   RotateCw,
   Save,
   Search,
@@ -60,6 +61,7 @@ export function SpreadsheetChrome({
   onAddDocuments,
   onApplyFormat,
   onReportIssue,
+  onCite,
   rerunDisabled,
 }: {
   projectTitle: string;
@@ -89,6 +91,7 @@ export function SpreadsheetChrome({
   onAddDocuments: () => void;
   onApplyFormat: (patch: Partial<TableDisplayOptions>) => void;
   onReportIssue: () => void;
+  onCite: () => void;
   rerunDisabled: boolean;
 }) {
   // Exhaustive by construction: Record<WorkspaceMenuAction, ...> makes TypeScript
@@ -115,6 +118,7 @@ export function SpreadsheetChrome({
     estimateCost: onEstimateCost,
     refreshProject: onRefresh,
     reportIssue: onReportIssue,
+    cite: onCite,
   };
 
   const isDisabled = (item: WorkspaceMenuItem) => {
@@ -194,6 +198,15 @@ export function SpreadsheetChrome({
           >
             <i className="ai ai-arxiv"></i>
           </a>
+          <button
+            type="button"
+            className="workspace-chrome-link cursor-pointer"
+            onClick={onCite}
+            title="Cite ScheMatiQ"
+            aria-label="Cite ScheMatiQ"
+          >
+            <Quote size={15} aria-hidden="true" />
+          </button>
           <a
             href="https://github.com/shaharl6000/ScheMatiQ"
             target="_blank"
