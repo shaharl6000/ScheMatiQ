@@ -22,6 +22,10 @@ from app.models.upload import (
 )
 from app.services.file_parser import FileParser, format_column_header, is_system_file
 from app.services.pipeline.data_query import session_data_read_failed
+from app.services.data_utils import (
+    ensure_session_data_file_local,
+    persist_session_data_file,
+)
 from app.services import session_manager, websocket_manager, concurrency_limiter
 from app.services.upload_document_processor import UploadDocumentProcessor
 from app.storage import get_storage
@@ -308,6 +312,16 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
         # Capture schema baseline for re-extraction change detection
         session_manager.capture_schema_baseline(session_id)
 
+        # Persist parsed rows to durable storage. FileParser writes data.jsonl
+        # only to the container-local data dir, which is ephemeral on Railway;
+        # without this upload the rows are lost on the next redeploy while the
+        # separately-persisted session metadata survives, leaving the schema
+        # visible above an empty table. Mirrors the run-completion persist (#407)
+        # for the import path. Best-effort: the helper logs and swallows failures.
+        await persist_session_data_file(
+            session_id, parser.data_dir / session_id / "data.jsonl"
+        )
+
         logger.debug("Session updated successfully")
         
         # Include metadata info in response if available
@@ -343,6 +357,15 @@ async def get_data_with_filters(
             raise HTTPException(status_code=404, detail="Session not found")
 
         parser = FileParser()
+
+        # Imported/load-mode rows live in data.jsonl, which is container-local and
+        # does not survive a Railway redeploy. Re-download it from storage when the
+        # local copy is gone before reading, mirroring how the schematiq read path
+        # hydrates. Without this the table renders empty (columns from the persisted
+        # schema, no rows) after every redeploy. No-op when the file already exists.
+        await ensure_session_data_file_local(
+            session_id, parser.data_dir / session_id / "data.jsonl"
+        )
 
         # Extract filter/sort params from request body
         filters = None
@@ -585,6 +608,12 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
 
         # Capture schema baseline for re-extraction change detection
         session_manager.capture_schema_baseline(session_id)
+
+        # Persist parsed rows to durable storage (see note in parse_file): the
+        # dual-file import writes data.jsonl only to the ephemeral local data dir.
+        await persist_session_data_file(
+            session_id, parser.data_dir / session_id / "data.jsonl"
+        )
 
         logger.debug("Dual file processing completed successfully")
 
