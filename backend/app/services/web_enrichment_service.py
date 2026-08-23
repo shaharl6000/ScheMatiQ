@@ -202,7 +202,7 @@ class WebEnrichmentService:
             raise ValueError("No table rows are available for web enrichment.")
 
         cache: Dict[Tuple[str, str, str], Optional[Dict[str, Any]]] = {}
-        stats = {"lookups": 0, "cache_hits": 0, "updated_cells": 0}
+        stats = {"lookups": 0, "cache_hits": 0, "updated_cells": 0, "model_knowledge_cells": 0}
         requested_names = [column.name for column in columns]
         row_scope = set(rows) if rows is not None else None
 
@@ -251,12 +251,17 @@ class WebEnrichmentService:
                     # A failed or ungrounded lookup never destroys an existing value.
                     if cell is None:
                         continue
-                    container[column.name] = dict(cell)
+                    cell_copy = dict(cell)
+                    container[column.name] = cell_copy
                     status = row.get("_cell_status")
                     if not isinstance(status, dict):
                         status = {}
                         row["_cell_status"] = status
-                    status[column.name] = "external_source"
+                    if cell_copy.get("_unverified"):
+                        status[column.name] = "model_knowledge"
+                        stats["model_knowledge_cells"] += 1
+                    else:
+                        status[column.name] = "external_source"
                     changed = True
                     stats["updated_cells"] += 1
 
@@ -270,11 +275,12 @@ class WebEnrichmentService:
                 await persist_session_data_file(session_id, data_file)
 
         logger.info(
-            "[web-enrichment] session=%s lookups=%d cache_hits=%d updated_cells=%d",
+            "[web-enrichment] session=%s lookups=%d cache_hits=%d updated_cells=%d unverified=%d",
             session_id[:8],
             stats["lookups"],
             stats["cache_hits"],
             stats["updated_cells"],
+            stats["model_knowledge_cells"],
         )
         return stats
 
@@ -310,9 +316,10 @@ class WebEnrichmentService:
             # combined with built-in tools. The strict JSON prompt is parsed below.
         )
         excerpts = _source_excerpts(sources)
-        if not excerpts:
-            return None
 
+        # A missing web source no longer discards the answer. The model's value
+        # is kept but flagged as unverified, so the UI can label it as "not from
+        # the document and not web-verified" (see _unverified below).
         value = _parse_grounded_value(text)
         if value is None or isinstance(value, (dict, list)):
             return None
@@ -330,7 +337,18 @@ class WebEnrichmentService:
         cell = normalized.get(column.name)
         if not cell or _is_empty(cell):
             return None
-        cell["excerpts"] = excerpts
+        if excerpts:
+            cell["excerpts"] = excerpts
+        else:
+            cell["excerpts"] = [{
+                "text": (
+                    "This value was provided by the model from its own knowledge. "
+                    "It was not found in the source documents and was not verified "
+                    "against a web source."
+                ),
+                "source": "Model knowledge (unverified)",
+            }]
+            cell["_unverified"] = True
         return cell
 
     @staticmethod

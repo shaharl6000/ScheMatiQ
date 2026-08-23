@@ -511,6 +511,23 @@ export function SpreadsheetSurface({
     });
   }, [data.rows]);
 
+  // Per-cell "unverified" flags: values that came from the model's own
+  // knowledge (web-sourced columns where no web source backed the answer),
+  // not from the document. Same physical-row indexing as dataGrounding above.
+  const dataUnverified = useMemo(() => {
+    return data.rows.map((row) => {
+      const perColumn: Record<string, boolean> = {};
+      const rowData = row.data || {};
+      for (const key of Object.keys(rowData)) {
+        const value = rowData[key] as { _unverified?: boolean } | undefined;
+        if (value && typeof value === 'object' && value._unverified) {
+          perColumn[key] = true;
+        }
+      }
+      return perColumn;
+    });
+  }, [data.rows]);
+
   const [groundingModal, setGroundingModal] = useState<{
     title: string;
     content: { answer: string; excerpts: CellGrounding['excerpts'] };
@@ -997,8 +1014,11 @@ export function SpreadsheetSurface({
     if (activeSheet === 'data' && column && dataConfirmedEmpty[row]?.[column.key]) {
       props.className = [props.className, 'cell-confirmed-empty'].filter(Boolean).join(' ');
     }
+    if (activeSheet === 'data' && column && dataUnverified[row]?.[column.key]) {
+      props.className = [props.className, 'cell-unverified'].filter(Boolean).join(' ');
+    }
     return props;
-  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, sheet]);
+  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataUnverified, sheet]);
 
   const prevFormatVersionRef = useRef(formatVersion);
 

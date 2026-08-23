@@ -118,10 +118,62 @@ async def test_web_enrichment_caches_entity_and_writes_url_provenance(
 
     saved = [json.loads(line) for line in data_file.read_text().splitlines()]
     assert llm.calls == 1
-    assert stats == {"lookups": 1, "cache_hits": 1, "updated_cells": 2}
+    assert stats == {"lookups": 1, "cache_hits": 1, "updated_cells": 2, "model_knowledge_cells": 0}
     assert [row["data"]["party"]["answer"] for row in saved] == [
         "Democratic",
         "Democratic",
     ]
     assert all(row["_cell_status"]["party"] == "external_source" for row in saved)
     assert "https://example.com/source" in saved[0]["data"]["party"]["excerpts"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_web_enrichment_keeps_ungrounded_value_flagged_unverified(
+    tmp_path, monkeypatch
+):
+    """When Google Search returns no sources, the model's value is still kept
+    but marked unverified (status=model_knowledge, cell._unverified=True)."""
+    data_file = tmp_path / "data.jsonl"
+    rows = [
+        {
+            "row_name": "Some Judge",
+            "court": "Example Circuit",
+            "case": "Case One",
+            "data": {"party": None},
+        }
+    ]
+    data_file.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+    )
+
+    async def resolve_files(_session_id):
+        return [data_file]
+
+    async def persist(_session_id, _path):
+        return None
+
+    monkeypatch.setattr(web_module, "resolve_session_data_files", resolve_files)
+    monkeypatch.setattr(web_module, "persist_session_data_file", persist)
+
+    class UngroundedLLM:
+        def generate_grounded(self, _prompt, **_kwargs):
+            # A correct value but NO web sources (what flash-lite does for
+            # facts it answers from memory without searching).
+            return '{"value": "Republican"}', []
+
+    service = WebEnrichmentService(session_manager=SimpleNamespace())
+    column = ColumnInfo(
+        name="party",
+        definition="Appointing party",
+        allowed_values=["Democratic", "Republican"],
+        extraction_strategy="web",
+    )
+
+    stats = await service.enrich_columns("session", [column], UngroundedLLM())
+
+    saved = [json.loads(line) for line in data_file.read_text().splitlines()]
+    assert stats["updated_cells"] == 1
+    assert stats["model_knowledge_cells"] == 1
+    assert saved[0]["data"]["party"]["answer"] == "Republican"
+    assert saved[0]["data"]["party"]["_unverified"] is True
+    assert saved[0]["_cell_status"]["party"] == "model_knowledge"

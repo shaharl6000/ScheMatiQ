@@ -1088,6 +1088,25 @@
   pointer-events: none;
 }
 
+/* Web-sourced value that came from the model's own knowledge, not the document
+   and not a verified web source. Amber tint + corner label so it is clearly
+   distinguishable from document-extracted and truly web-grounded cells. */
+.workspace-hot .handsontable td.cell-unverified {
+  position: relative;
+  background-color: rgba(251, 191, 36, 0.10);
+}
+
+.workspace-hot .handsontable td.cell-unverified::after {
+  content: 'unverified';
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 9px;
+  line-height: 1;
+  color: #b45309;
+  pointer-events: none;
+}
+
 .workspace-hot .handsontable td.workspace-cell-font-inter {
   font-family: Inter, system-ui, sans-serif;
 }

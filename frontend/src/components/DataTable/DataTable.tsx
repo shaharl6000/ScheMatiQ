@@ -158,6 +158,7 @@ const CELL_STATUS_STYLES: Record<CellStatus, string> = {
   enriched: 'border-l-2 border-l-blue-400 bg-blue-50/40 dark:bg-blue-950/20',
   inferred: 'border-l-2 border-l-amber-400 bg-amber-50/40 dark:bg-amber-950/20',
   external_source: 'border-l-2 border-l-purple-400 bg-purple-50/40 dark:bg-purple-950/20',
+  model_knowledge: 'border-l-2 border-l-orange-400 bg-orange-50/40 dark:bg-orange-950/20',
   schematiq_original: '',
   schematiq_expanded: 'border-l-2 border-l-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20',
 };
@@ -1279,7 +1280,8 @@ const DataTable: React.FC<DataTableProps> = ({
         {(presentCellStatuses.has('novel_nes') ||
           presentCellStatuses.has('enriched') ||
           presentCellStatuses.has('inferred') ||
-          presentCellStatuses.has('external_source')) && (
+          presentCellStatuses.has('external_source') ||
+          presentCellStatuses.has('model_knowledge')) && (
           <div className="flex items-center gap-4 mb-3 text-xs text-muted-foreground">
             <span className="font-medium text-foreground/70">Cell provenance:</span>
             {presentCellStatuses.has('novel_nes') && (
@@ -1304,6 +1306,12 @@ const DataTable: React.FC<DataTableProps> = ({
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-2.5 h-2.5 rounded-sm bg-purple-400" />
                 External
+              </span>
+            )}
+            {presentCellStatuses.has('model_knowledge') && (
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-orange-400" />
+                Model (unverified)
               </span>
             )}
           </div>
