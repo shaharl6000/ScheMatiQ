@@ -130,6 +130,18 @@ MAX_DOCUMENTS = int(os.environ.get("MAX_DOCUMENTS", str(
     RELEASE_CONFIG["max_documents"] if not DEVELOPER_MODE else 10_000
 )))
 
+# ── Figure Extraction (PDFFigures 2.0) ────────────────────────────
+# Extracts captioned images/tables + nearby heading/paragraphs from uploaded
+# PDFs at commit time. Kill-switch for ops if the tool misbehaves in
+# production, without a redeploy.
+ENABLE_FIGURE_EXTRACTION = _env_flag("ENABLE_FIGURE_EXTRACTION", default=True)
+FIGURE_EXTRACTION_TIMEOUT_SECONDS = int(os.environ.get("FIGURE_EXTRACTION_TIMEOUT_SECONDS", "90"))
+# Path to the pdffigures2-assembly jar (built via `sbt assembly`, see
+# backend/docs/figure-extraction.md). Feature no-ops if missing.
+PDFFIGURES2_JAR_PATH = os.environ.get(
+    "PDFFIGURES2_JAR_PATH", "/opt/pdffigures2/pdffigures2-assembly.jar"
+)
+
 # ── Research Data Collection (Google Drive) ──────────────────────
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 GOOGLE_SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "")

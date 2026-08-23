@@ -93,10 +93,18 @@ def commit_document_to_documents_dir(
         return dest
 
     if ext in CONVERT_EXTENSIONS or ext in PLAIN_EXTENSIONS:
+        # Figure extraction (for PDFs) happens inside preprocess_uploaded_file()
+        # itself — it's the single point every upload path funnels through, so
+        # hooking it there (rather than here too) covers the initial-upload
+        # route as well, which calls preprocess_uploaded_file() directly and
+        # never reaches this function. See its docstring for why documents_dir
+        # is threaded through: figures land straight in their final location
+        # instead of needing to be moved alongside the .txt below.
         result = preprocess_uploaded_file(
             source_path,
             worker_id=worker_id,
             original_filename=source_path.name,
+            documents_dir=documents_dir,
         )
         if not result.success:
             logger.warning(
@@ -272,11 +280,23 @@ def preprocess_uploaded_file(
     *,
     worker_id: Optional[str] = None,
     original_filename: Optional[str] = None,
+    documents_dir: Optional[Path] = None,
 ) -> ExtractionResult:
     """Convert an uploaded file to plain text in-place.
 
     On success the original binary is replaced by ``{stem}.txt`` in the same
     directory.  On failure the original is left untouched.
+
+    This is the single point every upload path funnels through (called
+    directly by the initial-upload route, and indirectly via
+    commit_document_to_documents_dir() for pipeline-continuation flows), so
+    figure extraction for PDFs is hooked in here rather than in either
+    individual caller — it must run before the PDF is deleted below.
+    Figures are persisted straight into ``documents_dir`` (the session's
+    documents/ folder) when given, not wherever source_path happens to sit
+    (pending_documents/ during the initial upload), so they land in their
+    final location immediately rather than needing to be moved/renamed
+    alongside the .txt by whatever later commits it into documents/.
     """
     orig_name = original_filename or source_path.name
 
@@ -305,12 +325,24 @@ def preprocess_uploaded_file(
     wid = worker_id or uuid.uuid4().hex[:8]
     pending_dir = source_path.parent
     final_output = pending_dir / f"{source_path.stem}.txt"
+    figures_dir = documents_dir if documents_dir is not None else pending_dir
+
+    figure_build = None
+    if ext == ".pdf":
+        from app.services.figure_extraction_service import extract_figures
+        # Must run before the original PDF is deleted below. Never raises.
+        figure_build = extract_figures(source_path, figures_dir, source_document=orig_name)
+
+    def _discard_figure_build():
+        if figure_build is not None:
+            shutil.rmtree(figure_build.tmp_dir, ignore_errors=True)
 
     try:
         success, message = convert_file(source_path, pending_dir, soffice_path, wid)
         method_key, status = _status_from_message(ext, success, message)
 
         if not success:
+            _discard_figure_build()
             return ExtractionResult(
                 output_path=source_path,
                 display_name=source_path.name,
@@ -321,15 +353,21 @@ def preprocess_uploaded_file(
             )
 
         if not final_output.exists():
+            _discard_figure_build()
             return _fail(source_path, "failed: conversion produced no output file", orig_name)
 
         text = final_output.read_text(encoding="utf-8", errors="replace").strip()
         if not text:
             final_output.unlink(missing_ok=True)
+            _discard_figure_build()
             return _fail(source_path, "failed: No text extracted from document", orig_name)
 
         if source_path != final_output:
             source_path.unlink(missing_ok=True)
+
+        if figure_build is not None:
+            from app.services.figure_extraction_service import persist_figures
+            persist_figures(figure_build, figures_dir, final_output.stem, source_document=orig_name)
 
         return ExtractionResult(
             output_path=final_output,
@@ -341,6 +379,7 @@ def preprocess_uploaded_file(
         )
     except Exception as e:
         logger.exception("Document preprocessing failed for %s", source_path)
+        _discard_figure_build()
         if final_output != source_path:
             final_output.unlink(missing_ok=True)
         return _fail(source_path, f"failed: {e}", orig_name)

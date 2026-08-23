@@ -248,6 +248,12 @@ export const loadAPI = {
       formData.append('files', file);
     });
 
+    // Files are processed sequentially server-side (incl. PDF figure extraction,
+    // a JVM subprocess per PDF), so the default 30s timeout isn't enough once
+    // more than a couple of files are uploaded at once. Scale it like
+    // addCloudDocuments below, but more generously per file since this path
+    // does real per-file CPU work rather than just a cloud copy.
+    const timeoutMs = Math.max(30000, files.length * 20000);
     const response = await api.post(
       `/load/add-documents/${sessionId}?bypass_limit=${bypassLimit}`,
       formData,
@@ -255,6 +261,7 @@ export const loadAPI = {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        timeout: timeoutMs,
       }
     );
 
