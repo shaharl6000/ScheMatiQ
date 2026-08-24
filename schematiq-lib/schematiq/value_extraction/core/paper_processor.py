@@ -295,6 +295,71 @@ class PaperProcessor:
             self._active_context_cache = None
         self._active_figure_images = []
 
+    def _ground_and_enforce(
+        self, cleaned: Dict[str, Any], source_text: str, context_label: str
+    ) -> Dict[str, Any]:
+        """Verify every answer's excerpts against source_text and null out any
+        answer with zero grounded support, instead of just logging stats.
+
+        The system prompt already requires every non-null answer to carry a
+        supporting excerpt "strictly from the provided passages," but nothing
+        previously checked that a claimed excerpt is real — a fabricated
+        answer (with a fabricated or missing excerpt) sailed through
+        unchanged. Tolerates fuzzy/paraphrased matches (grounding_status in
+        "exact"/"case_insensitive"/"fuzzy"); only a column whose excerpts are
+        ALL "not_found" — or which claims an answer with no excerpts at all —
+        gets nulled, since that's unsupported rather than merely paraphrased.
+        """
+        if not source_text:
+            return cleaned
+        grounding_stats = self.excerpt_grounder.ground_all_excerpts(cleaned, source_text)
+        if grounding_stats.get("not_found", 0) > 0:
+            print(
+                f"📍 Excerpt grounding for {context_label}: "
+                f"{grounding_stats['exact']} exact, "
+                f"{grounding_stats.get('case_insensitive', 0)} case_insensitive, "
+                f"{grounding_stats['fuzzy']} fuzzy, "
+                f"{grounding_stats['not_found']} not found"
+            )
+
+        source_normalized = " ".join(source_text.split())
+
+        for col_name, col_data in cleaned.items():
+            if col_name.startswith("_") or not isinstance(col_data, dict):
+                continue
+            answer = col_data.get("answer")
+            if answer in (None, ""):
+                continue
+            excerpts = col_data.get("excerpts") or []
+            statuses = {
+                exc.get("grounding_status") for exc in excerpts if isinstance(exc, dict)
+            }
+            grounded = bool(statuses & {"exact", "case_insensitive", "fuzzy"})
+            if not grounded:
+                # ExcerptGrounder's fuzzy phase re-verifies a word-level match by
+                # joining the matched words with single spaces and doing a plain
+                # substring search back in source_text — which fails whenever the
+                # real span uses different whitespace (a line-wrapped sentence, a
+                # markdown table's alignment padding), even though the words
+                # matched perfectly. Real extracted PDF/table text hits this
+                # constantly, so re-check with whitespace collapsed on both sides
+                # before concluding an excerpt is genuinely unsupported.
+                grounded = any(
+                    " ".join(str(exc.get("text", "")).split()) in source_normalized
+                    for exc in excerpts
+                    if isinstance(exc, dict) and exc.get("text")
+                )
+            if not grounded:
+                logger.warning(
+                    "[%s] Nulling ungrounded answer for column %r "
+                    "(no excerpt found in source text): %r",
+                    context_label, col_name, answer,
+                )
+                col_data["answer"] = None
+                col_data["excerpts"] = []
+
+        return cleaned
+
     def _load_document_figures(self, figures_dir: Optional[Path]) -> None:
         """Load every figure image for the current document into self._active_figure_images.
 
@@ -1217,18 +1282,9 @@ class PaperProcessor:
                 row_name=row_name,
             )
 
-            # Excerpt grounding: verify excerpts against source text
-            grounding_stats = self.excerpt_grounder.ground_all_excerpts(
-                cleaned, paper_text
-            )
-            if grounding_stats.get("not_found", 0) > 0:
-                print(
-                    f"📍 Excerpt grounding for {paper_title}: "
-                    f"{grounding_stats['exact']} exact, "
-                    f"{grounding_stats.get('case_insensitive', 0)} case_insensitive, "
-                    f"{grounding_stats['fuzzy']} fuzzy, "
-                    f"{grounding_stats['not_found']} not found"
-                )
+            # Excerpt grounding: verify excerpts against source text, and null
+            # out any answer that isn't actually supported by one.
+            cleaned = self._ground_and_enforce(cleaned, paper_text, paper_title)
 
             return cleaned
 
@@ -1886,6 +1942,14 @@ class PaperProcessor:
             paper_text=fallback_text,
             effective_text=eff,
             max_new_tokens=effective_max,
+        )
+
+        # Excerpt grounding: verify excerpts against source text, and null out
+        # any answer that isn't actually supported by one — this is the path
+        # extract_values_for_paper_with_units() actually uses, so this can't
+        # just be the log-only check extract_values_for_paper() has.
+        all_cleaned = self._ground_and_enforce(
+            all_cleaned, fallback_text, f"{paper_title} - {unit_name}"
         )
 
         # Align to the FULL schema so the row shape is unchanged; columns not

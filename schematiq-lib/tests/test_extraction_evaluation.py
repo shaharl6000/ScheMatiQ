@@ -298,8 +298,8 @@ class TestControlledGenerationVsBaseline:
         return {
             "model_name": {"answer": "GPT-4", "excerpts": ["We evaluate GPT-4, Claude-3, and Llama-3"]},
             "mmlu_accuracy": {"answer": "86.4", "excerpts": ["GPT-4 | 86.4"]},
-            "gsm8k_accuracy": {"answer": "92.0", "excerpts": ["GPT-4 achieves 92.0% on GSM8K"]},
-            "arc_accuracy": {"answer": "96.3", "excerpts": ["GPT-4 | 96.3"]},
+            "gsm8k_accuracy": {"answer": "92.0", "excerpts": ["92.0"]},
+            "arc_accuracy": {"answer": "96.3", "excerpts": ["96.3"]},
             "evaluation_setting": {"answer": "zero-shot", "excerpts": ["Zero-shot accuracy"]},
             "training_data_cutoff": {"answer": "September 2021", "excerpts": ["Training data cutoff for GPT-4 is September 2021"]},
             "hardware_used": {"answer": "NVIDIA A100", "excerpts": ["conducted using NVIDIA A100 GPUs"]},
