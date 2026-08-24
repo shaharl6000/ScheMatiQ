@@ -11,7 +11,7 @@ import os
 import time
 import random
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Union, Optional
+from typing import List, Dict, Any, Union, Optional, Tuple
 import re
 
 import httpx
@@ -768,8 +768,27 @@ class GeminiLLM(LLMInterface):
                 thinking_budget=thinking_budget
             )
 
+    def _build_contents(
+        self,
+        prompt_text: str,
+        images: Optional[List[Tuple[bytes, str]]],
+    ):
+        """Assemble ``contents`` for a generate_content call.
+
+        Returns the plain prompt string when no images are given (unchanged
+        behavior for every existing text-only caller), or a list mixing the
+        text with one ``Part.from_bytes`` per image when images are present.
+        """
+        if not images:
+            return prompt_text
+        parts: List[Any] = [prompt_text]
+        for image_bytes, mime_type in images:
+            parts.append(self.types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
+        return parts
+
     def generate(self,
                  prompt: Union[str, List[Dict[str, str]]],
+                 images: Optional[List[Tuple[bytes, str]]] = None,
                  **kwargs) -> str:
         """
         Generate a response from Gemini with retry logic.
@@ -781,6 +800,10 @@ class GeminiLLM(LLMInterface):
             • list – chat-style messages with role/content pairs.
               System messages are extracted as system_instruction,
               user/assistant messages become the prompt content.
+        images : list[(bytes, mime_type)] | None
+            Optional images attached alongside the prompt text in the same
+            call (e.g. extracted figures), so the model reads them together
+            with whatever the prompt is asking for rather than in isolation.
         **kwargs:
             thinking_budget : int | None – Gemini thinking budget (0 = no thinking)
             response_schema : dict | None – Gemini controlled generation schema
@@ -843,7 +866,7 @@ class GeminiLLM(LLMInterface):
                 # New SDK API: client.models.generate_content()
                 response = self._client.models.generate_content(
                     model=self.model,
-                    contents=prompt_text,
+                    contents=self._build_contents(prompt_text, images),
                     config=config,
                 )
 
@@ -985,10 +1008,23 @@ class GeminiLLM(LLMInterface):
         except Exception as e:
             logger.debug("Gemini context cache delete failed (cache=%s): %s", cache.name, e)
 
-    def generate_with_cache(self, prompt: str, cache, **kwargs) -> str:
-        """Generate using a cached context. Falls back to regular generate if cache is None."""
+    def generate_with_cache(
+        self,
+        prompt: str,
+        cache,
+        images: Optional[List[Tuple[bytes, str]]] = None,
+        **kwargs,
+    ) -> str:
+        """Generate using a cached context. Falls back to regular generate if cache is None.
+
+        Args
+        ----
+        images : list[(bytes, mime_type)] | None
+            Optional images attached to this live call, on top of the cached
+            (text-only) context — see GeminiLLM.generate().
+        """
         if cache is None:
-            return self.generate(prompt, **kwargs)
+            return self.generate(prompt, images=images, **kwargs)
 
         prompt_len = len(prompt) if isinstance(prompt, str) else sum(
             len(m.get("content", "")) for m in prompt
@@ -1029,7 +1065,7 @@ class GeminiLLM(LLMInterface):
             try:
                 response = self._client.models.generate_content(
                     model=self.model,
-                    contents=prompt_text,
+                    contents=self._build_contents(prompt_text, images),
                     config=config,
                 )
 

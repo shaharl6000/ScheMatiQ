@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
+import mimetypes
 import os
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Set, Callable, Optional, List, Iterator
+from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
 
 logger = logging.getLogger(__name__)
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
@@ -93,6 +95,22 @@ REFERENCE_FULL_INJECT_MAX_CHARS = 12000
 # value extraction. Only applies when the LLM backend is Gemini.
 ENABLE_CONTROLLED_GENERATION = True
 
+# When True, attach each document's extracted figure images (see
+# figures_dir on extract_values_for_paper_with_units) to every per-unit
+# value-extraction call, alongside that call's own <REQUESTED_COLUMNS> —
+# so cell values that only appear inside a graph (an axis label, a legend
+# entry) aren't lost to a text-only prompt. Only applies when the LLM
+# backend is Gemini. No-ops (same as today) when a document has no figure
+# manifest, matching ExtractedFigure's "future vision-LLM step" note in
+# backend/app/models/figures.py.
+ENABLE_FIGURE_VISION_CONTEXT = True
+
+# Every image pdffigures2 renders is a PNG today (figure_extraction_service.py
+# invokes it with "-f", "png"); mimetypes is consulted first so a differently
+# -rendered file (a future format change, a manually placed image) is still
+# tagged correctly instead of silently mislabeled.
+_DEFAULT_FIGURE_MIME_TYPE = "image/png"
+
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
 OnValueExtractedCallback = Callable[[str, str, Any], None]
 OnUnitRowWrittenCallback = Callable[[Dict[str, Any]], None]
@@ -147,6 +165,10 @@ class PaperProcessor:
         self.excerpt_grounder = ExcerptGrounder()
         # Active context cache for current document (Gemini only)
         self._active_context_cache = None
+        # Figure images for the current document — loaded once (see
+        # _load_document_figures), then attached to every per-unit call by
+        # _generate() so images and <REQUESTED_COLUMNS> always travel together.
+        self._active_figure_images: List[Tuple[bytes, str]] = []
 
     @staticmethod
     def _flatten_extracted(cleaned: Dict[str, Any]) -> Dict[str, str]:
@@ -267,10 +289,93 @@ class PaperProcessor:
         return self.llm.create_context_cache(system_prompt, paper_text, ttl_seconds=300)
 
     def _delete_document_cache(self):
-        """Delete the active context cache if one exists."""
+        """Clear per-document state: the active context cache and any loaded figure images."""
         if self._active_context_cache and hasattr(self.llm, 'delete_context_cache'):
             self.llm.delete_context_cache(self._active_context_cache)
             self._active_context_cache = None
+        self._active_figure_images = []
+
+    def _load_document_figures(self, figures_dir: Optional[Path]) -> None:
+        """Load every figure image for the current document into self._active_figure_images.
+
+        Called once per document (alongside _create_document_cache), not once
+        per unit/column — I/O happens exactly once. _generate() then attaches
+        this same set of images to every per-unit call for this document, so
+        an image is never sent to the model except alongside the specific
+        <REQUESTED_COLUMNS> it's meant to help fill. No relevance filtering:
+        every figure in the manifest is loaded, matching "read all figures
+        once" rather than pre-guessing which ones might matter.
+
+        Best-effort and silent: a missing manifest, a disabled flag, a
+        non-Gemini backend, or a bad image file all just leave
+        self._active_figure_images empty, degrading to today's text-only
+        behavior exactly like figure_extraction_service.py degrades to "no
+        figures extracted" on its own failures.
+        """
+        self._active_figure_images = []
+        if not ENABLE_FIGURE_VISION_CONTEXT:
+            return
+        if not figures_dir:
+            logger.debug("Figure image loading skipped: no figures_dir given")
+            return
+        if not self._is_gemini_backend():
+            logger.debug("Figure image loading skipped: non-Gemini backend")
+            return
+
+        manifest_path = figures_dir / "manifest.json"
+        if not manifest_path.is_file():
+            logger.debug("Figure image loading skipped: no manifest at %s", manifest_path)
+            return
+
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("Failed to read figure manifest %s: %s", manifest_path, e)
+            return
+
+        images: List[Tuple[bytes, str]] = []
+        attached_ids: Set[str] = set()
+        for fig in manifest.get("figures", []):
+            image_filename = fig.get("image_filename")
+            if not image_filename:
+                continue
+            image_path = figures_dir / image_filename
+            try:
+                image_bytes = image_path.read_bytes()
+            except Exception as e:
+                logger.warning("Failed to read figure image %s: %s", image_path, e)
+                continue
+            mime_type = mimetypes.guess_type(image_filename)[0] or _DEFAULT_FIGURE_MIME_TYPE
+            images.append((image_bytes, mime_type))
+            fig_id = fig.get("figure_id")
+            if fig_id:
+                attached_ids.add(fig_id)
+
+        if not images:
+            return
+
+        self._active_figure_images = images
+        logger.debug(
+            "Loaded %d figure image(s) for document context (%s)",
+            len(images), manifest_path,
+        )
+
+        # Audit trail only — records that this figure's image was shown to the
+        # model on this run (which model, when). Not a substitute description:
+        # extraction always reads the real image via self._active_figure_images,
+        # never this marker.
+        now_iso = datetime.now().isoformat()
+        model_name = getattr(self.llm, "model", None)
+        for fig in manifest.get("figures", []):
+            if fig.get("figure_id") in attached_ids:
+                fig["vision_model"] = model_name
+                fig["vision_extracted_at"] = now_iso
+        try:
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning("Failed to write figure attach audit trail %s: %s", manifest_path, e)
 
     def _generate(self, prompt, **kwargs) -> str:
         """Generate using context cache if available, otherwise regular generate.
@@ -280,7 +385,14 @@ class PaperProcessor:
         unit-specific system prompt that differs from the cached one.  We
         therefore prepend any system message content to the first user message
         so the unit-level instructions still reach the model.
+
+        Attaches self._active_figure_images (if any were loaded for the
+        current document) to this call, unless the caller already specified
+        its own images= — so every column-extraction call automatically sees
+        the document's figures alongside its <REQUESTED_COLUMNS>.
         """
+        if self._active_figure_images:
+            kwargs.setdefault("images", self._active_figure_images)
         if self._active_context_cache and hasattr(self.llm, 'generate_with_cache'):
             if isinstance(prompt, list):
                 system_parts = [m["content"] for m in prompt if m.get("role") == "system"]
@@ -1794,6 +1906,7 @@ class PaperProcessor:
         on_unit_extracted: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         known_units: Optional[List[str]] = None,
         unit_targets: Optional[Dict[str, Dict[str, Any]]] = None,
+        figures_dir: Optional[Path] = None,
     ) -> ExtractionResult:
         """
         Extract values from a paper, potentially producing multiple rows
@@ -1810,6 +1923,11 @@ class PaperProcessor:
             known_units: Optional list of unit names to use instead of LLM discovery.
                 When provided, skips the identify_observation_units LLM call and uses
                 these names directly with the full paper text as relevant passages.
+            figures_dir: Optional directory holding this paper's figure-extraction
+                manifest.json + images (documents/figures/{paper.stem}/, see
+                figure_extraction_service.py). When given (and the backend is
+                Gemini), every figure's image is attached to every per-unit
+                extraction call for this document — see _load_document_figures.
 
         Returns:
             ExtractionResult: ``skip_reason`` is set only when *rows* is empty because no
@@ -1865,8 +1983,15 @@ class PaperProcessor:
         # to make it reusable across all units in this document.
         cache_system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=observation_unit.name)
         self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
+
+        # Load this document's figure images once (I/O happens here only); every
+        # per-unit call below attaches them via _generate() so an image and the
+        # <REQUESTED_COLUMNS> it might answer always travel together.
+        self._load_document_figures(figures_dir)
         if self._active_context_cache:
             print(f"  📦 Created context cache for {paper_title}")
+        if self._active_figure_images:
+            print(f"  🖼️ Attached {len(self._active_figure_images)} figure image(s) for {paper_title}")
 
         # Extract values for each unit
         import time as time_module
