@@ -6,6 +6,7 @@ import {
   type LLMProviderKey,
 } from '@/constants';
 import { configAPI, loadAPI, schemaAPI, schematiqAPI } from '@/services/api';
+import { type ToastActionElement } from '@/components/ui/toast';
 import type {
   DocumentAvailabilityResponse,
   ReextractionRequest,
@@ -38,6 +39,7 @@ type UseReextractionOptions = {
     description?: string;
     variant?: 'default' | 'destructive';
     duration?: number;
+    action?: ToastActionElement;
   }) => void;
 };
 
@@ -149,8 +151,33 @@ export function useReextraction({
     void runReextractPrecheck();
   }, [pendingSchemaColumns, rerunStarting, runReextractPrecheck, schema?.schema, sessionId, toast]);
 
-  const startReextraction = useCallback(async (targetColumns: string[]) => {
+  const startReextraction = useCallback(async (
+    targetColumns: string[],
+    // `rows` narrows to specific observation-unit rows (e.g. "Fill empty
+    // cells" on a grid selection); `onlyEmpty` never overwrites a cell that
+    // already holds a value. Both map straight onto the backend's
+    // ReextractionRequest.rows / .only_empty. (The backend also has a
+    // retry_confirmed_empty option, for rechecking cells already confirmed
+    // empty by a prior run, but it now retries those itself internally
+    // before giving up -- see start_gated_reextraction -- so this hook never
+    // needs to ask for it.)
+    scope?: { rows?: string[]; onlyEmpty?: boolean },
+  ) => {
     if (!sessionId || rerunStarting || targetColumns.length === 0) return;
+    // A re-extraction is already running for this session (rerunStarting only
+    // covers the brief window until the start request itself returns -- the
+    // background operation can run for minutes after that). Pressing the same
+    // button again in that window would just 409 from the backend's
+    // single-slot-per-session concurrency guard; give a quiet heads-up instead
+    // of surfacing that as a failure.
+    if (reextraction) {
+      toast({
+        title: 'Already filling cells',
+        description: 'Please wait a few seconds for the current run to finish, then try again.',
+        duration: 3000,
+      });
+      return;
+    }
 
     const chatPendingCleared = await cancelChatPendingIfAny();
     if (!chatPendingCleared) {
@@ -176,6 +203,8 @@ export function useReextraction({
       if (apiKey) {
         request.llm_config = { provider, model, api_key: apiKey, temperature: 0 };
       }
+      if (scope?.rows?.length) request.rows = scope.rows;
+      if (scope?.onlyEmpty) request.only_empty = true;
 
       const response = await schemaAPI.startReextraction(sessionId, request);
       const docCount = response.rows_to_process || response.estimated_papers || 0;
@@ -199,11 +228,20 @@ export function useReextraction({
         currentColumn: response.columns[0],
       });
       toast({
-        title: 'Re-extraction started',
-        description: `Re-extracting ${response.columns.join(', ')} across ${docCount} document(s). Other columns stay unchanged.`,
+        title: scope?.onlyEmpty ? 'Filling empty cells' : 'Re-extraction started',
+        description: scope?.onlyEmpty
+          ? `Filling ${response.columns.join(', ')} for ${scope.rows?.length ?? 0} row(s). Existing values stay unchanged.`
+          : `Re-extracting ${response.columns.join(', ')} across ${docCount} document(s). Other columns stay unchanged.`,
         duration: 4000,
       });
     } catch (err: any) {
+      // Note: a scope that resolves to only already-confirmed-empty cells no
+      // longer reaches here in the normal case -- the backend
+      // (start_gated_reextraction) retries that once internally before
+      // failing, so a "Fill empty cells" press against such cells (e.g.
+      // after attaching a new source document) just works. This generic
+      // toast only fires for a genuine failure, or the rare case where even
+      // that backend retry found nothing new.
       const { message, isBusy } = describeRequestError(err, 'Could not start re-extraction');
       toast({
         title: isBusy ? 'Server busy' : 'Re-extraction failed to start',
@@ -213,7 +251,19 @@ export function useReextraction({
     } finally {
       setRerunStarting(false);
     }
-  }, [cancelChatPendingIfAny, clearPendingRerun, rerunStarting, sessionId, toast]);
+  }, [cancelChatPendingIfAny, clearPendingRerun, reextraction, rerunStarting, sessionId, toast]);
+
+  // Entry point for the Data-sheet "Fill empty cells" menu item: the scope
+  // (unit-row names + schema-column keys) is resolved by
+  // SpreadsheetSurface's selectedEmptyCellScope/emptyCellScope helper, which
+  // only tracks *which* rows/columns contain a blank cell, not exact (row,
+  // col) pairs -- so onlyEmpty:true is required here to keep the backend from
+  // overwriting already-filled cells that share a row or column with a blank
+  // one.
+  const fillEmptyCells = useCallback((scope: { rows: string[]; columns: string[] }) => {
+    if (scope.rows.length === 0 || scope.columns.length === 0) return;
+    void startReextraction(scope.columns, { rows: scope.rows, onlyEmpty: true });
+  }, [startReextraction]);
 
   const confirmReextraction = useCallback(async () => {
     if (!reextractConfirm) return;
@@ -385,6 +435,7 @@ export function useReextraction({
     runReextractPrecheck,
     requestReextraction,
     confirmReextraction,
+    fillEmptyCells,
     stopReextraction,
     startSchemaRediscovery,
     notifyEditFollowUp,

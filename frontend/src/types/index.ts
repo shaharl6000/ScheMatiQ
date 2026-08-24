@@ -358,7 +358,7 @@ export interface ObservationUnitReadyData {
 }
 
 export interface WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'reextraction_started' | 'reextraction_progress' | 'reextraction_completed' | 'reextraction_failed' | 'reextraction_stopped' | 'document_started' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready' | 'observation_unit_definition_updated' | 'reference_fill_started' | 'reference_fill_completed' | 'chat_message';
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'reextraction_started' | 'reextraction_progress' | 'reextraction_completed' | 'reextraction_failed' | 'reextraction_stopped' | 'document_started' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready' | 'observation_unit_definition_updated' | 'reference_fill_started' | 'reference_fill_completed' | 'chat_message' | 'chat_message_delta' | 'chat_message_discard';
   timestamp?: string;
   session_id?: string;
   message?: string;
@@ -433,6 +433,10 @@ export interface ScheMatiQAnswerWithExcerpts {
   answer: string;
   excerpts: Excerpt[];  // Supports both old (string) and new (object) formats
   manually_edited?: boolean;
+  // Set when the model explicitly looked and confirmed no value exists (vs. a
+  // cell that was never extracted). Displays blank identically either way, so
+  // this is the only signal that distinguishes the two in the Data sheet.
+  _confirmed_empty?: boolean;
 }
 
 export type CellValue = string | number | boolean | null | undefined | ScheMatiQAnswerWithExcerpts | unknown[] | Record<string, unknown>;
@@ -692,6 +696,18 @@ export interface ReextractionRequest {
     max_output_tokens?: number;
     temperature?: number;
   };
+  // Granular fill scope (mirrors the backend's ReextractionRequest / the chat
+  // extract_cells tool): restrict the run to these source documents /
+  // observation-unit row names, and, with only_empty=true, never overwrite a
+  // cell that already holds a value.
+  documents?: string[];
+  rows?: string[];
+  only_empty?: boolean;
+  // With only_empty, also target cells already confirmed empty by a prior
+  // extraction (normally skipped to avoid re-billing). Set on a follow-up
+  // call after a first only_empty request comes back with the backend's
+  // "confirmed_empty_only" error code, to force a recheck.
+  retry_confirmed_empty?: boolean;
 }
 
 export interface ReextractionResponse {

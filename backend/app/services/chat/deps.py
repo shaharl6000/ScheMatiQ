@@ -14,40 +14,18 @@ from app.services import (
     session_manager,
     websocket_manager,
 )
-from app.services.continue_discovery_service import ContinueDiscoveryService
 from app.services.data_editor import DataEditor
 from app.services.observation_unit_manager import ObservationUnitManager
-from app.services.reextraction_service import ReextractionService
 from app.services.schema_manager import SchemaManager
-from app.services.schematiq_runner import ScheMatiQRunner
-from app.services import pubmed_enrichment_service, uniprot_enrichment_service
-
-from app.services import data_collection_service
+from app.services.orchestration import (
+    continue_discovery_service,
+    reextraction_service,
+    schematiq_runner,
+)
 
 schema_manager = SchemaManager(websocket_manager, session_manager)
-reextraction_service = ReextractionService(
-    websocket_manager,
-    session_manager,
-    data_collection_service=data_collection_service,
-    pubmed_enrichment_service=pubmed_enrichment_service,
-    uniprot_enrichment_service=uniprot_enrichment_service,
-)
-continue_discovery_service = ContinueDiscoveryService(
-    websocket_manager,
-    session_manager,
-    data_collection_service=data_collection_service,
-    pubmed_enrichment_service=pubmed_enrichment_service,
-    uniprot_enrichment_service=uniprot_enrichment_service,
-)
 observation_unit_manager = ObservationUnitManager(websocket_manager, session_manager)
 data_editor = DataEditor()
-schematiq_runner = ScheMatiQRunner(
-    websocket_manager=websocket_manager,
-    session_manager=session_manager,
-    data_collection_service=data_collection_service,
-    pubmed_enrichment_service=pubmed_enrichment_service,
-    uniprot_enrichment_service=uniprot_enrichment_service,
-)
 
 from app.services.reference_fill_service import ReferenceFillService
 

@@ -45,7 +45,7 @@ import SkippedDocumentsBanner from '@/components/DataTable/SkippedDocumentsBanne
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
-import api, { configAPI, loadAPI, schematiqAPI, unitsAPI } from '@/services/api';
+import api, { configAPI, loadAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
 import { rememberProject } from '@/utils/recentProjects';
 import type {
   CostEstimate,
@@ -615,6 +615,7 @@ function Workspace() {
     runReextractPrecheck,
     requestReextraction,
     confirmReextraction,
+    fillEmptyCells,
     stopReextraction,
     startSchemaRediscovery,
     notifyEditFollowUp,
@@ -1186,8 +1187,19 @@ function Workspace() {
       if (!sessionId || files.length === 0) return;
       setAttachingSourceDocs(true);
       try {
-        await unitsAPI.attachSourceDocuments(sessionId, files);
+        const res = await unitsAPI.attachSourceDocuments(sessionId, files);
         setSourceDocReloadToken((t) => t + 1);
+        // Some files can be attached while others are skipped (e.g. over the
+        // size limit). The backend still returns 200 in that case, so without
+        // this the user is never told those specific previews won't resolve.
+        const skipped = res.skipped ?? [];
+        if (skipped.length > 0) {
+          toast({
+            title: `${skipped.length} file${skipped.length === 1 ? '' : 's'} skipped`,
+            description: `${describeSkippedAttachments(skipped)}. The other files were attached.`,
+            variant: 'destructive',
+          });
+        }
       } catch (err) {
         toast({
           title: 'Upload failed',
@@ -1230,6 +1242,7 @@ function Workspace() {
         onUndo={undoEdit}
         onRedo={redoEdit}
         onRecordEdit={editHistory.push}
+        onFillEmptyCells={fillEmptyCells}
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}
         sessionMissing={sessionMissing}
@@ -1238,11 +1251,18 @@ function Workspace() {
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
       />
-      {(loading || importingProject) && sessionId && (
+      {/*
+        Show the blocking overlay while a project is loading or importing.
+        `loading` only makes sense once a session exists (we're fetching its
+        data), but an import happens BEFORE the route has a session id — so it
+        must not be gated on `sessionId`, otherwise the slow upload+parse shows
+        no feedback at all until navigation completes.
+      */}
+      {(importingProject || (loading && sessionId)) && (
         <div className="workspace-loading-overlay" role="status" aria-live="polite">
           <div className="workspace-loading-card">
             <Loader2 className="h-5 w-5 animate-spin" />
-            <span>Loading project…</span>
+            <span>{importingProject ? 'Importing project…' : 'Loading project…'}</span>
           </div>
         </div>
       )}
@@ -1447,6 +1467,7 @@ function Workspace() {
                     reloadToken={sourceDocReloadToken}
                     highlightTexts={groundingHighlights}
                     scrollNonce={groundingScrollNonce}
+                    uploading={attachingSourceDocs}
                     onRequestUpload={attachingSourceDocs ? undefined : () => sourceDocInputRef.current?.click()}
                   />
                 </div>
