@@ -445,6 +445,15 @@ def test_extract_figures_returns_none_when_disabled(monkeypatch, tmp_path):
 def test_extract_figures_returns_none_when_jar_missing(monkeypatch, tmp_path):
     monkeypatch.setattr("app.services.figure_extraction_service.ENABLE_FIGURE_EXTRACTION", True)
     monkeypatch.setattr("app.services.figure_extraction_service._jar_resolved", False)
+    # _jar_path itself must also be monkeypatched (not just _jar_resolved): once
+    # _get_jar_path() re-resolves below, it sets the real module-level _jar_path
+    # to None as a side effect (PDFFIGURES2_JAR_PATH points nowhere). monkeypatch
+    # only restores attributes it was explicitly told to track, so without this
+    # line _jar_path stays permanently None for the rest of the test session —
+    # a real bug that silently broke every later real end-to-end test in a full
+    # suite run (they passed individually only because nothing before them had
+    # forced a re-resolution).
+    monkeypatch.setattr("app.services.figure_extraction_service._jar_path", None)
     monkeypatch.setattr("app.services.figure_extraction_service.PDFFIGURES2_JAR_PATH", str(tmp_path / "missing.jar"))
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")

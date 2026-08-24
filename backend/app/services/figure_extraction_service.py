@@ -359,6 +359,22 @@ def _render_fallback_crops(figures: List[ExtractedFigure], pdf_path: Path, tmp_d
 _STALE_STAGING_AGE_SECONDS = 3600  # sweep .extract_* dirs abandoned by a crashed/killed prior run
 
 
+def cleanup_staging_dir(tmp_dir: Path) -> None:
+    """Remove a .extract_* staging dir, then prune its documents_dir/figures/
+    parent too if that leaves it empty.
+
+    extract_figures() always creates that parent (staging_root.mkdir(...))
+    before it knows whether anything will end up being extracted, so on a
+    no-figures or failed-conversion outcome it would otherwise survive as a
+    stray empty directory inside documents/ forever. Never raises.
+    """
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    try:
+        tmp_dir.parent.rmdir()  # no-op (fails silently) unless truly empty
+    except OSError:
+        pass
+
+
 def _sweep_stale_staging_dirs(staging_root: Path) -> None:
     """Best-effort cleanup of .extract_* dirs left behind by a process that died
     mid-extraction (e.g. a server restart between pdffigures2 finishing and
@@ -519,4 +535,4 @@ def persist_figures(
     except Exception:
         return None
     finally:
-        shutil.rmtree(build_result.tmp_dir, ignore_errors=True)
+        cleanup_staging_dir(build_result.tmp_dir)

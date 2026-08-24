@@ -335,7 +335,8 @@ def preprocess_uploaded_file(
 
     def _discard_figure_build():
         if figure_build is not None:
-            shutil.rmtree(figure_build.tmp_dir, ignore_errors=True)
+            from app.services.figure_extraction_service import cleanup_staging_dir
+            cleanup_staging_dir(figure_build.tmp_dir)
 
     try:
         success, message = convert_file(source_path, pending_dir, soffice_path, wid)
