@@ -57,9 +57,14 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         """
         doc_index = [0]  # counts source files, incremented by on_document_started
 
-        def on_document_started(paper_title: str):
-            """Called once per source document file before extraction begins."""
-            doc_index[0] += 1
+        def on_document_started(paper_title: str, unit_count: int = 1):
+            """Called once per source document file before extraction begins.
+
+            This flow never passes known_units, so unit_count is always 1 here;
+            the parameter exists because the library calls every on_document_started
+            callback with (paper_title, unit_count).
+            """
+            doc_index[0] += unit_count
             try:
                 asyncio.run_coroutine_threadsafe(
                     self.websocket_manager.broadcast_to_session(session_id, {

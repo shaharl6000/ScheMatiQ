@@ -1823,9 +1823,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
             # Capture event loop before entering thread pool
             loop = asyncio.get_running_loop()
 
-            def on_document_started(paper_title: str):
-                """Fired once per source document file — drives the 'X of Y docs' counter."""
-                doc_index[0] += 1
+            def on_document_started(paper_title: str, unit_count: int = 1):
+                """Fired once per document entering extraction — drives the 'X of Y'
+                counter. ``unit_count`` lets a document that maps to several known
+                observation units advance the counter by more than 1, matching
+                total_documents once it's been expressed in units below."""
+                doc_index[0] += unit_count
                 operation.processed_documents = doc_index[0]
                 try:
                     asyncio.run_coroutine_threadsafe(
