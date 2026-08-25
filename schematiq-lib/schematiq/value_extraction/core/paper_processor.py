@@ -111,6 +111,26 @@ ENABLE_FIGURE_VISION_CONTEXT = True
 # tagged correctly instead of silently mislabeled.
 _DEFAULT_FIGURE_MIME_TYPE = "image/png"
 
+
+def _build_figure_label(fig: Dict[str, Any]) -> str:
+    """Build the text label sent immediately before a figure's image.
+
+    Without this, an image reaches the model as an anonymous byte blob with
+    no way to know it's "Figure 4" versus any other image in the call — an
+    explicit label anchors it, e.g. "Figure 4: Fig. 4. Expression of the
+    a2,3 sialylated...". Degrades gracefully (never raises): label-only or
+    caption-only when a field is missing, "" (no text part at all) if both
+    figure_label/origin_name and caption are absent.
+    """
+    prefix = " ".join(
+        part for part in (fig.get("figure_label"), fig.get("origin_name")) if part
+    ).strip()
+    caption = (fig.get("caption") or "").strip()
+    if prefix and caption:
+        return f"{prefix}: {caption}"
+    return caption or prefix
+
+
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
 OnValueExtractedCallback = Callable[[str, str, Any], None]
 OnUnitRowWrittenCallback = Callable[[Dict[str, Any]], None]
@@ -168,7 +188,9 @@ class PaperProcessor:
         # Figure images for the current document — loaded once (see
         # _load_document_figures), then attached to every per-unit call by
         # _generate() so images and <REQUESTED_COLUMNS> always travel together.
-        self._active_figure_images: List[Tuple[bytes, str]] = []
+        # Each entry is (label, image_bytes, mime_type); label (e.g. "Figure 4:
+        # <caption>") rides as its own text part immediately before the image.
+        self._active_figure_images: List[Tuple[str, bytes, str]] = []
 
     @staticmethod
     def _flatten_extracted(cleaned: Dict[str, Any]) -> Dict[str, str]:
@@ -398,7 +420,7 @@ class PaperProcessor:
             logger.warning("Failed to read figure manifest %s: %s", manifest_path, e)
             return
 
-        images: List[Tuple[bytes, str]] = []
+        images: List[Tuple[str, bytes, str]] = []
         attached_ids: Set[str] = set()
         for fig in manifest.get("figures", []):
             image_filename = fig.get("image_filename")
@@ -411,7 +433,8 @@ class PaperProcessor:
                 logger.warning("Failed to read figure image %s: %s", image_path, e)
                 continue
             mime_type = mimetypes.guess_type(image_filename)[0] or _DEFAULT_FIGURE_MIME_TYPE
-            images.append((image_bytes, mime_type))
+            label = _build_figure_label(fig)
+            images.append((label, image_bytes, mime_type))
             fig_id = fig.get("figure_id")
             if fig_id:
                 attached_ids.add(fig_id)

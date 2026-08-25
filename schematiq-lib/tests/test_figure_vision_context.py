@@ -50,9 +50,51 @@ class TestLoadDocumentFigures:
         PaperProcessor._load_document_figures(s, figures_dir)
 
         assert len(s._active_figure_images) == 2
-        for data, mime in s._active_figure_images:
+        for label, data, mime in s._active_figure_images:
             assert mime == "image/png"
             assert data.startswith(b"fake-image-bytes-")
+
+    def test_builds_label_from_figure_label_origin_name_and_caption(self, tmp_path):
+        figures_dir = tmp_path / "figures" / "doc"
+        _write_manifest(figures_dir, [
+            {
+                "figure_id": "doc_fig001",
+                "image_filename": "doc-Figure4-1.png",
+                "figure_label": "Figure",
+                "origin_name": "4",
+                "caption": "Fig. 4. Expression of the a2,3 sialylated CZ-1 epitope.",
+            },
+        ])
+        s = _make_self()
+
+        PaperProcessor._load_document_figures(s, figures_dir)
+
+        label, _, _ = s._active_figure_images[0]
+        assert label == "Figure 4: Fig. 4. Expression of the a2,3 sialylated CZ-1 epitope."
+
+    def test_label_falls_back_to_caption_only_when_figure_label_missing(self, tmp_path):
+        figures_dir = tmp_path / "figures" / "doc"
+        _write_manifest(figures_dir, [
+            {"figure_id": "doc_fig001", "image_filename": "doc-Figure1-1.png", "caption": "A caption."},
+        ])
+        s = _make_self()
+
+        PaperProcessor._load_document_figures(s, figures_dir)
+
+        label, _, _ = s._active_figure_images[0]
+        assert label == "A caption."
+
+    def test_label_is_empty_string_when_no_label_fields_at_all(self, tmp_path):
+        figures_dir = tmp_path / "figures" / "doc"
+        _write_manifest(figures_dir, [
+            {"figure_id": "doc_fig001", "image_filename": "doc-Figure1-1.png"},
+        ])
+        s = _make_self()
+
+        PaperProcessor._load_document_figures(s, figures_dir)
+
+        label, _, _ = s._active_figure_images[0]
+        assert label == ""
 
     def test_marks_attach_audit_trail_on_manifest(self, tmp_path):
         figures_dir = tmp_path / "figures" / "doc"
@@ -111,26 +153,26 @@ class TestGenerateAttachesImages:
     def test_attaches_images_to_cached_call(self):
         s = _make_self()
         s._active_context_cache = MagicMock()
-        s._active_figure_images = [(b"img", "image/png")]
+        s._active_figure_images = [("Figure 1: caption", b"img", "image/png")]
         s.llm.generate_with_cache.return_value = "response"
 
         result = PaperProcessor._generate(s, "extract Column X")
 
         assert result == "response"
         _, kwargs = s.llm.generate_with_cache.call_args
-        assert kwargs["images"] == [(b"img", "image/png")]
+        assert kwargs["images"] == [("Figure 1: caption", b"img", "image/png")]
 
     def test_attaches_images_to_uncached_call(self):
         s = _make_self()
         s._active_context_cache = None
-        s._active_figure_images = [(b"img", "image/png")]
+        s._active_figure_images = [("Figure 1: caption", b"img", "image/png")]
         s.llm.generate.return_value = "response"
 
         result = PaperProcessor._generate(s, "extract Column X")
 
         assert result == "response"
         _, kwargs = s.llm.generate.call_args
-        assert kwargs["images"] == [(b"img", "image/png")]
+        assert kwargs["images"] == [("Figure 1: caption", b"img", "image/png")]
 
     def test_no_images_loaded_means_no_images_kwarg(self):
         s = _make_self()
@@ -146,20 +188,23 @@ class TestGenerateAttachesImages:
     def test_explicit_images_kwarg_is_not_overridden(self):
         s = _make_self()
         s._active_context_cache = None
-        s._active_figure_images = [(b"doc-wide-image", "image/png")]
+        s._active_figure_images = [("Figure 1: doc-wide caption", b"doc-wide-image", "image/png")]
         s.llm.generate.return_value = "response"
 
-        PaperProcessor._generate(s, "extract Column X", images=[(b"caller-override", "image/jpeg")])
+        PaperProcessor._generate(
+            s, "extract Column X",
+            images=[("Figure 9: caller caption", b"caller-override", "image/jpeg")],
+        )
 
         _, kwargs = s.llm.generate.call_args
-        assert kwargs["images"] == [(b"caller-override", "image/jpeg")]
+        assert kwargs["images"] == [("Figure 9: caller caption", b"caller-override", "image/jpeg")]
 
 
 class TestDeleteDocumentCacheClearsFigures:
     def test_clears_active_figure_images(self):
         s = _make_self()
         s._active_context_cache = None
-        s._active_figure_images = [(b"img", "image/png")]
+        s._active_figure_images = [("Figure 1: caption", b"img", "image/png")]
 
         PaperProcessor._delete_document_cache(s)
 

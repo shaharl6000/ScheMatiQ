@@ -771,24 +771,31 @@ class GeminiLLM(LLMInterface):
     def _build_contents(
         self,
         prompt_text: str,
-        images: Optional[List[Tuple[bytes, str]]],
+        images: Optional[List[Tuple[str, bytes, str]]],
     ):
         """Assemble ``contents`` for a generate_content call.
 
         Returns the plain prompt string when no images are given (unchanged
         behavior for every existing text-only caller), or a list mixing the
-        text with one ``Part.from_bytes`` per image when images are present.
+        text with one label + ``Part.from_bytes`` pair per image when images
+        are present. The label (e.g. "Figure 4: <caption>") rides immediately
+        before its image as its own text part — same as how prompt_text is
+        already just a bare string — so the model has an explicit, reliable
+        anchor for which figure it's looking at instead of guessing from
+        pixels alone.
         """
         if not images:
             return prompt_text
         parts: List[Any] = [prompt_text]
-        for image_bytes, mime_type in images:
+        for label, image_bytes, mime_type in images:
+            if label:
+                parts.append(label)
             parts.append(self.types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
         return parts
 
     def generate(self,
                  prompt: Union[str, List[Dict[str, str]]],
-                 images: Optional[List[Tuple[bytes, str]]] = None,
+                 images: Optional[List[Tuple[str, bytes, str]]] = None,
                  **kwargs) -> str:
         """
         Generate a response from Gemini with retry logic.
@@ -800,10 +807,12 @@ class GeminiLLM(LLMInterface):
             • list – chat-style messages with role/content pairs.
               System messages are extracted as system_instruction,
               user/assistant messages become the prompt content.
-        images : list[(bytes, mime_type)] | None
+        images : list[(label, bytes, mime_type)] | None
             Optional images attached alongside the prompt text in the same
             call (e.g. extracted figures), so the model reads them together
             with whatever the prompt is asking for rather than in isolation.
+            ``label`` (e.g. "Figure 4: <caption>") rides immediately before
+            its image as its own text part — pass "" for an unlabeled image.
         **kwargs:
             thinking_budget : int | None – Gemini thinking budget (0 = no thinking)
             response_schema : dict | None – Gemini controlled generation schema
@@ -1012,14 +1021,14 @@ class GeminiLLM(LLMInterface):
         self,
         prompt: str,
         cache,
-        images: Optional[List[Tuple[bytes, str]]] = None,
+        images: Optional[List[Tuple[str, bytes, str]]] = None,
         **kwargs,
     ) -> str:
         """Generate using a cached context. Falls back to regular generate if cache is None.
 
         Args
         ----
-        images : list[(bytes, mime_type)] | None
+        images : list[(label, bytes, mime_type)] | None
             Optional images attached to this live call, on top of the cached
             (text-only) context — see GeminiLLM.generate().
         """
