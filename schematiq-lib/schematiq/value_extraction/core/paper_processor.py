@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
+import mimetypes
 import os
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Set, Callable, Optional, List, Iterator
+from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
 
 logger = logging.getLogger(__name__)
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
@@ -93,6 +95,42 @@ REFERENCE_FULL_INJECT_MAX_CHARS = 12000
 # value extraction. Only applies when the LLM backend is Gemini.
 ENABLE_CONTROLLED_GENERATION = True
 
+# When True, attach each document's extracted figure images (see
+# figures_dir on extract_values_for_paper_with_units) to every per-unit
+# value-extraction call, alongside that call's own <REQUESTED_COLUMNS> —
+# so cell values that only appear inside a graph (an axis label, a legend
+# entry) aren't lost to a text-only prompt. Only applies when the LLM
+# backend is Gemini. No-ops (same as today) when a document has no figure
+# manifest, matching ExtractedFigure's "future vision-LLM step" note in
+# backend/app/models/figures.py.
+ENABLE_FIGURE_VISION_CONTEXT = True
+
+# Every image pdffigures2 renders is a PNG today (figure_extraction_service.py
+# invokes it with "-f", "png"); mimetypes is consulted first so a differently
+# -rendered file (a future format change, a manually placed image) is still
+# tagged correctly instead of silently mislabeled.
+_DEFAULT_FIGURE_MIME_TYPE = "image/png"
+
+
+def _build_figure_label(fig: Dict[str, Any]) -> str:
+    """Build the text label sent immediately before a figure's image.
+
+    Without this, an image reaches the model as an anonymous byte blob with
+    no way to know it's "Figure 4" versus any other image in the call — an
+    explicit label anchors it, e.g. "Figure 4: Fig. 4. Expression of the
+    a2,3 sialylated...". Degrades gracefully (never raises): label-only or
+    caption-only when a field is missing, "" (no text part at all) if both
+    figure_label/origin_name and caption are absent.
+    """
+    prefix = " ".join(
+        part for part in (fig.get("figure_label"), fig.get("origin_name")) if part
+    ).strip()
+    caption = (fig.get("caption") or "").strip()
+    if prefix and caption:
+        return f"{prefix}: {caption}"
+    return caption or prefix
+
+
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
 OnValueExtractedCallback = Callable[[str, str, Any], None]
 OnUnitRowWrittenCallback = Callable[[Dict[str, Any]], None]
@@ -147,6 +185,12 @@ class PaperProcessor:
         self.excerpt_grounder = ExcerptGrounder()
         # Active context cache for current document (Gemini only)
         self._active_context_cache = None
+        # Figure images for the current document — loaded once (see
+        # _load_document_figures), then attached to every per-unit call by
+        # _generate() so images and <REQUESTED_COLUMNS> always travel together.
+        # Each entry is (label, image_bytes, mime_type); label (e.g. "Figure 4:
+        # <caption>") rides as its own text part immediately before the image.
+        self._active_figure_images: List[Tuple[str, bytes, str]] = []
 
     @staticmethod
     def _flatten_extracted(cleaned: Dict[str, Any]) -> Dict[str, str]:
@@ -267,10 +311,159 @@ class PaperProcessor:
         return self.llm.create_context_cache(system_prompt, paper_text, ttl_seconds=300)
 
     def _delete_document_cache(self):
-        """Delete the active context cache if one exists."""
+        """Clear per-document state: the active context cache and any loaded figure images."""
         if self._active_context_cache and hasattr(self.llm, 'delete_context_cache'):
             self.llm.delete_context_cache(self._active_context_cache)
             self._active_context_cache = None
+        self._active_figure_images = []
+
+    def _ground_and_enforce(
+        self, cleaned: Dict[str, Any], source_text: str, context_label: str
+    ) -> Dict[str, Any]:
+        """Verify every answer's excerpts against source_text and null out any
+        answer with zero grounded support, instead of just logging stats.
+
+        The system prompt already requires every non-null answer to carry a
+        supporting excerpt "strictly from the provided passages," but nothing
+        previously checked that a claimed excerpt is real — a fabricated
+        answer (with a fabricated or missing excerpt) sailed through
+        unchanged. Tolerates fuzzy/paraphrased matches (grounding_status in
+        "exact"/"case_insensitive"/"fuzzy"); only a column whose excerpts are
+        ALL "not_found" — or which claims an answer with no excerpts at all —
+        gets nulled, since that's unsupported rather than merely paraphrased.
+        """
+        if not source_text:
+            return cleaned
+        grounding_stats = self.excerpt_grounder.ground_all_excerpts(cleaned, source_text)
+        if grounding_stats.get("not_found", 0) > 0:
+            print(
+                f"📍 Excerpt grounding for {context_label}: "
+                f"{grounding_stats['exact']} exact, "
+                f"{grounding_stats.get('case_insensitive', 0)} case_insensitive, "
+                f"{grounding_stats['fuzzy']} fuzzy, "
+                f"{grounding_stats['not_found']} not found"
+            )
+
+        source_normalized = " ".join(source_text.split())
+
+        for col_name, col_data in cleaned.items():
+            if col_name.startswith("_") or not isinstance(col_data, dict):
+                continue
+            answer = col_data.get("answer")
+            if answer in (None, ""):
+                continue
+            excerpts = col_data.get("excerpts") or []
+            statuses = {
+                exc.get("grounding_status") for exc in excerpts if isinstance(exc, dict)
+            }
+            grounded = bool(statuses & {"exact", "case_insensitive", "fuzzy"})
+            if not grounded:
+                # ExcerptGrounder's fuzzy phase re-verifies a word-level match by
+                # joining the matched words with single spaces and doing a plain
+                # substring search back in source_text — which fails whenever the
+                # real span uses different whitespace (a line-wrapped sentence, a
+                # markdown table's alignment padding), even though the words
+                # matched perfectly. Real extracted PDF/table text hits this
+                # constantly, so re-check with whitespace collapsed on both sides
+                # before concluding an excerpt is genuinely unsupported.
+                grounded = any(
+                    " ".join(str(exc.get("text", "")).split()) in source_normalized
+                    for exc in excerpts
+                    if isinstance(exc, dict) and exc.get("text")
+                )
+            if not grounded:
+                logger.warning(
+                    "[%s] Nulling ungrounded answer for column %r "
+                    "(no excerpt found in source text): %r",
+                    context_label, col_name, answer,
+                )
+                col_data["answer"] = None
+                col_data["excerpts"] = []
+
+        return cleaned
+
+    def _load_document_figures(self, figures_dir: Optional[Path]) -> None:
+        """Load every figure image for the current document into self._active_figure_images.
+
+        Called once per document (alongside _create_document_cache), not once
+        per unit/column — I/O happens exactly once. _generate() then attaches
+        this same set of images to every per-unit call for this document, so
+        an image is never sent to the model except alongside the specific
+        <REQUESTED_COLUMNS> it's meant to help fill. No relevance filtering:
+        every figure in the manifest is loaded, matching "read all figures
+        once" rather than pre-guessing which ones might matter.
+
+        Best-effort and silent: a missing manifest, a disabled flag, a
+        non-Gemini backend, or a bad image file all just leave
+        self._active_figure_images empty, degrading to today's text-only
+        behavior exactly like figure_extraction_service.py degrades to "no
+        figures extracted" on its own failures.
+        """
+        self._active_figure_images = []
+        if not ENABLE_FIGURE_VISION_CONTEXT:
+            return
+        if not figures_dir:
+            logger.debug("Figure image loading skipped: no figures_dir given")
+            return
+        if not self._is_gemini_backend():
+            logger.debug("Figure image loading skipped: non-Gemini backend")
+            return
+
+        manifest_path = figures_dir / "manifest.json"
+        if not manifest_path.is_file():
+            logger.debug("Figure image loading skipped: no manifest at %s", manifest_path)
+            return
+
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("Failed to read figure manifest %s: %s", manifest_path, e)
+            return
+
+        images: List[Tuple[str, bytes, str]] = []
+        attached_ids: Set[str] = set()
+        for fig in manifest.get("figures", []):
+            image_filename = fig.get("image_filename")
+            if not image_filename:
+                continue
+            image_path = figures_dir / image_filename
+            try:
+                image_bytes = image_path.read_bytes()
+            except Exception as e:
+                logger.warning("Failed to read figure image %s: %s", image_path, e)
+                continue
+            mime_type = mimetypes.guess_type(image_filename)[0] or _DEFAULT_FIGURE_MIME_TYPE
+            label = _build_figure_label(fig)
+            images.append((label, image_bytes, mime_type))
+            fig_id = fig.get("figure_id")
+            if fig_id:
+                attached_ids.add(fig_id)
+
+        if not images:
+            return
+
+        self._active_figure_images = images
+        logger.debug(
+            "Loaded %d figure image(s) for document context (%s)",
+            len(images), manifest_path,
+        )
+
+        # Audit trail only — records that this figure's image was shown to the
+        # model on this run (which model, when). Not a substitute description:
+        # extraction always reads the real image via self._active_figure_images,
+        # never this marker.
+        now_iso = datetime.now().isoformat()
+        model_name = getattr(self.llm, "model", None)
+        for fig in manifest.get("figures", []):
+            if fig.get("figure_id") in attached_ids:
+                fig["vision_model"] = model_name
+                fig["vision_extracted_at"] = now_iso
+        try:
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning("Failed to write figure attach audit trail %s: %s", manifest_path, e)
 
     def _generate(self, prompt, **kwargs) -> str:
         """Generate using context cache if available, otherwise regular generate.
@@ -280,7 +473,14 @@ class PaperProcessor:
         unit-specific system prompt that differs from the cached one.  We
         therefore prepend any system message content to the first user message
         so the unit-level instructions still reach the model.
+
+        Attaches self._active_figure_images (if any were loaded for the
+        current document) to this call, unless the caller already specified
+        its own images= — so every column-extraction call automatically sees
+        the document's figures alongside its <REQUESTED_COLUMNS>.
         """
+        if self._active_figure_images:
+            kwargs.setdefault("images", self._active_figure_images)
         if self._active_context_cache and hasattr(self.llm, 'generate_with_cache'):
             if isinstance(prompt, list):
                 system_parts = [m["content"] for m in prompt if m.get("role") == "system"]
@@ -1105,18 +1305,9 @@ class PaperProcessor:
                 row_name=row_name,
             )
 
-            # Excerpt grounding: verify excerpts against source text
-            grounding_stats = self.excerpt_grounder.ground_all_excerpts(
-                cleaned, paper_text
-            )
-            if grounding_stats.get("not_found", 0) > 0:
-                print(
-                    f"📍 Excerpt grounding for {paper_title}: "
-                    f"{grounding_stats['exact']} exact, "
-                    f"{grounding_stats.get('case_insensitive', 0)} case_insensitive, "
-                    f"{grounding_stats['fuzzy']} fuzzy, "
-                    f"{grounding_stats['not_found']} not found"
-                )
+            # Excerpt grounding: verify excerpts against source text, and null
+            # out any answer that isn't actually supported by one.
+            cleaned = self._ground_and_enforce(cleaned, paper_text, paper_title)
 
             return cleaned
 
@@ -1776,35 +1967,13 @@ class PaperProcessor:
             max_new_tokens=effective_max,
         )
 
-        # Excerpt grounding: verify each excerpt against the source text so
-        # per-unit extractions get the same hallucination signal as the paper
-        # path (extract_values_for_paper). Without this, per-unit rows carry
-        # excerpts tagged with a source filename by _attach_source_to_excerpts
-        # but no grounding_status, so a fabricated excerpt is indistinguishable
-        # from a verified one. Grounds against the full document text when
-        # available (fallback_text = paper_text or eff) to avoid false
-        # "not_found" on legitimate excerpts outside the retrieved passages.
-        grounding_stats = self.excerpt_grounder.ground_all_excerpts(
-            all_cleaned, fallback_text
+        # Excerpt grounding: verify excerpts against source text, and null out
+        # any answer that isn't actually supported by one — this is the path
+        # extract_values_for_paper_with_units() actually uses, so this can't
+        # just be the log-only check extract_values_for_paper() has.
+        all_cleaned = self._ground_and_enforce(
+            all_cleaned, fallback_text, f"{paper_title} - {unit_name}"
         )
-        if grounding_stats.get("not_found", 0) > 0:
-            logger.warning(
-                "[%s - %s] Excerpt grounding: %d not found "
-                "(exact=%d, case_insensitive=%d, fuzzy=%d)",
-                paper_title,
-                unit_name,
-                grounding_stats["not_found"],
-                grounding_stats["exact"],
-                grounding_stats.get("case_insensitive", 0),
-                grounding_stats["fuzzy"],
-            )
-            print(
-                f"📍 Excerpt grounding for {paper_title} - {unit_name}: "
-                f"{grounding_stats['exact']} exact, "
-                f"{grounding_stats.get('case_insensitive', 0)} case_insensitive, "
-                f"{grounding_stats['fuzzy']} fuzzy, "
-                f"{grounding_stats['not_found']} not found"
-            )
 
         # Align to the FULL schema so the row shape is unchanged; columns not
         # extracted this run stay absent/empty and the merge guard leaves their
@@ -1824,6 +1993,7 @@ class PaperProcessor:
         on_unit_extracted: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         known_units: Optional[List[str]] = None,
         unit_targets: Optional[Dict[str, Dict[str, Any]]] = None,
+        figures_dir: Optional[Path] = None,
     ) -> ExtractionResult:
         """
         Extract values from a paper, potentially producing multiple rows
@@ -1840,6 +2010,11 @@ class PaperProcessor:
             known_units: Optional list of unit names to use instead of LLM discovery.
                 When provided, skips the identify_observation_units LLM call and uses
                 these names directly with the full paper text as relevant passages.
+            figures_dir: Optional directory holding this paper's figure-extraction
+                manifest.json + images (documents/figures/{paper.stem}/, see
+                figure_extraction_service.py). When given (and the backend is
+                Gemini), every figure's image is attached to every per-unit
+                extraction call for this document — see _load_document_figures.
 
         Returns:
             ExtractionResult: ``skip_reason`` is set only when *rows* is empty because no
@@ -1895,8 +2070,15 @@ class PaperProcessor:
         # to make it reusable across all units in this document.
         cache_system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=observation_unit.name)
         self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
+
+        # Load this document's figure images once (I/O happens here only); every
+        # per-unit call below attaches them via _generate() so an image and the
+        # <REQUESTED_COLUMNS> it might answer always travel together.
+        self._load_document_figures(figures_dir)
         if self._active_context_cache:
             print(f"  📦 Created context cache for {paper_title}")
+        if self._active_figure_images:
+            print(f"  🖼️ Attached {len(self._active_figure_images)} figure image(s) for {paper_title}")
 
         # Extract values for each unit
         import time as time_module
