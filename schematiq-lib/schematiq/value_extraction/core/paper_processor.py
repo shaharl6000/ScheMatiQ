@@ -5,6 +5,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -76,6 +77,20 @@ def _chunk_list(lst: List, size: int) -> Iterator[List]:
     """Split list into chunks of given size."""
     for i in range(0, len(lst), size):
         yield lst[i : i + size]
+
+
+# Matches "Fig. 1", "Figure 12", "fig3", etc. Used by _deduplicate_units() to
+# recognize numbered-enumeration unit names, whose embeddings are too similar
+# to each other (differing only by digit) for the semantic-similarity check to
+# reliably tell "Fig. 1" apart from "Fig. 2" — see that method's docstring.
+_NUMBERED_UNIT_RE = re.compile(r"fig(?:ure)?\.?\s*(\d+)", re.IGNORECASE)
+
+
+def _numbered_unit_id(name: str) -> Optional[str]:
+    """Extract the figure number from a name like 'Fig. 3', or None if the
+    name doesn't match the numbered-figure pattern at all."""
+    m = _NUMBERED_UNIT_RE.search(name or "")
+    return m.group(1) if m else None
 
 
 # Default batch size for fallback column extraction
@@ -333,6 +348,15 @@ class PaperProcessor:
         gets nulled, since that's unsupported rather than merely paraphrased.
         """
         if not source_text:
+            return cleaned
+        if getattr(self, "_active_figure_images", None):
+            # An answer here may legitimately come from reading an attached
+            # figure image rather than the document's text (e.g. "what color
+            # appears in this figure") — there's no text excerpt to find for
+            # that, so this check can't distinguish "vision-derived" from
+            # "fabricated" and would null out correct answers. Skip grounding
+            # for units with attached images; the text-only path below still
+            # gets full enforcement.
             return cleaned
         grounding_stats = self.excerpt_grounder.ground_all_excerpts(cleaned, source_text)
         if grounding_stats.get("not_found", 0) > 0:
@@ -1458,6 +1482,7 @@ class PaperProcessor:
         # Compute embeddings for all unit names
         names = [u.get("unit_name", "") for u in units]
         embeddings = [_embed(name) for name in names]
+        numbered_ids = [_numbered_unit_id(name) for name in names]
 
         # Greedy clustering
         clusters: List[List[int]] = []  # each cluster is a list of indices
@@ -1471,6 +1496,21 @@ class PaperProcessor:
 
             for j in range(i + 1, len(units)):
                 if j in assigned:
+                    continue
+
+                # Both names are numbered-figure references (e.g. "Fig. 1",
+                # "Fig. 2") with different numbers: never merge, regardless of
+                # similarity. Short enumerated names like this embed too close
+                # together for the similarity check below to tell "different
+                # figure" from "same figure, different naming convention" —
+                # empirically, 'Fig. 1' vs 'Fig. 7' (0.89 similarity) scores
+                # lower than genuine duplicates like 'Figure 1' vs 'Figure 1a'
+                # (0.89), so no similarity threshold can separate both cases.
+                if (
+                    numbered_ids[i] is not None
+                    and numbered_ids[j] is not None
+                    and numbered_ids[i] != numbered_ids[j]
+                ):
                     continue
 
                 # Check semantic similarity

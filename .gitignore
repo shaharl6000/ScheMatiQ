@@ -137,6 +137,10 @@ Untitled
 * copy.*
 *\ copy.*
 backend/debug
+.hypothesis/
+
+# Scratch output from backend/scripts/preview_figure_extraction.py
+backend/scripts/_preview_output/
 
 # Local root-level helper/docs files
 /CLAUDE.md

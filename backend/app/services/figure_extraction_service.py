@@ -1,61 +1,48 @@
-"""Extract captioned figures/tables from PDFs via PDFFigures 2.0.
+"""Extract captioned figures/tables from PDFs via Docling.
 
-PDFFigures 2.0 (github.com/allenai/pdffigures2) is a JVM tool, so it's invoked
-as a subprocess (same pattern as `_run_libreoffice()` in
-document_conversion/convert_to_txt.py) rather than a library call. It only
-detects figures/tables that carry a caption; a captionless embedded image
-(e.g. a signature block) legitimately yields zero results, which is not a
-failure.
+Docling (docling-project/docling) is a Python library, so unlike the prior
+PDFFigures 2.0-based implementation (a JVM tool invoked as a subprocess) it
+runs in-process via a cached DocumentConverter. It detects every picture/
+table on the page, whether captioned or not; this module filters down to
+only those with a resolvable caption, matching the old PDFFigures2 behavior
+(a captionless embedded image, e.g. a signature block, legitimately yields
+zero results, which is not a failure).
+
+There is deliberately no hard wall-clock timeout here. The old subprocess
+call got one for free from `subprocess.run(timeout=...)`, which also gave
+OS-level crash isolation (a JVM hang only killed that subprocess). Docling
+runs on this process directly, so replicating both properties would require
+a persistent worker process; that complexity isn't taken on for this pass
+since Docling doesn't have PDFFigures2's known hang history. If it proves
+necessary, `extract_figures()` is the place to add it.
 
 Called from document_preprocessor.preprocess_uploaded_file() for every
-uploaded PDF. Never raises: a missing jar, a crashed subprocess, or a
-malformed PDF all degrade to "no figures extracted" without touching the
-existing text-extraction path.
+uploaded PDF. Never raises: a missing/broken model install, a crashed
+conversion, or a malformed PDF all degrade to "no figures extracted" without
+touching the existing text-extraction path.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
-import subprocess
 import tempfile
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple
+from typing import List, Literal, Optional
 
-import pymupdf
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling_core.types.doc import BoundingBox, PictureItem, TableItem
 
-from app.core.config import (
-    ENABLE_FIGURE_EXTRACTION,
-    FIGURE_EXTRACTION_TIMEOUT_SECONDS,
-    PDFFIGURES2_JAR_PATH,
-)
-from app.models.figures import (
-    ExtractedFigure,
-    FigureBBox,
-    FigureContextParagraph,
-    FigureExtractionManifest,
-)
+from app.core.config import DOCLING_ARTIFACTS_PATH, ENABLE_FIGURE_EXTRACTION
+from app.models.figures import ExtractedFigure, FigureExtractionManifest
 
-_CONTEXT_WINDOW = 3
-_DPI = 150
-
-# A figure's own region_bbox is trusted unless it looks implausible next to its
-# (reliably-detected) caption_bbox — see _is_region_degenerate(). Found against a
-# real case: an NIH-PA "Author Manuscript" PDF where PDFFigures2's region-grower
-# locked onto the page's rotated watermark sidebar instead of the actual figure,
-# for every figure in the document (same bogus box, unrelated content).
-_MIN_REGION_TO_CAPTION_WIDTH_RATIO = 0.2
-_MAX_REGION_ASPECT_RATIO = 4.0
-# Only used when there's no preceding item on the page to anchor to at all —
-# NOT a routine ceiling. A real figure taller than this must never be clamped;
-# see _fallback_crop_rect().
-_MAX_FALLBACK_HEIGHT = 650.0
-_FALLBACK_CAPTION_GAP = 4.0
-_FALLBACK_WIDTH_MARGIN = 20.0  # padding beyond the caption's own left/right, in points
+# scale=1 ~ 72 DPI; the old PDFFigures2 pipeline rendered at 150 DPI (~2.08x).
+_IMAGES_SCALE = 2.0
 
 
 @dataclass
@@ -67,293 +54,234 @@ class _FigureBuildResult:
 
 
 # ---------------------------------------------------------------------------
-# Jar resolution (lazy singleton, mirrors _get_soffice_path in
-# document_preprocessor.py)
+# DocumentConverter resolution (lazy singleton — construction loads ML model
+# weights, so it's built at most once per process, mirroring the old
+# _get_jar_path()'s "resolve once" pattern).
 # ---------------------------------------------------------------------------
 
-_jar_lock = threading.Lock()
-_jar_path: Optional[str] = None
-_jar_resolved = False
+_converter_lock = threading.Lock()
+_doc_converter: Optional[DocumentConverter] = None
+_converter_resolved = False
 
 
-def _get_jar_path() -> Optional[str]:
-    """Resolve the pdffigures2 jar path once per process (None if unavailable)."""
-    global _jar_path, _jar_resolved
-    if _jar_resolved:
-        return _jar_path
-    with _jar_lock:
-        if _jar_resolved:
-            return _jar_path
-        java_available = shutil.which("java") is not None
-        jar_file = Path(PDFFIGURES2_JAR_PATH)
-        _jar_path = str(jar_file) if java_available and jar_file.is_file() else None
-        _jar_resolved = True
-        return _jar_path
+def _build_converter() -> DocumentConverter:
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.images_scale = _IMAGES_SCALE
+    pipeline_options.generate_picture_images = True
+    # Needed so document.pages[n].image is populated — _merge_adjacent_pictures()
+    # crops arbitrary (merged) regions from the full page bitmap, which
+    # per-picture images (generate_picture_images) alone can't provide.
+    pipeline_options.generate_page_images = True
+    # OCR is a significant fraction of Docling's per-document conversion time
+    # (RapidOCR runs on every page by default) and we don't consume its
+    # output: _build_figure_records() reads captions via caption_text(),
+    # which resolves the PDF's native text layer, not OCR text. Skipping it
+    # only matters for a caption that exists solely as a scanned image with
+    # no text layer — an edge case we're accepting to keep conversion fast.
+    pipeline_options.do_ocr = False
+    if DOCLING_ARTIFACTS_PATH:
+        pipeline_options.artifacts_path = DOCLING_ARTIFACTS_PATH
+    return DocumentConverter(
+        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+    )
 
 
-# ---------------------------------------------------------------------------
-# Heading / paragraph matching (pure, no subprocess — unit-testable directly)
-# ---------------------------------------------------------------------------
+def _get_doc_converter() -> Optional[DocumentConverter]:
+    """Build (once per process) and cache the Docling DocumentConverter.
 
-def _flatten_positioned_items(sections: List[dict]) -> List[dict]:
-    """Flatten PDFFigures2's `sections` into a page/y-ordered list of titles+paragraphs.
-
-    Carries each item's `x1` too (not just `y1`) so callers can tell which
-    column of a multi-column page an item belongs to — see _column_split().
+    A construction failure (missing/corrupt model weights, etc.) is cached
+    too — the feature no-ops for the rest of the process's lifetime, matching
+    the old "missing jar" degrade-and-move-on behavior.
     """
-    items: List[dict] = []
-    for section in sections:
-        title = section.get("title")
-        if title:
-            items.append({
-                "page": title["page"], "y1": title["region"]["y1"], "x1": title["region"]["x1"],
-                "kind": "title", "text": title["text"],
-            })
-        for para in section.get("paragraphs") or []:
-            items.append({
-                "page": para["page"], "y1": para["region"]["y1"], "x1": para["region"]["x1"],
-                "kind": "paragraph", "text": para["text"],
-            })
-    items.sort(key=lambda it: (it["page"], it["y1"]))
-    return items
+    global _doc_converter, _converter_resolved
+    if _converter_resolved:
+        return _doc_converter
+    with _converter_lock:
+        if _converter_resolved:
+            return _doc_converter
+        try:
+            _doc_converter = _build_converter()
+        except Exception:
+            _doc_converter = None
+        _converter_resolved = True
+        return _doc_converter
 
 
-def _insertion_pos(page: int, y1: float, items: List[dict]) -> int:
-    """Index of the first item at or after (page, y1) in reading order."""
-    pos = 0
-    for i, it in enumerate(items):
-        if (it["page"], it["y1"]) < (page, y1):
-            pos = i + 1
+# ---------------------------------------------------------------------------
+# Docling document -> ExtractedFigure records (pure aside from image I/O —
+# unit-testable against a fake document object exposing iterate_items())
+# ---------------------------------------------------------------------------
+
+# Max gap (PDF points) between two picture bboxes for them to be treated as
+# panels of the same figure. Docling's layout model sometimes detects a
+# multi-panel figure (e.g. panel A + panel B) as two separate PictureItems
+# instead of one region, and its caption-clustering links the caption to only
+# one of them; _merge_adjacent_pictures() re-attaches the other panel(s) by
+# proximity. 20pt comfortably covers the ~12pt gaps seen between real panels
+# while staying well short of the spacing between genuinely distinct figures.
+_PANEL_MERGE_GAP_PT = 20.0
+
+
+def _panel_gap(a: BoundingBox, b: BoundingBox) -> Optional[float]:
+    """Gap between two bboxes if they read as stacked/adjacent panels of one
+    figure (overlapping on one axis, offset along the other). None if neither
+    axis overlaps — not a plausible panel-stacking relationship."""
+    if a.overlaps_horizontally(b):
+        if a.b >= b.t:
+            return a.b - b.t
+        if b.b >= a.t:
+            return b.b - a.t
+        return 0.0  # also overlap vertically -> touching/overlapping
+    if a.overlaps_vertically(b):
+        if a.r <= b.l:
+            return b.l - a.r
+        if b.r <= a.l:
+            return a.l - b.r
+        return 0.0
+    return None
+
+
+def _merge_adjacent_pictures(candidates: list) -> dict:
+    """For each captioned PictureItem candidate, absorb nearby uncaptioned
+    PictureItem candidates on the same page (see _PANEL_MERGE_GAP_PT) into a
+    merged bbox, growing iteratively so a 3+-panel figure with only one
+    captioned panel still merges fully. Each uncaptioned candidate is
+    absorbed by at most one figure.
+
+    Returns {id(candidate): merged_bbox} only for candidates that actually
+    absorbed >=1 neighbor — callers should fall back to the candidate's own
+    element.get_image() otherwise, matching pre-merge behavior exactly.
+    """
+    merge_bbox: dict = {}
+    consumed: set = set()
+
+    pictures = [c for c in candidates if c["label"] == "Figure"]
+    pages = {c["page_no"] for c in pictures}
+    for page_no in pages:
+        page_pics = [c for c in pictures if c["page_no"] == page_no]
+        captioned = [c for c in page_pics if c["caption"]]
+        uncaptioned = [c for c in page_pics if not c["caption"]]
+
+        for cap_c in captioned:
+            merged_boxes = [cap_c["bbox"]]
+            grew = True
+            while grew:
+                grew = False
+                current_union = BoundingBox.enclosing_bbox(merged_boxes)
+                for unc_c in uncaptioned:
+                    if id(unc_c) in consumed:
+                        continue
+                    gap = _panel_gap(current_union, unc_c["bbox"])
+                    if gap is not None and gap <= _PANEL_MERGE_GAP_PT:
+                        merged_boxes.append(unc_c["bbox"])
+                        consumed.add(id(unc_c))
+                        grew = True
+                        break  # bbox grew; re-scan from the updated union
+            if len(merged_boxes) > 1:
+                merge_bbox[id(cap_c)] = BoundingBox.enclosing_bbox(merged_boxes)
+
+    return merge_bbox
+
+
+def _crop_page_region(document, page_no: int, bbox: BoundingBox):
+    """Crop an arbitrary bbox from document.pages[page_no]'s full-page image
+    (requires PdfPipelineOptions.generate_page_images=True). Mirrors the
+    transform docling_core's DocItem.get_image() uses internally, just with a
+    caller-supplied bbox instead of the item's own provenance bbox."""
+    page = document.pages.get(page_no)
+    if page is None or page.size is None or page.image is None:
+        return None
+    page_image = page.image.pil_image
+    if not page_image:
+        return None
+    crop_bbox = bbox.to_top_left_origin(page_height=page.size.height).scale_to_size(
+        old_size=page.size, new_size=page.image.size
+    )
+    return page_image.crop(crop_bbox.as_tuple())
+
+
+def _build_figure_records(document, tmp_dir: Path, *, source_document: str) -> List[ExtractedFigure]:
+    """Walk a converted Docling document, saving one PNG per captioned
+    figure/table into tmp_dir and returning their ExtractedFigure records.
+
+    Captionless pictures/tables are skipped (`if not caption`) to match
+    PDFFigures2's old "captioned only" behavior — this is the single toggle
+    point if that decision changes later. A figure/table missing provenance
+    (page number) or whose image can't be read/saved is also skipped rather
+    than emitted with a fabricated/absent required field; none of these are
+    expected in practice for items reaching iterate_items(), so they're
+    defensive rather than routine paths.
+
+    Before filtering, a captioned PictureItem with an adjacent uncaptioned
+    PictureItem on the same page (see _merge_adjacent_pictures) has its crop
+    region expanded to cover both — Docling sometimes splits one multi-panel
+    figure into separate regions and only associates the caption with one.
+    """
+    candidates = []
+    for element, _level in document.iterate_items():
+        if isinstance(element, PictureItem):
+            label: Literal["Figure", "Table"] = "Figure"
+        elif isinstance(element, TableItem):
+            label = "Table"
         else:
-            break
-    return pos
+            continue
 
+        if not element.prov:
+            continue
 
-def _match_figure_context(
-    page: int, y1: float, items: List[dict],
-) -> Tuple[Optional[str], List[FigureContextParagraph]]:
-    """Nearest preceding heading + up to _CONTEXT_WINDOW paragraphs before/after."""
-    pos = _insertion_pos(page, y1, items)
+        try:
+            caption = element.caption_text(document) or None
+        except Exception:
+            caption = None
 
-    nearby_heading: Optional[str] = None
-    for i in range(pos - 1, -1, -1):
-        if items[i]["kind"] == "title":
-            nearby_heading = items[i]["text"]
-            break
+        candidates.append({
+            "element": element,
+            "label": label,
+            "page_no": element.prov[0].page_no,
+            "bbox": element.prov[0].bbox,
+            "caption": caption,
+        })
 
-    context: List[FigureContextParagraph] = []
-    collected = 0
-    for i in range(pos - 1, -1, -1):
-        if items[i]["kind"] == "paragraph":
-            context.append(FigureContextParagraph(
-                text=items[i]["text"], position="before", distance=pos - i,
-            ))
-            collected += 1
-            if collected >= _CONTEXT_WINDOW:
-                break
+    merge_bbox = _merge_adjacent_pictures(candidates)
 
-    collected = 0
-    for i in range(pos, len(items)):
-        if items[i]["kind"] == "paragraph":
-            context.append(FigureContextParagraph(
-                text=items[i]["text"], position="after", distance=i - pos,
-            ))
-            collected += 1
-            if collected >= _CONTEXT_WINDOW:
-                break
-
-    return nearby_heading, context
-
-
-def _to_bbox(box: Optional[dict], page: int) -> Optional[FigureBBox]:
-    if not box:
-        return None
-    return FigureBBox(left=box["x1"], top=box["y1"], right=box["x2"], bottom=box["y2"], page_no=page)
-
-
-_MIN_COLUMN_SPREAD = 150.0  # min x1 range on a page before we trust a two-column split at all
-
-
-def _column_split(page: int, items: List[dict]) -> Optional[float]:
-    """Midpoint x for a simple two-column split on this page, or None when the
-    page's items don't show enough horizontal spread to reliably imply two
-    columns (a single-column page, or too few items to tell).
-    """
-    xs = [it["x1"] for it in items if it["page"] == page]
-    if len(xs) < 4:
-        return None
-    lo, hi = min(xs), max(xs)
-    if hi - lo < _MIN_COLUMN_SPREAD:
-        return None
-    return (lo + hi) / 2.0
-
-
-def _column_of(x: float, split: Optional[float]) -> int:
-    """0 (left/only column) or 1 (right column), given a column split midpoint."""
-    if split is None:
-        return 0
-    return 1 if x >= split else 0
-
-
-def _is_region_degenerate(
-    region: Optional[FigureBBox],
-    caption: Optional[FigureBBox],
-    *,
-    page: Optional[int] = None,
-    items: Optional[List[dict]] = None,
-) -> bool:
-    """True when PDFFigures2's own region_bbox is implausible next to its own
-    caption_bbox (which is detected far more reliably) — either a narrow
-    sliver unrelated to the actual figure, or (when page/items are given) a
-    region pulled from the wrong column of a multi-column page — rather than
-    a real detection failure we have no better signal for.
-    """
-    if region is None:
-        return caption is not None
-    width = region.right - region.left
-    height = region.bottom - region.top
-    if width <= 0 or height <= 0:
-        return True
-    if height / width > _MAX_REGION_ASPECT_RATIO:
-        return True
-    if caption is not None:
-        caption_width = caption.right - caption.left
-        if caption_width > 0 and width / caption_width < _MIN_REGION_TO_CAPTION_WIDTH_RATIO:
-            return True
-        if page is not None and items is not None:
-            split = _column_split(page, items)
-            if split is not None and _column_of(region.left, split) != _column_of(caption.left, split):
-                return True
-    return False
-
-
-def _fallback_crop_rect(
-    page: int, caption: FigureBBox, items: List[dict], *, label: str = "Figure",
-) -> Tuple[float, float, float, float]:
-    """Caption-anchored crop box (left, top, right, bottom) for a figure whose
-    own region_bbox is degenerate: the caption's extent padded by
-    _FALLBACK_WIDTH_MARGIN on each side, vertically bounded by the caption's
-    edge and the nearest heading/paragraph on the same page *and same column*
-    (restricting to the caption's own column matters on multi-column pages —
-    otherwise "nearest item" can pull in unrelated content from the other
-    column, which is exactly how the region we're replacing went wrong).
-
-    Direction depends on `label`: Tables conventionally have their caption
-    ABOVE the content (bound down to the next same-column item), Figures
-    BELOW it (bound up to the preceding same-column item) — this is the
-    near-universal academic-paper convention, and far more reliable than
-    trying to infer direction from the (already untrustworthy) region.
-
-    _MAX_FALLBACK_HEIGHT only applies when there's no neighboring item at all
-    to anchor to (e.g. the figure/table is the first or last thing on the
-    page) — a real, known neighbor position is always honored as-is, however
-    far from the caption it sits, since a tall multi-panel figure or a
-    multi-section table legitimately spans that whole gap and clamping it
-    would crop real content off.
-    """
-    split = _column_split(page, items)
-    caption_col = _column_of(caption.left, split)
-    same_column = [it for it in items if it["page"] == page and _column_of(it["x1"], split) == caption_col]
-
-    if label == "Table":
-        pos = _insertion_pos(page, caption.bottom, same_column)
-        following_y = same_column[pos]["y1"] if pos < len(same_column) else None
-        top = caption.bottom + _FALLBACK_CAPTION_GAP
-        bottom = (following_y - _FALLBACK_CAPTION_GAP) if following_y is not None else top + _MAX_FALLBACK_HEIGHT
-        if top >= bottom:
-            bottom = top + 20.0
-    else:
-        pos = _insertion_pos(page, caption.top, same_column)
-        preceding_y = same_column[pos - 1]["y1"] if pos > 0 else None
-        bottom = caption.top - _FALLBACK_CAPTION_GAP
-        top = preceding_y if preceding_y is not None else max(0.0, caption.top - _MAX_FALLBACK_HEIGHT)
-        if top >= bottom:
-            top = max(0.0, bottom - 20.0)
-
-    return caption.left - _FALLBACK_WIDTH_MARGIN, top, caption.right + _FALLBACK_WIDTH_MARGIN, bottom
-
-
-def _build_figure_records(raw: dict, *, source_document: str) -> List[ExtractedFigure]:
-    """Reshape PDFFigures2's DocumentWithSavedFigures JSON into ExtractedFigure records.
-
-    When PDFFigures2's own region_bbox looks implausible next to its caption_bbox,
-    substitutes a caption-anchored fallback box (region_source="caption_fallback")
-    and matches heading/context against the caption's position instead of the bad
-    region's. The actual pixel re-render for that fallback box happens back in
-    extract_figures(), which has the open PDF; this function only decides the box.
-    """
-    items = _flatten_positioned_items(raw.get("sections") or [])
     figures: List[ExtractedFigure] = []
-    for idx, fig_raw in enumerate(raw.get("figures") or [], start=1):
-        page = fig_raw["page"]
-        label = fig_raw.get("figType", "Figure")
-        region_bbox = _to_bbox(fig_raw.get("regionBoundary"), page)
-        caption_bbox = _to_bbox(fig_raw.get("captionBoundary"), page)
+    seq = 0
+    for c in candidates:
+        if not c["caption"]:
+            continue
 
-        region_source: Literal["detected", "caption_fallback"] = "detected"
-        match_y1 = region_bbox.top if region_bbox else 0.0
-        if caption_bbox is not None and _is_region_degenerate(region_bbox, caption_bbox, page=page, items=items):
-            region_source = "caption_fallback"
-            left, top, right, bottom = _fallback_crop_rect(page, caption_bbox, items, label=label)
-            region_bbox = FigureBBox(left=left, top=top, right=right, bottom=bottom, page_no=page)
-            match_y1 = caption_bbox.top
+        element = c["element"]
+        merged = merge_bbox.get(id(c))
+        try:
+            img = _crop_page_region(document, c["page_no"], merged) if merged is not None \
+                else element.get_image(document)
+        except Exception:
+            img = None
+        if img is None:
+            continue
 
-        heading, context = _match_figure_context(page, match_y1, items)
-
-        render_url = fig_raw.get("renderURL") or ""
-        image_filename = Path(render_url).name if render_url else ""
-        if not image_filename and region_source == "caption_fallback":
-            image_filename = f"fallback-fig{idx:03d}.png"
+        seq += 1
+        image_filename = f"fig{seq:03d}.png"
+        try:
+            img.save(tmp_dir / image_filename, "PNG")
+        except Exception:
+            seq -= 1
+            continue
 
         figures.append(ExtractedFigure(
-            figure_id=f"fig{idx:03d}",  # doc_stem prefix added by persist_figures()
+            figure_id=f"fig{seq:03d}",  # doc_stem prefix added by persist_figures()
             source_document=source_document,
-            figure_label=label,
-            page_no=page,
-            region_bbox=region_bbox,
-            caption_bbox=caption_bbox,
+            figure_label=c["label"],
+            page_no=c["page_no"],
             image_filename=image_filename,
-            caption=fig_raw.get("caption"),
-            image_text=fig_raw.get("imageText") or [],
-            nearby_heading=heading,
-            context_paragraphs=context,
-            origin_name=fig_raw.get("name"),
-            region_source=region_source,
+            caption=c["caption"],
+            origin_name=getattr(element, "self_ref", None),
         ))
     return figures
 
 
-def _render_fallback_crops(figures: List[ExtractedFigure], pdf_path: Path, tmp_dir: Path) -> None:
-    """Re-render each caption_fallback figure's region_bbox directly from the
-    PDF, overwriting whatever (possibly degenerate) image PDFFigures2 itself
-    produced at the same image_filename. Best-effort: a figure that fails to
-    render here just keeps PDFFigures2's own image, if any.
-    """
-    fallback_figures = [f for f in figures if f.region_source == "caption_fallback" and f.region_bbox]
-    if not fallback_figures:
-        return
-    try:
-        doc = pymupdf.open(str(pdf_path))
-    except Exception:
-        return
-    try:
-        for fig in fallback_figures:
-            try:
-                page = doc[fig.page_no]
-                box = fig.region_bbox
-                rect = pymupdf.Rect(box.left, box.top, box.right, box.bottom) & page.rect
-                if rect.is_empty:
-                    continue
-                pixmap = page.get_pixmap(clip=rect, dpi=_DPI)
-                pixmap.save(str(tmp_dir / fig.image_filename))
-            except Exception:
-                continue
-    finally:
-        doc.close()
-
-
 # ---------------------------------------------------------------------------
-# Extraction (subprocess) + persistence
+# Extraction + persistence
 # ---------------------------------------------------------------------------
 
 _STALE_STAGING_AGE_SECONDS = 3600  # sweep .extract_* dirs abandoned by a crashed/killed prior run
@@ -377,7 +305,7 @@ def cleanup_staging_dir(tmp_dir: Path) -> None:
 
 def _sweep_stale_staging_dirs(staging_root: Path) -> None:
     """Best-effort cleanup of .extract_* dirs left behind by a process that died
-    mid-extraction (e.g. a server restart between pdffigures2 finishing and
+    mid-extraction (e.g. a server restart between conversion finishing and
     persist_figures() moving its output). Never raises."""
     try:
         now = time.time()
@@ -394,24 +322,24 @@ def _sweep_stale_staging_dirs(staging_root: Path) -> None:
 
 
 def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str) -> Optional[_FigureBuildResult]:
-    """Run pdffigures2 on pdf_path (still on disk) into a staging dir under
+    """Run Docling on pdf_path (still on disk) into a staging dir under
     documents_dir/figures/.
 
     The staging dir lives inside documents_dir/figures/ (not the OS temp dir) so
-    that if the process is killed between pdffigures2 finishing and
-    persist_figures() renaming it into place, whatever pdffigures2 already found
+    that if the process is killed between conversion finishing and
+    persist_figures() renaming it into place, whatever Docling already found
     is sitting right there in the project, not lost under a system temp
     directory nobody looks at.
 
-    Never raises. Returns None when extraction is disabled or unavailable (no
-    staging dir is created in that case). Otherwise always returns a result
-    whose tmp_dir the caller (persist_figures) is responsible for consuming
-    (renaming into place) or cleaning up.
+    Never raises. Returns None when extraction is disabled or the converter is
+    unavailable (no staging dir is created in that case). Otherwise always
+    returns a result whose tmp_dir the caller (persist_figures) is responsible
+    for consuming (renaming into place) or cleaning up.
     """
     if not ENABLE_FIGURE_EXTRACTION:
         return None
-    jar_path = _get_jar_path()
-    if not jar_path:
+    converter = _get_doc_converter()
+    if converter is None:
         return None
 
     staging_root = documents_dir / "figures"
@@ -419,64 +347,11 @@ def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str
     _sweep_stale_staging_dirs(staging_root)
     tmp_dir = Path(tempfile.mkdtemp(prefix=".extract_", dir=str(staging_root)))
 
-    # Copy to a fixed ASCII-only filename before invoking the jar. On Windows,
-    # the JVM decodes argv/filenames using the system's legacy codepage, not
-    # UTF-8 (this is NOT reliably fixable via -Dsun.jnu.encoding=UTF-8 — that
-    # property is derived from the OS locale very early in JVM bootstrap and
-    # ignores that flag in practice). A non-ASCII character anywhere in the
-    # PDF's name (e.g. a unicode hyphen "‐") then gets mangled, the resulting
-    # File no longer matches anything on disk, and pdffigures2 exits 1 with
-    # "is not a PDF file" despite the file existing. Sidestep the whole class
-    # of encoding issues by never passing a non-ASCII path to java at all.
-    safe_input = tmp_dir / "input.pdf"
     try:
-        shutil.copyfile(str(pdf_path), str(safe_input))
+        conv_res = converter.convert(str(pdf_path))
+        figures = _build_figure_records(conv_res.document, tmp_dir, source_document=source_document)
     except Exception as e:
         return _FigureBuildResult([], tmp_dir, status="failed", error=str(e))
-
-    prefix = str(tmp_dir) + os.sep
-    cmd = [
-        "java",
-        # pdffigures2 writes its output JSON via `new PrintWriter(file)` with no
-        # explicit charset (FigureRenderer.scala), so it uses the JVM's default
-        # charset — on Windows that's the system codepage, not UTF-8. Any
-        # typographic character in the PDF's text (smart quotes, en-dashes —
-        # common in real papers) then gets written as non-UTF-8 bytes, and
-        # Python's read_text(encoding="utf-8") below fails to decode them.
-        # Unlike sun.jnu.encoding (filename/argv decoding, NOT overridable this
-        # way — see the ASCII-safe-copy above), file.encoding IS honored via
-        # -D for JVM Writers/PrintStreams, so this fixes it at the source.
-        "-Dfile.encoding=UTF-8",
-        "-jar", jar_path, str(safe_input),
-        "-g", prefix, "-m", prefix,
-        "-i", str(_DPI), "-f", "png", "-e", "-q",
-    ]
-
-    try:
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=FIGURE_EXTRACTION_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        return _FigureBuildResult([], tmp_dir, status="failed", error="timed out")
-    except Exception as e:
-        return _FigureBuildResult([], tmp_dir, status="failed", error=str(e))
-
-    output_json = tmp_dir / f"{safe_input.stem}.json"
-    if not output_json.exists():
-        if result.returncode != 0:
-            stderr_tail = (result.stderr or b"").decode(errors="replace")[-500:]
-            return _FigureBuildResult([], tmp_dir, status="failed", error=f"non-zero exit, no output: {stderr_tail}")
-        # Exit 0, no output file: no captioned figures found — not a failure.
-        return _FigureBuildResult([], tmp_dir, status="ok", error=None)
-
-    try:
-        raw = json.loads(output_json.read_text(encoding="utf-8"))
-        figures = _build_figure_records(raw, source_document=source_document)
-    except Exception as e:
-        return _FigureBuildResult([], tmp_dir, status="failed", error=str(e))
-
-    _render_fallback_crops(figures, safe_input, tmp_dir)
 
     return _FigureBuildResult(figures, tmp_dir, status="ok", error=None)
 
@@ -490,10 +365,10 @@ def persist_figures(
 ) -> Optional[Path]:
     """Finalize build_result's staging dir into documents_dir/figures/{doc_stem}/.
 
-    Writes manifest.json into the staging dir, strips pdffigures2's own scratch
-    files (the staged PDF copy + its raw JSON) so only the wanted images +
-    manifest.json remain, then does a single atomic rename of the staging dir
-    into place — there is no window where a partially-moved folder can exist.
+    Writes manifest.json into the staging dir, strips any scratch files not
+    named in the manifest so only the wanted images + manifest.json remain,
+    then does a single atomic rename of the staging dir into place — there is
+    no window where a partially-moved folder can exist.
 
     Never raises. No-op (no directory created) when build_result is None or has
     no figures. Always cleans up build_result.tmp_dir (a no-op after a
@@ -521,8 +396,6 @@ def persist_figures(
             manifest.model_dump_json(indent=2), encoding="utf-8",
         )
 
-        # Drop pdffigures2's own scratch files (staged PDF copy + raw JSON) so
-        # only the wanted images + manifest.json survive into the final folder.
         for f in build_result.tmp_dir.iterdir():
             if f.is_file() and f.name not in wanted and f.name != "manifest.json":
                 f.unlink()

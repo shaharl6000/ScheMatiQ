@@ -2,33 +2,6 @@
 # Build from project root: docker build -f backend/Dockerfile -t schematiq-backend .
 
 # ---------------------------------------------------------------------------
-# Builder stage: compile the PDFFigures 2.0 (allenai) assembly jar. No prebuilt
-# release is published upstream, so it's built from source once here; only the
-# resulting jar is copied into the final image (the JDK/sbt/Ivy cache are not).
-#
-# Pinned to a `master` commit, NOT the `v0.0.11` tag: that tag's build (sbt
-# 0.13.8 + the `allenai-sbt-plugins` plugin) depends on Bintray, which shut
-# down in 2021, so it can no longer resolve its dependencies. `master` was
-# modernized (sbt 1.7.1, Maven-Central-only deps) after that tag was cut and
-# is what actually builds today — verified locally on 2026-08-23.
-# ---------------------------------------------------------------------------
-FROM eclipse-temurin:11-jdk AS pdffigures2-builder
-
-RUN apt-get update && apt-get install -y curl git && rm -rf /var/lib/apt/lists/*
-
-# Official sbt distribution (sbt itself pulls the Scala 2.12 toolchain build.sbt pins)
-RUN curl -fL https://github.com/sbt/sbt/releases/download/v1.9.9/sbt-1.9.9.tgz | tar xz -C /usr/local
-ENV PATH="/usr/local/sbt/bin:${PATH}"
-
-RUN git clone https://github.com/allenai/pdffigures2.git /opt/pdffigures2-src && \
-    cd /opt/pdffigures2-src && \
-    git checkout 3d7ad46753d4a315cccd1c2bcab398380e88c534
-WORKDIR /opt/pdffigures2-src
-# build.sbt sets a custom `assemblyOutputPath` — the jar lands at the project
-# root as `pdffigures2.jar`, not under target/scala-2.12/ (sbt-assembly's default).
-RUN sbt assembly && cp pdffigures2.jar /opt/pdffigures2-assembly.jar
-
-# ---------------------------------------------------------------------------
 # Final image
 # ---------------------------------------------------------------------------
 FROM python:3.11-slim
@@ -43,12 +16,7 @@ RUN apt-get update && apt-get install -y \
     libreoffice-writer \
     poppler-utils \
     tesseract-ocr \
-    openjdk-11-jre-headless \
     && rm -rf /var/lib/apt/lists/*
-
-# PDFFigures 2.0 assembly jar built above — see app/core/config.py:PDFFIGURES2_JAR_PATH.
-# Figure extraction no-ops gracefully if this (or java) is ever unavailable.
-COPY --from=pdffigures2-builder /opt/pdffigures2-assembly.jar /opt/pdffigures2/pdffigures2-assembly.jar
 
 # Copy schematiq-lib first (dependency for backend)
 COPY schematiq-lib/ /app/schematiq-lib/
@@ -62,6 +30,14 @@ RUN pip install --no-cache-dir -e /app/schematiq-lib/
 # Copy backend requirements and install (separate layer for caching)
 COPY backend/requirements.txt /app/backend/
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+
+# Prefetch Docling's model weights (layout + table-structure models) into the
+# image at build time, so figure extraction doesn't pay a multi-hundred-MB
+# HuggingFace download on the first request and the container works fully
+# offline at runtime. See app/core/config.py:DOCLING_ARTIFACTS_PATH — this
+# path must match what's passed there.
+ENV DOCLING_ARTIFACTS_PATH=/opt/docling-models
+RUN docling-tools models download --output-dir ${DOCLING_ARTIFACTS_PATH}
 
 # Copy backend source code
 COPY backend/ /app/backend/

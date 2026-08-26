@@ -19,8 +19,11 @@ from schematiq.value_extraction.core.paper_processor import PaperProcessor
 from schematiq.value_extraction.utils.excerpt_grounder import ExcerptGrounder
 
 
-def _make_self():
-    return SimpleNamespace(excerpt_grounder=ExcerptGrounder())
+def _make_self(active_figure_images=None):
+    return SimpleNamespace(
+        excerpt_grounder=ExcerptGrounder(),
+        _active_figure_images=active_figure_images or [],
+    )
 
 
 SOURCE_TEXT = (
@@ -130,3 +133,38 @@ def test_empty_source_text_is_a_noop():
     cleaned = {"region_name": {"answer": "d1_domain", "excerpts": [{"text": "anything", "source": "doc"}]}}
     result = PaperProcessor._ground_and_enforce(s, cleaned, "", "doc")
     assert result["region_name"]["answer"] == "d1_domain"
+
+
+def test_vision_derived_answer_is_not_nulled_when_figure_images_attached():
+    """A "what color appears in this figure" answer has no text excerpt to
+    ground it in by nature — it came from looking at the attached image, not
+    the document text. When the unit has figure images attached, grounding
+    must not null out an otherwise-unsupported answer.
+    """
+    s = _make_self(active_figure_images=[("Fig. 1: A diagram.", b"PNGDATA", "image/png")])
+    cleaned = {
+        "color_name": {
+            "answer": "gray",
+            "excerpts": [{"text": "gray", "source": "doc"}],
+        },
+    }
+    result = PaperProcessor._ground_and_enforce(s, cleaned, SOURCE_TEXT, "doc")
+    assert result["color_name"]["answer"] == "gray"
+
+
+def test_fabricated_answer_is_still_nulled_when_no_figure_images_attached():
+    """The exemption above must not weaken the guard for ordinary text-only
+    units — same fabricated-answer case as
+    test_fabricated_answer_with_unmatched_excerpt_is_nulled, but going through
+    _make_self() with the new default (no images) to confirm that default
+    doesn't accidentally exempt everything.
+    """
+    s = _make_self()
+    cleaned = {
+        "supporting_figure": {
+            "answer": "Figure 5A",
+            "excerpts": [{"text": "Figure 5A shows a blue bar chart of PTP signature motifs", "source": "doc"}],
+        },
+    }
+    result = PaperProcessor._ground_and_enforce(s, cleaned, SOURCE_TEXT, "doc")
+    assert result["supporting_figure"]["answer"] is None

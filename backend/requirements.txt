@@ -18,6 +18,9 @@ pdfplumber>=0.11.0
 pdf2image>=1.17.0
 pytesseract>=0.3.10
 
+# PDF figure extraction (Docling)
+docling>=2.15.0,<3.0.0
+
 # ScheMatiQ dependencies (for LLM and embedding)
 openai>=1.10.0
 together>=0.2.0
