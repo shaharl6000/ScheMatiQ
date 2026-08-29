@@ -288,9 +288,10 @@ Return valid JSON:
 }}
 
 IMPORTANT: Keep your response concise to avoid token limit errors.
-- The `relevant_passages` field is OPTIONAL - you may omit it entirely
-- If you include passages, use only brief 1-2 sentence excerpts
-- Do NOT copy large blocks of text from the document
+- The `relevant_passages` field is currently not required and can be omitted;
+  it is only consulted when passage-narrowing is enabled
+- If you do include passages, use only brief 1-2 sentence excerpts, and
+  do NOT copy large blocks of text from the document
 
 ##############################################################################
 #                    WRONG FORMATS - DO NOT USE                              #
@@ -382,7 +383,7 @@ For each candidate, ask: "Is this a named instance of the target type whose prop
 - Exclude tools, baselines, controls, and entities that are purely peripheral mentions
 - Each unit = one answer to the query
 
-**FORMAT:** Return JSON with "unit_name", "relevant_passages", "confidence" - NOT "answer"/"excerpts".
+**FORMAT:** Return JSON with "unit_name", "confidence" (and optionally "relevant_passages") - NOT "answer"/"excerpts".
 """.strip()
 
 
