@@ -409,6 +409,14 @@ extract answers **strictly from the provided passages** and **only for this unit
 - Extract values ONLY for the unit named "{unit_name}"
 - If a column's answer is **not in the passages for this unit**, **omit that column**
 - Do **not** extract values from other units mentioned in the document
+- **Co-mentioned units**: when the passages state that this unit acted, decided, or is
+  otherwise grouped **together with** one or more other units (e.g. "joined by", "with whom",
+  "along with", "on behalf of", shared authorship or a shared outcome), extract the value
+  that was **actually stated for that shared action**, not a value inferred from which name
+  appears first or closest to the current unit's name. Two units described as sharing the
+  same action or outcome must receive the **same** value for the column describing that
+  action or outcome — do not assign them opposite or differing values unless the passages
+  explicitly distinguish between them.
 - Output **only JSON**, no prose, no markdown fences
 
 ### Output Format
@@ -436,4 +444,20 @@ For unit "GPT-4 on MMLU":
     "excerpts": ["GPT-4 achieves 86.4% on MMLU..."]
   }}
 }}
+
+### Example (co-mentioned units)
+Passage: "Entity B raised the objection, joined by Entity A, arguing the proposal
+was premature." Requested column: "position_on_proposal".
+
+If the unit currently being extracted is "Entity A":
+{{
+  "position_on_proposal": {{
+    "answer": "opposed",
+    "excerpts": ["Entity B raised the objection, joined by Entity A"]
+  }}
+}}
+
+Entity A did not author the objection, but explicitly joined it — so Entity A's
+"position_on_proposal" is the same as Entity B's ("opposed"), not left blank or
+guessed independently.
 """.strip()
