@@ -409,6 +409,14 @@ extract answers **strictly from the provided passages** and **only for this unit
 - Extract values ONLY for the unit named "{unit_name}"
 - If a column's answer is **not in the passages for this unit**, **omit that column**
 - Do **not** extract values from other units mentioned in the document
+- When several units are described close together in the same sentence or passage,
+  attach each attribute to the unit the passage actually states it for. Proximity in
+  the text does not imply the value belongs to "{unit_name}": a number, property, or
+  outcome mentioned near this unit's name may in fact describe a different unit. Trace
+  each value back to the unit it is grammatically predicated of before assigning it.
+  If the passage explicitly states that this unit shares a property or outcome with
+  another (e.g. it is grouped with or acts identically to another unit), give this unit
+  that shared value; otherwise do not copy another unit's value onto this one.
 - Output **only JSON**, no prose, no markdown fences
 
 ### Output Format
@@ -436,4 +444,21 @@ For unit "GPT-4 on MMLU":
     "excerpts": ["GPT-4 achieves 86.4% on MMLU..."]
   }}
 }}
+
+### Example (units mentioned together)
+Passage: "Method A reached 91.2 on the task, while Method B reached 88.5."
+Requested column: "score". Both methods appear in one sentence, so the two
+numbers sit close to each other.
+
+If the unit currently being extracted is "Method B":
+{{
+  "score": {{
+    "answer": "88.5",
+    "excerpts": ["Method B reached 88.5"]
+  }}
+}}
+
+The value for "Method B" is 88.5, not 91.2 — 91.2 is stated for Method A even
+though it appears first and nearby. Assign each value to the unit the passage
+predicates it of, regardless of word order or proximity.
 """.strip()
