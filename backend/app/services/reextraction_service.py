@@ -2441,7 +2441,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
         matched_extracted_keys: set = set(initial_matched_keys or ())
         primary_data_file = data_files[0]
 
-        for data_file in data_files:
+        # Process the primary file LAST. New (unmatched) rows are appended only
+        # to the primary file, so that append must run after every other file
+        # has had a chance to match its own rows. If the primary ran first, an
+        # extracted row that actually belongs to an existing row in a
+        # non-primary file would be appended to the primary as a new row AND
+        # then merged into its real row when that file is processed -> a
+        # duplicate row. (Masked in the incremental flow, where already-merged
+        # keys are pre-marked, but reachable on a full / stop-time merge.)
+        ordered_data_files = [
+            f for f in data_files if f.resolve() != primary_data_file.resolve()
+        ] + [primary_data_file]
+
+        for data_file in ordered_data_files:
             if create_backup:
                 backup_file = data_file.parent / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
                 shutil.copy2(data_file, backup_file)
