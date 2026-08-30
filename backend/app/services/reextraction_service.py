@@ -165,6 +165,10 @@ class ReextractionOperation:
         self.incrementally_merged_keys: Set[tuple] = set()
         # paper discovery snapshot for this operation (avoids redundant rescans)
         self.paper_discovery: Optional[Dict[str, Any]] = None
+        # Guards against leaking or double-releasing the concurrency slot: the
+        # slot is released exactly once, whether by the running task's finally
+        # or by stop_operation, whichever gets there first.
+        self.slot_released: bool = False
 
 
 class ReextractionService(WebSocketBroadcasterMixin):
@@ -207,6 +211,21 @@ class ReextractionService(WebSocketBroadcasterMixin):
         with self._state_lock:
             self.active_operations.pop(operation_id, None)
             self._extraction_tasks.pop(operation_id, None)
+
+    async def _release_slot_once(self, operation: "ReextractionOperation") -> None:
+        """Release the operation's concurrency slot exactly once.
+
+        Both the running task's ``finally`` and ``stop_operation`` may reach
+        this; the flag ensures the slot is released once and never leaked (e.g.
+        when the task early-returns because the operation was already cleaned up)
+        nor double-released. The flag flip is done under the state lock; the
+        actual async release happens outside it.
+        """
+        with self._state_lock:
+            if operation.slot_released:
+                return
+            operation.slot_released = True
+        await concurrency_limiter.release(operation.session_id)
 
     async def request_stop(self, operation_id: str) -> Dict[str, Any]:
         """Set the stop flag and return immediately."""
@@ -254,14 +273,24 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if operation.status in ("completed", "failed", "stopped"):
             logger.info(f"Operation {operation_id} reached {operation.status} naturally, skipping merge")
             self.clear_stop_flag(operation_id)
+            await self._release_slot_once(operation)
             self._cleanup_operation(operation_id)
             return {"stopped": False, "message": f"Operation already {operation.status}"}
 
-        # Merge partial results (safe — task is done and didn't complete naturally)
+        # Merge partial results ONLY if the task has actually stopped. If the
+        # 5s cancel wait above timed out and the task is still running, merging
+        # and unlinking output_file here would race the live writer (lost rows)
+        # and delete the file out from under it; leave it for the task instead.
+        task_stopped = task is None or task.done()
+        if not task_stopped:
+            logger.warning(
+                f"Task {operation_id} still running after cancel; skipping partial "
+                f"merge to avoid racing the live writer"
+            )
         try:
             session_dir = Path(DEFAULT_DATA_DIR) / operation.session_id
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
-            if output_file.exists():
+            if task_stopped and output_file.exists():
                 logger.info(f"Merging partial results from {output_file}")
                 await self._merge_reextracted_data(
                     operation.session_id,
@@ -293,6 +322,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         )
 
         self.clear_stop_flag(operation_id)
+        await self._release_slot_once(operation)
         self._cleanup_operation(operation_id)
         return {
             "stopped": True,
@@ -2136,7 +2166,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 logger.debug("Could not record re-extraction LLM usage: %s", exc)
             finally:
                 llm_call_tracker_lock.release()
-            await concurrency_limiter.release(operation.session_id)
+            await self._release_slot_once(operation)
             self._cleanup_operation(operation_id)
 
     @staticmethod
@@ -2294,17 +2324,22 @@ class ReextractionService(WebSocketBroadcasterMixin):
         logger.debug(f"Extracted composite keys from extraction file: {list(extracted_by_key.keys())}")
 
         matched_keys: set = set(initial_matched_keys or ())
-        await self._merge_extracted_index_into_data_files(
-            session_id,
-            columns,
-            extracted_by_key,
-            renamed_from=renamed_from,
-            create_backup=True,
-            update_session_stats=True,
-            initial_matched_keys=matched_keys,
-            only_empty=only_empty,
-            retry_confirmed_empty=retry_confirmed_empty,
-        )
+        # Hold the same per-session lock the incremental merges use, so a slow
+        # stop's full merge cannot interleave its read-modify-write of the data
+        # files with a still-running incremental merge (which would silently
+        # drop one side's rows via last-write-wins).
+        async with self._get_incremental_merge_lock(session_id):
+            await self._merge_extracted_index_into_data_files(
+                session_id,
+                columns,
+                extracted_by_key,
+                renamed_from=renamed_from,
+                create_backup=True,
+                update_session_stats=True,
+                initial_matched_keys=matched_keys,
+                only_empty=only_empty,
+                retry_confirmed_empty=retry_confirmed_empty,
+            )
 
     async def _merge_extracted_index_into_data_files(
         self,
