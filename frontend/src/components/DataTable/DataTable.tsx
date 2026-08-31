@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Search, GripVertical, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Search, GripVertical, Loader2, AlertCircle, ExternalLink, Globe } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -94,6 +94,7 @@ interface ColumnInfoProp {
   display_name?: string;
   definition?: string;
   allowed_values?: string[];
+  extraction_strategy?: 'document' | 'web' | 'document_then_web';
 }
 
 interface DataTableProps {
@@ -157,6 +158,7 @@ const CELL_STATUS_STYLES: Record<CellStatus, string> = {
   enriched: 'border-l-2 border-l-blue-400 bg-blue-50/40 dark:bg-blue-950/20',
   inferred: 'border-l-2 border-l-amber-400 bg-amber-50/40 dark:bg-amber-950/20',
   external_source: 'border-l-2 border-l-purple-400 bg-purple-50/40 dark:bg-purple-950/20',
+  model_knowledge: 'border-l-2 border-l-orange-400 bg-orange-50/40 dark:bg-orange-950/20',
   schematiq_original: '',
   schematiq_expanded: 'border-l-2 border-l-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20',
 };
@@ -250,24 +252,44 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
 // Column header with optional definition tooltip.
 // `displayName` is the user's original typed label (preserved when it differs
 // from the sanitized canonical column key); fall back to formatting the key.
-const ColumnHeaderLabel: React.FC<{ column: string; displayName?: string; definition?: string }> = ({ column, displayName, definition }) => {
+const ColumnHeaderLabel: React.FC<{ column: string; displayName?: string; definition?: string; extractionStrategy?: 'document' | 'web' | 'document_then_web' }> = ({ column, displayName, definition, extractionStrategy }) => {
   const text = displayName || formatColumnName(column);
   const label = column.startsWith('_') && column !== '_unit_name'
     ? <Badge variant="outline">{text}</Badge>
     : text;
 
-  if (!definition) return <>{label}</>;
+  const webIcon = (extractionStrategy === 'web' || extractionStrategy === 'document_then_web')
+    ? (
+      <Tooltip delayDuration={300}>
+        <TooltipTrigger asChild>
+          <Globe className="inline-block h-3 w-3 ml-1 text-blue-500 align-baseline" />
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="start" className="max-w-xs px-3 py-2">
+          <p className="text-[13px] font-normal leading-snug">
+            {extractionStrategy === 'web'
+              ? 'Filled from web search.'
+              : 'Filled from the document, then web search for empty cells.'}
+          </p>
+        </TooltipContent>
+      </Tooltip>
+    )
+    : null;
+
+  if (!definition) return <>{label}{webIcon}</>;
 
   return (
-    <Tooltip delayDuration={300}>
-      <TooltipTrigger asChild>
-        <span className="cursor-help underline decoration-dashed decoration-muted-foreground/40 underline-offset-4">{label}</span>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" align="start" className="max-w-xs px-3 py-2">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 mb-1.5">Definition</p>
-        <p className="text-[13px] font-normal leading-snug">{definition}</p>
-      </TooltipContent>
-    </Tooltip>
+    <>
+      <Tooltip delayDuration={300}>
+        <TooltipTrigger asChild>
+          <span className="cursor-help underline decoration-dashed decoration-muted-foreground/40 underline-offset-4">{label}</span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="start" className="max-w-xs px-3 py-2">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 mb-1.5">Definition</p>
+          <p className="text-[13px] font-normal leading-snug">{definition}</p>
+        </TooltipContent>
+      </Tooltip>
+      {webIcon}
+    </>
   );
 };
 
@@ -1258,7 +1280,8 @@ const DataTable: React.FC<DataTableProps> = ({
         {(presentCellStatuses.has('novel_nes') ||
           presentCellStatuses.has('enriched') ||
           presentCellStatuses.has('inferred') ||
-          presentCellStatuses.has('external_source')) && (
+          presentCellStatuses.has('external_source') ||
+          presentCellStatuses.has('model_knowledge')) && (
           <div className="flex items-center gap-4 mb-3 text-xs text-muted-foreground">
             <span className="font-medium text-foreground/70">Cell provenance:</span>
             {presentCellStatuses.has('novel_nes') && (
@@ -1283,6 +1306,12 @@ const DataTable: React.FC<DataTableProps> = ({
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-2.5 h-2.5 rounded-sm bg-purple-400" />
                 External
+              </span>
+            )}
+            {presentCellStatuses.has('model_knowledge') && (
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-orange-400" />
+                Model (unverified)
               </span>
             )}
           </div>
@@ -1338,6 +1367,7 @@ const DataTable: React.FC<DataTableProps> = ({
                             column={frozenColumn}
                             displayName={columnInfo?.find(c => c.name === frozenColumn)?.display_name}
                             definition={columnInfo?.find(c => c.name === frozenColumn)?.definition}
+                            extractionStrategy={columnInfo?.find(c => c.name === frozenColumn)?.extraction_strategy}
                           />
                         </div>
                       </div>
@@ -1370,6 +1400,7 @@ const DataTable: React.FC<DataTableProps> = ({
                           column={column}
                           displayName={columnInfo?.find(c => c.name === column)?.display_name}
                           definition={columnInfo?.find(c => c.name === column)?.definition}
+                          extractionStrategy={columnInfo?.find(c => c.name === column)?.extraction_strategy}
                         />
                       </SortableHeaderCell>
                     ))}
