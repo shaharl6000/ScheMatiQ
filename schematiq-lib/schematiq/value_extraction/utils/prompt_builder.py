@@ -37,6 +37,7 @@ class PromptBuilder:
         strict: bool = False,
         already_extracted: Dict[str, str] | None = None,
         reference_query: str | None = None,
+        feedback: str | None = None,
     ) -> List[Dict[str, str]]:
         """
         Build messages for value extraction LLM calls.
@@ -50,6 +51,15 @@ class PromptBuilder:
           Optional dict mapping column names to their already-extracted answers.
           When provided, injected as context so the LLM knows what was already
           found (e.g., Justice1-3 filled → don't hallucinate Justice4-9).
+
+        feedback:
+          Optional short factual note on what was wrong with a prior answer
+          for this exact call (e.g. the previous value), supplied by the
+          workspace "Wrong, try again" menu item. Wrapped with standard
+          re-examination instructions (mirroring SYSTEM_PROMPT_VAL_REEXTRACT's
+          search-strategy guidance) and prepended ahead of the rest of the
+          prompt. ``None`` (the default, used by every other caller) leaves
+          the prompt unchanged.
         """
         if mode in {"one", "one_by_one"}:
             col = columns[0]
@@ -129,6 +139,28 @@ class PromptBuilder:
 
             {reference_block}
             """.strip()
+
+        if feedback:
+            # Mirrors SYSTEM_PROMPT_VAL_REEXTRACT's search-strategy guidance
+            # (tables/figures/footnotes, synonyms, differently-phrased
+            # mentions) for the "wrong value" case instead of "missing value".
+            # Explicitly allows keeping the same answer or returning null
+            # rather than demanding a different one -- without that, a model
+            # that can't find better support might invent a new value just to
+            # comply, which is worse than repeating the original mistake.
+            feedback_block = f"""
+            <PRIOR_ATTEMPT_FEEDBACK>
+            A user reviewed this value and marked it WRONG. {feedback}
+            Re-examine the passages carefully -- including any tables, figures,
+            captions, and footnotes -- and consider synonyms or
+            differently-phrased mentions of this value.
+            Provide a different answer only if you find genuine support for it
+            in the text. If you cannot find stronger support, it is fine to
+            return the same answer, or null if the value truly is not present
+            -- do not invent a new value just to be different.
+            </PRIOR_ATTEMPT_FEEDBACK>
+            """.strip()
+            user_prompt = f"{feedback_block}\n\n{user_prompt}"
 
         system = SYSTEM_PROMPT_VAL_STRICT if strict else SYSTEM_PROMPT_VAL
 

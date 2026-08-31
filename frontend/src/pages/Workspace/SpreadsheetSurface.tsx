@@ -37,6 +37,7 @@ import {
   parseAllowedValues,
   renderObservationUnitFieldCell,
   schemaColumnKeysForCols,
+  selectedCellScope,
   selectedColumnIndices,
 } from './helpers';
 import type {
@@ -46,6 +47,7 @@ import type {
   SheetId,
   SheetSelection,
   TableDisplayOptions,
+  WrongCellScope,
 } from './types';
 
 registerAllModules();
@@ -84,6 +86,7 @@ export function SpreadsheetSurface({
   onEditFollowUp,
   onEditEnd,
   onFillEmptyCells,
+  onRetryWrongCells,
   onToggleFormatShortcut,
   onUndo,
   onRedo,
@@ -134,6 +137,14 @@ export function SpreadsheetSurface({
   // item can still render (disabled when there's nothing blank to fill)
   // wherever this component is used without wiring the handler.
   onFillEmptyCells?: (scope: { rows: string[]; columns: string[] }) => void;
+  // "Wrong, try again": re-run extraction for every cell covered by the
+  // current selection, filled or not, with a "you got this wrong" note (plus
+  // the flagged cell's previous value, when the selection is exactly one
+  // cell) added to the prompt for that call. Unlike onFillEmptyCells this
+  // always overwrites, so it's only offered for a single contiguous
+  // selection range (see selectedCellScope) to avoid touching cells the
+  // user didn't actually select. Optional for the same reason as above.
+  onRetryWrongCells?: (scope: WrongCellScope) => void;
   // Toggle a text format (bold/italic/underline) on the current selection,
   // invoked by the Ctrl/Cmd+B/I/U keyboard shortcuts registered below.
   onToggleFormatShortcut?: (key: 'bold' | 'italic' | 'underline') => void;
@@ -602,6 +613,8 @@ export function SpreadsheetSurface({
   redoRef.current = onRedo;
   const fillEmptyCellsRef = useRef(onFillEmptyCells);
   fillEmptyCellsRef.current = onFillEmptyCells;
+  const retryWrongCellsRef = useRef(onRetryWrongCells);
+  retryWrongCellsRef.current = onRetryWrongCells;
 
   // Register Ctrl/Cmd+B/I/U through Handsontable's built-in ShortcutManager
   // rather than a hand-rolled keydown handler. The shortcuts live in the 'grid'
@@ -1407,6 +1420,22 @@ export function SpreadsheetSurface({
     [activeSheet, dataRows, schemaColumns, sheet.columns],
   );
 
+  // Resolve the "Wrong, try again" scope for the current selection: every
+  // cell covered, filled or not (unlike selectedEmptyCellScope). Only safe
+  // for a single contiguous range -- see selectedCellScope for why a
+  // multi-range selection resolves to null here.
+  const selectedWrongAnswerScope = useCallback(
+    (hot: any): WrongCellScope | null => {
+      if (activeSheet !== 'data') return null;
+      const selection: number[][] = typeof hot?.getSelected === 'function' ? hot.getSelected() || [] : [];
+      if (selection.length === 0) return null;
+
+      const toPhysicalRow = typeof hot.toPhysicalRow === 'function' ? hot.toPhysicalRow.bind(hot) : undefined;
+      return selectedCellScope(selection, dataRows, sheet.columns, schemaColumns, toPhysicalRow);
+    },
+    [activeSheet, dataRows, schemaColumns, sheet.columns],
+  );
+
   // Delete one or more schema columns (header + values, from both the Schema
   // and Data views) via the schema API, then refresh. Shared by the context
   // menu item and the Delete-key shortcut.
@@ -1482,12 +1511,23 @@ export function SpreadsheetSurface({
     deleteColumns: (names: string[]) => void;
     emptyScope: (hot: any) => { rows: string[]; columns: string[] } | null;
     fillEmptyCells: (scope: { rows: string[]; columns: string[] }) => void;
-  }>({ selectedNames: () => [], deleteColumns: () => {}, emptyScope: () => null, fillEmptyCells: () => {} });
+    wrongScope: (hot: any) => WrongCellScope | null;
+    retryWrongCells: (scope: WrongCellScope) => void;
+  }>({
+    selectedNames: () => [],
+    deleteColumns: () => {},
+    emptyScope: () => null,
+    fillEmptyCells: () => {},
+    wrongScope: () => null,
+    retryWrongCells: () => {},
+  });
   menuActionsRef.current = {
     selectedNames: selectedSchemaColumnNames,
     deleteColumns: deleteSchemaColumns,
     emptyScope: selectedEmptyCellScope,
     fillEmptyCells: (scope: { rows: string[]; columns: string[] }) => fillEmptyCellsRef.current?.(scope),
+    wrongScope: selectedWrongAnswerScope,
+    retryWrongCells: (scope: WrongCellScope) => retryWrongCellsRef.current?.(scope),
   };
 
   // Custom Data-sheet menu items shared by the right-click context menu and the
@@ -1530,6 +1570,16 @@ export function SpreadsheetSurface({
         callback(this: any): void {
           const scope = menuActionsRef.current.emptyScope(this);
           if (scope) menuActionsRef.current.fillEmptyCells(scope);
+        },
+      },
+      retry_wrong_cells: {
+        name: 'Wrong, try again',
+        disabled(this: any): boolean {
+          return menuActionsRef.current.wrongScope(this) === null;
+        },
+        callback(this: any): void {
+          const scope = menuActionsRef.current.wrongScope(this);
+          if (scope) menuActionsRef.current.retryWrongCells(scope);
         },
       },
     }),

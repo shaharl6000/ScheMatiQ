@@ -892,6 +892,9 @@ class ReextractionRequest(BaseModel):
     # a follow-up call after a first only_empty request comes back with a
     # "confirmed empty" ConfirmedEmptyScopeError, to force a recheck.
     retry_confirmed_empty: bool = False
+    # Fixed note injected into the extraction prompt for this scope (workspace
+    # "Wrong, try again" menu item). None (default) leaves prompts unchanged.
+    feedback: Optional[str] = None
 
 
 class ReextractionResponse(BaseModel):
@@ -1059,6 +1062,16 @@ async def start_reextraction(
             rows=request.rows,
             only_empty=request.only_empty,
             retry_confirmed_empty=request.retry_confirmed_empty,
+            feedback=request.feedback,
+            # A request that carries an explicit llm_config (e.g. the
+            # ReextractionDialog's manual model picker) may honor its own
+            # (now freshly-written) user_llm_config.json override. A request
+            # with none -- Fill Cells / Wrong Try Again, after they stopped
+            # guessing a model -- must not inherit a *stale* override left
+            # behind by an earlier, unrelated ReextractionDialog run in this
+            # same session; it always resolves to the project's own
+            # creation-time value_extraction_backend instead.
+            honor_user_llm_config=bool(request.llm_config),
         )
         return ReextractionResponse(**result)
 
