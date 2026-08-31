@@ -549,12 +549,37 @@
 }
 
 .workspace-body {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   user-select: auto;
+}
+
+.workspace-chat-reopen {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.workspace-chat-reopen:hover {
+  background: hsl(var(--accent));
+  border-color: rgba(24, 128, 56, 0.35);
 }
 
 .workspace-body[data-dragging="true"] {
@@ -1466,15 +1491,25 @@
   }
 
   /* The divider only makes sense for a side-by-side split. Workspace/index.tsx
-     stops deriving the collapsed-pane flags from chatWidth at this breakpoint,
-     so neither pane can arrive here marked hidden; the reset is a guard in case
-     a stale flag survives a resize mid-drag. */
+     stops deriving the sheet-hidden flag from chatWidth at this breakpoint, so
+     the sheet pane can't arrive here marked hidden; the reset is a guard in
+     case a stale flag survives a resize mid-drag. The chat pane is exempt --
+     unlike the sheet, it has an explicit close button that must keep working
+     while stacked, and Workspace/index.tsx collapses its grid row to 0 to
+     match (see bodyGridRows). */
   .workspace-resizer {
     display: none;
   }
 
-  .workspace-sheet-pane[data-hidden="true"],
-  .workspace-chat-pane[data-hidden="true"] {
+  .workspace-sheet-pane[data-hidden="true"] {
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  /* Same stale-flag guard as the sheet pane above, but scoped off a manual
+     close: chat legitimately hides itself here via the close button, so only
+     force it back when data-hidden is true for some other (stale) reason. */
+  .workspace-chat-pane[data-hidden="true"]:not([data-manual-close="true"]) {
     visibility: visible;
     pointer-events: auto;
   }

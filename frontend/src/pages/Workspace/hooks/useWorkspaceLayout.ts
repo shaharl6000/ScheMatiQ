@@ -34,6 +34,10 @@ export function useWorkspaceLayout() {
   const [isStacked, setIsStacked] = useState(
     () => window.matchMedia(STACKED_QUERY).matches,
   );
+  // Explicit close/reopen via a button, independent of chatWidth so it also
+  // works while stacked (where pixel width is meaningless). Not persisted --
+  // same "never restore a workspace with a pane stuck hidden" rule as above.
+  const [isChatCollapsed, setIsChatCollapsed] = useState(false);
 
   useEffect(() => {
     const media = window.matchMedia(STACKED_QUERY);
@@ -53,6 +57,10 @@ export function useWorkspaceLayout() {
   const startDividerDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDraggingDivider(true);
+    // A manual close leaves the pane invisible regardless of chatWidth, so a
+    // drag on the (still-rendered) divider would otherwise resize a pane the
+    // user can't see. Dragging always means "I want this pane back."
+    setIsChatCollapsed(false);
 
     const handleMove = (moveEvent: PointerEvent) => {
       const nextWidth = window.innerWidth - moveEvent.clientX;
@@ -80,5 +88,7 @@ export function useWorkspaceLayout() {
     startDividerDrag,
     viewportWidth,
     isStacked,
+    isChatCollapsed,
+    setIsChatCollapsed,
   };
 }

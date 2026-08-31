@@ -214,6 +214,8 @@ function Workspace() {
     startDividerDrag,
     viewportWidth,
     isStacked,
+    isChatCollapsed,
+    setIsChatCollapsed,
   } = useWorkspaceLayout();
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
@@ -1132,7 +1134,7 @@ function Workspace() {
   // which hid the sheet and -- with the divider removed from the grid flow --
   // dropped the chat into the 8px divider track, rendering an empty workspace.
   const isSheetHidden = !isStacked && chatWidth >= viewportWidth - 80;
-  const isChatHidden = !isStacked && chatWidth <= 24;
+  const isChatHidden = isChatCollapsed || (!isStacked && chatWidth <= 24);
   // Undefined while stacked so the inline style does not outrank the
   // `max-width: 900px` rule in Workspace.css, which is what silently defeated
   // the responsive layout before.
@@ -1143,6 +1145,38 @@ function Workspace() {
       : isChatHidden
         ? 'minmax(0, 1fr) 8px 0px'
         : `minmax(0, 1fr) 8px ${chatWidth}px`;
+  // The stacked layout's bottom row is otherwise a fixed 340px from
+  // Workspace.css. Only override it (same axis the media query controls) to
+  // collapse the row when chat is explicitly closed -- there's no drag
+  // gesture while stacked, so this is the only way to reclaim that space.
+  // Keyed off isChatCollapsed rather than isChatHidden: the chatWidth-derived
+  // half of isChatHidden is meaningless while stacked and, by construction,
+  // always false here -- except for one stale render right as the viewport
+  // crosses the breakpoint, where reading it would collapse the row for a
+  // frame with nothing to bring it back (no CSS fallback exists on this axis).
+  const bodyGridRows = isStacked
+    ? (isChatCollapsed ? 'minmax(0, 1fr) 0px' : 'minmax(0, 1fr) 340px')
+    : undefined;
+  // Reopening has to cover both ways chat gets hidden: an explicit close
+  // (isChatCollapsed) and dragging the divider shut in split view, which
+  // snaps chatWidth to 0 and leaves isChatCollapsed untouched. Clearing only
+  // the former would make the reopen button a no-op after a full drag-close.
+  const openChat = useCallback(() => {
+    setIsChatCollapsed(false);
+    if (chatWidth <= 24) setChatWidth(380);
+  }, [chatWidth, setChatWidth, setIsChatCollapsed]);
+  // Symmetric guard for the other direction: closing while chat is full-screen
+  // (chatWidth pinned at viewportWidth, so isSheetHidden is also true) would
+  // otherwise leave both panes hidden at once -- a blank workspace body with
+  // nothing but the floating reopen button on it.
+  const closeChat = useCallback(() => {
+    setIsChatCollapsed(true);
+    if (isSheetHidden) setChatWidth(380);
+  }, [isSheetHidden, setChatWidth, setIsChatCollapsed]);
+  const splitView = useCallback(() => {
+    setIsChatCollapsed(false);
+    setChatWidth(380);
+  }, [setChatWidth, setIsChatCollapsed]);
   // Crossing the breakpoint resizes the grid without changing chatWidth, so the
   // revision has to carry it too or Handsontable keeps stale measurements.
   const gridLayoutRevision = `${chatWidth}:${isStacked ? 'stacked' : 'split'}:${compactRows ? 'compact' : 'auto'}`;
@@ -1308,9 +1342,8 @@ function Workspace() {
         onUndo={undoEdit}
         onRedo={redoEdit}
         onEstimateCost={estimateCurrentCost}
-        onShowSheet={() => setChatWidth(0)}
-        onShowChat={() => setChatWidth(window.innerWidth)}
-        onSplitView={() => setChatWidth(380)}
+        onOpenChat={openChat}
+        onSplitView={splitView}
         onRunPendingEdits={runPendingEdits}
         onAddDocuments={() => setActiveSheet('documents')}
         onApplyFormat={applyTableFormat}
@@ -1341,7 +1374,7 @@ function Workspace() {
       <div
         className="workspace-body"
         data-dragging={isDraggingDivider}
-        style={{ gridTemplateColumns: bodyGridColumns }}
+        style={{ gridTemplateColumns: bodyGridColumns, gridTemplateRows: bodyGridRows }}
       >
         <section className="workspace-sheet-pane" data-hidden={isSheetHidden}>
           {activeSheet === 'data' && (
@@ -1525,7 +1558,7 @@ function Workspace() {
           data-dragging={isDraggingDivider}
         />
 
-        <div className="workspace-chat-pane" data-hidden={isChatHidden}>
+        <div className="workspace-chat-pane" data-hidden={isChatHidden} data-manual-close={isChatCollapsed}>
           <ChatPanel
             sessionId={sessionId}
             sessionMode={sessionMode}
@@ -1537,8 +1570,21 @@ function Workspace() {
             onRegisterCancelPending={(cancel) => {
               cancelChatPendingRef.current = cancel;
             }}
+            onClose={closeChat}
           />
         </div>
+
+        {isChatHidden && (
+          <button
+            type="button"
+            className="workspace-chat-reopen"
+            onClick={openChat}
+            title="Open chat"
+            aria-label="Open chat"
+          >
+            <Bot className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       <div className="workspace-bottombar">
@@ -1627,15 +1673,11 @@ function Workspace() {
               <Sparkles className="h-4 w-4" />
               Estimate Cost
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setChatWidth(0)}>
-              <Table2 className="h-4 w-4" />
-              Show Sheet Full Screen
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setChatWidth(window.innerWidth)}>
+            <DropdownMenuItem onClick={openChat}>
               <Bot className="h-4 w-4" />
-              Show Chat Full Screen
+              Show Chat
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setChatWidth(380)}>
+            <DropdownMenuItem onClick={splitView}>
               <ChevronDown className="h-4 w-4 rotate-90" />
               Split View
             </DropdownMenuItem>
