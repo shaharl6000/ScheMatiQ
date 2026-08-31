@@ -1,10 +1,7 @@
 """Paper processing for value extraction."""
 from __future__ import annotations
 
-import json
 import logging
-import os
-import time
 from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator
 
@@ -18,14 +15,7 @@ from schematiq.core.llm_backends import LLMInterface
 from sentence_transformers import util as st_util
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.core import utils
-
-# Set SCHEMATIQ_DEBUG_DIR to a directory path to save LLM inputs/outputs per pass.
-_DEBUG_DIR: Optional[Path] = None
-_debug_env = os.environ.get("SCHEMATIQ_DEBUG_DIR")
-if _debug_env:
-    _DEBUG_DIR = Path(_debug_env)
-    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-    logger.info("Debug dump enabled -> %s", _DEBUG_DIR)
+from schematiq.value_extraction.core import debug_dumps
 
 
 def _count_filled_columns(values: Dict[str, Any]) -> tuple[int, int]:
@@ -163,112 +153,6 @@ class PaperProcessor:
             if ans:
                 flat[col_name] = str(ans)
         return flat
-
-    @staticmethod
-    def _debug_dump(
-        pass_name: str,
-        paper_title: str,
-        batch_idx: int,
-        columns_requested: List[str],
-        prompt_msgs: List[Dict[str, str]],
-        raw_response: str,
-        parsed: Dict[str, Any],
-        cleaned: Dict[str, Any],
-        already_extracted: Dict[str, str] | None = None,
-    ) -> None:
-        """Save a debug snapshot of one LLM call to SCHEMATIQ_DEBUG_DIR.
-
-        Set the SCHEMATIQ_DEBUG_DIR environment variable to a directory path
-        to enable. Each call writes a JSON file named:
-          <title>__<pass>__batch<n>__<timestamp_ms>.json
-        No-op when the env var is not set.
-        """
-        if _DEBUG_DIR is None:
-            return
-        safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in paper_title)[:60]
-        ts = int(time.time() * 1000)
-        fname = f"{safe_title}__{pass_name}__batch{batch_idx}__{ts}.json"
-        payload = {
-            "pass": pass_name,
-            "paper_title": paper_title,
-            "batch_idx": batch_idx,
-            "columns_requested": columns_requested,
-            "columns_filled": list(cleaned.keys()),
-            "columns_missing": [c for c in columns_requested if c not in cleaned],
-            "prompt_system": prompt_msgs[0]["content"][:500] + "..." if prompt_msgs else None,
-            "prompt_user_len": len(prompt_msgs[1]["content"]) if len(prompt_msgs) > 1 else 0,
-            "raw_response": raw_response[:5000] if raw_response else None,
-            "parsed": {k: v for k, v in (parsed or {}).items()},
-            "cleaned": {k: v for k, v in (cleaned or {}).items()},
-        }
-        if already_extracted:
-            payload["already_extracted_context"] = already_extracted
-        try:
-            (_DEBUG_DIR / fname).write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
-        except Exception as e:
-            logger.warning("Debug dump failed: %s", e)
-
-    @staticmethod
-    def _debug_dump_units(
-        paper_title: str,
-        paper_text: str,
-        units: List[Dict[str, Any]],
-    ) -> None:
-        """Save a debug snapshot of the final unit identification split.
-
-        Set the SCHEMATIQ_DEBUG_DIR environment variable to a directory path
-        to enable. Writes one JSON file per document showing, for each
-        observation unit, its relevant_passages verbatim (not truncated) and
-        how much of the document text they cover.
-
-        NOTE: while DISABLE_RETRIEVER is True (defined in config.constants),
-        extract_values_for_unit always re-substitutes the full document text
-        for relevant_passages regardless of what unit identification returned,
-        so is_full_text_fallback / coverage_pct_of_document below will read
-        as "full document" for every unit in normal operation. That is
-        expected, not a bug. These fields become meaningful again only if
-        DISABLE_RETRIEVER is set back to False and passage-narrowing is
-        reintroduced upstream.
-        No-op when the env var is not set.
-        """
-        if _DEBUG_DIR is None:
-            return
-        safe_title = "".join(
-            c if c.isalnum() or c in "-_ " else "_" for c in paper_title
-        )[:60]
-        ts = int(time.time() * 1000)
-        fname = f"{safe_title}__unit_split__{ts}.json"
-
-        doc_len = len(paper_text) if paper_text else 0
-        unit_summaries = []
-        for u in units:
-            passages = u.get("relevant_passages") or []
-            passages_len = sum(len(p) for p in passages)
-            is_full_text_fallback = passages == [paper_text] and doc_len > 0
-            unit_summaries.append({
-                "unit_name": u.get("unit_name"),
-                "confidence": u.get("confidence"),
-                "num_passages": len(passages),
-                "passages_char_count": passages_len,
-                "coverage_pct_of_document": (
-                    round(100 * passages_len / doc_len, 1) if doc_len else None
-                ),
-                "is_full_text_fallback": is_full_text_fallback,
-                "relevant_passages": passages,
-            })
-
-        payload = {
-            "paper_title": paper_title,
-            "document_char_count": doc_len,
-            "num_units": len(units),
-            "units": unit_summaries,
-        }
-        try:
-            (_DEBUG_DIR / fname).write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2, default=str)
-            )
-        except Exception as e:
-            logger.warning("Unit split debug dump failed: %s", e)
 
     def _check_stop_requested(self) -> bool:
         """Check if stop was requested. Returns True if should stop."""
@@ -682,7 +566,7 @@ class PaperProcessor:
             # Track unmatched values for schema evolution
             self._track_unmatched_values(unmatched, paper_title)
 
-            self._debug_dump(
+            debug_dumps.dump_llm_call(
                 pass_name="pass3_batch_fallback",
                 paper_title=paper_title,
                 batch_idx=0,
@@ -807,7 +691,7 @@ class PaperProcessor:
                         cleaned_re, paper_title
                     )
 
-                    self._debug_dump(
+                    debug_dumps.dump_llm_call(
                         pass_name="pass2_reordered",
                         paper_title=paper_title,
                         batch_idx=p2_batch_idx,
@@ -1139,7 +1023,7 @@ class PaperProcessor:
                     batch_cleaned, paper_title
                 )
 
-                self._debug_dump(
+                debug_dumps.dump_llm_call(
                     pass_name="pass1_paper",
                     paper_title=paper_title,
                     batch_idx=batch_idx,
@@ -1615,7 +1499,7 @@ class PaperProcessor:
                         f"[{paper_title}] Unit identification: {raw_count} raw → "
                         f"{raw_count - dropped_low} after confidence → {len(units)} final"
                     )
-                    self._debug_dump_units(paper_title, paper_text, units)
+                    debug_dumps.dump_unit_split(paper_title, paper_text, units)
                     if not units:
                         notes = (result.notes or "").strip()
                         reason = (
@@ -1737,6 +1621,10 @@ class PaperProcessor:
         )
 
         all_cleaned: Dict[str, Any] = {}
+        # Diagnostics collected per batch so a fully-empty unit can be explained
+        # from the logs without re-running. Each entry records the batch's
+        # finish reason, why it was empty (if it was), and the full raw response.
+        batch_diags: List[Dict[str, Any]] = []
 
         batches = list(
             _chunk_list(columns, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION)
@@ -1783,6 +1671,24 @@ class PaperProcessor:
                 **self._gemini_kwargs(thinking_budget=0),
             )
 
+            # Snapshot backend diagnostics for this call before the next one
+            # overwrites them. Also flag the sentinel strings the Gemini backend
+            # returns for no-candidate / empty-content / safety cases, which
+            # otherwise reach the JSON parser as ordinary (unparseable) text.
+            call_diag = dict(getattr(self.llm, "last_call_diag", {}) or {})
+            empty_signals = getattr(type(self.llm), "EMPTY_SIGNAL_RESPONSES", frozenset())
+            is_empty_signal = isinstance(raw, str) and raw.strip() in empty_signals
+            batch_diags.append({
+                "batch_idx": batch_idx,
+                "columns_requested": [c.name for c in col_batch],
+                "finish_reason": call_diag.get("finish_reason"),
+                "empty_reason": call_diag.get("empty_reason"),
+                "truncated": call_diag.get("truncated"),
+                "response_chars": call_diag.get("response_chars"),
+                "is_empty_signal": is_empty_signal,
+                "raw_response": raw,
+            })
+
             if self._check_stop_requested():
                 return all_cleaned
 
@@ -1802,7 +1708,7 @@ class PaperProcessor:
                 self._track_unmatched_values(unmatched, paper_title)
                 cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
 
-                self._debug_dump(
+                debug_dumps.dump_llm_call(
                     pass_name="pass1_unit",
                     paper_title=f"{paper_title} - {unit_name}",
                     batch_idx=batch_idx,
@@ -1816,6 +1722,8 @@ class PaperProcessor:
                 all_cleaned.update(cleaned)
 
             except Exception as e:
+                if batch_diags and batch_diags[-1]["batch_idx"] == batch_idx:
+                    batch_diags[-1]["parse_error"] = repr(e)
                 logger.warning(
                     "[%s] Error extracting values for unit '%s' (batch %d/%d): %s\n"
                     "Raw response was:\n%s",
@@ -1839,6 +1747,13 @@ class PaperProcessor:
             effective_text=eff,
             max_new_tokens=effective_max,
         )
+
+        # When the unit came back completely empty after all passes, log the
+        # full per-batch picture so we can see WHY every column blanked. This
+        # is the anomaly path only, so it stays quiet in normal operation.
+        final_filled, _ = _count_filled_columns(all_cleaned)
+        if final_filled == 0:
+            debug_dumps.log_empty_unit_diagnostics(paper_title, unit_name, batch_diags)
 
         # Excerpt grounding: verify each excerpt against the source text so
         # per-unit extractions get the same hallucination signal as the paper
