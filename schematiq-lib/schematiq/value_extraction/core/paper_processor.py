@@ -208,6 +208,68 @@ class PaperProcessor:
         except Exception as e:
             logger.warning("Debug dump failed: %s", e)
 
+    @staticmethod
+    def _debug_dump_units(
+        paper_title: str,
+        paper_text: str,
+        units: List[Dict[str, Any]],
+    ) -> None:
+        """Save a debug snapshot of the final unit identification split.
+
+        Set the SCHEMATIQ_DEBUG_DIR environment variable to a directory path
+        to enable. Writes one JSON file per document showing, for each
+        observation unit, its relevant_passages verbatim (not truncated) and
+        how much of the document text they cover.
+
+        NOTE: while DISABLE_RETRIEVER is True (defined in config.constants),
+        extract_values_for_unit always re-substitutes the full document text
+        for relevant_passages regardless of what unit identification returned,
+        so is_full_text_fallback / coverage_pct_of_document below will read
+        as "full document" for every unit in normal operation. That is
+        expected, not a bug. These fields become meaningful again only if
+        DISABLE_RETRIEVER is set back to False and passage-narrowing is
+        reintroduced upstream.
+        No-op when the env var is not set.
+        """
+        if _DEBUG_DIR is None:
+            return
+        safe_title = "".join(
+            c if c.isalnum() or c in "-_ " else "_" for c in paper_title
+        )[:60]
+        ts = int(time.time() * 1000)
+        fname = f"{safe_title}__unit_split__{ts}.json"
+
+        doc_len = len(paper_text) if paper_text else 0
+        unit_summaries = []
+        for u in units:
+            passages = u.get("relevant_passages") or []
+            passages_len = sum(len(p) for p in passages)
+            is_full_text_fallback = passages == [paper_text] and doc_len > 0
+            unit_summaries.append({
+                "unit_name": u.get("unit_name"),
+                "confidence": u.get("confidence"),
+                "num_passages": len(passages),
+                "passages_char_count": passages_len,
+                "coverage_pct_of_document": (
+                    round(100 * passages_len / doc_len, 1) if doc_len else None
+                ),
+                "is_full_text_fallback": is_full_text_fallback,
+                "relevant_passages": passages,
+            })
+
+        payload = {
+            "paper_title": paper_title,
+            "document_char_count": doc_len,
+            "num_units": len(units),
+            "units": unit_summaries,
+        }
+        try:
+            (_DEBUG_DIR / fname).write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+            )
+        except Exception as e:
+            logger.warning("Unit split debug dump failed: %s", e)
+
     def _check_stop_requested(self) -> bool:
         """Check if stop was requested. Returns True if should stop."""
         if self.should_stop and self.should_stop():
@@ -1553,6 +1615,7 @@ class PaperProcessor:
                         f"[{paper_title}] Unit identification: {raw_count} raw → "
                         f"{raw_count - dropped_low} after confidence → {len(units)} final"
                     )
+                    self._debug_dump_units(paper_title, paper_text, units)
                     if not units:
                         notes = (result.notes or "").strip()
                         reason = (
