@@ -1,5 +1,32 @@
 """System prompts for value extraction."""
 
+from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
+
+# When passage-narrowing is disabled (DISABLE_RETRIEVER=True) the full document is
+# always sent downstream, so the unit-identification prompts do not ask the model for
+# relevant_passages. When it is re-enabled, the *_WITH_PASSAGES fragments below are used
+# instead, restoring the request. This keeps a single base prompt with one conditional
+# section rather than two divergent copies.
+_UNIT_ID_PASSAGES_BULLETS_WITH = (
+    "- The `relevant_passages` field: include the brief 1-2 sentence excerpts that\n"
+    "  identify each unit\n"
+    "- Do NOT copy large blocks of text from the document"
+)
+_UNIT_ID_PASSAGES_BULLETS_WITHOUT = (
+    "- Do NOT copy large blocks of text from the document"
+)
+_UNIT_ID_FORMAT_FIELDS_WITH = '"unit_name", "relevant_passages", "confidence"'
+_UNIT_ID_FORMAT_FIELDS_WITHOUT = '"unit_name", "confidence"'
+
+_UNIT_ID_PASSAGES_BULLETS = (
+    _UNIT_ID_PASSAGES_BULLETS_WITHOUT if DISABLE_RETRIEVER
+    else _UNIT_ID_PASSAGES_BULLETS_WITH
+)
+_UNIT_ID_FORMAT_FIELDS = (
+    _UNIT_ID_FORMAT_FIELDS_WITHOUT if DISABLE_RETRIEVER
+    else _UNIT_ID_FORMAT_FIELDS_WITH
+)
+
 SYSTEM_PROMPT_VAL = """
 You are *ValueLLM*, a meticulous data curator.
 
@@ -288,9 +315,7 @@ Return valid JSON:
 }}
 
 IMPORTANT: Keep your response concise to avoid token limit errors.
-- The `relevant_passages` field is OPTIONAL - you may omit it entirely
-- If you include passages, use only brief 1-2 sentence excerpts
-- Do NOT copy large blocks of text from the document
+@@UNIT_ID_PASSAGES_BULLETS@@
 
 ##############################################################################
 #                    WRONG FORMATS - DO NOT USE                              #
@@ -382,8 +407,18 @@ For each candidate, ask: "Is this a named instance of the target type whose prop
 - Exclude tools, baselines, controls, and entities that are purely peripheral mentions
 - Each unit = one answer to the query
 
-**FORMAT:** Return JSON with "unit_name", "relevant_passages", "confidence" - NOT "answer"/"excerpts".
+**FORMAT:** Return JSON with @@UNIT_ID_FORMAT_FIELDS@@ - NOT "answer"/"excerpts".
 """.strip()
+
+# Resolve the conditional passage sections once, at import time, based on
+# DISABLE_RETRIEVER. Sentinels are used (rather than str.format) so the
+# .format(...) call sites for these prompts stay unchanged.
+SYSTEM_PROMPT_UNIT_IDENTIFICATION = SYSTEM_PROMPT_UNIT_IDENTIFICATION.replace(
+    "@@UNIT_ID_PASSAGES_BULLETS@@", _UNIT_ID_PASSAGES_BULLETS
+)
+USER_PROMPT_TMPL_UNIT_IDENTIFICATION = USER_PROMPT_TMPL_UNIT_IDENTIFICATION.replace(
+    "@@UNIT_ID_FORMAT_FIELDS@@", _UNIT_ID_FORMAT_FIELDS
+)
 
 
 # ============================================================================
