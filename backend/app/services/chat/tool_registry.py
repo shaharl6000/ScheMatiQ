@@ -338,6 +338,15 @@ def _all_tools() -> list[ToolSpec]:
                             "(optional)."
                         ),
                     },
+                    "extraction_strategy": {
+                        "type": "string",
+                        "enum": ["document", "web", "document_then_web"],
+                        "description": (
+                            "Where values come from: document (default), web (always use "
+                            "grounded web search), or document_then_web (use the source "
+                            "document first and search the web only when it has no value)."
+                        ),
+                    },
                 },
                 "required": ["name", "definition"],
             },
@@ -349,7 +358,8 @@ def _all_tools() -> list[ToolSpec]:
             description=(
                 "Rename or update a SCHEMA COLUMN (data table field): its name, definition "
                 "(what the column captures), and/or rationale (why the column matters / how to "
-                "extract it). Does not change the observation unit definition — use "
+                "extract it), including whether values come from documents or grounded web "
+                "search. Does not change the observation unit definition — use "
                 "edit_observation_unit for that. Call get_schema first for the exact column "
                 "name and to confirm WHICH column the user means before editing; never edit "
                 "multiple columns unless the user explicitly asked for all of them. Does not "
@@ -366,6 +376,15 @@ def _all_tools() -> list[ToolSpec]:
                         "description": (
                             "Updated rationale: why this column matters for the query / guidance "
                             "for extraction (optional). Pass an empty string to clear it."
+                        ),
+                    },
+                    "extraction_strategy": {
+                        "type": "string",
+                        "enum": ["document", "web", "document_then_web"],
+                        "description": (
+                            "Where values come from: document (default), web (always use "
+                            "grounded web search), or document_then_web (use the source "
+                            "document first and search the web only when it has no value)."
                         ),
                     },
                 },

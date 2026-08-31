@@ -64,6 +64,7 @@ export interface ColumnInfo {
   allowed_values?: string[];  // Closed set of valid values for categorical columns
   auto_expand_threshold?: number;  // Auto-add new value if seen in N+ docs (-1 = disabled)
   pending_values?: PendingValue[];  // Values pending approval
+  extraction_strategy?: 'document' | 'web' | 'document_then_web';
 }
 
 // Schema evolution tracking types
@@ -157,7 +158,7 @@ export interface VisualizationSession {
   observation_unit?: ObservationUnitInfo;  // What constitutes a single row
 }
 
-export type CellStatus = 'no_change' | 'novel_nes' | 'enriched' | 'inferred' | 'external_source' | 'schematiq_original' | 'schematiq_expanded';
+export type CellStatus = 'no_change' | 'novel_nes' | 'enriched' | 'inferred' | 'external_source' | 'model_knowledge' | 'schematiq_original' | 'schematiq_expanded';
 
 export interface DataRow {
   row_name?: string;
@@ -497,6 +498,7 @@ export interface EditColumnRequest {
   rationale?: string;
   new_name?: string; // For renaming
   allowed_values?: string[]; // Closed set of valid values
+  extraction_strategy?: 'document' | 'web' | 'document_then_web'; // Where values come from
   reprocess?: boolean; // Whether to reprocess documents (default: true on backend, set false for metadata-only edits)
 }
 
@@ -506,6 +508,7 @@ export interface AddColumnRequest {
   rationale?: string;
   document_paths?: string[]; // Specific documents to process
   allowed_values?: string[]; // Closed set of valid values
+  extraction_strategy?: 'document' | 'web' | 'document_then_web'; // Where values come from
   llm_config?: {
     provider: string;
     model: string;
@@ -658,7 +661,7 @@ export interface SchemaEditingState {
 // Re-extraction types
 export interface ColumnChangeDetail {
   column_name: string;
-  change_type: 'definition' | 'rationale' | 'allowed_values' | 'new' | 'renamed';
+  change_type: 'definition' | 'rationale' | 'allowed_values' | 'extraction_strategy' | 'new' | 'renamed';
   old_value?: string;
   new_value?: string;
   row_count_affected: number;

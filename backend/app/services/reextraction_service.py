@@ -6,7 +6,6 @@ Handles schema change detection, paper discovery, and selective re-extraction.
 import json
 import os
 import asyncio
-import hashlib
 import threading
 import uuid
 import logging
@@ -19,6 +18,11 @@ from app.models.session import (
 )
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
+from app.services.schema_baseline import (
+    build_column_baseline,
+    build_schema_baseline,
+    calculate_column_checksum,
+)
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services.atomic_jsonl import write_jsonl_atomic
 from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
@@ -178,7 +182,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager,
                  data_collection_service=None, pubmed_enrichment_service=None,
-                 uniprot_enrichment_service=None):
+                 uniprot_enrichment_service=None, web_enrichment_service=None):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
         self.active_operations: Dict[str, ReextractionOperation] = {}
@@ -188,6 +192,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         self._data_collection_service = data_collection_service
         self._pubmed_enrichment_service = pubmed_enrichment_service
         self._uniprot_enrichment_service = uniprot_enrichment_service
+        self._web_enrichment_service = web_enrichment_service
         self._incremental_merge_locks: Dict[str, asyncio.Lock] = {}
 
     @staticmethod
@@ -338,31 +343,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
         from app.services.data_utils import is_local_path
         return is_local_path(path)
 
-    @staticmethod
-    def calculate_column_checksum(column: ColumnInfo) -> str:
-        """Calculate a checksum for change detection."""
-        content = f"{column.definition or ''}{column.rationale or ''}"
-        if column.allowed_values:
-            content += "|".join(sorted(column.allowed_values))
-        return hashlib.md5(content.encode()).hexdigest()
-
     def capture_baseline(self, session: VisualizationSession) -> SchemaBaseline:
         """Capture the current schema state as a baseline."""
-        columns_dict = {}
-        for col in session.columns:
-            if col.name and not col.name.lower().endswith('_excerpt'):
-                columns_dict[col.name] = ColumnBaseline(
-                    name=col.name,
-                    definition=col.definition or "",
-                    rationale=col.rationale or "",
-                    allowed_values=col.allowed_values,
-                    checksum=self.calculate_column_checksum(col)
-                )
-
-        return SchemaBaseline(
-            columns=columns_dict,
-            captured_at=datetime.now()
-        )
+        return build_schema_baseline(session.columns)
 
     async def capture_and_save_baseline(self, session_id: str) -> None:
         """Capture baseline and save to session."""
@@ -425,7 +408,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             else:
                 # Check for changes
                 baseline = baseline_columns[col.name]
-                current_checksum = self.calculate_column_checksum(col)
+                current_checksum = calculate_column_checksum(col)
                 # Detect rename: baseline entry was moved to new key but name field still has old name
                 was_renamed = col.name != baseline.name
 
@@ -460,13 +443,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # do NOT recapture the whole baseline, or we'd erase real edits.
                 for col_name in stale_cols:
                     col = next(c for c in session.columns if c.name == col_name)
-                    session.schema_baseline.columns[col_name] = ColumnBaseline(
-                        name=col.name,
-                        definition=col.definition or "",
-                        rationale=col.rationale or "",
-                        allowed_values=col.allowed_values,
-                        checksum=self.calculate_column_checksum(col),
-                    )
+                    session.schema_baseline.columns[col_name] = build_column_baseline(col)
                 self.session_manager.update_session(session)
                 # Inline re-detection: remove the now-patched stale columns from
                 # the result so they are no longer reported as new or changed,
@@ -493,6 +470,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if current_values != baseline_values:
             return "allowed_values"
 
+        if current.extraction_strategy != baseline.extraction_strategy:
+            return "extraction_strategy"
+
         return "unknown"
 
     def _get_change_old_value(self, change_type: str, baseline: ColumnBaseline) -> Optional[str]:
@@ -502,6 +482,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             return baseline.rationale
         elif change_type == "allowed_values":
             return ", ".join(baseline.allowed_values or [])
+        elif change_type == "extraction_strategy":
+            return baseline.extraction_strategy
         return None
 
     def _get_change_new_value(self, change_type: str, current: ColumnInfo) -> Optional[str]:
@@ -511,6 +493,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             return current.rationale
         elif change_type == "allowed_values":
             return ", ".join(current.allowed_values or [])
+        elif change_type == "extraction_strategy":
+            return current.extraction_strategy
         return None
 
     # ==================== Paper Discovery ====================
@@ -1312,6 +1296,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
         resolved = await self.resolve_reextraction_columns(session_id, columns, scope)
 
         session = self.session_manager.get_session(session_id)
+        selected_columns = [
+            col for col in (session.columns if session else []) if col.name in resolved
+        ]
+        requires_documents = any(
+            col.extraction_strategy != "web" for col in selected_columns
+        )
         renamed_from = (
             self._collect_renamed_from_history(session, resolved) if session else {}
         )
@@ -1409,9 +1399,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # rows to compare against and are re-discovered from scratch.
                 if scan.empty_columns:
                     resolved = [c for c in resolved if c in scan.empty_columns]
-                if scoped_documents is None:
+                if scoped_documents is None and requires_documents:
                     scoped_documents = sorted(scan.docs_with_empties)
-                else:
+                elif scoped_documents is not None:
                     scoped_documents = [
                         d for d in scoped_documents
                         if d in scan.docs_with_empties or d in skipped_scope
@@ -1424,39 +1414,36 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # extraction in the lib.
                 only_empty_targets = scan.plan
 
-        availability = await self.precheck_document_availability(
-            session_id,
-            operation_type="reextraction",
-            paper_discovery=paper_discovery,
-        )
-        if scoped_documents:
-            # Document-scoped run (e.g. extract_cells on a single skipped file):
-            # gate only on the requested documents, not the whole project, so a
-            # targeted re-extraction is not blocked by unrelated documents that
-            # happen to be unreachable. A skipped document re-attached via "Show
-            # source document" lands on disk and is picked up here.
-            scoped_avail = self._scoped_documents_availability(
-                session_id, scoped_documents, availability
+        if requires_documents:
+            availability = await self.precheck_document_availability(
+                session_id,
+                operation_type="reextraction",
+                paper_discovery=paper_discovery,
             )
-            scoped_missing = scoped_avail["missing"]
-            if scoped_missing:
-                raise ValueError(
-                    f"{len(scoped_missing)} source document(s) are unavailable: "
-                    f"{', '.join(scoped_missing)}. Open a row from one of them and "
-                    "use \"Show source document\" to re-attach the file, then try "
-                    "again."
+            if scoped_documents:
+                # Gate only the document scope needed by document/hybrid columns.
+                scoped_avail = self._scoped_documents_availability(
+                    session_id, scoped_documents, availability
                 )
-        elif not availability.get("can_proceed", False):
-            missing = availability.get("missing_documents") or []
-            if missing:
+                scoped_missing = scoped_avail["missing"]
+                if scoped_missing:
+                    raise ValueError(
+                        f"{len(scoped_missing)} source document(s) are unavailable: "
+                        f"{', '.join(scoped_missing)}. Open a row from one of them and "
+                        "use \"Show source document\" to re-attach the file, then try "
+                        "again."
+                    )
+            elif not availability.get("can_proceed", False):
+                missing = availability.get("missing_documents") or []
+                if missing:
+                    raise ValueError(
+                        f"{len(missing)} source document(s) are unavailable. "
+                        "Add them from the Documents tab, then try again."
+                    )
                 raise ValueError(
-                    f"{len(missing)} source document(s) are unavailable. "
-                    "Add them from the Documents tab, then try again."
+                    "No source documents available. Add the original source "
+                    "documents from the Documents tab, then try again."
                 )
-            raise ValueError(
-                "No source documents available. Add the original source "
-                "documents from the Documents tab, then try again."
-            )
 
         return await self.start_reextraction(
             session_id,
@@ -1505,10 +1492,20 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if invalid_columns:
             raise ValueError(f"Invalid columns: {invalid_columns}")
 
+        selected_columns = [col for col in session.columns if col.name in columns]
+        requires_documents = any(
+            col.extraction_strategy != "web" for col in selected_columns
+        )
+        has_web_columns = any(
+            col.extraction_strategy != "document" for col in selected_columns
+        )
+        if has_web_columns and self._web_enrichment_service is None:
+            raise RuntimeError("Web enrichment service is not configured")
+
         # Validate observation_unit (required by value extraction pipeline)
         # Must check before spawning background task to avoid race condition
         # where the error fires before the WebSocket connects.
-        if not session.observation_unit:
+        if requires_documents and not session.observation_unit:
             inferred_unit_name = None
             data_dir = Path(DEFAULT_DATA_DIR) / session_id
             schematiq_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
@@ -1569,6 +1566,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
             llm = self._get_llm_from_session(session_id)
         except Exception as e:
             raise ValueError(f"LLM configuration error: {e}")
+        if has_web_columns and not callable(getattr(llm, "generate_grounded", None)):
+            raise ValueError(
+                "Web-sourced columns require a Gemini model with Google Search grounding."
+            )
 
         # Create operation
         operation_id = str(uuid.uuid4())[:8]
@@ -1774,6 +1775,18 @@ class ReextractionService(WebSocketBroadcasterMixin):
             if not session:
                 raise ValueError(f"Session {operation.session_id} not found")
 
+            target_columns = [
+                col for col in session.columns if col.name in operation.columns
+            ]
+            document_columns = [
+                col for col in target_columns if col.extraction_strategy != "web"
+            ]
+            web_columns = [
+                col for col in target_columns
+                if col.extraction_strategy != "document"
+            ]
+            document_column_names = [col.name for col in document_columns]
+
             data_dir = Path(DEFAULT_DATA_DIR) / operation.session_id
             schematiq_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / operation.session_id
             session_dir = data_dir  # Keep for schema/output file paths
@@ -1796,7 +1809,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 paper_discovery = await self.discover_papers(operation.session_id)
             logger.debug(f"Paper discovery result - available: {len(paper_discovery.get('available_papers', []))}, cloud: {len(paper_discovery.get('cloud_papers', {}))}, missing: {len(paper_discovery.get('missing_papers', []))}")
 
-            if paper_discovery.get("cloud_papers"):
+            if document_columns and paper_discovery.get("cloud_papers"):
                 logger.debug(f"Downloading {len(paper_discovery['cloud_papers'])} cloud papers...")
                 downloaded = await self.download_cloud_papers(
                     operation.session_id,
@@ -1805,12 +1818,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 logger.debug(f"Downloaded {len(downloaded)} papers from cloud storage for re-extraction")
             else:
                 logger.debug("No cloud papers to download")
-
-            # Get target columns
-            target_columns = [
-                col for col in session.columns
-                if col.name in operation.columns
-            ]
 
             # Build schema for extraction
             schema_data = {
@@ -1822,7 +1829,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         "explanation": col.rationale or f"Information for {col.name}",
                         "allowed_values": col.allowed_values
                     }
-                    for col in target_columns
+                    for col in document_columns
                 ]
             }
 
@@ -1835,14 +1842,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 if session.observation_unit.example_names:
                     schema_data["observation_unit"]["example_names"] = session.observation_unit.example_names
 
-            # Save schema file
+            # Save a document-extraction schema only for document/hybrid columns.
             schema_file = session_dir / f"reextract_schema_{operation_id}.json"
-            with open(schema_file, 'w') as f:
-                json.dump(schema_data, f, indent=2)
+            if document_columns:
+                with open(schema_file, 'w') as f:
+                    json.dump(schema_data, f, indent=2)
 
-            # Setup LLM and retriever (use cached retriever for performance)
+            # The same configured Gemini instance serves document extraction and
+            # the physically separate grounded web path.
             llm = self._get_llm_from_session(operation.session_id)
-            retriever = self.get_cached_retriever()
+            retriever = self.get_cached_retriever() if document_columns else None
 
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
 
@@ -1869,7 +1878,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 "document_name": paper_title,
                                 "document_index": doc_index[0],
                                 "total_documents": operation.total_documents,
-                                "columns": operation.columns,
+                                "columns": document_column_names,
                             }
                         ),
                         loop
@@ -1883,7 +1892,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     future = asyncio.run_coroutine_threadsafe(
                         self._merge_incremental_unit_row(
                             operation.session_id,
-                            operation.columns,
+                            document_column_names,
                             dict(unit_row),
                             operation,
                             renamed_from=operation.renamed_from,
@@ -1943,17 +1952,17 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 [str(d) for d in docs_directories],
                 len(docs_directories),
             )
-            if operation.total_documents > 0 and not docs_directories:
+            if document_columns and operation.total_documents > 0 and not docs_directories:
                 raise RuntimeError(
                     "No document directories found on disk for this session. "
                     "Re-upload documents on the Data tab and try again."
                 )
 
-            rediscover_observation_units = bool(
+            rediscover_observation_units = bool(document_columns) and bool(
                 session.metadata.pending_observation_unit_rediscovery
             )
 
-            if docs_directories:
+            if document_columns and docs_directories:
                 logger.debug("Starting build_table_jsonl extraction...")
 
                 known_units = self._build_known_units_for_reextraction(
@@ -2012,6 +2021,27 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # Load reference context before entering the sync extraction thread.
                 reference_context = await build_reference_context(session)
 
+                document_targets = operation.only_empty_targets
+                if document_targets is not None and web_columns:
+                    allowed = set(document_column_names)
+                    document_targets = {
+                        paper: {
+                            unit: {
+                                "targets": [
+                                    name for name in plan.get("targets", [])
+                                    if name in allowed
+                                ],
+                                "filled": {
+                                    name: value
+                                    for name, value in plan.get("filled", {}).items()
+                                    if name in allowed
+                                },
+                            }
+                            for unit, plan in units.items()
+                        }
+                        for paper, units in document_targets.items()
+                    }
+
                 def run_extraction():
                     return build_table_jsonl(
                         schema_path=schema_file,
@@ -2028,7 +2058,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         on_document_started=on_document_started,
                         should_stop=should_stop,  # Allow graceful stop
                         known_units=known_units if known_units else None,
-                        unit_targets_by_paper=operation.only_empty_targets,
+                        unit_targets_by_paper=document_targets,
                         write_skip_rationale_artifact=session.write_artifacts,
                         reference_context=reference_context,
                     )
@@ -2038,17 +2068,39 @@ class ReextractionService(WebSocketBroadcasterMixin):
             else:
                 logger.debug("No document directories exist, skipping extraction")
 
-            # Merge results with existing data
-            logger.debug("Merging re-extracted data...")
-            await self._merge_reextracted_data(
-                operation.session_id,
-                operation.columns,
-                output_file,
-                renamed_from=operation.renamed_from,
-                initial_matched_keys=operation.incrementally_merged_keys,
-                only_empty=operation.only_empty,
-                retry_confirmed_empty=operation.retry_confirmed_empty,
-            )
+            if document_columns:
+                logger.debug("Merging document re-extraction data...")
+                await self._merge_reextracted_data(
+                    operation.session_id,
+                    document_column_names,
+                    output_file,
+                    renamed_from=operation.renamed_from,
+                    initial_matched_keys=operation.incrementally_merged_keys,
+                    only_empty=operation.only_empty,
+                    retry_confirmed_empty=operation.retry_confirmed_empty,
+                )
+
+            if web_columns:
+                async def on_web_cell(row_name: str, column_name: str, value: Any):
+                    await self.broadcast_cell_extracted(
+                        operation.session_id,
+                        {
+                            "row_name": row_name,
+                            "column": column_name,
+                            "value": value,
+                        },
+                    )
+
+                await self._web_enrichment_service.enrich_columns(
+                    operation.session_id,
+                    web_columns,
+                    llm,
+                    documents=operation.documents,
+                    rows=operation.rows,
+                    only_empty=operation.only_empty,
+                    should_stop=lambda: self.is_stop_requested(operation_id),
+                    on_cell=on_web_cell,
+                )
 
             # Update baseline after successful extraction
             await self.capture_and_save_baseline(operation.session_id)

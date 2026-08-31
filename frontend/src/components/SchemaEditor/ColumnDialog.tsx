@@ -72,7 +72,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
     rationale: '',
     new_name: '',
     allowed_values: [] as string[],
-    auto_expand_threshold: 2
+    auto_expand_threshold: 2,
+    extraction_strategy: 'document' as 'document' | 'web' | 'document_then_web'
   });
   const [newAllowedValue, setNewAllowedValue] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -89,7 +90,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           rationale: column.rationale || '',
           new_name: column.name,
           allowed_values: column.allowed_values || [],
-          auto_expand_threshold: column.auto_expand_threshold ?? 2
+          auto_expand_threshold: column.auto_expand_threshold ?? 2,
+          extraction_strategy: (column.extraction_strategy as 'document' | 'web' | 'document_then_web') || 'document'
         });
         // Auto-expand constraints section if column has allowed values
         setConstraintsOpen(!!(column.allowed_values && column.allowed_values.length > 0));
@@ -100,7 +102,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           rationale: '',
           new_name: '',
           allowed_values: [],
-          auto_expand_threshold: 2
+          auto_expand_threshold: 2,
+          extraction_strategy: 'document'
         });
         setConstraintsOpen(false);
       }
@@ -159,6 +162,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           definition: formData.definition.trim(),
           rationale: formData.rationale.trim() || undefined,
           allowed_values: formData.allowed_values.length > 0 ? formData.allowed_values : undefined,
+          extraction_strategy: formData.extraction_strategy,
         };
 
         // Include LLM config if API key is available
@@ -184,6 +188,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           rationale: formData.rationale.trim() || undefined,
           new_name: formData.new_name.trim() !== formData.name ? formData.new_name.trim() : undefined,
           allowed_values: formData.allowed_values,  // Send even if empty to allow clearing
+          extraction_strategy: formData.extraction_strategy,
           reprocess: false,  // Don't reprocess documents for metadata-only edits
         };
 
@@ -348,6 +353,31 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
               disabled={loading}
               aria-required="false"
             />
+          </div>
+
+          {/* Value Source (extraction strategy) */}
+          <div className="space-y-2">
+            <Label htmlFor="extraction_strategy">Value Source</Label>
+            <Select
+              value={formData.extraction_strategy}
+              onValueChange={(value) => setFormData(prev => ({ ...prev, extraction_strategy: value as 'document' | 'web' | 'document_then_web' }))}
+            >
+              <SelectTrigger id="extraction_strategy">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="document">Document only (default)</SelectItem>
+                <SelectItem value="web">Web search</SelectItem>
+                <SelectItem value="document_then_web">Document, then web for gaps</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {formData.extraction_strategy === 'document'
+                ? 'Values are extracted only from the attached documents.'
+                : formData.extraction_strategy === 'web'
+                ? 'Values are found with grounded web search. Requires a Gemini model.'
+                : 'The document is tried first; the web fills only cells the document leaves empty.'}
+            </p>
           </div>
 
           {/* Cluster Selection (only for add mode) */}

@@ -38,6 +38,16 @@ logger = logging.getLogger(__name__)
 # Max characters of a reference document returned by read_reference_source. Kept
 # below the tool-result truncation budget so the body is never dropped wholesale.
 READ_REFERENCE_CHAT_BUDGET = 6000
+VALID_EXTRACTION_STRATEGIES = {"document", "web", "document_then_web"}
+
+
+def _extraction_strategy(args: dict[str, Any], default: str = "document") -> str:
+    strategy = args.get("extraction_strategy", default)
+    if strategy not in VALID_EXTRACTION_STRATEGIES:
+        raise ValueError(
+            "extraction_strategy must be document, web, or document_then_web"
+        )
+    return strategy
 
 
 class ToolExecutor:
@@ -627,6 +637,7 @@ class ToolExecutor:
           raise ValueError("Session not found")
       definition = args["definition"]
       rationale = args.get("rationale", "") or ""
+      extraction_strategy = _extraction_strategy(args)
       name, display_name = canonicalize_column_name(args["name"])
       if not name:
           raise ValueError("Column name cannot be empty")
@@ -634,14 +645,22 @@ class ToolExecutor:
           if col.name == name:
               raise ValueError(f"Column '{name}' already exists")
       new_column = ColumnInfo(
-          name=name, display_name=display_name, definition=definition, rationale=rationale
+          name=name,
+          display_name=display_name,
+          definition=definition,
+          rationale=rationale,
+          extraction_strategy=extraction_strategy,
       )
       session.columns.append(new_column)
       session.modification_history.append(
           ModificationAction(
               action_type="column_added",
               column_name=name,
-              details={"definition": definition, "rationale": rationale},
+              details={
+                  "definition": definition,
+                  "rationale": rationale,
+                  "extraction_strategy": extraction_strategy,
+              },
           )
       )
       session.metadata.last_modified = datetime.now()
@@ -669,6 +688,9 @@ class ToolExecutor:
       old_name = args["old_name"]
       definition = args.get("definition")
       rationale = args.get("rationale")
+      extraction_strategy = (
+          _extraction_strategy(args) if "extraction_strategy" in args else None
+      )
       new_name: Optional[str] = None
       new_display_name: Optional[str] = None
       if args.get("new_name"):
@@ -690,13 +712,21 @@ class ToolExecutor:
                   col.definition = definition
               if rationale is not None:
                   col.rationale = rationale
+              if extraction_strategy is not None:
+                  col.extraction_strategy = extraction_strategy
               column_found = True
               break
       if not column_found:
           raise ValueError(f"Column '{old_name}' not found")
-      if new_name is None and definition is None and rationale is None:
+      if (
+          new_name is None
+          and definition is None
+          and rationale is None
+          and extraction_strategy is None
+      ):
           raise ValueError(
-              "Nothing to update: provide new_name, definition, and/or rationale."
+              "Nothing to update: provide new_name, definition, rationale, "
+              "and/or extraction_strategy."
           )
       session.modification_history.append(
           ModificationAction(
@@ -707,6 +737,7 @@ class ToolExecutor:
                   "new_name": new_name,
                   "definition_changed": definition is not None,
                   "rationale_changed": rationale is not None,
+                  "extraction_strategy_changed": extraction_strategy is not None,
               },
           )
       )
@@ -742,6 +773,8 @@ class ToolExecutor:
           changed.append("definition")
       if rationale is not None:
           changed.append("rationale")
+      if extraction_strategy is not None:
+          changed.append("extraction_strategy")
       changed_label = ", ".join(changed) if changed else "no fields"
       return {
           "status": "success",

@@ -11,7 +11,7 @@ import os
 import time
 import random
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Union, Optional
+from typing import List, Dict, Any, Union, Optional, Tuple
 import re
 
 import httpx
@@ -948,6 +948,120 @@ class GeminiLLM(LLMInterface):
                     break
 
         # Re-raise the last exception (GeminiLLM.generate)
+        raise last_exception
+
+    @staticmethod
+    def _extract_grounding_sources(candidate: Any) -> List[Dict[str, str]]:
+        """Return de-duplicated web sources from Gemini grounding metadata."""
+        metadata = getattr(candidate, "grounding_metadata", None)
+        chunks = getattr(metadata, "grounding_chunks", None) or []
+        sources: List[Dict[str, str]] = []
+        seen = set()
+        for chunk in chunks:
+            web = getattr(chunk, "web", None)
+            uri = getattr(web, "uri", None) if web is not None else None
+            if not uri or uri in seen:
+                continue
+            seen.add(uri)
+            sources.append({
+                "url": str(uri),
+                "title": str(getattr(web, "title", None) or uri),
+            })
+        return sources
+
+    def generate_grounded(
+        self,
+        prompt: Union[str, List[Dict[str, str]]],
+        **kwargs,
+    ) -> Tuple[str, List[Dict[str, str]]]:
+        """Generate with Google Search enabled and return text plus web sources.
+
+        This is deliberately separate from :meth:`generate`: ordinary document
+        extraction never receives a search tool, so its document-only guarantee
+        is enforced structurally rather than by prompt wording.
+        """
+        prompt_len = sum(
+            len(message.get("content", ""))
+            for message in (
+                prompt if isinstance(prompt, list) else [{"content": prompt}]
+            )
+        )
+        system_instruction = None
+        if isinstance(prompt, list):
+            system_parts = [m["content"] for m in prompt if m["role"] == "system"]
+            user_parts = [m["content"] for m in prompt if m["role"] != "system"]
+            if system_parts:
+                system_instruction = "\n\n".join(system_parts)
+            prompt_text = "\n\n".join(user_parts)
+        else:
+            prompt_text = prompt
+
+        if self.system_prefix:
+            system_instruction = (
+                f"{self.system_prefix}\n\n{system_instruction}"
+                if system_instruction
+                else self.system_prefix
+            )
+
+        config_kwargs = {
+            "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
+            "temperature": kwargs.get("temperature", self.temperature),
+            "safety_settings": self.safety_settings,
+            "tools": [self.types.Tool(google_search=self.types.GoogleSearch())],
+        }
+        if system_instruction:
+            config_kwargs["system_instruction"] = system_instruction
+        if kwargs.get("response_schema") is not None:
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_schema"] = kwargs["response_schema"]
+        self._apply_thinking_config(config_kwargs, kwargs.get("thinking_budget"))
+        config = self.types.GenerateContentConfig(**config_kwargs)
+
+        max_retries = 3
+        last_exception = None
+        start_time = time.time()
+        for attempt in range(max_retries + 1):
+            try:
+                response = self._client.models.generate_content(
+                    model=self.model,
+                    contents=prompt_text,
+                    config=config,
+                )
+                if not response.candidates:
+                    return "", []
+                candidate = response.candidates[0]
+                if not candidate.content or not candidate.content.parts:
+                    return "", []
+
+                content = response.text.strip()
+                sources = self._extract_grounding_sources(candidate)
+                LLMCallTracker.get_instance().increment(
+                    model=self.model,
+                    prompt_length=prompt_len,
+                    completion_length=len(content),
+                )
+                return content, sources
+            except Exception as exc:
+                last_exception = exc
+                error_str = str(exc)
+                logger.exception(
+                    "Grounded Gemini call failed after %.1fs (model=%s, prompt_chars=%d)",
+                    time.time() - start_time,
+                    self.model,
+                    len(prompt_text),
+                )
+                if _is_invalid_api_key_error(exc):
+                    raise
+                if _is_rate_limit_error(exc) and attempt < max_retries:
+                    time.sleep(_extract_wait_time(exc))
+                    continue
+                if _is_retryable_server_error(exc) and attempt < max_retries:
+                    time.sleep(10 + random.randint(5, 15))
+                    continue
+                if "Invalid operation" in error_str and "finish_reason" in error_str:
+                    return "", []
+                break
+
         raise last_exception
 
     # ── Context Caching ──────────────────────────────────────────────
