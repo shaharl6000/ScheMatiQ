@@ -588,6 +588,17 @@ class GeminiLLM(LLMInterface):
     """
     _provider = "gemini"
 
+    # Sentinel strings returned when the API produced no usable content. These
+    # flow downstream as ordinary text and cause a fully-empty extraction row,
+    # so callers can compare against this set to tell an empty-signal apart from
+    # a genuine (but unparseable) model answer. See ``last_call_diag``.
+    EMPTY_SIGNAL_RESPONSES = frozenset({
+        "No response generated due to safety filters or other restrictions.",
+        "Empty response from Gemini.",
+        "Response blocked by Gemini safety filters. Please try rephrasing your request.",
+        "Response blocked by Gemini safety filters.",
+    })
+
     def __init__(
         self,
         model: str = ModelNames.DEFAULT_VALUE_EXTRACTION,
@@ -602,6 +613,12 @@ class GeminiLLM(LLMInterface):
         self.model = model
         self.temperature = temperature
         self.system_prefix = system_prefix
+
+        # Diagnostics from the most recent generate/generate_with_cache call.
+        # Lets callers explain a fully-empty extraction row without re-reading
+        # the raw response. Keys: finish_reason, empty_reason, response_chars,
+        # truncated (bool). Reset at the start of every call.
+        self.last_call_diag: Dict[str, Any] = {}
 
         # Auto-detect token limits and capabilities from model specs
         spec = get_model_spec("gemini", model)
@@ -811,6 +828,7 @@ class GeminiLLM(LLMInterface):
         # Log prompt size for performance correlation
         print(f"🚀 Starting Gemini API call (model: {self.model}, prompt: ~{len(prompt_text):,} chars)")
         start_time = time.time()
+        self.last_call_diag = {}
 
         # Build generation config using new SDK types
         config_kwargs = {
@@ -854,6 +872,12 @@ class GeminiLLM(LLMInterface):
                 if not response.candidates:
                     feedback = getattr(response, 'prompt_feedback', None)
                     print(f"Gemini returned no candidates. Feedback: {feedback}")
+                    self.last_call_diag = {
+                        "finish_reason": "NO_CANDIDATES",
+                        "empty_reason": f"no candidates (prompt_feedback={feedback})",
+                        "response_chars": 0,
+                        "truncated": False,
+                    }
                     return "No response generated due to safety filters or other restrictions."
 
                 candidate = response.candidates[0]
@@ -879,10 +903,23 @@ class GeminiLLM(LLMInterface):
                 # Check for empty content
                 if not candidate.content or not candidate.content.parts:
                     print("Gemini returned empty content")
+                    self.last_call_diag = {
+                        "finish_reason": finish_reason_name,
+                        "empty_reason": "candidate had no content parts",
+                        "response_chars": 0,
+                        "truncated": finish_reason_name == "MAX_TOKENS",
+                    }
                     return "Empty response from Gemini."
 
                 content = response.text.strip()
-                
+
+                self.last_call_diag = {
+                    "finish_reason": finish_reason_name,
+                    "empty_reason": None,
+                    "response_chars": len(content),
+                    "truncated": finish_reason_name == "MAX_TOKENS",
+                }
+
                 # Track LLM call after success
                 LLMCallTracker.get_instance().increment(
                     model=self.model, 
@@ -907,6 +944,12 @@ class GeminiLLM(LLMInterface):
                 # Handle safety filter errors specifically - don't retry
                 if "Invalid operation" in error_str and "finish_reason" in error_str:
                     print(f"Gemini safety filter triggered: {error_str}")
+                    self.last_call_diag = {
+                        "finish_reason": "SAFETY_EXCEPTION",
+                        "empty_reason": f"safety filter exception: {error_str[:280]}",
+                        "response_chars": 0,
+                        "truncated": False,
+                    }
                     return "Response blocked by Gemini safety filters. Please try rephrasing your request."
 
                 # Check for invalid/malformed API key errors - don't retry
@@ -1008,6 +1051,7 @@ class GeminiLLM(LLMInterface):
         )
         print(f"🚀 Starting Gemini cached API call (model: {self.model}, prompt: ~{len(prompt_text):,} chars)")
         start_time = time.time()
+        self.last_call_diag = {}
 
         config_kwargs = {
             "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
@@ -1037,6 +1081,13 @@ class GeminiLLM(LLMInterface):
                 print(f"⏱️  Gemini cached API call completed in {elapsed:.1f}s")
 
                 if not response.candidates:
+                    feedback = getattr(response, 'prompt_feedback', None)
+                    self.last_call_diag = {
+                        "finish_reason": "NO_CANDIDATES",
+                        "empty_reason": f"no candidates (prompt_feedback={feedback})",
+                        "response_chars": 0,
+                        "truncated": False,
+                    }
                     return "No response generated due to safety filters or other restrictions."
 
                 candidate = response.candidates[0]
@@ -1058,9 +1109,22 @@ class GeminiLLM(LLMInterface):
                         )
 
                 if not candidate.content or not candidate.content.parts:
+                    self.last_call_diag = {
+                        "finish_reason": finish_reason_name,
+                        "empty_reason": "candidate had no content parts",
+                        "response_chars": 0,
+                        "truncated": finish_reason_name == "MAX_TOKENS",
+                    }
                     return "Empty response from Gemini."
 
                 content = response.text.strip()
+
+                self.last_call_diag = {
+                    "finish_reason": finish_reason_name,
+                    "empty_reason": None,
+                    "response_chars": len(content),
+                    "truncated": finish_reason_name == "MAX_TOKENS",
+                }
 
                 LLMCallTracker.get_instance().increment(
                     model=self.model,
@@ -1082,6 +1146,12 @@ class GeminiLLM(LLMInterface):
                 print(repr(e))
 
                 if "Invalid operation" in error_str and "finish_reason" in error_str:
+                    self.last_call_diag = {
+                        "finish_reason": "SAFETY_EXCEPTION",
+                        "empty_reason": f"safety filter exception: {error_str[:280]}",
+                        "response_chars": 0,
+                        "truncated": False,
+                    }
                     return "Response blocked by Gemini safety filters."
                 if _is_invalid_api_key_error(e):
                     raise

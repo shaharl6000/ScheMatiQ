@@ -38,7 +38,7 @@ def build_table_jsonl(
     on_warning: Optional[OnWarningCallback] = None,
     known_units: Optional[Dict[str, List[str]]] = None,
     unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None,
-    on_document_started: Optional[Callable[[str], None]] = None,
+    on_document_started: Optional[Callable[[str, int], None]] = None,
     write_skip_rationale_artifact: Optional[bool] = None,
     reference_context: Optional[str] = None,
     feedback: Optional[str] = None,

@@ -108,6 +108,7 @@ export const WORKSPACE_MENUS: WorkspaceMenu[] = [
     items: [
       { label: 'Keyboard shortcuts', action: 'keyboardShortcuts' },
       { label: 'Report an issue', action: 'reportIssue' },
+      { label: 'Cite ScheMatiQ', action: 'cite' },
     ],
   },
 ];

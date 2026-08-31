@@ -24,7 +24,8 @@ export type WorkspaceMenuAction =
   | 'estimateCost'
   | 'refreshProject'
   | 'keyboardShortcuts'
-  | 'reportIssue';
+  | 'reportIssue'
+  | 'cite';
 
 export type WorkspaceMenuItem = {
   label: string;

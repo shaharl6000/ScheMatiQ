@@ -84,6 +84,7 @@ import {
 } from './helpers';
 import { NewProjectDialog } from './NewProjectDialog';
 import { PendingRerunBanner } from './PendingRerunBanner';
+import { CiteDialog } from './CiteDialog';
 import { KeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
 import { ProjectDetailsDialog } from './ProjectDetailsDialog';
 import ReportIssueDialog from '@/components/ReportIssueDialog/ReportIssueDialog';
@@ -137,11 +138,17 @@ function Workspace() {
   const { toast } = useToast();
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const hotTableRef = useRef<HotTableClass | null>(null);
+  // Active "Find in table" term. Held in a ref (not state) because it is only
+  // read by the grid's beforeViewRender hook (to re-apply the highlight after
+  // re-renders) and cleared by the grid's Escape shortcut -- it never needs to
+  // trigger a React render itself. `null` when no search is active.
+  const activeSearchTermRef = useRef<string | null>(null);
   const [activeSheet, setActiveSheet] = useState<SheetId>('data');
   const [sessionMode, setSessionMode] = useState<WorkspaceSessionMode>(requestedMode);
   const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [citeOpen, setCiteOpen] = useState(false);
   const [status, setStatus] = useState<ScheMatiQStatus | null>(null);
   const [session, setSession] = useState<VisualizationSession | null>(null);
   const [schema, setSchema] = useState<SchemaData | null>(null);
@@ -1046,6 +1053,7 @@ function Workspace() {
     if (!term) return;
     const hot = hotTableRef.current?.hotInstance;
     if (!hot) return;
+    activeSearchTermRef.current = term;
     const results = hot.getPlugin('search').query(term);
     hot.render();
     if (results.length === 0) {
@@ -1264,6 +1272,7 @@ function Workspace() {
         cellFormats={cellFormats}
         formatVersion={formatVersion}
         hotTableRef={hotTableRef}
+        searchTermRef={activeSearchTermRef}
         onSelectionChange={updateSheetSelection}
         onGroundingHighlight={handleGroundingHighlight}
         onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
@@ -1348,6 +1357,7 @@ function Workspace() {
         onAddDocuments={() => setActiveSheet('documents')}
         onApplyFormat={applyTableFormat}
         onReportIssue={() => setReportOpen(true)}
+        onCite={() => setCiteOpen(true)}
         rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
       />
 
@@ -1724,6 +1734,8 @@ function Workspace() {
         config={config}
         costEstimate={costEstimate}
       />
+
+      <CiteDialog open={citeOpen} onOpenChange={setCiteOpen} />
 
       <ReportIssueDialog
         open={reportOpen}

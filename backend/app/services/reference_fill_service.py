@@ -171,12 +171,15 @@ class ReferenceFillService:
     async def start_fill(
         self, session_id: str, column: str, reference_id: str,
         rows: Optional[list[str]] = None,
+        only_empty: bool = False,
     ) -> dict[str, Any]:
         """Validate the request, then start the fill in the background.
 
         Returns immediately with the operation id and the number of rows to fill.
         When ``rows`` is given, only those observation-unit / row names are filled;
-        otherwise every row in the column is filled.
+        otherwise every row in the column is filled. When ``only_empty`` is set,
+        rows whose cell in ``column`` already holds a value are skipped, so the
+        reference never overwrites values that are already there.
         """
         column = (column or "").strip()
         reference_id = (reference_id or "").strip()
@@ -220,6 +223,23 @@ class ReferenceFillService:
                     "preview_data."
                 )
         rows = loaded_rows
+
+        if only_empty:
+            # Fill only cells that currently hold no value, so the reference does
+            # not overwrite values already present. A cell the model confirmed
+            # empty from the source documents is still a candidate here: the
+            # reference is a separate source that may hold the value.
+            from app.services.reextraction_service import _is_empty_cell_value
+            from app.services.data_utils import get_extraction_column_value
+            rows = [
+                r for r in rows
+                if _is_empty_cell_value(get_extraction_column_value(r, column))
+            ]
+            if not rows:
+                raise ValueError(
+                    f"Every targeted cell in '{column}' already has a value; "
+                    "nothing to fill with only_empty=true."
+                )
 
         column_obj = next(
             (c for c in session.columns if c.name == column), None

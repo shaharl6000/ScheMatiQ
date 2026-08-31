@@ -76,6 +76,7 @@ export function SpreadsheetSurface({
   cellFormats,
   formatVersion,
   hotTableRef,
+  searchTermRef,
   onSelectionChange,
   onGroundingHighlight,
   onGroundingScrollRequest,
@@ -106,6 +107,11 @@ export function SpreadsheetSurface({
   cellFormats: CellFormatMap;
   formatVersion: number;
   hotTableRef: MutableRefObject<HotTableClass | null>;
+  // Active "Find in table" term, owned by the workspace (which drives the
+  // search). The grid re-applies it on every view render so the highlight
+  // survives unrelated re-renders, and clears it on Escape (see below). `null`
+  // when no search is active.
+  searchTermRef?: MutableRefObject<string | null>;
   onSelectionChange: (selection: SheetSelection) => void;
   // Reports all grounding excerpts of the newly selected data cell (or null when
   // the cell has no grounding), so the source panel can highlight them.
@@ -248,23 +254,51 @@ export function SpreadsheetSurface({
   // position. Both numbers are recomputed from the live DOM on every call, so
   // this is a no-op whenever Handsontable sizes the overlay correctly (overhang
   // 0 means the target width is the width Handsontable itself assigns).
+  //
+  // The row-header numbers (.ht_clone_inline_start) have the exact vertical
+  // twin of this bug. InlineStartOverlay.adjustRootElementSize sizes that
+  // overlay's viewport height as
+  // `min(workspaceHeight - (hasHorizontalScroll() ? scrollbarWidth : 0), rootScrollHeight)`,
+  // so when the horizontal-scroll check disagrees with the master's real
+  // viewport the row-header overlay ends up one scrollbar taller and runs out
+  // of vertical scroll range one scrollbar early: once scrolled to the bottom,
+  // every row number sits ~15px above the row it labels (its baseline no longer
+  // matches the adjacent cell content). The same hider-extend + scroll re-apply,
+  // on the height axis and driven by afterScrollVertically, realigns it.
   const syncHeaderOverlayScroll = useCallback(() => {
     const root = hotTableRef.current?.hotInstance?.rootElement;
     if (!root) return;
 
     const masterHolder = root.querySelector<HTMLElement>('.ht_master .wtHolder');
-    const headerHolder = root.querySelector<HTMLElement>('.ht_clone_top .wtHolder');
     const masterHider = root.querySelector<HTMLElement>('.ht_master .wtHider');
-    const headerHider = root.querySelector<HTMLElement>('.ht_clone_top .wtHider');
-    if (!masterHolder || !headerHolder || !masterHider || !headerHider) return;
+    if (!masterHolder || !masterHider) return;
 
-    const overhang = Math.max(0, headerHolder.clientWidth - masterHolder.clientWidth);
-    const targetHiderWidth = masterHider.offsetWidth + overhang;
-    if (Math.abs(headerHider.offsetWidth - targetHiderWidth) >= 1) {
-      headerHider.style.width = `${targetHiderWidth}px`;
+    // Top overlay (column headers) -- horizontal axis.
+    const headerHolder = root.querySelector<HTMLElement>('.ht_clone_top .wtHolder');
+    const headerHider = root.querySelector<HTMLElement>('.ht_clone_top .wtHider');
+    if (headerHolder && headerHider) {
+      const overhang = Math.max(0, headerHolder.clientWidth - masterHolder.clientWidth);
+      const targetHiderWidth = masterHider.offsetWidth + overhang;
+      if (Math.abs(headerHider.offsetWidth - targetHiderWidth) >= 1) {
+        headerHider.style.width = `${targetHiderWidth}px`;
+      }
+      if (headerHolder.scrollLeft !== masterHolder.scrollLeft) {
+        headerHolder.scrollLeft = masterHolder.scrollLeft;
+      }
     }
-    if (headerHolder.scrollLeft !== masterHolder.scrollLeft) {
-      headerHolder.scrollLeft = masterHolder.scrollLeft;
+
+    // Inline-start overlay (row-header numbers) -- vertical axis.
+    const rowHeaderHolder = root.querySelector<HTMLElement>('.ht_clone_inline_start .wtHolder');
+    const rowHeaderHider = root.querySelector<HTMLElement>('.ht_clone_inline_start .wtHider');
+    if (rowHeaderHolder && rowHeaderHider) {
+      const overhang = Math.max(0, rowHeaderHolder.clientHeight - masterHolder.clientHeight);
+      const targetHiderHeight = masterHider.offsetHeight + overhang;
+      if (Math.abs(rowHeaderHider.offsetHeight - targetHiderHeight) >= 1) {
+        rowHeaderHider.style.height = `${targetHiderHeight}px`;
+      }
+      if (rowHeaderHolder.scrollTop !== masterHolder.scrollTop) {
+        rowHeaderHolder.scrollTop = masterHolder.scrollTop;
+      }
     }
   }, [hotTableRef]);
 
@@ -603,6 +637,15 @@ export function SpreadsheetSurface({
   // skips re-pushing any init-only prop whose value is unchanged, so the plugin
   // is configured once and never torn down on subsequent renders. The list is
   // wrapper-facing metadata that Handsontable's core never reads at runtime.
+  //
+  // This re-push is inherent to the wrapper's update model, not a quirk of the
+  // pinned version: the newer functional @handsontable/react-wrapper (17.x,
+  // which would also align the current wrapper/core version skew) uses the
+  // identical update path -- same shouldSkipProp / `_initOnlySettings` check,
+  // re-pushing every non-init-only prop through updateSettings on each render
+  // (verified against its published source). Migrating to it would therefore
+  // remove neither this init-only workaround nor the analogous transient-state
+  // re-applies the same behaviour forces elsewhere; it is not a fix for this.
   // Latest-value ref so the shortcut callback (registered once at afterInit) is
   // never stale, without re-registering on every render. Mirrors menuActionsRef.
   const formatShortcutRef = useRef(onToggleFormatShortcut);
@@ -670,8 +713,30 @@ export function SpreadsheetSurface({
         stopPropagation: true,
         group: 'schematiq:formatting',
       });
+      // Escape clears the active "Find in table" search + its highlight, the way
+      // browsers and spreadsheets do. `runOnlyIf` gates it on there being an
+      // active search, so when nothing is being searched Escape keeps whatever
+      // default grid behaviour it would otherwise have. Lives in the 'grid'
+      // context, so it does not fire while a cell editor is open (Escape there
+      // still cancels the edit).
+      context.addShortcut({
+        keys: [['escape']],
+        callback: () => {
+          const active = hotTableRef.current?.hotInstance;
+          if (!active) return;
+          try {
+            if (searchTermRef) searchTermRef.current = null;
+            active.getPlugin('search').query('');
+            active.render();
+          } catch { /* instance may be mid-teardown */ }
+        },
+        runOnlyIf: () => Boolean(searchTermRef?.current),
+        preventDefault: true,
+        stopPropagation: true,
+        group: 'schematiq:search',
+      });
     } catch { /* instance may be mid-teardown or context unavailable */ }
-  }, [hotTableRef]);
+  }, [hotTableRef, searchTermRef]);
 
   // Runs after every render, but the identity guard makes it a no-op except on
   // the first render after a new grid instance appears. Deliberately without a
@@ -686,8 +751,8 @@ export function SpreadsheetSurface({
     registerFormatShortcuts(hot);
   });
 
-  const markFilterSettingsInitOnly = useCallback(() => {
-    const hot = hotTableRef.current?.hotInstance;
+  const markFilterSettingsInitOnly = useCallback((instance?: HotTableClass['hotInstance']) => {
+    const hot = instance ?? hotTableRef.current?.hotInstance;
     if (!hot) return;
     try {
       const settings = hot.getSettings() as { _initOnlySettings?: string[] };
@@ -705,6 +770,54 @@ export function SpreadsheetSurface({
       }
     } catch { /* instance may be mid-teardown */ }
   }, [hotTableRef]);
+
+  // Drive `markFilterSettingsInitOnly` from an effect rather than `afterInit`.
+  // `afterInit` fires from inside Handsontable's constructor, before
+  // @handsontable/react has assigned the instance onto the ref, so the
+  // afterInit call read `hotTableRef.current?.hotInstance` as undefined and
+  // silently no-opped -- leaving `filters`/`dropdownMenu`/`contextMenu` OUT of
+  // `_initOnlySettings`. The wrapper then re-pushed `filters` through
+  // updateSettings on the next unrelated re-render, re-initializing the filters
+  // plugin and wiping the active filter, so a filter set from the dropdown
+  // appeared to do nothing. This is the same ref-timing gotcha already handled
+  // for `registerFormatShortcuts` above; the identity guard makes it a no-op
+  // except on the first render after a new grid instance appears (the grid
+  // remounts on sheet/view `key` changes, resetting `_initOnlySettings`).
+  const filterInitInstanceRef = useRef<HotTableClass['hotInstance'] | null>(null);
+  useEffect(() => {
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot || filterInitInstanceRef.current === hot) return;
+    filterInitInstanceRef.current = hot;
+    markFilterSettingsInitOnly(hot);
+  });
+
+  // Keep the "Find in table" highlight alive across re-renders.
+  //
+  // The Search plugin marks matches with transient `isSearchResult` cell meta
+  // that a plain render preserves, but a @handsontable/react re-render (which
+  // re-pushes the full settings through updateSettings) rebuilds it, so the
+  // yellow highlight silently vanished on the next unrelated re-render
+  // (selection, toast, background refresh poll) even though the query itself
+  // was never cleared. Re-applying the active query in `beforeViewRender` -- so
+  // the meta is set again before the cells paint -- restores it in the same
+  // render with no extra render() call (and thus no risk of a render loop). The
+  // reentrancy guard covers any nested render the plugin might trigger, and the
+  // work is skipped entirely when no search is active.
+  const reapplyingSearchRef = useRef(false);
+  const reapplySearchHighlight = useCallback(() => {
+    if (reapplyingSearchRef.current) return;
+    const term = searchTermRef?.current;
+    if (!term) return;
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+    try {
+      const search = hot.getPlugin('search');
+      if (!search?.isEnabled?.()) return;
+      reapplyingSearchRef.current = true;
+      search.query(term);
+    } catch { /* instance may be mid-teardown */ }
+    finally { reapplyingSearchRef.current = false; }
+  }, [hotTableRef, searchTermRef]);
 
   // Renderer for the active grouping column: plain text plus a count badge on
   // the group's first row. With cells merged, only the top row of a group is
@@ -1713,12 +1826,18 @@ export function SpreadsheetSurface({
         afterInit={() => {
           syncHotTableDimensions();
           applyGroupMerges();
-          markFilterSettingsInitOnly();
+          // markFilterSettingsInitOnly is driven by a post-mount effect instead:
+          // at afterInit the wrapper has not yet assigned the instance onto the
+          // ref, so calling it here would read undefined and silently no-op.
           syncHeaderOverlayScroll();
         }}
         // Runs after Handsontable has drawn and (mis)clamped the header overlay's
         // scroll position, so the compensation above lands on final values.
         afterScrollHorizontally={syncHeaderOverlayScroll}
+        afterScrollVertically={syncHeaderOverlayScroll}
+        // Re-mark search matches before each paint so a wrapper re-render that
+        // rebuilt the cell meta does not drop the active Find highlight.
+        beforeViewRender={reapplySearchHighlight}
         afterViewRender={syncHeaderOverlayScroll}
         afterColumnSort={applyGroupMerges}
         afterFilter={applyGroupMerges}
