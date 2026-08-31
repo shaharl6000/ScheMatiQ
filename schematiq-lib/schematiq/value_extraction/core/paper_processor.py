@@ -55,6 +55,7 @@ from ..config.constants import (
     MIN_DOCUMENT_SIZE_FOR_SNIPPETS,
     SAFETY_MARGIN_ALL_MODE,
     SAFETY_MARGIN_SINGLE_MODE,
+    DISABLE_RETRIEVER,
 )
 from ..config.prompts import (
     SYSTEM_PROMPT_UNIT_IDENTIFICATION,
@@ -79,10 +80,10 @@ def _chunk_list(lst: List, size: int) -> Iterator[List]:
 # Default batch size for fallback column extraction
 FALLBACK_BATCH_SIZE = 3
 
-# When True, skip retrieval and send the full document to the LLM.
-# This effectively disables chunking/passage-selection so the entire
-# document is sent together with the schema.
-DISABLE_RETRIEVER = True
+# DISABLE_RETRIEVER moved to config.constants (single source of truth, imported
+# above) so prompts.py can select the matching prompt variant without a circular
+# import. When True, skip retrieval and send the full document to the LLM,
+# disabling chunking/passage-selection so the entire document is sent with the schema.
 
 # External reference below this size is injected whole into each extraction
 # prompt (cheap, no retrieval). Above it, the reference is indexed once and only

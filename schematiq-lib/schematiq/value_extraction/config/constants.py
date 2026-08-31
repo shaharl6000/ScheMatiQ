@@ -10,6 +10,11 @@ DEFAULT_RETRIEVAL_K = 8
 FALLBACK_EXPANDED_K_MULTIPLIER = 2
 MAX_SNIPPETS = 8
 
+# When True, skip retrieval and send the full document to the LLM, disabling
+# chunking/passage-selection. Single source of truth for this mode: imported by
+# both paper_processor (runtime behavior) and prompts (which prompt variant to use).
+DISABLE_RETRIEVER = True
+
 # Prompt safety margins
 SAFETY_MARGIN_ALL_MODE = 512
 SAFETY_MARGIN_SINGLE_MODE = 256
