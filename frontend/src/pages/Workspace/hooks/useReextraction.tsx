@@ -1,21 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import {
-  getAvailableProviders,
-  getDefaultModelForProvider,
-  type LLMProviderKey,
-} from '@/constants';
-import { configAPI, loadAPI, schemaAPI, schematiqAPI } from '@/services/api';
+import { loadAPI, schemaAPI, schematiqAPI } from '@/services/api';
 import { type ToastActionElement } from '@/components/ui/toast';
 import type {
   DocumentAvailabilityResponse,
   ReextractionRequest,
   SchemaData,
 } from '@/types';
-import { getApiKeyForProvider, getConfiguredProviders } from '@/utils/apiKeyStorage';
 
 import { describeRequestError } from '../helpers';
-import type { PendingRerunKind, SheetId, WorkspaceReextractionState, WorkspaceSessionMode } from '../types';
+import type { PendingRerunKind, SheetId, WorkspaceReextractionState, WorkspaceSessionMode, WrongCellScope } from '../types';
 
 type UseReextractionOptions = {
   sessionId?: string;
@@ -42,6 +36,22 @@ type UseReextractionOptions = {
     action?: ToastActionElement;
   }) => void;
 };
+
+// Short factual note on what was wrong, sent as the `feedback` request field
+// for "Wrong, try again". Deliberately just the fact (not instructions on how
+// to respond) -- the backend's prompt_builder wraps this in the standard
+// re-examination guidance (search strategy, don't fabricate a new value just
+// to be different), so every caller gets that behavior consistently instead
+// of it being duplicated/drifting here.
+// Undefined `previousValue` (a multi-cell selection, where a single prior
+// value wouldn't apply to every cell in scope) falls back to a generic note.
+function buildWrongAnswerFeedback(previousValue?: string): string {
+  if (previousValue === undefined) {
+    return 'One or more of these values were marked wrong.';
+  }
+  const quoted = previousValue ? `"${previousValue}"` : '(nothing -- marked not found)';
+  return `The previous (incorrect) answer was: ${quoted}.`;
+}
 
 // Owns re-extraction progress, pending-rerun banners, and confirm-dialog state.
 // Parent: Workspace (index.tsx). Exposes setReextraction for WebSocket updates.
@@ -161,7 +171,10 @@ export function useReextraction({
     // empty by a prior run, but it now retries those itself internally
     // before giving up -- see start_gated_reextraction -- so this hook never
     // needs to ask for it.)
-    scope?: { rows?: string[]; onlyEmpty?: boolean },
+    // `feedback` is a fixed note injected into the extraction prompt for this
+    // scope (used by "Wrong, try again" to tell the model its prior answer
+    // for this cell was judged incorrect). Omitted by every other caller.
+    scope?: { rows?: string[]; onlyEmpty?: boolean; feedback?: string },
   ) => {
     if (!sessionId || rerunStarting || targetColumns.length === 0) return;
     // A re-extraction is already running for this session (rerunStarting only
@@ -191,20 +204,14 @@ export function useReextraction({
 
     setRerunStarting(true);
     try {
-      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
-      const configured = await getConfiguredProviders();
-      const available = getAvailableProviders(configured);
-      const provider: LLMProviderKey = !cfg.allow_llm_config
-        ? 'gemini'
-        : (available[0] ?? 'gemini');
-      const model = getDefaultModelForProvider(provider);
-      const apiKey = await getApiKeyForProvider(provider);
+      // No llm_config is sent here: the backend resolves provider/model/api_key
+      // entirely from the session's own saved value_extraction_backend (the
+      // model chosen at project creation), rather than this hook guessing one
+      // independently. See reextraction_service.py::_get_llm_from_session.
       const request: ReextractionRequest = { columns: targetColumns };
-      if (apiKey) {
-        request.llm_config = { provider, model, api_key: apiKey, temperature: 0 };
-      }
       if (scope?.rows?.length) request.rows = scope.rows;
       if (scope?.onlyEmpty) request.only_empty = true;
+      if (scope?.feedback) request.feedback = scope.feedback;
 
       const response = await schemaAPI.startReextraction(sessionId, request);
       const docCount = response.rows_to_process || response.estimated_papers || 0;
@@ -227,13 +234,16 @@ export function useReextraction({
         totalDocuments: docCount,
         currentColumn: response.columns[0],
       });
-      toast({
-        title: scope?.onlyEmpty ? 'Filling empty cells' : 'Re-extraction started',
-        description: scope?.onlyEmpty
-          ? `Filling ${response.columns.join(', ')} for ${scope.rows?.length ?? 0} row(s). Existing values stay unchanged.`
-          : `Re-extracting ${response.columns.join(', ')} across ${docCount} document(s). Other columns stay unchanged.`,
-        duration: 4000,
-      });
+      let title = 'Re-extraction started';
+      let description = `Re-extracting ${response.columns.join(', ')} across ${docCount} document(s). Other columns stay unchanged.`;
+      if (scope?.feedback) {
+        title = 'Retrying flagged cell(s)';
+        description = `Re-extracting ${response.columns.join(', ')} for ${scope.rows?.length ?? 0} row(s), with your "wrong" note included.`;
+      } else if (scope?.onlyEmpty) {
+        title = 'Filling empty cells';
+        description = `Filling ${response.columns.join(', ')} for ${scope.rows?.length ?? 0} row(s). Existing values stay unchanged.`;
+      }
+      toast({ title, description, duration: 4000 });
     } catch (err: any) {
       // Note: a scope that resolves to only already-confirmed-empty cells no
       // longer reaches here in the normal case -- the backend
@@ -263,6 +273,17 @@ export function useReextraction({
   const fillEmptyCells = useCallback((scope: { rows: string[]; columns: string[] }) => {
     if (scope.rows.length === 0 || scope.columns.length === 0) return;
     void startReextraction(scope.columns, { rows: scope.rows, onlyEmpty: true });
+  }, [startReextraction]);
+
+  // Entry point for the "Wrong, try again" menu item: scope is resolved by
+  // SpreadsheetSurface's selectedWrongAnswerScope/selectedCellScope, which
+  // (unlike emptyCellScope) is only safe for a single contiguous selection
+  // range, so onlyEmpty is left false -- it must overwrite regardless of the
+  // cell's current value.
+  const retryWrongCells = useCallback((scope: WrongCellScope) => {
+    if (scope.rows.length === 0 || scope.columns.length === 0) return;
+    const feedback = buildWrongAnswerFeedback(scope.previousValue);
+    void startReextraction(scope.columns, { rows: scope.rows, onlyEmpty: false, feedback });
   }, [startReextraction]);
 
   const confirmReextraction = useCallback(async () => {
@@ -436,6 +457,7 @@ export function useReextraction({
     requestReextraction,
     confirmReextraction,
     fillEmptyCells,
+    retryWrongCells,
     stopReextraction,
     startSchemaRediscovery,
     notifyEditFollowUp,

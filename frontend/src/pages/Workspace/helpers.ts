@@ -27,6 +27,7 @@ import type {
   SheetColumn,
   SheetSelection,
   WorkspaceMessage,
+  WrongCellScope,
 } from './types';
 
 // Shared pure helper functions for the Workspace page and its sub-components.
@@ -199,6 +200,70 @@ export function emptyCellScope(
 
   if (rowNames.size === 0 || columnKeys.size === 0) return null;
   return { rows: Array.from(rowNames), columns: Array.from(columnKeys) };
+}
+
+// Resolve the "Wrong, try again" scope: every cell covered by the current
+// selection, filled or not (unlike emptyCellScope, values are never
+// inspected). Only safe for a single, contiguous drag-rectangle -- for that
+// one range, rows x columns IS exactly the selected cell set. A multi-range
+// (ctrl+click) selection is refused (returns null) because unioning multiple
+// ranges' rows and columns together would sweep in cells that were never
+// actually selected (see emptyCellScope's comment above), and this resolver
+// has no only_empty guard downstream to protect them from being overwritten.
+// When the selection resolves to exactly one (row, column) pair, its current
+// value is returned as `previousValue` so the caller can tell the model
+// specifically what it got wrong, instead of only a generic "try again" note
+// -- left undefined for a multi-cell selection, where a single prior value
+// wouldn't apply to every cell in scope.
+export function selectedCellScope(
+  selection: number[][],
+  dataRows: Array<Record<string, string>>,
+  sheetColumns: SheetColumn[],
+  schemaColumns: ColumnInfo[],
+  toPhysicalRow?: (visualRow: number) => number,
+): WrongCellScope | null {
+  if (selection.length !== 1) return null;
+
+  const rowNames = new Set<string>();
+  const columnKeys = new Set<string>();
+  let cellCount = 0;
+  let lastValue: string | undefined;
+
+  const columnKeyByIndex: Array<string | undefined> = sheetColumns.map((column) => {
+    const key = column.key;
+    if (!key || key.startsWith('_')) return undefined;
+    return schemaColumns.some((c) => c.name === key) ? key : undefined;
+  });
+
+  const [r1, c1, r2, c2] = selection[0];
+  const fromRow = Math.min(r1, r2);
+  const toRow = Math.max(r1, r2);
+  const fromCol = Math.min(c1, c2);
+  const toCol = Math.max(c1, c2);
+
+  for (let visualRow = fromRow; visualRow <= toRow; visualRow += 1) {
+    const physicalRow = toPhysicalRow ? toPhysicalRow(visualRow) : visualRow;
+    if (physicalRow == null || physicalRow < 0) continue;
+    const rowData = dataRows[physicalRow];
+    const rowName = String(rowData?._row_name || '').trim();
+    if (!rowData || !rowName) continue;
+
+    for (let col = fromCol; col <= toCol; col += 1) {
+      const key = columnKeyByIndex[col];
+      if (!key) continue;
+      rowNames.add(rowName);
+      columnKeys.add(key);
+      cellCount += 1;
+      lastValue = rowData[key];
+    }
+  }
+
+  if (rowNames.size === 0 || columnKeys.size === 0) return null;
+  return {
+    rows: Array.from(rowNames),
+    columns: Array.from(columnKeys),
+    previousValue: cellCount === 1 ? String(lastValue ?? '').trim() : undefined,
+  };
 }
 
 export const getCellFormatClasses = (format?: CellFormat) => {

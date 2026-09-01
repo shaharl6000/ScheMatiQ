@@ -708,6 +708,10 @@ export interface ReextractionRequest {
   // call after a first only_empty request comes back with the backend's
   // "confirmed_empty_only" error code, to force a recheck.
   retry_confirmed_empty?: boolean;
+  // Fixed note injected into the extraction prompt for this scope (used by
+  // the "Wrong, try again" menu item to tell the model its prior answer for
+  // this cell was judged incorrect). Omitted for every other caller.
+  feedback?: string;
 }
 
 export interface ReextractionResponse {

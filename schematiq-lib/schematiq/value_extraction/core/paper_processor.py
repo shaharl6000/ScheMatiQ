@@ -1560,6 +1560,7 @@ class PaperProcessor:
         paper_text: Optional[str] = None,
         target_columns: Optional[List[str]] = None,
         already_extracted: Optional[Dict[str, Any]] = None,
+        feedback: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Extract values for a single observation unit using its relevant passages.
@@ -1583,6 +1584,10 @@ class PaperProcessor:
                 already-filled columns, passed as context to the prompt to
                 prevent hallucinating dependent columns when the extracted set
                 is narrowed. Ignored when ``target_columns`` is ``None``.
+            feedback: Optional note that a prior answer for this unit was
+                judged wrong by a user, passed straight through to every
+                ``build_val_messages`` call this method makes. ``None``
+                leaves prompts unchanged.
         """
         from schematiq.value_extraction.utils.schema_builder import (
             _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
@@ -1651,6 +1656,7 @@ class PaperProcessor:
                 strict=False,
                 already_extracted=already_extracted,
                 reference_query=unit_name,
+                feedback=feedback,
             )
             msgs[0]["content"] = system_prompt
 
@@ -1803,6 +1809,7 @@ class PaperProcessor:
         on_unit_extracted: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         known_units: Optional[List[str]] = None,
         unit_targets: Optional[Dict[str, Dict[str, Any]]] = None,
+        feedback: Optional[str] = None,
     ) -> ExtractionResult:
         """
         Extract values from a paper, potentially producing multiple rows
@@ -1819,6 +1826,10 @@ class PaperProcessor:
             known_units: Optional list of unit names to use instead of LLM discovery.
                 When provided, skips the identify_observation_units LLM call and uses
                 these names directly with the full paper text as relevant passages.
+            feedback: Optional note that a prior answer was judged wrong by a
+                user, passed straight through to every unit's
+                ``extract_values_for_unit`` call. ``None`` leaves prompts
+                unchanged.
 
         Returns:
             ExtractionResult: ``skip_reason`` is set only when *rows* is empty because no
@@ -1923,6 +1934,7 @@ class PaperProcessor:
                     paper_text=paper_text,
                     target_columns=unit_target_columns,
                     already_extracted=unit_already_extracted,
+                    feedback=feedback,
                 )
 
                 unit_elapsed = time_module.time() - unit_start

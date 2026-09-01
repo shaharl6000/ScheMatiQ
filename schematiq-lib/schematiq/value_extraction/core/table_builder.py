@@ -259,7 +259,8 @@ class TableBuilder:
                                     retrieval_k: int = 8,
                                     max_workers: int = DEFAULT_MAX_WORKERS,
                                     known_units: Optional[Dict[str, List[str]]] = None,
-                                    unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
+                                    unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None,
+                                    feedback: Optional[str] = None) -> None:
         """
         Extract values from papers across multiple directories and write to JSONL.
         """
@@ -282,9 +283,10 @@ class TableBuilder:
             max_new_tokens=max_new_tokens, resume=resume, mode=mode,
             retrieval_k=retrieval_k, max_workers=max_workers,
             known_units=known_units,
-            unit_targets_by_paper=unit_targets_by_paper
+            unit_targets_by_paper=unit_targets_by_paper,
+            feedback=feedback
         )
-    
+
     def _build_table_multi_dirs_impl(self,
                                     schema_path: Path,
                                     docs_with_source: list[tuple[Path, Path]],  # (doc_path, source_dir)
@@ -296,7 +298,8 @@ class TableBuilder:
                                     retrieval_k: int,
                                     max_workers: int,
                                     known_units: Optional[Dict[str, List[str]]] = None,
-                                    unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
+                                    unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None,
+                                    feedback: Optional[str] = None) -> None:
         """Implementation for multi-directory process
         ing."""
         schema = self._load_schema(schema_path)
@@ -346,7 +349,8 @@ class TableBuilder:
                 max_new_tokens, max_workers, existing_rows, processed_papers,
                 written_rows, completed_rows, output_path,
                 known_units=known_units,
-                unit_targets_by_paper=unit_targets_by_paper
+                unit_targets_by_paper=unit_targets_by_paper,
+                feedback=feedback
             )
 
         print(f"\n✅ Processing complete! Wrote {len(written_rows)} rows to {output_path}")
@@ -369,7 +373,8 @@ class TableBuilder:
                                completed_rows: set,
                                output_path: Path,
                                known_units: Optional[Dict[str, List[str]]] = None,
-                               unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
+                               unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None,
+                               feedback: Optional[str] = None) -> None:
         """Process a single row across multiple directories.
 
         Uses observation unit extraction - each document may produce multiple rows
@@ -389,7 +394,8 @@ class TableBuilder:
             max_new_tokens, existing_rows, processed_papers,
             written_rows, output_path,
             known_units=known_units,
-            unit_targets_by_paper=unit_targets_by_paper
+            unit_targets_by_paper=unit_targets_by_paper,
+            feedback=feedback
         )
 
     def _process_papers_with_observation_units(
@@ -406,6 +412,7 @@ class TableBuilder:
         output_path: Path,
         known_units: Optional[Dict[str, List[str]]] = None,
         unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None,
+        feedback: Optional[str] = None,
     ) -> None:
         """
         Process papers using observation unit extraction, potentially producing
@@ -480,6 +487,7 @@ class TableBuilder:
                     retrieval_k=retrieval_k,
                     known_units=paper_known_units,
                     unit_targets=paper_unit_targets,
+                    feedback=feedback,
                 )
                 unit_rows = extraction_result.rows
                 skip_reason = extraction_result.skip_reason

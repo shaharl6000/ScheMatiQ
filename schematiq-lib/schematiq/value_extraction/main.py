@@ -41,6 +41,7 @@ def build_table_jsonl(
     on_document_started: Optional[Callable[[str, int], None]] = None,
     write_skip_rationale_artifact: Optional[bool] = None,
     reference_context: Optional[str] = None,
+    feedback: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
@@ -94,6 +95,7 @@ def build_table_jsonl(
         max_workers=max_workers,
         known_units=known_units,
         unit_targets_by_paper=unit_targets_by_paper,
+        feedback=feedback,
     )
     # Return extraction results including suggested values and skipped documents
     return {

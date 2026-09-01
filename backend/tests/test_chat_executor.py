@@ -80,6 +80,8 @@ def patched_reextraction(monkeypatch):
         only_empty=False,
         only_empty_targets=None,
         retry_confirmed_empty=False,
+        feedback=None,
+        honor_user_llm_config=True,
     ):
         captured["columns"] = list(columns)
         return {"status": "started", "columns": list(columns)}

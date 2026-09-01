@@ -23,8 +23,9 @@ from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services.atomic_jsonl import write_jsonl_atomic
 from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
 from app.services.data_utils import row_name_of
+from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
 from app.storage.factory import get_storage
-from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
 from app.core.logging_utils import set_session_context
 
 # ScheMatiQ library imports
@@ -132,6 +133,8 @@ class ReextractionOperation:
         only_empty: bool = False,
         only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
         retry_confirmed_empty: bool = False,
+        feedback: Optional[str] = None,
+        honor_user_llm_config: bool = True,
     ):
         self.operation_id = operation_id
         self.session_id = session_id
@@ -156,6 +159,18 @@ class ReextractionOperation:
         # start_gated_reextraction sets this itself on its one-time internal
         # rescan; see its docstring.
         self.retry_confirmed_empty: bool = retry_confirmed_empty
+        # Fixed note injected into every extraction call's prompt for this
+        # operation (workspace "Wrong, try again" menu item). None for every
+        # other caller, leaving prompts unchanged.
+        self.feedback: Optional[str] = feedback
+        # Whether a stale session-wide user_llm_config.json override (left
+        # behind by a ReextractionDialog run) should be honored for this
+        # operation. False for Fill Cells/Wrong Try Again (see schema.py's
+        # start_reextraction route) so they always resolve straight to the
+        # project's own creation-time value_extraction_backend instead of
+        # inheriting an unrelated earlier override; True (default) preserves
+        # today's behavior for every other caller.
+        self.honor_user_llm_config: bool = honor_user_llm_config
         # Per-unit only_empty plan: {paper_stem -> {unit_name -> {targets, filled}}}.
         # Lets the extractor ask the model for only each unit's empty columns.
         self.only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = (
@@ -1282,6 +1297,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
         rows: Optional[List[str]] = None,
         only_empty: bool = False,
         retry_confirmed_empty: bool = False,
+        feedback: Optional[str] = None,
+        honor_user_llm_config: bool = True,
     ) -> Dict[str, Any]:
         """Single gated entry point for re-extraction.
 
@@ -1308,6 +1325,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
             skipped to avoid re-billing). Raises ``ConfirmedEmptyScopeError``
             instead of ``ValueError`` if the scope still has nothing to fill
             after the automatic rescan above.
+          - ``feedback``: fixed note injected into every extraction call's
+            prompt for this operation (the workspace "Wrong, try again" menu
+            item). ``None`` leaves prompts unchanged.
+          - ``honor_user_llm_config``: whether a stale session-wide
+            ``user_llm_config.json`` (left behind by a ReextractionDialog
+            run) may override the project's own configured model for this
+            operation. ``True`` (default) preserves existing behavior;
+            ``False`` (Fill Cells/Wrong Try Again) always resolves straight
+            to the project's creation-time ``value_extraction_backend``.
         """
         resolved = await self.resolve_reextraction_columns(session_id, columns, scope)
 
@@ -1468,6 +1494,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             only_empty=only_empty,
             only_empty_targets=only_empty_targets,
             retry_confirmed_empty=retry_confirmed_empty,
+            feedback=feedback,
+            honor_user_llm_config=honor_user_llm_config,
         )
 
     async def start_reextraction(
@@ -1481,6 +1509,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
         only_empty: bool = False,
         retry_confirmed_empty: bool = False,
         only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
+        feedback: Optional[str] = None,
+        honor_user_llm_config: bool = True,
     ) -> Dict[str, Any]:
         """
         Start a re-extraction operation for selected columns.
@@ -1566,7 +1596,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Validate LLM config before starting background task (fail fast with HTTP error)
         try:
-            llm = self._get_llm_from_session(session_id)
+            llm = self._get_llm_from_session(session_id, honor_user_llm_config=honor_user_llm_config)
         except Exception as e:
             raise ValueError(f"LLM configuration error: {e}")
 
@@ -1584,6 +1614,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             rows=rows,
             only_empty=only_empty,
             retry_confirmed_empty=retry_confirmed_empty,
+            feedback=feedback,
+            honor_user_llm_config=honor_user_llm_config,
         )
         operation.only_empty_targets = only_empty_targets
         operation.total_documents = doc_count
@@ -1841,7 +1873,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 json.dump(schema_data, f, indent=2)
 
             # Setup LLM and retriever (use cached retriever for performance)
-            llm = self._get_llm_from_session(operation.session_id)
+            llm = self._get_llm_from_session(
+                operation.session_id, honor_user_llm_config=operation.honor_user_llm_config
+            )
             retriever = self.get_cached_retriever()
 
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
@@ -2031,6 +2065,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         unit_targets_by_paper=operation.only_empty_targets,
                         write_skip_rationale_artifact=session.write_artifacts,
                         reference_context=reference_context,
+                        feedback=operation.feedback,
                     )
 
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)
@@ -2723,42 +2758,65 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 session.id,
             )
 
-    def _get_llm_from_session(self, session_id: str):
-        """Get LLM configuration from session, including API key."""
-        session_dir = Path(DEFAULT_DATA_DIR) / session_id
+    def _get_llm_from_session(self, session_id: str, honor_user_llm_config: bool = True):
+        """Get LLM configuration from session, including API key.
 
-        # Priority 0: Check user_llm_config.json (user-provided config from frontend)
-        # This is checked FIRST even in release mode, because it contains the user's API key.
+        Every branch funnels the resolved backend config dict through
+        ``enforce_release_llm_config`` before building the LLM, so the
+        release-mode lock is governed by ``ALLOW_LLM_CONFIG`` -- the same
+        flag project creation itself uses -- instead of the coarser
+        ``DEVELOPER_MODE`` this function used to check by hand.
+
+        honor_user_llm_config: whether a persisted ``user_llm_config.json``
+        (written whenever any request explicitly supplied ``llm_config`` --
+        e.g. ReextractionDialog's manual model picker) may override the
+        project's own saved model. The file is never cleared, so leaving
+        this True for every caller would let a one-off dialog choice keep
+        silently winning over the project's actual configured model on
+        every later call in the same session. Fill Cells / Wrong Try Again
+        pass False so they always resolve straight to the project's
+        creation-time ``value_extraction_backend``, ignoring any such
+        leftover file; every other caller defaults to True, preserving
+        today's behavior.
+        """
+        data_session_dir = Path(DEFAULT_DATA_DIR) / session_id
+        schematiq_session_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
+
+        # Priority 0: an explicit per-call override (or a still-fresh one
+        # from immediately before), e.g. ReextractionDialog's model picker.
+        if honor_user_llm_config:
+            try:
+                user_config_file = data_session_dir / "user_llm_config.json"
+                if user_config_file.exists():
+                    with open(user_config_file) as f:
+                        user_config = json.load(f)
+                    logger.debug(
+                        f"Using LLM config from user_llm_config.json: "
+                        f"{user_config.get('provider')} {user_config.get('model')}, "
+                        f"api_key={'present' if user_config.get('api_key') else 'MISSING'}"
+                    )
+                    enforced = _enforce_release_llm_config(user_config, is_schema_creation=False)
+                    return schematiq_utils.build_llm(enforced)
+            except Exception as e:
+                logger.debug(f"Could not load user LLM config: {e}")
+
+        # Priority 1: the project's own saved config from its live schematiq
+        # run. schematiq_config.json lives under the schematiq work dir, not
+        # the data dir -- see _get_session_document_dirs for the same split.
         try:
-            user_config_file = session_dir / "user_llm_config.json"
-            if user_config_file.exists():
-                with open(user_config_file) as f:
-                    user_config = json.load(f)
-                if not DEVELOPER_MODE:
-                    # Release mode: use locked model but with user's API key
-                    api_key = user_config.get('api_key')
-                    if api_key:
-                        logger.info(f"Release mode - using locked LLM {RELEASE_CONFIG['value_extraction_model']} with user API key")
-                        return GeminiLLM(
-                            model=RELEASE_CONFIG["value_extraction_model"],
-                            api_key=api_key,
-                            temperature=RELEASE_CONFIG["llm_temperature"]
-                        )
-                else:
-                    logger.debug(f"Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
-                    return schematiq_utils.build_llm(user_config)
+            schematiq_config_file = schematiq_session_dir / "schematiq_config.json"
+            if schematiq_config_file.exists():
+                with open(schematiq_config_file) as f:
+                    schematiq_config = json.load(f)
+                backend_config = schematiq_config.get("value_extraction_backend") or schematiq_config.get("schema_creation_backend")
+                if backend_config:
+                    logger.debug(f"Using LLM config from schematiq_config.json (work dir): {backend_config.get('provider')} {backend_config.get('model')}")
+                    enforced = _enforce_release_llm_config(backend_config, is_schema_creation=False)
+                    return schematiq_utils.build_llm(enforced)
         except Exception as e:
-            logger.debug(f"Could not load user LLM config: {e}")
+            logger.debug(f"Could not load LLM config from schematiq_config.json (work dir): {e}")
 
-        # In release mode without user config, use the release-mode LLM (requires GEMINI_API_KEY env var)
-        if not DEVELOPER_MODE:
-            logger.info(f"Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']} (no user API key, using env var)")
-            return GeminiLLM(
-                model=RELEASE_CONFIG["value_extraction_model"],
-                temperature=RELEASE_CONFIG["llm_temperature"]
-            )
-
-        # Priority 1: Check session's metadata.extracted_schema for llm_configuration
+        # Priority 2: session's metadata.extracted_schema (imported sessions).
         try:
             session = self.session_manager.get_session(session_id)
             if session and session.metadata.extracted_schema:
@@ -2769,13 +2827,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
                         logger.debug(f"Using LLM config from session metadata: {backend_config.get('provider')} {backend_config.get('model')}")
-                        return schematiq_utils.build_llm(backend_config)
+                        enforced = _enforce_release_llm_config(backend_config, is_schema_creation=False)
+                        return schematiq_utils.build_llm(enforced)
         except Exception as e:
             logger.debug(f"Could not load LLM config from session metadata: {e}")
 
-        # Priority 2: Check parsed_schema.json (contains llm_configuration with api_key)
+        # Priority 3: parsed_schema.json (imported sessions, contains
+        # llm_configuration with api_key).
         try:
-            parsed_schema_file = session_dir / "parsed_schema.json"
+            parsed_schema_file = data_session_dir / "parsed_schema.json"
             if parsed_schema_file.exists():
                 with open(parsed_schema_file) as f:
                     parsed_schema = json.load(f)
@@ -2784,24 +2844,28 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
                         logger.debug(f"Using LLM config from parsed_schema.json: {backend_config.get('provider')} {backend_config.get('model')}")
-                        return schematiq_utils.build_llm(backend_config)
+                        enforced = _enforce_release_llm_config(backend_config, is_schema_creation=False)
+                        return schematiq_utils.build_llm(enforced)
         except Exception as e:
             logger.debug(f"Could not load LLM config from parsed_schema.json: {e}")
 
-        # Priority 3: Check schematiq_config.json (legacy location)
+        # Priority 4: schematiq_config.json under the data dir (older
+        # imported-session layout; file_parser.py writes it there).
         try:
-            schematiq_config_file = session_dir / "schematiq_config.json"
-            if schematiq_config_file.exists():
-                with open(schematiq_config_file) as f:
+            legacy_schematiq_config_file = data_session_dir / "schematiq_config.json"
+            if legacy_schematiq_config_file.exists():
+                with open(legacy_schematiq_config_file) as f:
                     schematiq_config = json.load(f)
                 backend_config = schematiq_config.get("value_extraction_backend") or schematiq_config.get("schema_creation_backend")
                 if backend_config:
-                    logger.debug(f"Using LLM config from schematiq_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
-                    return schematiq_utils.build_llm(backend_config)
+                    logger.debug(f"Using LLM config from schematiq_config.json (data dir): {backend_config.get('provider')} {backend_config.get('model')}")
+                    enforced = _enforce_release_llm_config(backend_config, is_schema_creation=False)
+                    return schematiq_utils.build_llm(enforced)
         except Exception as e:
-            logger.debug(f"Could not load LLM config from schematiq_config.json: {e}")
+            logger.debug(f"Could not load LLM config from schematiq_config.json (data dir): {e}")
 
-        # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
+        # Fallback: no saved config anywhere -- default GeminiLLM (uses
+        # GEMINI_API_KEY env var).
         logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
         return GeminiLLM(model=ModelNames.DEFAULT_VALUE_EXTRACTION, temperature=0)
 

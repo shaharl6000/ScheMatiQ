@@ -108,6 +108,15 @@ export type SheetSelection = {
   fromCol: number;
   toCol: number;
 } | null;
+// Resolved scope for the "Wrong, try again" menu item (see
+// selectedCellScope in helpers.ts): unit row names + schema column keys
+// covered by a single-cell-or-rectangle selection, plus the current value of
+// the one flagged cell when the selection is exactly one cell.
+export type WrongCellScope = {
+  rows: string[];
+  columns: string[];
+  previousValue?: string;
+};
 export type NewProjectDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
