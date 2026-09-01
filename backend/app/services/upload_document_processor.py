@@ -23,6 +23,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import schematiq_thread_pool, concurrency_limiter
+from app.services.data_utils import persist_session_data_file
 from app.core.config import DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEVELOPER_MODE, RELEASE_CONFIG, DEFAULT_DATA_DIR
 
 # Max seconds to wait for build_table_jsonl to observe should_stop() after user stop
@@ -56,9 +57,14 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         """
         doc_index = [0]  # counts source files, incremented by on_document_started
 
-        def on_document_started(paper_title: str):
-            """Called once per source document file before extraction begins."""
-            doc_index[0] += 1
+        def on_document_started(paper_title: str, unit_count: int = 1):
+            """Called once per source document file before extraction begins.
+
+            This flow never passes known_units, so unit_count is always 1 here;
+            the parameter exists because the library calls every on_document_started
+            callback with (paper_title, unit_count).
+            """
+            doc_index[0] += unit_count
             try:
                 asyncio.run_coroutine_threadsafe(
                     self.websocket_manager.broadcast_to_session(session_id, {
@@ -672,6 +678,12 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                     dest = commit_document_to_documents_dir(file_path, docs_dir)
                     if dest:
                         logger.debug(f"Committed {dest.name} to documents/")
+
+        # Persist the merged data.jsonl to durable storage so documents added to
+        # an imported project survive a redeploy. Without this the read path would
+        # hydrate a stale copy (the pre-merge upload from import) and silently drop
+        # the rows added here. Best-effort: the helper logs and swallows failures.
+        await persist_session_data_file(session_id, original_data_file)
 
         return new_rows_added
 

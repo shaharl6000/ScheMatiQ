@@ -10,7 +10,7 @@ import hashlib
 import threading
 import uuid
 import logging
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, NamedTuple
 from pathlib import Path
 from datetime import datetime
 
@@ -39,6 +39,27 @@ from schematiq.core.llm_call_tracker import LLMCallTracker
 SCHEMATIQ_AVAILABLE = True
 
 logger = logging.getLogger(__name__)
+
+
+class _OnlyEmptyScan(NamedTuple):
+    """Result of a single pass over in-scope stored rows for an only_empty run.
+
+    Bundles the two things the caller needs together: the *summary* used to
+    decide whether (and why) to proceed, and the per-unit *plan* used to tell
+    the extractor which columns to ask the model for. Deriving both from one
+    scan keeps them from drifting and avoids reading the data files twice.
+
+    ``readable`` is False when no data files could be read ("cannot determine,
+    do not narrow"); the caller then extracts normally and the merge-time guard
+    stays the only gate.
+    """
+
+    readable: bool
+    empty_columns: set
+    docs_with_empties: set
+    scoped_rows_matched: bool
+    confirmed_empty_hits: bool
+    plan: Dict[str, Dict[str, Dict[str, Any]]]
 
 
 def _is_empty_cell_value(value: Any) -> bool:
@@ -159,6 +180,10 @@ class ReextractionOperation:
         self.incrementally_merged_keys: Set[tuple] = set()
         # paper discovery snapshot for this operation (avoids redundant rescans)
         self.paper_discovery: Optional[Dict[str, Any]] = None
+        # Guards against leaking or double-releasing the concurrency slot: the
+        # slot is released exactly once, whether by the running task's finally
+        # or by stop_operation, whichever gets there first.
+        self.slot_released: bool = False
 
 
 class ReextractionService(WebSocketBroadcasterMixin):
@@ -201,6 +226,21 @@ class ReextractionService(WebSocketBroadcasterMixin):
         with self._state_lock:
             self.active_operations.pop(operation_id, None)
             self._extraction_tasks.pop(operation_id, None)
+
+    async def _release_slot_once(self, operation: "ReextractionOperation") -> None:
+        """Release the operation's concurrency slot exactly once.
+
+        Both the running task's ``finally`` and ``stop_operation`` may reach
+        this; the flag ensures the slot is released once and never leaked (e.g.
+        when the task early-returns because the operation was already cleaned up)
+        nor double-released. The flag flip is done under the state lock; the
+        actual async release happens outside it.
+        """
+        with self._state_lock:
+            if operation.slot_released:
+                return
+            operation.slot_released = True
+        await concurrency_limiter.release(operation.session_id)
 
     async def request_stop(self, operation_id: str) -> Dict[str, Any]:
         """Set the stop flag and return immediately."""
@@ -248,14 +288,24 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if operation.status in ("completed", "failed", "stopped"):
             logger.info(f"Operation {operation_id} reached {operation.status} naturally, skipping merge")
             self.clear_stop_flag(operation_id)
+            await self._release_slot_once(operation)
             self._cleanup_operation(operation_id)
             return {"stopped": False, "message": f"Operation already {operation.status}"}
 
-        # Merge partial results (safe — task is done and didn't complete naturally)
+        # Merge partial results ONLY if the task has actually stopped. If the
+        # 5s cancel wait above timed out and the task is still running, merging
+        # and unlinking output_file here would race the live writer (lost rows)
+        # and delete the file out from under it; leave it for the task instead.
+        task_stopped = task is None or task.done()
+        if not task_stopped:
+            logger.warning(
+                f"Task {operation_id} still running after cancel; skipping partial "
+                f"merge to avoid racing the live writer"
+            )
         try:
             session_dir = Path(DEFAULT_DATA_DIR) / operation.session_id
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
-            if output_file.exists():
+            if task_stopped and output_file.exists():
                 logger.info(f"Merging partial results from {output_file}")
                 await self._merge_reextracted_data(
                     operation.session_id,
@@ -287,6 +337,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         )
 
         self.clear_stop_flag(operation_id)
+        await self._release_slot_once(operation)
         self._cleanup_operation(operation_id)
         return {
             "stopped": True,
@@ -1029,6 +1080,33 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
         return normalized
 
+    async def _hydrate_reextraction_data_files(self, session_id: str) -> None:
+        """Pull the data files the only_empty scan reads down to local disk.
+
+        ``_scan_only_empty_scope`` reads ``extracted_data.jsonl`` / ``data.jsonl``
+        straight off local disk via ``_resolve_reextraction_data_files``. On a
+        fresh worker -- e.g. after a Railway redeploy wipes the container, or a
+        worker that did not run the original extraction -- those files live only
+        in Supabase, so the scan reads nothing, returns ``readable=False``,
+        silently skips the only_empty narrowing, and runs a full (expensive)
+        extraction whose 'nothing to fill' gates never fire. Hydrating first
+        makes the scan see the current cell values. Best-effort: a candidate
+        with no storage mapping or an absent object is left as-is, as before.
+        """
+        from app.services.data_utils import (
+            ensure_session_data_file_local,
+            session_data_file_candidates,
+        )
+
+        for path in session_data_file_candidates(session_id):
+            try:
+                await ensure_session_data_file_local(session_id, path)
+            except Exception as exc:  # storage hiccup -> fall back to local view
+                logger.debug(
+                    "reextraction hydrate skipped for %s (session %s): %s",
+                    path, session_id, exc,
+                )
+
     def _resolve_reextraction_data_files(self, session_id: str) -> List[Path]:
         """Data files to read current cell values from, newest source first."""
         files: List[Path] = []
@@ -1044,43 +1122,42 @@ class ReextractionService(WebSocketBroadcasterMixin):
             files.append(load_data)
         return files
 
-    def _find_empty_target_cells(
+    def _scan_only_empty_scope(
         self,
         session_id: str,
         columns: List[str],
         documents: Optional[List[str]],
         rows: Optional[List[str]] = None,
         retry_confirmed_empty: bool = False,
-    ):
-        """Scan current data for empty cells within the requested scope.
+    ) -> _OnlyEmptyScan:
+        """Single pass over in-scope stored rows producing both the only_empty
+        summary and the per-unit extraction plan (see ``_OnlyEmptyScan``).
 
-        Returns ``(empty_columns, docs_with_empties, scoped_rows_matched,
-        confirmed_empty_hits)``: the subset of *columns* that are empty in at
-        least one in-scope row, the paper stems that have at least one empty
-        target cell, whether the row/document scope matched any row at all,
-        and whether any in-scope target cell was skipped specifically because
-        it was already ``_confirmed_empty`` (as opposed to genuinely filled).
-        The last two let the caller give a precise reason when nothing ends up
-        empty, instead of one generic message for three different causes.
-        Returns ``(None, None, False, False)`` when no data files are
-        readable, meaning "cannot determine, do not narrow" — the merge-time
-        guard still guarantees filled cells are never overwritten.
+        One scan answers the two questions the caller asks together: is there
+        anything to do (and, if not, why -- ``empty_columns``,
+        ``scoped_rows_matched``, ``confirmed_empty_hits``), and which columns to
+        ask the model for, per unit (``plan``). ``rows`` mirrors the
+        extraction-time scope (``_scope_known_units``): when set, only rows whose
+        observation-unit name is listed are considered.
 
-        ``rows`` mirrors the extraction-time scope (``_scope_known_units``):
-        when set, only rows whose observation-unit name is listed are
-        considered, so a row-scoped ``only_empty`` run does not proceed (and bill
-        the model) when the targeted cells are already filled while other,
-        out-of-scope rows still have gaps.
+        ``plan`` is ``{paper_stem -> {unit_name -> {"targets": [...],
+        "filled": {...}}}}`` keyed like ``_build_known_units_for_reextraction``;
+        ``targets`` are a unit's fillable-gap columns and ``filled`` the
+        remaining in-scope columns' current values (context for the model). A
+        nameless row still contributes to the summary but cannot be planned (it
+        has no lookup key). ``readable`` is False when no data files can be read.
         """
         from app.services.data_utils import get_extraction_column_value, extract_papers
 
+        unreadable = _OnlyEmptyScan(False, set(), set(), False, False, {})
         data_files = self._resolve_reextraction_data_files(session_id)
         if not data_files:
-            return None, None, False, False
+            return unreadable
         doc_filter = set(documents) if documents else None
         row_filter = set(rows) if rows else None
         empty_columns: set = set()
         docs_with_empties: set = set()
+        plan: Dict[str, Dict[str, Dict[str, Any]]] = {}
         scoped_rows_matched = False
         confirmed_empty_hits = False
         seen_any = False
@@ -1095,81 +1172,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         except json.JSONDecodeError:
                             continue
                         seen_any = True
-                        if row_filter is not None and row_name_of(row) not in row_filter:
-                            continue
-                        paper_stems = {Path(p).stem for p in (extract_papers(row) or [])}
-                        if doc_filter is not None and not (paper_stems & doc_filter):
-                            continue
-                        scoped_rows_matched = True
-                        scope_stems = (
-                            paper_stems & doc_filter if doc_filter is not None else paper_stems
-                        )
-                        for col in columns:
-                            value = get_extraction_column_value(row, col)
-                            if _is_fillable_gap(value, retry_confirmed_empty=retry_confirmed_empty):
-                                empty_columns.add(col)
-                                docs_with_empties.update(scope_stems)
-                            elif _is_empty_cell_value(value) and _is_confirmed_empty(value):
-                                confirmed_empty_hits = True
-            except Exception as e:  # unreadable file -> fall back to no narrowing
-                logger.warning("Empty-cell scan failed for %s: %s", df, e)
-                return None, None, False, False
-        if not seen_any:
-            return None, None, False, False
-        return empty_columns, docs_with_empties, scoped_rows_matched, confirmed_empty_hits
-
-    def _build_only_empty_targets(
-        self,
-        session_id: str,
-        columns: List[str],
-        documents: Optional[List[str]],
-        rows: Optional[List[str]] = None,
-        retry_confirmed_empty: bool = False,
-    ) -> Optional[Dict[str, Dict[str, Dict[str, Any]]]]:
-        """Per-unit column plan for only_empty, keyed exactly like known_units.
-
-        Returns ``{paper_stem -> {unit_name -> {"targets": [...], "filled": {...}}}}``
-        over the same in-scope rows the extraction will process. ``targets`` are
-        the unit's fillable-gap columns (respecting ``_is_fillable_gap``, so
-        confirmed-empty cells are treated as resolved); ``filled`` are the
-        remaining in-scope columns' current values, handed to the model as
-        context. A unit whose targets list is empty is still included so the
-        extractor skips the LLM for it rather than re-extracting every column.
-
-        Keys mirror ``_build_known_units_for_reextraction`` (``Path(paper).stem``
-        and ``row_name_of``) so the lib can look the plan up by the same
-        ``paper_title``/``unit_name`` it already uses for known_units. Returns
-        ``None`` when no data files are readable — the caller then extracts
-        normally and the merge guard stays the only gate.
-        """
-        from app.services.data_utils import get_extraction_column_value, extract_papers
-
-        data_files = self._resolve_reextraction_data_files(session_id)
-        if not data_files:
-            return None
-        doc_filter = set(documents) if documents else None
-        row_filter = set(rows) if rows else None
-        plan: Dict[str, Dict[str, Dict[str, Any]]] = {}
-        seen_any = False
-        for df in data_files:
-            try:
-                with open(df, "r") as handle:
-                    for line in handle:
-                        if not line.strip():
-                            continue
-                        try:
-                            row = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        seen_any = True
                         unit_name = row_name_of(row)
-                        if not unit_name:
-                            continue
                         if row_filter is not None and unit_name not in row_filter:
                             continue
                         paper_stems = {Path(p).stem for p in (extract_papers(row) or [])}
                         if doc_filter is not None and not (paper_stems & doc_filter):
                             continue
+                        scoped_rows_matched = True
                         scope_stems = (
                             paper_stems & doc_filter if doc_filter is not None else paper_stems
                         )
@@ -1179,19 +1188,30 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             value = get_extraction_column_value(row, col)
                             if _is_fillable_gap(value, retry_confirmed_empty=retry_confirmed_empty):
                                 targets.append(col)
-                            elif value is not None:
-                                filled[col] = value
-                        for stem in scope_stems:
-                            plan.setdefault(stem, {})[unit_name] = {
-                                "targets": targets,
-                                "filled": filled,
-                            }
-            except Exception as e:  # unreadable file -> no narrowing
-                logger.warning("only_empty target scan failed for %s: %s", df, e)
-                return None
+                                empty_columns.add(col)
+                                docs_with_empties.update(scope_stems)
+                            else:
+                                if _is_empty_cell_value(value) and _is_confirmed_empty(value):
+                                    confirmed_empty_hits = True
+                                if value is not None:
+                                    filled[col] = value
+                        # A nameless row still counts toward the summary above but
+                        # cannot be planned (no unit key to look it up by).
+                        if unit_name:
+                            for stem in scope_stems:
+                                plan.setdefault(stem, {})[unit_name] = {
+                                    "targets": targets,
+                                    "filled": filled,
+                                }
+            except Exception as e:  # unreadable file -> fall back to no narrowing
+                logger.warning("only_empty scope scan failed for %s: %s", df, e)
+                return unreadable
         if not seen_any:
-            return None
-        return plan
+            return unreadable
+        return _OnlyEmptyScan(
+            True, empty_columns, docs_with_empties, scoped_rows_matched,
+            confirmed_empty_hits, plan,
+        )
 
     def _scoped_documents_availability(
         self,
@@ -1354,15 +1374,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         only_empty_targets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None
         if only_empty:
-            empty_columns, docs_with_empties, scoped_rows_matched, confirmed_empty_hits = self._find_empty_target_cells(
+            # The scan below reads cell values off local disk; on a fresh worker
+            # they may live only in storage. Hydrate first so the narrowing is
+            # computed from real data instead of silently skipped (readable=False).
+            await self._hydrate_reextraction_data_files(session_id)
+            scan = self._scan_only_empty_scope(
                 session_id, resolved, scoped_documents, scoped_rows,
                 retry_confirmed_empty=retry_confirmed_empty,
             )
             if (
-                empty_columns is not None
-                and not empty_columns
+                scan.readable
+                and not scan.empty_columns
                 and not skipped_scope
-                and confirmed_empty_hits
+                and scan.confirmed_empty_hits
                 and not retry_confirmed_empty
             ):
                 # Nothing to do only because every target cell was already
@@ -1374,13 +1398,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # look without needing to know about ConfirmedEmptyScopeError
                 # and retry it themselves.
                 retry_confirmed_empty = True
-                empty_columns, docs_with_empties, scoped_rows_matched, confirmed_empty_hits = self._find_empty_target_cells(
+                scan = self._scan_only_empty_scope(
                     session_id, resolved, scoped_documents, scoped_rows,
                     retry_confirmed_empty=retry_confirmed_empty,
                 )
-            if empty_columns is not None:
-                if not empty_columns and not skipped_scope:
-                    if scoped_rows is not None and not scoped_rows_matched:
+            if scan.readable:
+                if not scan.empty_columns and not skipped_scope:
+                    if scoped_rows is not None and not scan.scoped_rows_matched:
                         # The row-name(s) in scope were never found in the stored
                         # data at all -- a real scoping problem, not "nothing to
                         # do" (e.g. a stale selection after a rename/reload).
@@ -1389,14 +1413,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             "table's stored data. Refresh and reselect, then "
                             "try again."
                         )
-                    if confirmed_empty_hits:
+                    if scan.confirmed_empty_hits:
                         # The automatic rescan above already retries a plain
                         # (retry_confirmed_empty=False) request once, and that
                         # retry always finds every confirmed-empty cell in scope
                         # fillable (by construction), so this can only fire if a
-                        # concurrent write raced the two scans -- kept as a
-                        # defensive fallback rather than the primary signal to
-                        # the caller.
+                        # concurrent write raced a rescan -- kept as a defensive
+                        # fallback rather than the primary signal to the caller.
                         raise ConfirmedEmptyScopeError(
                             "The selected cell(s) were already checked and "
                             "confirmed empty by a previous extraction run, so "
@@ -1410,24 +1433,22 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # gaps (cost). The merge guard enforces the empty-only rule.
                 # Skipped documents in scope are kept regardless: they have no
                 # rows to compare against and are re-discovered from scratch.
-                if empty_columns:
-                    resolved = [c for c in resolved if c in empty_columns]
+                if scan.empty_columns:
+                    resolved = [c for c in resolved if c in scan.empty_columns]
                 if scoped_documents is None:
-                    scoped_documents = sorted(docs_with_empties)
+                    scoped_documents = sorted(scan.docs_with_empties)
                 else:
                     scoped_documents = [
                         d for d in scoped_documents
-                        if d in docs_with_empties or d in skipped_scope
+                        if d in scan.docs_with_empties or d in skipped_scope
                     ]
-                # Per-unit plan so the extractor asks the model only for each
-                # unit's empty columns (a unit with none is skipped entirely),
-                # rather than re-extracting filled columns and discarding them at
-                # merge. Keyed like known_units; unmatched units (e.g. under unit
-                # rediscovery) fall back to full extraction in the lib.
-                only_empty_targets = self._build_only_empty_targets(
-                    session_id, resolved, scoped_documents, scoped_rows,
-                    retry_confirmed_empty=retry_confirmed_empty,
-                )
+                # Per-unit plan from the same scan so the extractor asks the
+                # model only for each unit's empty columns (a unit with none is
+                # skipped entirely), rather than re-extracting filled columns and
+                # discarding them at merge. Keyed like known_units; unmatched
+                # units (e.g. under unit rediscovery) fall back to full
+                # extraction in the lib.
+                only_empty_targets = scan.plan
 
         availability = await self.precheck_document_availability(
             session_id,
@@ -1687,6 +1708,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         documents: Optional[List[str]],
         rows: Optional[List[str]],
         all_paper_stems: set,
+        on_disk_stems: Optional[set] = None,
     ) -> Dict[str, List[str]]:
         """Restrict a run to specific documents and/or rows via ``known_units``.
 
@@ -1699,6 +1721,17 @@ class ReextractionService(WebSocketBroadcasterMixin):
             ``rows`` so only the requested units are extracted;
           - a target document that has no known units (previously skipped) is
             dropped from the map so the library re-discovers its units.
+
+        ``on_disk_stems`` is the set of document stems actually present in the
+        session's document directories (what the library will walk). It must be
+        included so on-disk files that are absent from the row/skip metadata --
+        e.g. a collision-renamed ``<name>_N`` duplicate (see unique_dest_path)
+        or any orphan file -- are force-skipped to ``[]`` rather than left absent
+        and re-discovered. Without it, a scoped run still runs full unit
+        discovery + extraction on every such file, ballooning a targeted fill
+        into unrequested units. Only affects scoped runs (this method is called
+        only when documents/rows are given), where skipping non-targets is the
+        intent.
         """
         if not documents and not rows:
             return known_units
@@ -1708,7 +1741,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
         targets = explicit if documents else set(all_paper_stems) | set(known_units.keys())
         row_filter = set(rows) if rows else None
         scoped: Dict[str, List[str]] = {}
-        universe = set(all_paper_stems) | set(known_units.keys()) | targets
+        universe = (
+            set(all_paper_stems)
+            | set(known_units.keys())
+            | targets
+            | (on_disk_stems or set())
+        )
         for stem in universe:
             if stem not in targets:
                 scoped[stem] = []  # force-skip every non-target document
@@ -1849,9 +1887,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
             # Capture event loop before entering thread pool
             loop = asyncio.get_running_loop()
 
-            def on_document_started(paper_title: str):
-                """Fired once per source document file — drives the 'X of Y docs' counter."""
-                doc_index[0] += 1
+            def on_document_started(paper_title: str, unit_count: int = 1):
+                """Fired once per document entering extraction — drives the 'X of Y'
+                counter. ``unit_count`` lets a document that maps to several known
+                observation units advance the counter by more than 1, matching
+                total_documents once it's been expressed in units below."""
+                doc_index[0] += unit_count
                 operation.processed_documents = doc_index[0]
                 try:
                     asyncio.run_coroutine_threadsafe(
@@ -1964,8 +2005,22 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     all_stems = self._project_document_stems(
                         operation.paper_discovery or {}, session
                     )
+                    # Stems the library will actually walk. Passed so on-disk
+                    # files absent from the row/skip metadata (e.g. a
+                    # collision-renamed <name>_N duplicate) are force-skipped
+                    # instead of triggering unit discovery on a scoped run.
+                    on_disk_stems = {
+                        p.stem
+                        for d in docs_directories
+                        for p in d.iterdir()
+                        if p.is_file() and not p.name.startswith(".")
+                    }
                     known_units = self._scope_known_units(
-                        known_units, operation.documents, operation.rows, all_stems
+                        known_units,
+                        operation.documents,
+                        operation.rows,
+                        all_stems,
+                        on_disk_stems,
                     )
                     logger.info(
                         "Scoped re-extraction (documents=%s, rows=%s); %d paper(s) skipped",
@@ -2146,7 +2201,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 logger.debug("Could not record re-extraction LLM usage: %s", exc)
             finally:
                 llm_call_tracker_lock.release()
-            await concurrency_limiter.release(operation.session_id)
+            await self._release_slot_once(operation)
             self._cleanup_operation(operation_id)
 
     @staticmethod
@@ -2182,17 +2237,28 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         if row_name and row_name in extracted_by_row_name:
             candidates = extracted_by_row_name[row_name]
-            if len(candidates) == 1:
-                return candidates[0]
-            for paper in papers:
-                paper_stem = (
-                    paper.split("_")[0].lower()
-                    if "_" in paper
-                    else paper.rsplit(".", 1)[0].lower()
-                )
+            # Prefer a candidate whose source document matches this row's own, so
+            # a same-name unit extracted from a *different* document is never
+            # merged in. row_dedup_key separates rows by (name, source) and the
+            # exact-key match above already handles the in-scope row; reaching
+            # here means this row's (name, source) was not re-extracted this run,
+            # so a blind same-name match would pull another document's values in.
+            row_stems = {
+                (p.split("_")[0].lower() if "_" in p else p.rsplit(".", 1)[0].lower())
+                for p in papers
+            }
+            if row_src:
+                row_stems.add(row_src.lower())
+            if row_stems:
                 for cand in candidates:
-                    if _resolve_source_document(cand).lower() == paper_stem:
+                    if _resolve_source_document(cand).lower() in row_stems:
                         return cand
+                # Known source but no candidate matches it: do not guess by name
+                # alone; fall through to the loose / paper-stem matching below.
+            elif len(candidates) == 1:
+                # No source on this row to disambiguate against; the single
+                # same-name candidate is the best available match.
+                return candidates[0]
 
         # OU rediscovery may shorten unit names — match by last name + source document.
         if row_name:
@@ -2293,17 +2359,22 @@ class ReextractionService(WebSocketBroadcasterMixin):
         logger.debug(f"Extracted composite keys from extraction file: {list(extracted_by_key.keys())}")
 
         matched_keys: set = set(initial_matched_keys or ())
-        await self._merge_extracted_index_into_data_files(
-            session_id,
-            columns,
-            extracted_by_key,
-            renamed_from=renamed_from,
-            create_backup=True,
-            update_session_stats=True,
-            initial_matched_keys=matched_keys,
-            only_empty=only_empty,
-            retry_confirmed_empty=retry_confirmed_empty,
-        )
+        # Hold the same per-session lock the incremental merges use, so a slow
+        # stop's full merge cannot interleave its read-modify-write of the data
+        # files with a still-running incremental merge (which would silently
+        # drop one side's rows via last-write-wins).
+        async with self._get_incremental_merge_lock(session_id):
+            await self._merge_extracted_index_into_data_files(
+                session_id,
+                columns,
+                extracted_by_key,
+                renamed_from=renamed_from,
+                create_backup=True,
+                update_session_stats=True,
+                initial_matched_keys=matched_keys,
+                only_empty=only_empty,
+                retry_confirmed_empty=retry_confirmed_empty,
+            )
 
     async def _merge_extracted_index_into_data_files(
         self,
@@ -2326,7 +2397,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         unaffected because all of their cells start empty. ``retry_confirmed_empty``
         additionally allows overwriting a cell that is empty only because it was
         previously ``_confirmed_empty`` -- must mirror the same flag used to plan
-        the extraction (``_build_only_empty_targets``), otherwise a freshly
+        the extraction (``_scan_only_empty_scope``), otherwise a freshly
         re-checked confirmed-empty cell would run the model and then have its
         result silently discarded here.
         """
@@ -2440,7 +2511,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
         matched_extracted_keys: set = set(initial_matched_keys or ())
         primary_data_file = data_files[0]
 
-        for data_file in data_files:
+        # Process the primary file LAST. New (unmatched) rows are appended only
+        # to the primary file, so that append must run after every other file
+        # has had a chance to match its own rows. If the primary ran first, an
+        # extracted row that actually belongs to an existing row in a
+        # non-primary file would be appended to the primary as a new row AND
+        # then merged into its real row when that file is processed -> a
+        # duplicate row. (Masked in the incremental flow, where already-merged
+        # keys are pre-marked, but reachable on a full / stop-time merge.)
+        ordered_data_files = [
+            f for f in data_files if f.resolve() != primary_data_file.resolve()
+        ] + [primary_data_file]
+
+        for data_file in ordered_data_files:
             if create_backup:
                 backup_file = data_file.parent / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
                 shutil.copy2(data_file, backup_file)

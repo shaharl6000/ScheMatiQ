@@ -285,7 +285,10 @@ def _all_tools() -> list[ToolSpec]:
                 "once) and fills each row as it completes. Use this instead of many "
                 "individual update_cell calls when populating a whole column from a "
                 "reference. Pass `rows` to fill only specific rows instead of the "
-                "whole column. Get the reference id from list_reference_sources."
+                "whole column. By default this OVERWRITES cells that already hold a "
+                "value (the reference is treated as authoritative); pass only_empty=true "
+                "to fill just the blank cells and leave existing values untouched. "
+                "Get the reference id from list_reference_sources."
             ),
             parameters={
                 "type": "object",
@@ -304,6 +307,14 @@ def _all_tools() -> list[ToolSpec]:
                         "description": (
                             "Optional observation-unit / row names to fill (as shown by "
                             "preview_data). Omit to fill every row in the column."
+                        ),
+                    },
+                    "only_empty": {
+                        "type": "boolean",
+                        "description": (
+                            "When false (default) the reference value overwrites cells "
+                            "that already hold a value. Set true to fill only cells that "
+                            "are currently empty and never overwrite an existing value."
                         ),
                     },
                 },
@@ -559,7 +570,10 @@ def _all_tools() -> list[ToolSpec]:
                 "when omitted it defaults to the edited/new columns only (scope='edited_only'). "
                 "Does not touch other columns or the observation unit unless scope='all'. Use "
                 "this for a targeted refresh after add_column/edit_column; use `reprocess` to "
-                "refresh the entire table. Does NOT re-include a document that was skipped "
+                "refresh the entire table. By default this OVERWRITES existing values in the "
+                "targeted columns; pass only_empty=true to fill just the blank cells and leave "
+                "existing values untouched (the safe choice when the user says fill/complete "
+                "missing cells rather than redo the column). Does NOT re-include a document that was skipped "
                 "during extraction (skipped documents stay skipped): if the user asks about a "
                 "missing document, call list_skipped_documents first."
             ),
@@ -582,6 +596,14 @@ def _all_tools() -> list[ToolSpec]:
                             "edited/new columns, 'all' re-extracts every column."
                         ),
                     },
+                    "only_empty": {
+                        "type": "boolean",
+                        "description": (
+                            "When false (default) every targeted cell is re-extracted and "
+                            "existing values are overwritten. Set true to fill only blank "
+                            "cells and never overwrite a value that is already present."
+                        ),
+                    },
                 },
                 "required": [],
             },
@@ -602,15 +624,21 @@ def _all_tools() -> list[ToolSpec]:
                 "with only_empty=true (the default) to fill every empty cell, or add "
                 "documents/rows/columns to narrow the scope. A document listed in "
                 "`documents` that was previously skipped is re-evaluated, so this also "
-                "retries skipped documents. Cells the model already inspected and "
-                "confirmed have no value are left alone by only_empty; set "
-                "only_empty=false to force those (and filled cells) to be re-extracted. "
-                "If the user's request ('fill in this row/column') does not make clear "
-                "whether to fill just the empty cells or overwrite every value in scope, "
-                "ask them which before calling this tool instead of guessing — "
-                "only_empty=false overwrites cells that already hold correct data, which "
-                "is not reversible. Default to only_empty=true when they say to fill "
-                "empty/missing/blank cells specifically. "
+                "retries skipped documents. only_empty=true also retries cells the model "
+                "previously inspected and confirmed empty, without overwriting any cell "
+                "that already holds a value, so it is the correct choice for 'fill the "
+                "missing/blank cells' even when those blanks were checked before — do NOT "
+                "reach for only_empty=false to re-check confirmed-empty cells. "
+                "only_empty=false re-extracts and OVERWRITES every targeted cell, "
+                "including ones that already hold correct values; this is destructive and "
+                "not reversible, so use it only when the user explicitly asks to discard "
+                "and redo existing values. If a fill request is ambiguous about whether to "
+                "overwrite existing values, default to only_empty=true (or ask). "
+                "Note: re-extraction can only fill values that are actually present in the "
+                "source documents. If a column holds information that is typically not in "
+                "the documents themselves (e.g. biographical facts), extract_cells will "
+                "keep confirming those cells empty; suggest fill_column_from_reference with "
+                "an external source instead. "
                 "Get exact names from list_documents, "
                 "list_skipped_documents, or preview_data first."
             ),
@@ -643,9 +671,12 @@ def _all_tools() -> list[ToolSpec]:
                     "only_empty": {
                         "type": "boolean",
                         "description": (
-                            "When true (default), only blank cells are filled and existing "
-                            "values are never overwritten. Set false to re-extract the "
-                            "targeted cells even if they already have values."
+                            "When true (default), only blank cells are filled -- including "
+                            "cells previously confirmed empty -- and existing values are "
+                            "never overwritten. Set false only to re-extract and OVERWRITE "
+                            "every targeted cell even when it already holds a correct value "
+                            "(destructive, not reversible); requires an explicit user "
+                            "request to discard and redo values."
                         ),
                     },
                 },

@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple
 
+from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
+
 
 @dataclass
 class UnitParseResult:
@@ -274,6 +276,15 @@ def create_retry_prompt_addition(previous_error: str, detected_format: str) -> s
     """
     additions = []
 
+    # Match the unit shape to the active prompt: relevant_passages is only
+    # requested when passage-narrowing is enabled (DISABLE_RETRIEVER=False).
+    if DISABLE_RETRIEVER:
+        unit_shape_example = '{"unit_name": "GPT-4 on MMLU", "confidence": "high"}'
+        malformed_unit_shape_example = '{"unit_name": "Name here", "confidence": "high"}'
+    else:
+        unit_shape_example = '{"unit_name": "GPT-4 on MMLU", "relevant_passages": ["..."], "confidence": "high"}'
+        malformed_unit_shape_example = '{"unit_name": "Name here", "relevant_passages": ["passage 1", "passage 2"], "confidence": "high"}'
+
     additions.append("\n\n" + "="*50)
     additions.append("IMPORTANT: YOUR PREVIOUS RESPONSE HAD FORMAT ERRORS")
     additions.append("="*50)
@@ -281,17 +292,17 @@ def create_retry_prompt_addition(previous_error: str, detected_format: str) -> s
     if detected_format == "value_extraction":
         additions.append("""
 You returned a VALUE EXTRACTION format like:
-{"answer": "...", "excerpts": [...]}
+{{"answer": "...", "excerpts": [...]}}
 
 This is WRONG for this task. You need to return OBSERVATION UNITS like:
-{
+{{
   "observation_units": [
-    {"unit_name": "GPT-4 on MMLU", "relevant_passages": ["..."], "confidence": "high"}
+    {unit_shape_example}
   ]
-}
+}}
 
 DO NOT include "answer" or "excerpts" keys. Those are for a different task.
-""")
+""".format(unit_shape_example=unit_shape_example))
     elif detected_format == "malformed":
         additions.append(f"""
 Your response was malformed: {previous_error}
@@ -299,7 +310,7 @@ Your response was malformed: {previous_error}
 Please ensure your response is valid JSON with this exact structure:
 {{
   "observation_units": [
-    {{"unit_name": "Name here", "relevant_passages": ["passage 1", "passage 2"], "confidence": "high"}}
+    {malformed_unit_shape_example}
   ],
   "total_units_found": 1,
   "notes": "optional"

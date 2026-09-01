@@ -13,7 +13,7 @@ from schematiq.core.schema import Schema
 from schematiq.core.llm_backends import LLMInterface
 from schematiq.core.results import SkippedDocument
 from schematiq.core.config import config as lib_config
-from schematiq.value_extraction.config.messages import skipped_summary, DEFAULT_SKIP_REASON
+from schematiq.value_extraction.config.messages import skipped_summary, DEFAULT_SKIP_REASON, NO_KNOWN_UNITS
 
 from .paper_processor import (
     PaperProcessor,
@@ -38,7 +38,7 @@ class TableBuilder:
                  on_unit_row_written: Optional[OnUnitRowWrittenCallback] = None,
                  should_stop: Optional[ShouldStopCallback] = None,
                  on_warning: Optional[OnWarningCallback] = None,
-                 on_document_started: Optional[Callable[[str], None]] = None,
+                 on_document_started: Optional[Callable[[str, int], None]] = None,
                  write_skip_rationale_artifact: Optional[bool] = None,
                  reference_context: Optional[str] = None):
         self.llm = llm
@@ -442,21 +442,41 @@ class TableBuilder:
             if paper in processed_papers:
                 continue
 
+            paper_title = paper.stem
+            source_dir = doc_to_source.get(paper, paper.parent)
+
+            # Scoped re-extraction marks a document with known_units=[] when none
+            # of its observation units are in scope for this run. Skip it here,
+            # before touching the file or firing progress callbacks -- reading
+            # the full text and reporting "processing" for a document we are
+            # about to discard wastes I/O and misleads progress/log output.
+            if known_units is not None and paper_title in known_units and not known_units[paper_title]:
+                self._skipped_documents.append(
+                    SkippedDocument(document=paper_title, reason=NO_KNOWN_UNITS)
+                )
+                print(f"⏭️  Skipping {paper_title}: not in scope for this run")
+                processed_papers.add(paper)
+                continue
+
             try:
                 paper_text = paper.read_text(encoding="utf-8", errors="ignore")
-                paper_title = paper.stem
-                source_dir = doc_to_source.get(paper, paper.parent)
+                paper_known_units = known_units.get(paper_title) if known_units else None
 
                 if self.on_document_started:
                     try:
-                        self.on_document_started(paper_title)
+                        # Advance the progress counter by the number of observation
+                        # units this document actually contributes, not by 1 file --
+                        # a document can hold more than one known unit, and the
+                        # caller expresses total_documents in units once known_units
+                        # is in play (see reextraction_service._run_reextraction).
+                        unit_count_hint = len(paper_known_units) if paper_known_units else 1
+                        self.on_document_started(paper_title, unit_count_hint)
                     except Exception:
                         pass
 
                 print(f"🔍 Processing {paper_title} for observation units ({observation_unit.name})...")
 
                 # Extract values with observation units (may return multiple rows)
-                paper_known_units = known_units.get(paper_title) if known_units else None
                 paper_unit_targets = unit_targets_by_paper.get(paper_title) if unit_targets_by_paper else None
                 extraction_result = self.paper_processor.extract_values_for_paper_with_units(
                     paper_title=paper_title,

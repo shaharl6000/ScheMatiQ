@@ -91,6 +91,11 @@ class RowDataManager:
             if col_name not in merged:
                 if new_answer:  # Only add if there's actually an answer
                     merged[col_name] = new_col_data.copy()
+                elif new_col_data.get('_confirmed_empty'):
+                    # Model explicitly confirmed this cell is empty. Keep it (with
+                    # the marker) so only_empty re-runs treat it as resolved instead
+                    # of re-billing the model on the same gap every run.
+                    merged[col_name] = new_col_data.copy()
                 continue
                 
             existing_col_data = merged[col_name]
@@ -125,9 +130,18 @@ class RowDataManager:
                     unique_excerpts.append(excerpt)
                     seen.add(excerpt_clean)
             
-            merged[col_name] = {
+            merged_cell = {
                 'answer': merged_answer,
                 'excerpts': unique_excerpts
             }
+            # Preserve the model's confirmed-empty marker only while the cell
+            # stays empty. A non-empty merged answer means it is now filled, so
+            # the marker is intentionally dropped.
+            if not merged_answer and (
+                existing_col_data.get('_confirmed_empty')
+                or new_col_data.get('_confirmed_empty')
+            ):
+                merged_cell['_confirmed_empty'] = True
+            merged[col_name] = merged_cell
         
         return merged

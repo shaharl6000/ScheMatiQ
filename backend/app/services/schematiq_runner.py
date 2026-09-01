@@ -1116,6 +1116,9 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             }
             if col_dict.get("allowed_values"):
                 frontend_col["allowed_values"] = col_dict["allowed_values"]
+            # Keep the persisted file consistent with the session.columns
+            # model_dump path in get_schema, which always carries this field.
+            frontend_col["auto_expand_threshold"] = col_dict.get("auto_expand_threshold")
             frontend_schema.append(frontend_col)
 
         schema_for_frontend = {
