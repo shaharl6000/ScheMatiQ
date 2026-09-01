@@ -83,8 +83,7 @@ export const WORKSPACE_MENUS: WorkspaceMenu[] = [
   {
     label: 'View',
     items: [
-      { label: 'Show sheet full screen', action: 'showSheet', requiresProject: true },
-      { label: 'Show chat full screen', action: 'showChat', requiresProject: true },
+      { label: 'Open chat', action: 'openChat', requiresProject: true },
       { label: 'Split view', action: 'splitView', requiresProject: true },
       { label: 'Toggle compact rows', action: 'toggleCompactRows', requiresProject: true },
       { label: 'Project details', action: 'projectDetails', requiresProject: true },

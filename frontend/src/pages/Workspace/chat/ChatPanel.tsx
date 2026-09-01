@@ -90,6 +90,7 @@ export function ChatPanel({
   onRefresh,
   onEditFollowUp,
   onRegisterCancelPending,
+  onClose,
 }: {
   sessionId?: string;
   sessionMode: WorkspaceSessionMode;
@@ -99,6 +100,7 @@ export function ChatPanel({
   onRefresh: () => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
   onRegisterCancelPending?: (cancel: (() => Promise<boolean>) | null) => void;
+  onClose: () => void;
 }) {
   const [messages, setMessages] = useState<WorkspaceMessage[]>([
     {
@@ -761,6 +763,16 @@ export function ChatPanel({
         </div>
         <Button size="sm" variant="outline" className="ml-2 shrink-0" onClick={showToolsList} disabled={busy}>
           Tools
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="ml-2 shrink-0"
+          onClick={onClose}
+          title="Close chat"
+          aria-label="Close chat"
+        >
+          <X className="h-4 w-4" />
         </Button>
       </div>
 

@@ -52,8 +52,7 @@ export function SpreadsheetChrome({
   onUndo,
   onRedo,
   onEstimateCost,
-  onShowSheet,
-  onShowChat,
+  onOpenChat,
   onSplitView,
   onToggleCompactRows,
   onKeyboardShortcuts,
@@ -82,8 +81,7 @@ export function SpreadsheetChrome({
   onUndo: () => void;
   onRedo: () => void;
   onEstimateCost: () => void;
-  onShowSheet: () => void;
-  onShowChat: () => void;
+  onOpenChat: () => void;
   onSplitView: () => void;
   onToggleCompactRows: () => void;
   onKeyboardShortcuts: () => void;
@@ -107,8 +105,7 @@ export function SpreadsheetChrome({
     undo: onUndo,
     redo: onRedo,
     find: onSearch,
-    showSheet: onShowSheet,
-    showChat: onShowChat,
+    openChat: onOpenChat,
     splitView: onSplitView,
     toggleCompactRows: onToggleCompactRows,
     keyboardShortcuts: onKeyboardShortcuts,
