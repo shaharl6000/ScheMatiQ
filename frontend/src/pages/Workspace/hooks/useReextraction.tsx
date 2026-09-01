@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { loadAPI, schemaAPI, schematiqAPI } from '@/services/api';
+import { configAPI, loadAPI, schemaAPI, schematiqAPI } from '@/services/api';
 import { type ToastActionElement } from '@/components/ui/toast';
 import type {
   DocumentAvailabilityResponse,
   ReextractionRequest,
   SchemaData,
 } from '@/types';
+import { getApiKeyForProvider } from '@/utils/apiKeyStorage';
 
 import { describeRequestError } from '../helpers';
 import type { PendingRerunKind, SheetId, WorkspaceReextractionState, WorkspaceSessionMode, WrongCellScope } from '../types';
@@ -213,6 +214,45 @@ export function useReextraction({
       if (scope?.onlyEmpty) request.only_empty = true;
       if (scope?.feedback) request.feedback = scope.feedback;
 
+      // BYOK auth for imported projects. The project's own provider/model is
+      // resolved server-side (reextraction_service.py::_get_llm_from_session),
+      // but an *imported* project never carries a usable API key: the export
+      // redacts it on purpose (DataCollectionService._sanitize_config), so the
+      // key lives only in this browser. When key-config is allowed (BYOK mode)
+      // and we hold a key for the project's *own* configured provider, attach
+      // it -- paired with that same provider/model, never a guessed one, so
+      // the server keeps using the creation-time model and only gains the
+      // missing key. Sent for this call only; the server persists it no
+      // differently than before and the export still redacts it, so the key is
+      // never written into the project or shared. In release mode
+      // (allow_llm_config false) nothing is attached and the server's env key
+      // is used, exactly as without this block.
+      try {
+        const cfg = await configAPI.getConfig().catch(() => null);
+        const backend = schema?.llm_configuration?.value_extraction_backend;
+        const provider = backend?.provider;
+        if (
+          cfg?.allow_llm_config &&
+          backend &&
+          (provider === 'openai' || provider === 'gemini' || provider === 'together')
+        ) {
+          const apiKey = await getApiKeyForProvider(provider);
+          if (apiKey) {
+            request.llm_config = {
+              provider,
+              model: backend.model,
+              temperature: backend.temperature ?? 0,
+              api_key: apiKey,
+            };
+          }
+        }
+      } catch {
+        // Non-fatal: on any lookup failure, fall through with no llm_config and
+        // let the server resolve provider/model/key from its own saved config
+        // (or env). A genuinely missing key then surfaces as a normal
+        // extraction error downstream, not a crash here.
+      }
+
       const response = await schemaAPI.startReextraction(sessionId, request);
       const docCount = response.rows_to_process || response.estimated_papers || 0;
       if (docCount === 0) {
@@ -261,7 +301,7 @@ export function useReextraction({
     } finally {
       setRerunStarting(false);
     }
-  }, [cancelChatPendingIfAny, clearPendingRerun, reextraction, rerunStarting, sessionId, toast]);
+  }, [cancelChatPendingIfAny, clearPendingRerun, reextraction, rerunStarting, schema, sessionId, toast]);
 
   // Entry point for the Data-sheet "Fill empty cells" menu item: the scope
   // (unit-row names + schema-column keys) is resolved by
