@@ -112,7 +112,16 @@ export const LLM_MODELS: LLMModelDefinition[] = [
     id: 'gemini-3.7-flash',
     provider: 'gemini',
     label: 'Gemini 3.7 Flash',
-    description: 'Latest Flash: improved agentic planning and instruction-following over 3.6 Flash',
+    description: 'Improved agentic planning and instruction-following over 3.6 Flash',
+    cost: 'medium',
+    speed: 'fast',
+    contextWindow: 1000000,
+  },
+  {
+    id: 'gemini-3.8-flash',
+    provider: 'gemini',
+    label: 'Gemini 3.8 Flash',
+    description: 'Latest Flash: stronger multi-step reasoning and agentic tool use than 3.7 Flash',
     cost: 'medium',
     speed: 'fast',
     isDefault: true,
@@ -141,7 +150,7 @@ export const LLM_MODELS: LLMModelDefinition[] = [
 ];
 
 // ── Default model constants ─────────────────────────────────────────
-export const DEFAULT_SCHEMA_MODEL = 'gemini-3.7-flash';
+export const DEFAULT_SCHEMA_MODEL = 'gemini-3.8-flash';
 export const DEFAULT_EXTRACTION_MODEL = 'gemini-3.5-flash-lite';
 export const DEFAULT_RELEASE_EXTRACTION_MODEL = 'gemini-3.5-flash-lite';
 
