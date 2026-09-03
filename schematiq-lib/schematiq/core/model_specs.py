@@ -56,6 +56,7 @@ class ModelNames:
     GEMINI_35_FLASH_LITE = "gemini-3.5-flash-lite"
     GEMINI_36_FLASH = "gemini-3.6-flash"
     GEMINI_37_FLASH = "gemini-3.7-flash"
+    GEMINI_38_FLASH = "gemini-3.8-flash"
     GEMINI_31_PRO_PREVIEW = "gemini-3.1-pro-preview"
     GEMINI_15_FLASH = "gemini-1.5-flash"
 
@@ -78,7 +79,7 @@ class ModelNames:
     TIKTOKEN_ENCODING_MODEL = "gpt-4o"
 
     # Role-based defaults
-    DEFAULT_SCHEMA_CREATION = GEMINI_37_FLASH
+    DEFAULT_SCHEMA_CREATION = GEMINI_38_FLASH
     DEFAULT_VALUE_EXTRACTION = GEMINI_35_FLASH_LITE
     DEFAULT_RELEASE_EXTRACTION = GEMINI_35_FLASH_LITE
     DEFAULT_EVALUATION = GEMINI_15_FLASH
@@ -114,6 +115,14 @@ MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
             fallback_thinking_level="medium",
         ),
         ModelNames.GEMINI_37_FLASH: ModelSpec(
+            1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
+            supports_sampling_params=False,
+            allowed_thinking_levels=("low", "medium", "high"),
+            fallback_thinking_level="medium",
+        ),
+        # Same thinking_level contract as 3.5-3.7 Flash (minimal excluded
+        # everywhere in this pipeline; see class-level note above).
+        ModelNames.GEMINI_38_FLASH: ModelSpec(
             1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
             supports_sampling_params=False,
             allowed_thinking_levels=("low", "medium", "high"),
