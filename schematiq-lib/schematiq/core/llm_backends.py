@@ -11,7 +11,7 @@ import os
 import time
 import random
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Union, Optional, Tuple
+from typing import List, Dict, Any, Union, Optional
 import re
 
 import httpx
@@ -785,39 +785,8 @@ class GeminiLLM(LLMInterface):
                 thinking_budget=thinking_budget
             )
 
-    def _build_contents(
-        self,
-        prompt_text: str,
-        images: Optional[List[Tuple[str, bytes, str]]],
-    ):
-        """Assemble ``contents`` for a generate_content call.
-
-        Returns the plain prompt string when no images are given (unchanged
-        behavior for every existing text-only caller), or a list mixing the
-        text with one label + ``Part.from_bytes`` pair per image when images
-        are present. The label (e.g. "Figure 4: <caption>") rides immediately
-        before its image as its own text part — same as how prompt_text is
-        already just a bare string — so the model has an explicit, reliable
-        anchor for which figure it's looking at instead of guessing from
-        pixels alone.
-        """
-        if not images:
-            return prompt_text
-        logger.info(
-            "Gemini call with %d image(s), total %d bytes",
-            len(images),
-            sum(len(b) for _, b, _ in images),
-        )
-        parts: List[Any] = [prompt_text]
-        for label, image_bytes, mime_type in images:
-            if label:
-                parts.append(label)
-            parts.append(self.types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
-        return parts
-
     def generate(self,
                  prompt: Union[str, List[Dict[str, str]]],
-                 images: Optional[List[Tuple[str, bytes, str]]] = None,
                  **kwargs) -> str:
         """
         Generate a response from Gemini with retry logic.
@@ -829,12 +798,6 @@ class GeminiLLM(LLMInterface):
             • list – chat-style messages with role/content pairs.
               System messages are extracted as system_instruction,
               user/assistant messages become the prompt content.
-        images : list[(label, bytes, mime_type)] | None
-            Optional images attached alongside the prompt text in the same
-            call (e.g. extracted figures), so the model reads them together
-            with whatever the prompt is asking for rather than in isolation.
-            ``label`` (e.g. "Figure 4: <caption>") rides immediately before
-            its image as its own text part — pass "" for an unlabeled image.
         **kwargs:
             thinking_budget : int | None – Gemini thinking budget (0 = no thinking)
             response_schema : dict | None – Gemini controlled generation schema
@@ -898,7 +861,7 @@ class GeminiLLM(LLMInterface):
                 # New SDK API: client.models.generate_content()
                 response = self._client.models.generate_content(
                     model=self.model,
-                    contents=self._build_contents(prompt_text, images),
+                    contents=prompt_text,
                     config=config,
                 )
 
@@ -1065,23 +1028,10 @@ class GeminiLLM(LLMInterface):
         except Exception as e:
             logger.debug("Gemini context cache delete failed (cache=%s): %s", cache.name, e)
 
-    def generate_with_cache(
-        self,
-        prompt: str,
-        cache,
-        images: Optional[List[Tuple[str, bytes, str]]] = None,
-        **kwargs,
-    ) -> str:
-        """Generate using a cached context. Falls back to regular generate if cache is None.
-
-        Args
-        ----
-        images : list[(label, bytes, mime_type)] | None
-            Optional images attached to this live call, on top of the cached
-            (text-only) context — see GeminiLLM.generate().
-        """
+    def generate_with_cache(self, prompt: str, cache, **kwargs) -> str:
+        """Generate using a cached context. Falls back to regular generate if cache is None."""
         if cache is None:
-            return self.generate(prompt, images=images, **kwargs)
+            return self.generate(prompt, **kwargs)
 
         prompt_len = len(prompt) if isinstance(prompt, str) else sum(
             len(m.get("content", "")) for m in prompt
@@ -1123,7 +1073,7 @@ class GeminiLLM(LLMInterface):
             try:
                 response = self._client.models.generate_content(
                     model=self.model,
-                    contents=self._build_contents(prompt_text, images),
+                    contents=prompt_text,
                     config=config,
                 )
 

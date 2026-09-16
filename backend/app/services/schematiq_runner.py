@@ -5,7 +5,6 @@ import asyncio
 import logging
 import os
 import random
-import shutil
 import threading
 import time
 from typing import Dict, Any, Optional, List, Tuple
@@ -1238,13 +1237,3 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                     moved_count,
                     session_id,
                 )
-            # Remove the pending_documents/figures link/copy created by
-            # resolve_docs_paths (see config_handler.py) for this run — the
-            # real figures already live under documents/figures, so this was
-            # only needed to make them visible while the docs sat in pending.
-            pending_figures = pending_dir / "figures"
-            if pending_figures.exists():
-                if pending_figures.is_symlink():
-                    pending_figures.unlink()
-                else:
-                    shutil.rmtree(pending_figures, ignore_errors=True)

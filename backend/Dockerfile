@@ -1,9 +1,6 @@
 # Backend Dockerfile for ScheMatiQ
 # Build from project root: docker build -f backend/Dockerfile -t schematiq-backend .
 
-# ---------------------------------------------------------------------------
-# Final image
-# ---------------------------------------------------------------------------
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -30,14 +27,6 @@ RUN pip install --no-cache-dir -e /app/schematiq-lib/
 # Copy backend requirements and install (separate layer for caching)
 COPY backend/requirements.txt /app/backend/
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
-
-# Prefetch Docling's model weights (layout + table-structure models) into the
-# image at build time, so figure extraction doesn't pay a multi-hundred-MB
-# HuggingFace download on the first request and the container works fully
-# offline at runtime. See app/core/config.py:DOCLING_ARTIFACTS_PATH — this
-# path must match what's passed there.
-ENV DOCLING_ARTIFACTS_PATH=/opt/docling-models
-RUN docling-tools models download --output-dir ${DOCLING_ARTIFACTS_PATH}
 
 # Copy backend source code
 COPY backend/ /app/backend/
