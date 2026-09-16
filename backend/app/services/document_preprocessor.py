@@ -127,6 +127,61 @@ def commit_document_to_documents_dir(
     return None
 
 
+def commit_pending_documents(pending_dir: Path, documents_dir: Path) -> int:
+    """Commit every document in ``pending_dir`` into ``documents_dir`` with its artifacts.
+
+    Converts/moves each pending file into documents/ (see
+    ``commit_document_to_documents_dir``), then moves each committed document's
+    per-document artifacts (``PER_DOCUMENT_ARTIFACT_SUBDIRS``, e.g.
+    ``figures/{stem}``) into documents/ as a unit. A stem whose text did not
+    commit is left in pending, so a failed conversion never orphans artifacts in
+    documents/. A leftover symlink from the old figures bridge is removed.
+    Returns the number of documents committed.
+
+    This is the single commit path shared by the post-run mover
+    (``SchematiqRunner._move_pending_documents``) and the import/upload
+    finalizer, so every pending -> committed transition treats artifacts
+    identically and a new artifact type is committed for both by registering it
+    once in ``PER_DOCUMENT_ARTIFACT_SUBDIRS``.
+    """
+    from app.services.session_documents import PER_DOCUMENT_ARTIFACT_SUBDIRS
+
+    if not pending_dir.exists():
+        return 0
+
+    documents_dir.mkdir(parents=True, exist_ok=True)
+    moved_count = 0
+    committed_stems: set[str] = set()
+    for file_path in sorted(pending_dir.iterdir()):
+        if file_path.is_file():
+            dest = commit_document_to_documents_dir(file_path, documents_dir)
+            if dest:
+                moved_count += 1
+                committed_stems.add(dest.stem)
+
+    for subdir in PER_DOCUMENT_ARTIFACT_SUBDIRS:
+        pending_artifact = pending_dir / subdir
+        if pending_artifact.is_symlink():
+            pending_artifact.unlink()
+            continue
+        if not pending_artifact.is_dir():
+            continue
+        committed_artifact = documents_dir / subdir
+        for stem_dir in pending_artifact.iterdir():
+            if not stem_dir.is_dir() or stem_dir.name not in committed_stems:
+                continue
+            committed_artifact.mkdir(parents=True, exist_ok=True)
+            dest_dir = committed_artifact / stem_dir.name
+            if dest_dir.exists():
+                shutil.rmtree(stem_dir, ignore_errors=True)
+            else:
+                shutil.move(str(stem_dir), str(dest_dir))
+        if not any(pending_artifact.iterdir()):
+            pending_artifact.rmdir()
+
+    return moved_count
+
+
 def commit_bytes_to_documents_dir(
     content: bytes,
     filename: str,
