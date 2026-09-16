@@ -23,6 +23,7 @@ from app.models.upload import (
 from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SchemaEvolution, SchemaSnapshot
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE
 from app.services import row_filtering
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 _COLUMN_DISPLAY_NAMES = {
     '_row_name': 'Doc Name',
@@ -339,7 +340,7 @@ class FileParser:
         """
         import zipfile
 
-        pending_dir = session_dir / "pending_documents"
+        pending_dir = pending_docs_dir(session_dir)
         pending_dir.mkdir(parents=True, exist_ok=True)
         project_json_path = session_dir / "project.json"
 

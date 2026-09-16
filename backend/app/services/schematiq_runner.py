@@ -49,6 +49,7 @@ from app.models.session import (
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 class ScheMatiQRunner(WebSocketBroadcasterMixin):
     """Handles ScheMatiQ execution and integration."""
@@ -1223,8 +1224,8 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         from app.services.document_preprocessor import commit_document_to_documents_dir
 
         data_session_dir = Path(DEFAULT_DATA_DIR) / session_id
-        pending_dir = data_session_dir / "pending_documents"
-        completed_docs_dir = data_session_dir / "documents"
+        pending_dir = pending_docs_dir(data_session_dir)
+        completed_docs_dir = committed_docs_dir(data_session_dir)
         if pending_dir.exists():
             completed_docs_dir.mkdir(parents=True, exist_ok=True)
             moved_count = 0

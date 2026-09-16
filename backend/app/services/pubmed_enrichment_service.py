@@ -20,6 +20,7 @@ from app.core.config import DEFAULT_DATA_DIR
 from app.models.session import VisualizationSession
 from app.services.session_capabilities import is_imported
 from app.services.session_manager import SessionManager
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,7 @@ class PubMedEnrichmentService:
         The source_document field in extracted rows typically omits the file
         extension (e.g. ``BMAL1_16980631_full``), so we probe common extensions.
         """
-        docs_dir = self._data_dir / session_id / "documents"
+        docs_dir = committed_docs_dir(self._data_dir / session_id)
         if not docs_dir.exists():
             return None
 

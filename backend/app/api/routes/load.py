@@ -38,6 +38,7 @@ router = APIRouter()
 
 # Module-level singleton (same pattern as schematiq_runner, reextraction_service, etc.)
 from app.services import pubmed_enrichment_service, uniprot_enrichment_service
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 upload_processor = UploadDocumentProcessor(
     websocket_manager=websocket_manager,
     session_manager=session_manager,
@@ -907,9 +908,9 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         # New documents go to pending_documents/ first, then moved to documents/ after processing
         parser = FileParser()
         session_dir = parser.data_dir / session_id
-        pending_dir = session_dir / "pending_documents"
+        pending_dir = pending_docs_dir(session_dir)
         pending_dir.mkdir(parents=True, exist_ok=True)
-        docs_dir = session_dir / "documents"
+        docs_dir = committed_docs_dir(session_dir)
         docs_dir.mkdir(parents=True, exist_ok=True)
         
         # Process each uploaded file
@@ -1150,8 +1151,8 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
         # Remove the actual file from pending_documents directory
         parser = FileParser()
         session_dir = parser.data_dir / session_id
-        pending_file = session_dir / "pending_documents" / request.filename
-        docs_file = session_dir / "documents" / request.filename
+        pending_file = pending_docs_dir(session_dir) / request.filename
+        docs_file = committed_docs_dir(session_dir) / request.filename
 
         files_removed = []
         if pending_file.exists():
@@ -1244,9 +1245,9 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
         # Create directories for this session
         parser = FileParser()
         session_dir = parser.data_dir / session_id
-        pending_dir = session_dir / "pending_documents"
+        pending_dir = pending_docs_dir(session_dir)
         pending_dir.mkdir(parents=True, exist_ok=True)
-        docs_dir = session_dir / "documents"
+        docs_dir = committed_docs_dir(session_dir)
         docs_dir.mkdir(parents=True, exist_ok=True)
 
         # Download requested files

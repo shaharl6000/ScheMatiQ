@@ -32,6 +32,7 @@ from .deps import (
     websocket_manager,
 )
 from .tool_registry import TOOL_BY_NAME
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ class ToolExecutor:
               return "Cost estimate unavailable (project not configured)."
           with open(config_file, encoding="utf-8") as handle:
               config_data = json.load(handle)
-          docs_dir = WORK_DIR / session_id / "pending_documents"
+          docs_dir = pending_docs_dir(WORK_DIR / session_id)
           documents = []
           if docs_dir.exists():
               for doc_file in sorted(docs_dir.iterdir()):

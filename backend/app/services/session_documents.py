@@ -38,14 +38,14 @@ COMMITTED_DIRNAME = "documents"
 PENDING_DIRNAME = "pending_documents"
 
 
-def committed_dir(base: Path, session_id: str) -> Path:
-    """Path to a session's committed-documents dir under a given data root."""
-    return base / session_id / COMMITTED_DIRNAME
+def committed_docs_dir(session_dir: Path) -> Path:
+    """Committed-documents dir for a session directory (``.../{session_id}``)."""
+    return session_dir / COMMITTED_DIRNAME
 
 
-def pending_dir(base: Path, session_id: str) -> Path:
-    """Path to a session's pending-documents (staging) dir under a data root."""
-    return base / session_id / PENDING_DIRNAME
+def pending_docs_dir(session_dir: Path) -> Path:
+    """Pending-documents (staging) dir for a session directory."""
+    return session_dir / PENDING_DIRNAME
 
 
 def local_document_dirs(
@@ -62,13 +62,13 @@ def local_document_dirs(
     ``pending_first`` selects the per-root order: default yields committed then
     pending (originals win on de-dup); ``True`` yields pending then committed.
     """
-    subs = (
-        (PENDING_DIRNAME, COMMITTED_DIRNAME)
-        if pending_first
-        else (COMMITTED_DIRNAME, PENDING_DIRNAME)
-    )
     for base in candidate_data_dirs():
-        for sub in subs:
-            doc_dir = base / session_id / sub
+        session_dir = base / session_id
+        ordered = (
+            (pending_docs_dir(session_dir), committed_docs_dir(session_dir))
+            if pending_first
+            else (committed_docs_dir(session_dir), pending_docs_dir(session_dir))
+        )
+        for doc_dir in ordered:
             if doc_dir.is_dir():
                 yield doc_dir

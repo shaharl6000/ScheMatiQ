@@ -40,6 +40,7 @@ from schematiq.core.schema import Schema, Column, SchemaEvolution, SchemaSnapsho
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.value_extraction.main import build_table_jsonl
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 SCHEMATIQ_AVAILABLE = True
 
@@ -569,7 +570,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         # 3. Check local documents
         local_docs: Set[str] = set()
         session_dir = self._get_data_dir() / session_id
-        docs_dir = session_dir / "documents"
+        docs_dir = committed_docs_dir(session_dir)
         if docs_dir.exists():
             for f in docs_dir.iterdir():
                 if (
@@ -680,7 +681,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         """
         # Use storage backend's directories for correct path resolution
         session_dir = self._get_data_dir() / session_id
-        docs_dir = session_dir / "documents"
+        docs_dir = committed_docs_dir(session_dir)
         docs_dir.mkdir(parents=True, exist_ok=True)
 
         documents = []
@@ -745,7 +746,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
             # Also include any documents uploaded via MissingDocumentsSection
             # (these supplement the cloud dataset with locally-uploaded files)
-            pending_dir = session_dir / "pending_documents"
+            pending_dir = pending_docs_dir(session_dir)
             if pending_dir.exists():
                 existing = set(filenames)
                 # Filter to only files from the latest upload (prevents stale files
@@ -768,7 +769,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
         elif document_source == "upload":
             # Use uploaded files from pending_documents
-            pending_dir = session_dir / "pending_documents"
+            pending_dir = pending_docs_dir(session_dir)
             if pending_dir.exists():
                 # Filter to only files from the latest upload using session metadata
                 # (more reliable than frontend-passed filenames which may differ due to PDF conversion/dedup)
@@ -907,7 +908,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     "a project bundle that includes them, then try again."
                 )
         elif document_source == "upload":
-            pending_dir = self._get_data_dir() / session_id / "pending_documents"
+            pending_dir = pending_docs_dir(self._get_data_dir() / session_id)
             has_uploaded = pending_dir.is_dir() and any(
                 f.is_file() and not f.name.startswith(".")
                 for f in pending_dir.iterdir()
@@ -1291,7 +1292,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     next_iteration = len(stats_evolution.snapshots) + 1
 
                     # Get document names that were used for discovery
-                    docs_dir = self._get_data_dir() / operation.session_id / "documents"
+                    docs_dir = committed_docs_dir(self._get_data_dir() / operation.session_id)
                     doc_names = [f.name for f in docs_dir.glob("*") if f.is_file()][:10] if docs_dir.exists() else []
 
                     # Filter out any excerpt columns from new_columns list
@@ -1534,7 +1535,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 raise ValueError(f"Session {operation.session_id} not found")
 
             session_dir = self._get_data_dir() / operation.session_id
-            docs_dir = session_dir / "documents"
+            docs_dir = committed_docs_dir(session_dir)
 
             # Load extraction config
             extraction_config_file = session_dir / f"extraction_config_{operation_id}.json"

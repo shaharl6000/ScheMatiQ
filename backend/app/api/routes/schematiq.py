@@ -32,6 +32,7 @@ router = APIRouter()
 # tools, the /load/rediscover route and app.main all bind this same instance, so
 # a run started from any entry point can be stopped and resumed from any other.
 from app.services.orchestration import schematiq_runner
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 # Create data editor instance
 data_editor = DataEditor()
 
@@ -73,7 +74,7 @@ def _resolve_docs_path(path: str, session_id: Optional[str] = None) -> Optional[
     
     # Add session-specific path if session_id provided
     if session_id:
-        candidates.insert(1, Path(DEFAULT_DATA_DIR) / session_id / "pending_documents")
+        candidates.insert(1, pending_docs_dir(Path(DEFAULT_DATA_DIR) / session_id))
     
     for candidate in candidates:
         if candidate.exists() and candidate.is_dir():
@@ -196,7 +197,7 @@ async def estimate_schematiq_cost(session_id: str):
                     documents.extend(_load_documents_from_path(resolved))
         
         # Also check for uploaded documents in data directory
-        upload_dir = Path(DEFAULT_DATA_DIR) / session_id / "pending_documents"
+        upload_dir = pending_docs_dir(Path(DEFAULT_DATA_DIR) / session_id)
         if upload_dir.exists() and not documents:
             documents.extend(_load_documents_from_path(upload_dir))
         

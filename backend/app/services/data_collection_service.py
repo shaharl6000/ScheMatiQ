@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from app.core.config import DATA_COLLECTION_ENABLED, DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, MAX_DOCUMENTS
 from app.utils.csv_helpers import format_excerpt_for_csv
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -444,8 +445,8 @@ class DataCollectionService:
         results = []
 
         candidate_dirs = [
-            Path(DEFAULT_DATA_DIR) / session_id / "documents",
-            Path(DEFAULT_DATA_DIR) / session_id / "pending_documents",
+            committed_docs_dir(Path(DEFAULT_DATA_DIR) / session_id),
+            pending_docs_dir(Path(DEFAULT_DATA_DIR) / session_id),
         ]
         # Supabase datasets: schematiq_work/{id}/datasets/{dataset_name}/
         datasets_root = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "datasets"
