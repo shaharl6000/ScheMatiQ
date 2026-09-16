@@ -42,6 +42,7 @@ import {
 } from './helpers';
 import type {
   CellFormatMap,
+  CellUpdate,
   PendingRerunKind,
   SheetColumn,
   SheetId,
@@ -92,6 +93,7 @@ export function SpreadsheetSurface({
   onUndo,
   onRedo,
   onRecordEdit,
+  applyCellUpdatesRef,
   onNewProject,
   onImportProject,
   sessionMissing,
@@ -162,6 +164,10 @@ export function SpreadsheetSurface({
   onRedo?: () => void;
   // Record an undoable command after a cell-value edit is applied.
   onRecordEdit?: (command: EditCommand) => void;
+  // Handed the same batched-cell-write pipeline manual edits use
+  // (optimistic patch + persist + refresh), so a bulk server-side rewrite
+  // (re-extraction, fill-empty-cells) can be undone/redone through it too.
+  applyCellUpdatesRef?: MutableRefObject<((updates: CellUpdate[]) => void) | null>;
   // Empty-state actions. Closing the New Project dialog previously left the
   // workbook as a dead end whose only way forward was the File menu, which is
   // itself unreachable on narrow viewports.
@@ -1124,14 +1130,6 @@ export function SpreadsheetSurface({
     [flushEditToast],
   );
 
-  type CellUpdate = {
-    rowName: string;
-    sourceDocument?: string;
-    rowIndexId?: number;
-    column: string;
-    value: string;
-  };
-
   // Apply a batch of cell writes through the standard edit pipeline: optimistic
   // React update up front, the persisting PUTs, one summary toast, then a
   // refresh. Shared by direct edits and by undo/redo (which replay the inverse
@@ -1151,7 +1149,14 @@ export function SpreadsheetSurface({
 
     Promise.allSettled(
       updates.map((u) =>
-        schematiqAPI.updateCell(sessionId, u.rowName, u.column, u.value, u.sourceDocument, u.rowIndexId),
+        // `raw` is set only when replaying a bulk rewrite's own prior/new
+        // state (reextraction undo/redo, a deleted column's restore) -- write
+        // it back verbatim via restoreCell so the backend does not stamp
+        // manually_edited on a value the user never actually typed. A genuine
+        // manual edit never carries `raw` and keeps going through updateCell.
+        u.raw !== undefined
+          ? schematiqAPI.restoreCell(sessionId, u.rowName, u.column, u.raw, u.sourceDocument, u.rowIndexId)
+          : schematiqAPI.updateCell(sessionId, u.rowName, u.column, u.value, u.sourceDocument, u.rowIndexId),
       ),
     ).then((results) => {
       const failed = results.filter((r) => r.status === 'rejected').length;
@@ -1168,6 +1173,16 @@ export function SpreadsheetSurface({
       onRefreshData();
     });
   }, [onOptimisticCellEdit, onRefreshData, queueEditToast, sessionId]);
+
+  // Hand the parent a live reference to applyCellUpdates so a bulk server-side
+  // rewrite (re-extraction, fill-empty-cells) undo/redo command -- recorded up
+  // in the Workspace page, which owns the edit-history stack but not this
+  // pipeline -- can replay through the exact same optimistic-patch/persist/
+  // refresh path as a manual edit, instead of a second implementation drifting
+  // out of sync with this one.
+  useEffect(() => {
+    if (applyCellUpdatesRef) applyCellUpdatesRef.current = applyCellUpdates;
+  }, [applyCellUpdatesRef, applyCellUpdates]);
 
   const handleChanges = useCallback((changes: any[] | null, source: string) => {
     if (!changes || source === 'loadData' || !sessionId) return;
@@ -1384,6 +1399,182 @@ export function SpreadsheetSurface({
     }
   }, [activeSheet, applyCellUpdates, data.rows, hotTableRef, observationUnitRows, onEditFollowUp, onRecordEdit, onRefresh, onRefreshData, schemaColumns, sessionId, toast]);
 
+  // Delete one or more schema columns (header + values, from both the Schema
+  // and Data views) via the schema API, then refresh. Shared by every
+  // deletion entry point: the Schema-sheet row-delete, the Data-sheet
+  // grid-column-delete, the right-click "Delete column" menu item, and the
+  // Delete-key-on-selected-header shortcut -- so undo/redo only needs to be
+  // implemented once.
+  // Guards against a double-fire of the same delete action (e.g. a rapid
+  // double click, or two Ctrl+Y presses replaying redo). Without it the first
+  // call deletes the column, the second fails "column not found" (a spurious
+  // "Column delete failed" toast), and the second call's write races the
+  // refresh's getData so the grid momentarily blanks. Lives inside
+  // deleteSchemaColumnsRaw (rather than only in the wrapper below) so it
+  // covers every caller, including the redo closure that calls the raw
+  // function directly.
+  const deletingColumnsRef = useRef(false);
+
+  // The bare delete, with no undo recording -- used both as the forward half
+  // of a fresh delete and to replay the same action as a "redo" (recording a
+  // new undo command on redo would let the two stacks fork and double-push).
+  // Reports which names actually succeeded so a partial failure can still be
+  // undone for the columns that were really deleted.
+  const deleteSchemaColumnsRaw = useCallback(
+    (names: string[]): Promise<{ succeeded: string[]; failed: string[] }> => {
+      if (names.length === 0 || !sessionId || deletingColumnsRef.current) {
+        return Promise.resolve({ succeeded: [], failed: [] });
+      }
+      deletingColumnsRef.current = true;
+      return Promise.allSettled(names.map((name) => schemaAPI.deleteColumn(sessionId, name)))
+        .then((results) => {
+          const succeeded: string[] = [];
+          const failed: string[] = [];
+          results.forEach((result, i) => {
+            (result.status === 'fulfilled' ? succeeded : failed).push(names[i]);
+          });
+          if (failed.length > 0) {
+            // A single failure is the common case (one column targeted via the
+            // context menu) -- show the backend's actual reason instead of a
+            // bare count, matching what the pre-consolidation per-site .catch
+            // blocks used to surface.
+            const firstReason = (results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined)?.reason;
+            const detail = failed.length === 1
+              ? (firstReason?.response?.data?.detail || firstReason?.message || 'Could not delete column')
+              : `${failed.length} of ${names.length} columns could not be deleted.`;
+            toast({ title: 'Column delete failed', description: detail, variant: 'destructive' });
+          } else {
+            toast({
+              title: names.length > 1 ? 'Columns deleted' : 'Column deleted',
+              description: names.join(', '),
+            });
+          }
+          // Deleting a column does not change the row data we display, so do a
+          // schema-only refresh (no data reload). Combined with the
+          // column-independent dataRows above, the grid's `data` prop keeps its
+          // identity, so only the `columns` prop changes and Handsontable drops
+          // the column in place without resetting horizontal scroll.
+          return Promise.resolve(onSchemaRefresh()).then(() => ({ succeeded, failed }));
+        })
+        .finally(() => {
+          deletingColumnsRef.current = false;
+        });
+    },
+    [onSchemaRefresh, sessionId, toast],
+  );
+
+  const deleteSchemaColumns = useCallback(
+    (names: string[]) => {
+      if (names.length === 0 || !sessionId) return;
+
+      // Snapshot full column metadata (to recreate it) and every row's current
+      // value for these columns (to replay them back in), so the delete can be
+      // undone by recreating the column and restoring its values through the
+      // same optimistic-patch/persist/refresh pipeline manual edits use. Taken
+      // BEFORE the delete request so it reflects what is about to be lost.
+      const snapshotByName = new Map(
+        names
+          .map((name) => schemaColumns.find((c) => c.name === name))
+          .filter((c): c is ColumnInfo & { allowed_values?: string[] } => Boolean(c))
+          .map((c) => [c.name, c] as const),
+      );
+      // Original position of each column, so undo can recreate it exactly
+      // where it was instead of at the end (addColumn's default). Kept
+      // separate from snapshotByName rather than widening that map's value
+      // type.
+      const originalIndexByName = new Map(names.map((name) => [name, schemaColumns.findIndex((c) => c.name === name)] as const));
+
+      const cellUpdatesByColumn = new Map<string, CellUpdate[]>();
+      data.rows.forEach((row) => {
+        const rowName = row.row_name || row._unit_name || '';
+        const sourceDocument = row._source_document || row._parent_document;
+        const rowIndexId = row._row_index;
+        names.forEach((name) => {
+          const raw = row.data?.[name];
+          const value = extractDisplayValue(raw);
+          if (!value) return; // nothing to restore -- a freshly re-added column starts blank anyway
+          const list = cellUpdatesByColumn.get(name) ?? [];
+          // `raw` carries the original cell object through so undo restores it
+          // verbatim via restoreCell (applyCellUpdates) instead of stamping
+          // manually_edited on a value the user never touched.
+          list.push({ rowName, sourceDocument, rowIndexId, column: name, value, raw });
+          cellUpdatesByColumn.set(name, list);
+        });
+      });
+
+      deleteSchemaColumnsRaw(names)
+        .then(({ succeeded }) => {
+          // Scope undo/redo to only the columns that were actually deleted --
+          // a partial failure must not lose undo for the ones that succeeded,
+          // and redo must not retry the one that didn't.
+          if (succeeded.length === 0) return;
+          const snapshot = succeeded
+            .map((name) => {
+              const col = snapshotByName.get(name);
+              return col ? { col, originalIndex: originalIndexByName.get(name) ?? -1 } : null;
+            })
+            .filter((entry): entry is { col: ColumnInfo & { allowed_values?: string[] }; originalIndex: number } => Boolean(entry));
+          const cellUpdates = succeeded.flatMap((name) => cellUpdatesByColumn.get(name) ?? []);
+
+          onRecordEdit?.({
+            undo: async () => {
+              // Restore sequentially, in ascending original-index order: each
+              // insert shifts everything after it, so inserting lower indices
+              // first is what keeps every later `position` valid against the
+              // list state at the moment that insert happens (deleting columns
+              // at indices 1 and 3, then restoring 1 before 3, reproduces the
+              // original order -- restoring 3 before 1 would not).
+              // This reproduces the original order only when the schema hasn't
+              // changed since the delete: `originalIndex` was captured then
+              // and is not re-validated here, so an add/remove elsewhere in
+              // the meantime makes it stale -- the restored column can land in
+              // a different (but always valid; the route clamps out-of-range
+              // positions) slot than it started in.
+              const ordered = [...snapshot].sort((a, b) => a.originalIndex - b.originalIndex);
+              const failedNames: string[] = [];
+              for (const { col, originalIndex } of ordered) {
+                try {
+                  await schemaAPI.addColumn(sessionId, {
+                    name: col.name,
+                    definition: col.definition || '',
+                    rationale: col.rationale,
+                    allowed_values: col.allowed_values,
+                    data_type: col.data_type,
+                    position: originalIndex >= 0 ? originalIndex : undefined,
+                    // col.name is already canonical, so the backend's normal
+                    // derive-from-name would always yield display_name=None,
+                    // dropping the column's original user-typed label -- pass
+                    // it through explicitly instead.
+                    display_name: col.display_name,
+                  });
+                } catch {
+                  failedNames.push(col.name);
+                }
+              }
+              await onSchemaRefresh();
+              if (cellUpdates.length > 0) applyCellUpdates(cellUpdates);
+              if (failedNames.length > 0) {
+                toast({
+                  title: 'Undo failed',
+                  description: `${failedNames.length} of ${snapshot.length} column${snapshot.length > 1 ? 's' : ''} could not be restored.`,
+                  variant: 'destructive',
+                });
+              } else {
+                toast({
+                  title: succeeded.length > 1 ? 'Columns restored' : 'Column restored',
+                  description: succeeded.join(', '),
+                });
+              }
+            },
+            // Deletes by name only, independent of position -- redo after a
+            // position-aware undo still works correctly with no changes here.
+            redo: () => { void deleteSchemaColumnsRaw(succeeded); },
+          });
+        });
+    },
+    [applyCellUpdates, data.rows, deleteSchemaColumnsRaw, onRecordEdit, onSchemaRefresh, schemaColumns, sessionId, toast],
+  );
+
   const handleBeforeRemoveRow = useCallback(
     (_index: number, _amount: number, physicalRows: number[], _source?: string): boolean | void => {
       // The observation-unit sheet has a fixed set of structural rows
@@ -1408,38 +1599,15 @@ export function SpreadsheetSurface({
 
       if (names.length === 0) return;
 
-      Promise.all(names.map((name) => schemaAPI.deleteColumn(sessionId, name)))
-        .then(() => {
-          toast({
-            title: names.length > 1 ? 'Schema columns deleted' : 'Schema column deleted',
-            description: names.join(', '),
-          });
-          // Deleting a column outright does not invalidate the remaining
-          // columns' extracted values, so it must not flag a re-extract.
-          // The "Schema changed" banner is only for edits/additions that
-          // require re-running extraction against the source documents.
-          //
-          // Schema-only refresh (no data reload), matching the Data-sheet
-          // "Delete column" path: deleting a column changes only the column
-          // list, so reloading the rows here is wasted work and would reset the
-          // Data grid's scroll when the user switches back.
-          onSchemaRefresh();
-        })
-        .catch((err: any) => {
-          toast({
-            title: 'Column delete failed',
-            description: err?.response?.data?.detail || err?.message || 'Could not delete column',
-            variant: 'destructive',
-          });
-          onSchemaRefresh();
-        });
+      deleteSchemaColumns(names);
 
-      // Cancel Handsontable's local removal; the schema state refresh below
-      // re-renders the grid from the server's updated schema, keeping the
-      // Schema and Data tabs in sync with a single source of truth.
+      // Cancel Handsontable's local removal; the schema state refresh inside
+      // deleteSchemaColumns re-renders the grid from the server's updated
+      // schema, keeping the Schema and Data tabs in sync with a single source
+      // of truth.
       return false;
     },
-    [activeSheet, onSchemaRefresh, schemaColumns, sessionId, toast],
+    [activeSheet, deleteSchemaColumns, schemaColumns, sessionId, toast],
   );
 
   const handleBeforeRemoveCol = useCallback(
@@ -1476,31 +1644,14 @@ export function SpreadsheetSurface({
       const names = keys.filter((key) => schemaColumns.some((col) => col.name === key));
       if (names.length === 0) return false;
 
-      Promise.all(names.map((name) => schemaAPI.deleteColumn(sessionId, name)))
-        .then(() => {
-          toast({
-            title: names.length > 1 ? 'Schema columns deleted' : 'Schema column deleted',
-            description: names.join(', '),
-          });
-          // Same rationale as row deletion: dropping a column does not
-          // invalidate the remaining columns' values, so no re-extract flag and
-          // a schema-only refresh is enough (no data reload / scroll reset).
-          onSchemaRefresh();
-        })
-        .catch((err: any) => {
-          toast({
-            title: 'Column delete failed',
-            description: err?.response?.data?.detail || err?.message || 'Could not delete column',
-            variant: 'destructive',
-          });
-          onSchemaRefresh();
-        });
+      deleteSchemaColumns(names);
 
-      // Cancel the local removal; the refresh re-renders the grid from the
-      // server's updated schema so Data and Schema tabs stay in sync.
+      // Cancel the local removal; the schema state refresh inside
+      // deleteSchemaColumns re-renders the grid from the server's updated
+      // schema so Data and Schema tabs stay in sync.
       return false;
     },
-    [activeSheet, onSchemaRefresh, schemaColumns, sessionId, sheet.columns, toast],
+    [activeSheet, deleteSchemaColumns, schemaColumns, sessionId, sheet.columns, toast],
   );
 
   // Resolve the schema-column names covered by the current grid selection,
@@ -1547,50 +1698,6 @@ export function SpreadsheetSurface({
       return selectedCellScope(selection, dataRows, sheet.columns, schemaColumns, toPhysicalRow);
     },
     [activeSheet, dataRows, schemaColumns, sheet.columns],
-  );
-
-  // Delete one or more schema columns (header + values, from both the Schema
-  // and Data views) via the schema API, then refresh. Shared by the context
-  // menu item and the Delete-key shortcut.
-  // Guards against a double-fire of the same delete action. Without it the
-  // first call deletes the column, the second fails "column not found" (a
-  // spurious "Column delete failed" toast), and the second call's write races
-  // the refresh's getData so the grid momentarily blanks. The guard is held
-  // across the request AND the follow-up refresh so a delayed second fire
-  // during the refresh window is also dropped.
-  const deletingColumnsRef = useRef(false);
-
-  const deleteSchemaColumns = useCallback(
-    (names: string[]) => {
-      if (names.length === 0 || !sessionId || deletingColumnsRef.current) return;
-      deletingColumnsRef.current = true;
-      Promise.allSettled(names.map((name) => schemaAPI.deleteColumn(sessionId, name)))
-        .then((results) => {
-          const failed = results.filter((r) => r.status === 'rejected').length;
-          if (failed > 0) {
-            toast({
-              title: 'Column delete failed',
-              description: `${failed} of ${names.length} column${names.length > 1 ? 's' : ''} could not be deleted.`,
-              variant: 'destructive',
-            });
-          } else {
-            toast({
-              title: names.length > 1 ? 'Columns deleted' : 'Column deleted',
-              description: names.join(', '),
-            });
-          }
-          // Deleting a column does not change the row data we display, so do a
-          // schema-only refresh (no data reload). Combined with the
-          // column-independent dataRows above, the grid's `data` prop keeps its
-          // identity, so only the `columns` prop changes and Handsontable drops
-          // the column in place without resetting horizontal scroll.
-          return onSchemaRefresh();
-        })
-        .finally(() => {
-          deletingColumnsRef.current = false;
-        });
-    },
-    [onSchemaRefresh, sessionId, toast],
   );
 
   // Excel-style: when one or more whole columns are selected (by clicking the

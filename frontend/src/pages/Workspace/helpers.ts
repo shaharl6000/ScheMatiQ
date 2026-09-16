@@ -16,6 +16,8 @@ import type {
   VisualizationSession,
 } from '@/types';
 
+import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
+
 import {
   OBSERVATION_UNIT_FIELD_TOOLTIPS,
   SCHEMA_COLUMN_HEADER_INFO_ICON,
@@ -23,6 +25,7 @@ import {
 } from './constants';
 import type {
   CellFormat,
+  CellUpdate,
   DocumentSourceInput,
   SheetColumn,
   SheetSelection,
@@ -311,7 +314,7 @@ export function patchDataCell(
   return { ...data, rows };
 }
 
-function rowMatchesEditIdentity(
+export function rowMatchesEditIdentity(
   row: DataRow,
   identity: { rowName: string; sourceDocument?: string; rowIndex?: number },
   _index: number,
@@ -326,6 +329,73 @@ function rowMatchesEditIdentity(
     if (src && src !== identity.sourceDocument) return false;
   }
   return true;
+}
+
+// Diff two paginated-data snapshots into a batch of forward/inverse cell
+// updates, matching rows the same way manual edits do (row_name/_unit_name +
+// source document, or _row_index) and comparing the same display string the
+// grid renders. Lets a bulk server-side rewrite (re-extraction, fill-empty-
+// cells) be recorded as a single undoable command, exactly like a manual
+// multi-cell edit.
+export function diffPaginatedData(
+  before: PaginatedData,
+  after: PaginatedData,
+): { updates: CellUpdate[]; inverseUpdates: CellUpdate[] } {
+  const updates: CellUpdate[] = [];
+  const inverseUpdates: CellUpdate[] = [];
+
+  // Prefer _row_index -- an exact, unambiguous position -- over row_name +
+  // sourceDocument, which two distinct rows can legitimately share (duplicate
+  // or blank unit names). rowMatchesEditIdentity only falls back to rowIndex
+  // when rowName is itself empty, so matching the whole snapshot through it
+  // directly would let two same-named after-rows both resolve to whichever
+  // before-row .find() reaches first. Only rows without an index use that
+  // name-based fallback here, same as rowMatchesEditIdentity's own order.
+  const beforeByIndex = new Map<number, DataRow>();
+  const beforeUnindexed: DataRow[] = [];
+  before.rows.forEach((row) => {
+    if (row._row_index != null) beforeByIndex.set(row._row_index, row);
+    else beforeUnindexed.push(row);
+  });
+
+  after.rows.forEach((afterRow) => {
+    const rowName = afterRow.row_name || afterRow._unit_name || '';
+    const sourceDocument = afterRow._source_document || afterRow._parent_document;
+    const rowIndexId = afterRow._row_index;
+
+    const beforeRow = rowIndexId != null
+      ? beforeByIndex.get(rowIndexId)
+      : beforeUnindexed.find((row) => rowMatchesEditIdentity(row, { rowName, sourceDocument, rowIndex: rowIndexId }, -1));
+    if (!beforeRow) return;
+
+    const columns = new Set([
+      ...Object.keys(beforeRow.data || {}),
+      ...Object.keys(afterRow.data || {}),
+    ]);
+
+    columns.forEach((column) => {
+      const beforeRaw = beforeRow.data?.[column];
+      const afterRaw = afterRow.data?.[column];
+      const beforeValue = extractDisplayValue(beforeRaw);
+      const afterValue = extractDisplayValue(afterRaw);
+      if (beforeValue === afterValue) return;
+      // `raw` carries the original cell object through so undo/redo can
+      // restore it verbatim via restoreCell instead of updateCell -- neither
+      // direction of a reextraction undo is a manual edit, so the backend
+      // should not stamp manually_edited on either one (see applyCellUpdates).
+      // Coerce a genuinely absent cell (undefined -- the column had no value
+      // at all before/after) to null rather than leaving it undefined:
+      // applyCellUpdates routes on `raw !== undefined` to pick restoreCell
+      // over updateCell, and undefined would fall through to updateCell,
+      // wrongly stamping manually_edited on a value nobody typed.
+      updates.push({ rowName, sourceDocument, rowIndexId, column, value: afterValue, raw: afterRaw ?? null });
+      inverseUpdates.push({
+        rowName, sourceDocument, rowIndexId, column, value: beforeValue, raw: beforeRaw ?? null,
+      });
+    });
+  });
+
+  return { updates, inverseUpdates };
 }
 
 function patchRowCellValue(row: DataRow, column: string, value: string): DataRow {

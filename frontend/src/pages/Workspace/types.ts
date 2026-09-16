@@ -1,5 +1,7 @@
 // Shared TypeScript types for the Workspace page and its sub-components.
 
+import type { CellValue } from '@/types';
+
 export type SheetId = 'data' | 'unit' | 'schema' | 'stats' | 'monitor' | 'documents';
 
 // Every action the top menu bar can perform. SpreadsheetChrome maps this union
@@ -124,3 +126,20 @@ export type NewProjectDialogProps = {
 export type DocumentSourceInput =
   | { mode: 'upload' }
   | { mode: 'cloud'; datasets: string[] };
+
+// A single cell write, batched with others to persist a whole edit (manual or
+// server-driven bulk rewrite) as one request group and one undo/redo step.
+export type CellUpdate = {
+  rowName: string;
+  sourceDocument?: string;
+  rowIndexId?: number;
+  column: string;
+  value: string;
+  // The original cell object to write back verbatim via restoreCell instead
+  // of updateCell, so the backend does not stamp manually_edited on a value
+  // that was never actually typed by the user. Set only when replaying a
+  // bulk rewrite's own prior/new state (re-extraction undo/redo, a deleted
+  // column's restored values) -- never by a genuine manual edit, which has no
+  // original object to preserve and should keep being marked edited.
+  raw?: CellValue;
+};

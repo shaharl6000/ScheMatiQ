@@ -2007,7 +2007,7 @@ def _preprocess_and_record(
             "Remove the existing rows first or use a different filename."
         )
 
-    result = preprocess_uploaded_file(file_path, original_filename=filename)
+    result = preprocess_uploaded_file(file_path, original_filename=filename, documents_dir=docs_dir)
     if not result.success:
         file_path.unlink(missing_ok=True)
         return None, f"{filename}: {result.status}"

@@ -52,6 +52,18 @@ class ColumnAddRequest(BaseModel):
     documents_path: Optional[str] = None
     data_type: str = "text"
     llm_config: Optional[Dict[str, Any]] = None  # User-provided LLM config with API key
+    # Insert index for the recreated column; None means append (today's
+    # behavior for the manual "Add column" dialog and the spare-row
+    # auto-create flow). Only the delete-column undo path sets this, so a
+    # deleted column reappears where it originally was instead of at the end.
+    position: Optional[int] = None
+    # Explicit display label for the recreated column; None means derive it
+    # normally from `name` (today's behavior for the manual "Add column"
+    # dialog and the spare-row auto-create flow). Only the delete-column undo
+    # path sets this -- `name` there is already the canonical key, so
+    # re-deriving would always yield None and drop the column's original
+    # user-typed label.
+    display_name: Optional[str] = None
 
 class ColumnMergeRequest(BaseModel):
     source_columns: List[str]
@@ -305,11 +317,17 @@ async def add_column(
             raise HTTPException(status_code=404, detail="Session not found")
 
         # Sanitize the user-typed name into a canonical key; keep the original
-        # text as a display label only when it differs.
+        # text as a display label only when it differs. The delete-column undo
+        # path passes an already-canonical `name` (so derivation would always
+        # yield None) plus the column's original `display_name` explicitly --
+        # honor that when given, otherwise fall back to normal derivation.
         from app.services.data_utils import canonicalize_column_name
-        canonical_name, display_name = canonicalize_column_name(add_request.name)
+        canonical_name, derived_display_name = canonicalize_column_name(add_request.name)
         if not canonical_name:
             raise HTTPException(status_code=400, detail="Column name cannot be empty")
+        display_name = (
+            add_request.display_name if add_request.display_name is not None else derived_display_name
+        )
 
         # Check if column already exists (compare on the canonical key)
         for col in session.columns:
@@ -326,7 +344,11 @@ async def add_column(
             allowed_values=add_request.allowed_values if add_request.allowed_values else None
         )
         
-        session.columns.append(new_column)
+        if add_request.position is not None:
+            insert_at = max(0, min(add_request.position, len(session.columns)))
+            session.columns.insert(insert_at, new_column)
+        else:
+            session.columns.append(new_column)
 
         # Track modification in history
         modification = ModificationAction(
@@ -353,7 +375,14 @@ async def add_column(
                 unique_count=0,
                 allowed_values=add_request.allowed_values if add_request.allowed_values else None
             )
-            session.statistics.column_stats.append(new_col_info)
+            if add_request.position is not None:
+                # column_stats is a separate list and not guaranteed to stay
+                # the same length as session.columns, so clamp against its
+                # own length rather than reusing insert_at.
+                stats_insert_at = max(0, min(add_request.position, len(session.statistics.column_stats)))
+                session.statistics.column_stats.insert(stats_insert_at, new_col_info)
+            else:
+                session.statistics.column_stats.append(new_col_info)
             session.statistics.total_columns = len(session.columns)
 
             # Update schema_evolution

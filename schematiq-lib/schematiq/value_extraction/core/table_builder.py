@@ -487,6 +487,7 @@ class TableBuilder:
                     retrieval_k=retrieval_k,
                     known_units=paper_known_units,
                     unit_targets=paper_unit_targets,
+                    figures_dir=source_dir / "figures" / paper.stem,
                     feedback=feedback,
                 )
                 unit_rows = extraction_result.rows

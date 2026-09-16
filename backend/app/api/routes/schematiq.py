@@ -509,10 +509,15 @@ async def update_cell(session_id: str, column: str, value: str,
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
+        # A body means the caller is restoring a cell (undo/redo), even when
+        # its `restore` value is itself None (the cell had no value before
+        # the operation being undone) -- distinct from a plain edit, which
+        # never sends a body at all. See DataEditor._apply_cell_update.
         restore = body.restore if body else None
+        is_restore = body is not None
         result = await data_editor.update_cell(
             session_id, row_name, column, value,
-            restore=restore, source_document=source_document,
+            restore=restore, is_restore=is_restore, source_document=source_document,
             row_index=row_index,
         )
         return result

@@ -3,6 +3,7 @@ import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 
 import { WS_DISCONNECTED_REFRESH_INTERVAL } from '@/constants';
 import webSocketService from '@/services/websocket';
 import type {
+  PaginatedData,
   ReextractionCompletedData,
   ReextractionFailedData,
   ReextractionProgressData,
@@ -14,7 +15,7 @@ import type { SheetId, WorkspaceReextractionState } from '../types';
 
 type UseWorkspaceSocketOptions = {
   sessionId?: string;
-  refresh: (options?: { silent?: boolean }) => Promise<void>;
+  refresh: (options?: { silent?: boolean; onCommitted?: (data: PaginatedData) => void }) => Promise<void>;
   refreshSilent: () => Promise<void> | void;
   setActiveSheet: (sheet: SheetId) => void;
   setReextraction: Dispatch<SetStateAction<WorkspaceReextractionState | null>>;
@@ -24,9 +25,16 @@ type UseWorkspaceSocketOptions = {
     variant?: 'default' | 'destructive';
     duration?: number;
   }) => void;
-  // Called when a background operation is about to rewrite existing cell values
-  // (e.g. re-extraction), so the caller can drop now-stale undo history.
-  onExternalRewrite?: () => void;
+  // A background rewrite (re-extraction / fill-empty-cells) is about to
+  // overwrite existing cell values: drop now-stale undo history and snapshot
+  // the current data so the rewrite itself can become one undo step.
+  onReextractionStart?: () => void;
+  // The rewrite landed (completed, or stopped with partial results): diff the
+  // snapshot taken at onReextractionStart against the freshly-committed data
+  // and push the result as a single undo/redo command.
+  onReextractionSettled?: (data: PaginatedData) => void;
+  // The rewrite produced no data (failed): discard the snapshot with no diff.
+  onReextractionDiscard?: () => void;
 };
 
 // Owns WebSocket connection lifecycle, message routing, and disconnected polling.
@@ -38,7 +46,9 @@ export function useWorkspaceSocket({
   setActiveSheet,
   setReextraction,
   toast,
-  onExternalRewrite,
+  onReextractionStart,
+  onReextractionSettled,
+  onReextractionDiscard,
 }: UseWorkspaceSocketOptions) {
   const [wsConnected, setWsConnected] = useState(false);
   // A 'connected' message only means "catch up on what you missed" when it
@@ -96,7 +106,9 @@ export function useWorkspaceSocket({
         setActiveSheet('data');
         // A re-extraction overwrites existing cell values, so any recorded undo
         // of a manual edit would now restore a value the model has replaced.
-        onExternalRewrite?.();
+        // Snapshot the current data first so the rewrite itself can become one
+        // undo step once it settles (see onReextractionSettled below).
+        onReextractionStart?.();
         void refresh({ silent: true });
         return;
       }
@@ -123,7 +135,7 @@ export function useWorkspaceSocket({
       if (message.type === 'reextraction_completed' && message.data) {
         const payload = message.data as ReextractionCompletedData;
         setReextraction(null);
-        void refresh({ silent: true });
+        void refresh({ silent: true, onCommitted: onReextractionSettled });
         toast({
           title: 'Re-extraction completed',
           description: payload.columns?.length
@@ -136,6 +148,9 @@ export function useWorkspaceSocket({
       if (message.type === 'reextraction_failed' && message.data) {
         const payload = message.data as ReextractionFailedData;
         setReextraction(null);
+        // Nothing was written, so there is nothing to diff: discard the
+        // snapshot rather than leaving it to be diffed against unrelated data.
+        onReextractionDiscard?.();
         toast({
           title: 'Re-extraction failed',
           description: payload.error || 'Could not re-extract values from source documents.',
@@ -146,7 +161,9 @@ export function useWorkspaceSocket({
 
       if (message.type === 'reextraction_stopped') {
         setReextraction(null);
-        void refresh({ silent: true });
+        // A stopped run still keeps whatever it processed before stopping, so
+        // that partial rewrite is worth one undo step too.
+        void refresh({ silent: true, onCommitted: onReextractionSettled });
         return;
       }
 
@@ -192,7 +209,17 @@ export function useWorkspaceSocket({
       webSocketService.disconnect();
       setWsConnected(false);
     };
-  }, [refresh, refreshSilent, sessionId, setActiveSheet, setReextraction, toast, onExternalRewrite]);
+  }, [
+    refresh,
+    refreshSilent,
+    sessionId,
+    setActiveSheet,
+    setReextraction,
+    toast,
+    onReextractionStart,
+    onReextractionSettled,
+    onReextractionDiscard,
+  ]);
 
   return { wsConnected };
 }

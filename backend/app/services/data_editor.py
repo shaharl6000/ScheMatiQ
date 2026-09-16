@@ -73,7 +73,7 @@ class DataEditor:
 
     async def update_cell(
         self, session_id: str, row_name: str, column: str, value: Any,
-        restore: Any = None, source_document: str = None,
+        restore: Any = None, is_restore: bool = False, source_document: str = None,
         row_index: Optional[int] = None, reference_source: Optional[str] = None,
         update_all: bool = False,
     ) -> dict:
@@ -168,7 +168,7 @@ class DataEditor:
                                 continue
 
                     row_previous = self._apply_cell_update(
-                        row, column, value, restore=restore,
+                        row, column, value, restore=restore, is_restore=is_restore,
                         reference_source=reference_source,
                     )
                     # Preserve the previous value from the first file that matched
@@ -226,18 +226,30 @@ class DataEditor:
 
     def _apply_cell_update(
         self, row: dict, column: str, value: Any,
-        restore: Any = None, reference_source: Optional[str] = None,
+        restore: Any = None, is_restore: bool = False, reference_source: Optional[str] = None,
     ) -> Any:
         """Mutate a single row's cell in place and return its previous value.
 
         Handles both the nested ``data`` dict shape and the flat runtime JSONL
         shape, preserving the ScheMatiQ ``answer``/``excerpts`` cell object.
+
+        ``is_restore`` marks an undo/redo replay (reextraction undo, a deleted
+        column's restored values): the caller passed a body at all, distinct
+        from ``restore`` merely being ``None`` (which also happens for a
+        genuine manual edit, the default, or for restoring a cell that had no
+        value before the operation being undone). Neither case is a manual
+        edit, so it must never stamp ``manually_edited`` -- ``restore=None``
+        here means "put the cell back to having no value", cleared by
+        removing the key entirely, not by writing an empty answer object.
         """
         previous_value = None
         if "data" in row and isinstance(row["data"], dict):
             previous_value = copy.deepcopy(row["data"].get(column))
-            if restore is not None:
-                row["data"][column] = restore
+            if is_restore:
+                if restore is None:
+                    row["data"].pop(column, None)
+                else:
+                    row["data"][column] = restore
             elif column in row["data"]:
                 cell_value = row["data"][column]
                 if isinstance(cell_value, dict) and "answer" in cell_value:
@@ -258,8 +270,11 @@ class DataEditor:
                 }
         else:
             previous_value = copy.deepcopy(row.get(column))
-            if restore is not None:
-                row[column] = restore
+            if is_restore:
+                if restore is None:
+                    row.pop(column, None)
+                else:
+                    row[column] = restore
             elif column in row and isinstance(row[column], dict) and "answer" in row[column]:
                 row[column]["answer"] = value
                 row[column]["excerpts"] = []
@@ -273,7 +288,7 @@ class DataEditor:
 
         # Provenance: when the value came from an attached reference document,
         # mark the cell as externally sourced (reuses the external_source style).
-        if reference_source and restore is None:
+        if reference_source and not is_restore:
             self._mark_external_source(row, column, reference_source)
 
         return previous_value

@@ -12,6 +12,8 @@ branch (download_supabase_dataset) is only reached when there are no local docs
 and is covered separately by leaving both dirs empty with no docs_path.
 """
 
+import os
+
 import pytest
 
 from app.models.schematiq import LLMConfig, ScheMatiQConfig
@@ -44,7 +46,7 @@ async def test_resolves_documents_dir_for_imported_session(tmp_path, monkeypatch
     resolved = await resolve_docs_paths(_config(), session_id, work_dir)
 
     assert len(resolved) == 1
-    assert resolved[0].endswith(f"data/{session_id}/documents")
+    assert resolved[0].endswith(os.path.join("data", session_id, "documents"))
 
 
 @pytest.mark.asyncio

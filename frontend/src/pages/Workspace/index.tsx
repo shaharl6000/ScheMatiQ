@@ -75,6 +75,7 @@ import { useEditHistory } from './hooks/useEditHistory';
 import {
   buildExportFilename,
   dataEquals,
+  diffPaginatedData,
   documentDisplayName,
   patchDataCell,
   schemaFromLoadSession,
@@ -96,6 +97,7 @@ import { useWorkspaceSocket } from './hooks/useWorkspaceSocket';
 import { SpreadsheetSurface } from './SpreadsheetSurface';
 import type {
   CellFormatMap,
+  CellUpdate,
   SheetId,
   SheetSelection,
   TableDisplayOptions,
@@ -117,6 +119,11 @@ type RefreshDataOptions = {
   // Set only by the automatic re-check in applyData: accept a zero-row payload
   // even when the grid is currently showing rows.
   acceptEmpty?: boolean;
+  // Invoked with the row data once it is actually committed to state --
+  // carried through a deferred (cell-editor-open) or empty-recheck fetch too,
+  // not just an immediate commit -- so a caller can act on the authoritative
+  // payload without racing React's async state update.
+  onCommitted?: (data: PaginatedData) => void;
 };
 
 async function downloadAs(path: string, filename: string): Promise<void> {
@@ -225,7 +232,23 @@ function Workspace() {
     setIsChatCollapsed,
   } = useWorkspaceLayout();
 
-  const deferredDataRef = useRef<PaginatedData | null>(null);
+  // Carries `onCommitted` alongside the deferred payload so a caller that
+  // deferred through a cell-editor-open window still gets notified once
+  // `flushDeferredData` actually commits it (see applyData/flushDeferredData).
+  const deferredDataRef = useRef<{ data: PaginatedData; onCommitted?: (data: PaginatedData) => void } | null>(null);
+  // Mirrors `data` for callbacks that must read the current rows without
+  // depending on `data` itself, which would otherwise change identity (and
+  // tear down/reconnect the websocket) on every optimistic edit.
+  const dataRef = useRef(data);
+  useEffect(() => { dataRef.current = data; }, [data]);
+  // Snapshot of `data` taken right before a background rewrite (re-extraction,
+  // fill-empty-cells) starts, so the rewrite can be diffed into one undo step
+  // once it settles. See onReextractionStart/onReextractionSettled below.
+  const reextractionSnapshotRef = useRef<PaginatedData | null>(null);
+  // Live reference to SpreadsheetSurface's applyCellUpdates, so the
+  // reextraction undo/redo command can replay through the same
+  // optimistic-patch/persist/refresh pipeline manual edits use.
+  const applyCellUpdatesRef = useRef<((updates: CellUpdate[]) => void) | null>(null);
   const cancelChatPendingRef = useRef<(() => Promise<boolean>) | null>(null);
   // Row count of the payload currently rendered in the grid. Written eagerly on
   // every commit and re-synced from state below, so a refresh can tell "the
@@ -305,10 +328,11 @@ function Workspace() {
     return Boolean(editor?.isOpened?.());
   }, []);
 
-  const commitData = useCallback((nextData: PaginatedData) => {
+  const commitData = useCallback((nextData: PaginatedData, onCommitted?: (data: PaginatedData) => void) => {
     dataRowCountRef.current = nextData.rows.length;
     setData((current) => (dataEquals(current, nextData) ? current : nextData));
     setDataServerVersion((v) => v + 1);
+    onCommitted?.(nextData);
   }, []);
 
   // A zero-row payload arriving while the grid is showing rows is almost always
@@ -320,11 +344,11 @@ function Workspace() {
   // screen and re-check once; a table that really is empty is confirmed by the
   // re-check and applied then. Nothing is committed on the skipped attempt, so
   // dataServerVersion is not bumped and no By Unit refetch is triggered either.
-  const scheduleEmptyRecheck = useCallback(() => {
+  const scheduleEmptyRecheck = useCallback((onCommitted?: (data: PaginatedData) => void) => {
     if (emptyRecheckTimerRef.current != null) return;
     emptyRecheckTimerRef.current = window.setTimeout(() => {
       emptyRecheckTimerRef.current = null;
-      void refreshDataRef.current?.({ silent: true, acceptEmpty: true });
+      void refreshDataRef.current?.({ silent: true, acceptEmpty: true, onCommitted });
     }, EMPTY_DATA_RECHECK_MS);
   }, []);
 
@@ -334,16 +358,27 @@ function Workspace() {
       // fetch cannot clobber what the user is typing. Post-edit refreshes pass
       // force so the persisted value is always applied.
       if (opts?.silent && !opts?.force && isCellEditorOpen()) {
-        deferredDataRef.current = nextData;
+        // A later deferred fetch (e.g. an unrelated silent poll) can land
+        // before the editor closes and this one is flushed. Carry forward
+        // any onCommitted already waiting rather than overwrite it outright,
+        // so an earlier caller (e.g. a reextraction's undo recorder) still
+        // gets notified once the eventual commit happens -- chaining both if
+        // this fetch brought its own callback too.
+        const pending = deferredDataRef.current?.onCommitted;
+        const incoming = opts?.onCommitted;
+        const onCommitted = !pending || pending === incoming
+          ? incoming ?? pending
+          : (data: PaginatedData) => { pending(data); incoming?.(data); };
+        deferredDataRef.current = { data: nextData, onCommitted };
         return;
       }
       if (!opts?.acceptEmpty && nextData.rows.length === 0 && dataRowCountRef.current > 0) {
         deferredDataRef.current = null;
-        scheduleEmptyRecheck();
+        scheduleEmptyRecheck(opts?.onCommitted);
         return;
       }
       deferredDataRef.current = null;
-      commitData(nextData);
+      commitData(nextData, opts?.onCommitted);
     },
     [commitData, isCellEditorOpen, scheduleEmptyRecheck],
   );
@@ -352,11 +387,11 @@ function Workspace() {
     const pending = deferredDataRef.current;
     if (!pending) return;
     deferredDataRef.current = null;
-    if (pending.rows.length === 0 && dataRowCountRef.current > 0) {
-      scheduleEmptyRecheck();
+    if (pending.data.rows.length === 0 && dataRowCountRef.current > 0) {
+      scheduleEmptyRecheck(pending.onCommitted);
       return;
     }
-    commitData(pending);
+    commitData(pending.data, pending.onCommitted);
   }, [commitData, scheduleEmptyRecheck]);
 
   // Fetch row data only — no status/schema/session churn. Used after cell edits
@@ -450,7 +485,7 @@ function Workspace() {
     setUnitData(patch);
   }, []);
 
-  const refresh = useCallback(async (options?: { silent?: boolean }) => {
+  const refresh = useCallback(async (options?: { silent?: boolean; onCommitted?: (data: PaginatedData) => void }) => {
     if (!sessionId) return;
     const silent = Boolean(options?.silent);
     if (!silent) {
@@ -645,6 +680,35 @@ function Workspace() {
     toast,
   });
 
+  // A background rewrite (re-extraction / fill-empty-cells) is starting:
+  // snapshot the data as it stands right now, then drop the undo stack --
+  // older manual edits may target values the rewrite is about to replace.
+  const onReextractionStart = useCallback(() => {
+    reextractionSnapshotRef.current = dataRef.current;
+    editHistory.clear();
+  }, [editHistory]);
+
+  // The rewrite landed: diff the pre-rewrite snapshot against the freshly
+  // committed data and, if anything actually changed, record it as one
+  // undo/redo command -- the same way a manual multi-cell edit is recorded.
+  const onReextractionSettled = useCallback((freshData: PaginatedData) => {
+    const snapshot = reextractionSnapshotRef.current;
+    reextractionSnapshotRef.current = null;
+    if (!snapshot) return;
+    const { updates, inverseUpdates } = diffPaginatedData(snapshot, freshData);
+    if (updates.length === 0) return;
+    editHistory.push({
+      undo: () => applyCellUpdatesRef.current?.(inverseUpdates),
+      redo: () => applyCellUpdatesRef.current?.(updates),
+    });
+  }, [editHistory]);
+
+  // The rewrite failed: nothing was written, so discard the snapshot instead
+  // of leaving it to be diffed against unrelated data later.
+  const onReextractionDiscard = useCallback(() => {
+    reextractionSnapshotRef.current = null;
+  }, []);
+
   useWorkspaceSocket({
     sessionId,
     refresh,
@@ -652,7 +716,9 @@ function Workspace() {
     setActiveSheet,
     setReextraction,
     toast,
-    onExternalRewrite: editHistory.clear,
+    onReextractionStart,
+    onReextractionSettled,
+    onReextractionDiscard,
   });
 
   useEffect(() => {
@@ -1288,6 +1354,7 @@ function Workspace() {
         onRecordEdit={editHistory.push}
         onFillEmptyCells={fillEmptyCells}
         onRetryWrongCells={retryWrongCells}
+        applyCellUpdatesRef={applyCellUpdatesRef}
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}
         sessionMissing={sessionMissing}
