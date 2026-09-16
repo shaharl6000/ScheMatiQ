@@ -80,18 +80,34 @@ async def resolve_docs_paths(config: ScheMatiQConfig, session_id: str, work_dir:
     if (
         str(pending_dir.absolute()) in local_doc_dirs
         and real_figures_dir.is_dir()
-        and not pending_figures_link.exists()
     ):
-        try:
-            pending_figures_link.symlink_to(real_figures_dir, target_is_directory=True)
-        except OSError:
-            # Symlinks need admin/Developer Mode on Windows — fall back to a
-            # real copy so figures still get attached on this first run.
+        if not pending_figures_link.exists():
             try:
-                shutil.copytree(real_figures_dir, pending_figures_link)
+                pending_figures_link.symlink_to(real_figures_dir, target_is_directory=True)
+            except OSError:
+                # Symlinks need admin/Developer Mode on Windows — fall back to a
+                # real copy so figures still get attached on this first run.
+                try:
+                    shutil.copytree(real_figures_dir, pending_figures_link)
+                except OSError:
+                    logger.warning(
+                        "Could not link or copy %s -> %s; figures won't be attached for this run",
+                        pending_figures_link, real_figures_dir,
+                    )
+        elif not pending_figures_link.is_symlink():
+            # A real copy from an earlier run is a one-time snapshot: unlike the
+            # symlink, it does not pick up figures/{stem} dirs added afterwards
+            # (a later-uploaded document, or one added after a failed run left
+            # the copy in place). Sync any missing per-document figure dirs so
+            # those documents' figures still reach the pipeline.
+            try:
+                for stem_dir in real_figures_dir.iterdir():
+                    dest = pending_figures_link / stem_dir.name
+                    if stem_dir.is_dir() and not dest.exists():
+                        shutil.copytree(stem_dir, dest)
             except OSError:
                 logger.warning(
-                    "Could not link or copy %s -> %s; figures won't be attached for this run",
+                    "Could not sync new figures into %s from %s",
                     pending_figures_link, real_figures_dir,
                 )
 
