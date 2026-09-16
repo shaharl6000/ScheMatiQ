@@ -2008,7 +2008,12 @@ def _preprocess_and_record(
             "Remove the existing rows first or use a different filename."
         )
 
-    result = preprocess_uploaded_file(file_path, original_filename=filename, documents_dir=docs_dir)
+    # Figures ride the pending -> committed lifecycle together with their .txt:
+    # extract them next to the text in pending_documents/ (documents_dir=None
+    # resolves to source_path.parent). _move_pending_documents moves the
+    # figures/ subtree into documents/ on a successful run, same as the .txt,
+    # so a failed run leaves figures uncommitted instead of orphaned.
+    result = preprocess_uploaded_file(file_path, original_filename=filename, documents_dir=None)
     if not result.success:
         file_path.unlink(missing_ok=True)
         return None, f"{filename}: {result.status}"

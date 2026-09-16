@@ -1239,13 +1239,24 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                     moved_count,
                     session_id,
                 )
-            # Remove the pending_documents/figures link/copy created by
-            # resolve_docs_paths (see config_handler.py) for this run — the
-            # real figures already live under documents/figures, so this was
-            # only needed to make them visible while the docs sat in pending.
+            # Commit figures the same way as the .txt: move each
+            # pending_documents/figures/{stem} dir into documents/figures/.
+            # Figures are extracted next to the text at upload time, so a failed
+            # run leaves them uncommitted in pending rather than orphaned in
+            # documents/. Per-stem moves preserve figures committed by earlier
+            # runs; a stale symlink from an older code path is just removed.
             pending_figures = pending_dir / "figures"
-            if pending_figures.exists():
-                if pending_figures.is_symlink():
-                    pending_figures.unlink()
-                else:
-                    shutil.rmtree(pending_figures, ignore_errors=True)
+            if pending_figures.is_symlink():
+                pending_figures.unlink()
+            elif pending_figures.is_dir():
+                committed_figures = completed_docs_dir / "figures"
+                committed_figures.mkdir(parents=True, exist_ok=True)
+                for stem_dir in pending_figures.iterdir():
+                    if not stem_dir.is_dir():
+                        continue
+                    dest = committed_figures / stem_dir.name
+                    if dest.exists():
+                        shutil.rmtree(stem_dir, ignore_errors=True)
+                    else:
+                        shutil.move(str(stem_dir), str(dest))
+                shutil.rmtree(pending_figures, ignore_errors=True)
