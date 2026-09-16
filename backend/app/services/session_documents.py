@@ -37,6 +37,15 @@ from app.services.data_utils import candidate_data_dirs
 COMMITTED_DIRNAME = "documents"
 PENDING_DIRNAME = "pending_documents"
 
+# Per-document artifacts live in a sibling subdirectory keyed by document stem:
+# ``{pending,committed}/{subdir}/{stem}/``. They ride the pending -> committed
+# commit together with the document's ``.txt`` (see
+# SchematiqRunner._move_pending_documents), so a failed run leaves a document's
+# artifacts uncommitted alongside its text rather than orphaning them in
+# documents/. A new per-document artifact type is committed automatically by
+# adding its subdirectory name here — no other code changes.
+PER_DOCUMENT_ARTIFACT_SUBDIRS = ("figures",)
+
 
 def committed_docs_dir(session_dir: Path) -> Path:
     """Committed-documents dir for a session directory (``.../{session_id}``)."""

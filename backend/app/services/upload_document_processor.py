@@ -666,19 +666,15 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         # Clean up the additional data file
         additional_data_file.unlink(missing_ok=True)
 
-        # Move processed documents from pending_documents/ to documents/
-        from app.services.document_preprocessor import commit_document_to_documents_dir
+        # Move processed documents (and their per-document artifacts, e.g.
+        # figures) from pending_documents/ to documents/ via the shared commit
+        # path, so this finalizer commits artifacts identically to the post-run
+        # mover.
+        from app.services.document_preprocessor import commit_pending_documents
 
         pending_dir = pending_docs_dir(session_dir)
         docs_dir = committed_docs_dir(session_dir)
-        docs_dir.mkdir(exist_ok=True)
-
-        if pending_dir.exists():
-            for file_path in sorted(pending_dir.iterdir()):
-                if file_path.is_file():
-                    dest = commit_document_to_documents_dir(file_path, docs_dir)
-                    if dest:
-                        logger.debug(f"Committed {dest.name} to documents/")
+        commit_pending_documents(pending_dir, docs_dir)
 
         # Persist the merged data.jsonl to durable storage so documents added to
         # an imported project survive a redeploy. Without this the read path would

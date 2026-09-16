@@ -5,7 +5,6 @@ import asyncio
 import logging
 import os
 import random
-import shutil
 import threading
 import time
 from typing import Dict, Any, Optional, List, Tuple
@@ -1220,32 +1219,22 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             await self._uniprot_enrichment_service.enrich_session(session_id)
 
     def _move_pending_documents(self, session_id: str):
-        """Move processed documents from pending_documents/ to documents/ as plain text."""
-        from app.services.document_preprocessor import commit_document_to_documents_dir
+        """Move processed documents from pending_documents/ to documents/ as plain text.
+
+        A document's per-document artifacts (figures, and any future type in
+        PER_DOCUMENT_ARTIFACT_SUBDIRS) ride this commit with the .txt via the
+        shared commit path; a failed conversion leaves both the text and the
+        artifacts in pending rather than orphaning artifacts in documents/.
+        """
+        from app.services.document_preprocessor import commit_pending_documents
 
         data_session_dir = Path(DEFAULT_DATA_DIR) / session_id
         pending_dir = pending_docs_dir(data_session_dir)
         completed_docs_dir = committed_docs_dir(data_session_dir)
-        if pending_dir.exists():
-            completed_docs_dir.mkdir(parents=True, exist_ok=True)
-            moved_count = 0
-            for file_path in sorted(pending_dir.iterdir()):
-                if file_path.is_file():
-                    if commit_document_to_documents_dir(file_path, completed_docs_dir):
-                        moved_count += 1
-            if moved_count:
-                logger.info(
-                    "Committed %d file(s) from pending_documents/ to documents/ for session %s",
-                    moved_count,
-                    session_id,
-                )
-            # Remove the pending_documents/figures link/copy created by
-            # resolve_docs_paths (see config_handler.py) for this run — the
-            # real figures already live under documents/figures, so this was
-            # only needed to make them visible while the docs sat in pending.
-            pending_figures = pending_dir / "figures"
-            if pending_figures.exists():
-                if pending_figures.is_symlink():
-                    pending_figures.unlink()
-                else:
-                    shutil.rmtree(pending_figures, ignore_errors=True)
+        moved_count = commit_pending_documents(pending_dir, completed_docs_dir)
+        if moved_count:
+            logger.info(
+                "Committed %d file(s) from pending_documents/ to documents/ for session %s",
+                moved_count,
+                session_id,
+            )

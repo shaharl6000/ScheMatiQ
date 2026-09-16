@@ -127,3 +127,35 @@ def test_commit_bytes_conversion_failure_returns_none(tmp_path, monkeypatch):
 
     assert dest is None
     assert not documents.exists() or not any(documents.iterdir())
+
+
+def test_move_pending_documents_commits_figures_with_their_text(tmp_path, monkeypatch):
+    """A committed document's figures/{stem} dir rides the move into documents/;
+    an orphan figures/{stem} with no committed text stays in pending (rollback)."""
+    session_id = "sess-fig"
+    data_dir = tmp_path / "data" / session_id
+    pending = data_dir / "pending_documents"
+    pending.mkdir(parents=True)
+    (pending / "judges.pdf").write_bytes(b"%PDF-1.4 fake")
+
+    # Figures for the committed doc (judges) ride; figures for a stem with no
+    # pending text (orphan) must be left behind.
+    (pending / "figures" / "judges").mkdir(parents=True)
+    (pending / "figures" / "judges" / "fig001.png").write_bytes(b"img")
+    (pending / "figures" / "orphan").mkdir(parents=True)
+    (pending / "figures" / "orphan" / "fig001.png").write_bytes(b"img")
+
+    _mock_pdf_convert(monkeypatch, "INGESTED TEXT")
+
+    runner = ScheMatiQRunner()
+    monkeypatch.chdir(tmp_path)
+    runner._move_pending_documents(session_id)
+
+    documents = data_dir / "documents"
+    # judges committed, so its figures moved into documents/figures/judges/.
+    assert (documents / "judges.txt").read_text(encoding="utf-8") == "INGESTED TEXT"
+    assert (documents / "figures" / "judges" / "fig001.png").read_bytes() == b"img"
+    assert not (pending / "figures" / "judges").exists()
+    # orphan had no committed text -> not moved, not lost.
+    assert (pending / "figures" / "orphan" / "fig001.png").read_bytes() == b"img"
+    assert not (documents / "figures" / "orphan").exists()

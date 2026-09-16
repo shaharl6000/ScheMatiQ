@@ -2008,7 +2008,10 @@ def _preprocess_and_record(
             "Remove the existing rows first or use a different filename."
         )
 
-    result = preprocess_uploaded_file(file_path, original_filename=filename, documents_dir=docs_dir)
+    # Extract figures next to the .txt in pending_documents/ (documents_dir=None
+    # resolves to source_path.parent) so they ride the pending -> committed
+    # commit together with the text (see SchematiqRunner._move_pending_documents).
+    result = preprocess_uploaded_file(file_path, original_filename=filename, documents_dir=None)
     if not result.success:
         file_path.unlink(missing_ok=True)
         return None, f"{filename}: {result.status}"
