@@ -25,8 +25,8 @@ docling>=2.15.0,<3.0.0
 openai>=1.10.0
 together>=0.2.0
 google-genai>=1.0.0
-sentence-transformers>=2.0.0
-transformers>=4.40.0
+sentence-transformers>=2.0.0,<5.0.0
+transformers>=4.40.0,<5.0.0
 torch>=2.2.0
 tiktoken>=0.5.0
 

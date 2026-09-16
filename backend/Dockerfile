@@ -21,15 +21,20 @@ RUN apt-get update && apt-get install -y \
 # Copy schematiq-lib first (dependency for backend)
 COPY schematiq-lib/ /app/schematiq-lib/
 
-# Install CPU-only PyTorch first (saves ~2GB vs CUDA version)
+# Install CPU-only PyTorch first (saves ~2GB vs CUDA version). Every later
+# pip install in this image must also pass this --extra-index-url: without
+# it, pip resolves torchvision (pulled in by docling/accelerate) from PyPI's
+# default CUDA build, which is ABI-incompatible with this CPU-only torch and
+# breaks transformers at import time with a confusing "Could not import
+# module 'PreTrainedModel'" error instead of a torchvision one.
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
 # Install schematiq-lib as editable package (torch already satisfied)
-RUN pip install --no-cache-dir -e /app/schematiq-lib/
+RUN pip install --no-cache-dir -e /app/schematiq-lib/ --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Copy backend requirements and install (separate layer for caching)
 COPY backend/requirements.txt /app/backend/
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Prefetch Docling's model weights (layout + table-structure models) into the
 # image at build time, so figure extraction doesn't pay a multi-hundred-MB
