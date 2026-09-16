@@ -31,6 +31,7 @@ schema_manager = SchemaManager(websocket_manager, session_manager)
 # app.services.orchestration): the same instances the chat tools and the
 # /load/rediscover route operate on, so stop/resume see the in-flight task.
 from app.services.orchestration import continue_discovery_service, reextraction_service
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 # Create data editor instance
 data_editor = DataEditor()
@@ -1207,7 +1208,7 @@ async def upload_missing_papers(
             raise HTTPException(status_code=404, detail="Session not found")
 
         session_dir = Path(DEFAULT_DATA_DIR) / session_id
-        docs_dir = session_dir / "documents"
+        docs_dir = committed_docs_dir(session_dir)
         docs_dir.mkdir(parents=True, exist_ok=True)
 
         uploaded = []

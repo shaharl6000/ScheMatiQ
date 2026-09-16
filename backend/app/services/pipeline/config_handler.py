@@ -8,6 +8,7 @@ from pathlib import Path
 from app.core.config import DEFAULT_DATA_DIR
 from app.models.schematiq import ScheMatiQConfig
 from app.storage import get_storage
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,8 @@ async def resolve_docs_paths(config: ScheMatiQConfig, session_id: str, work_dir:
     # schema-only mode, and silently skip value extraction. Filename-level
     # de-duplication across these dirs is handled by the pipeline loader.
     session_data_dir = Path(DEFAULT_DATA_DIR) / session_id
-    pending_dir = session_data_dir / "pending_documents"
-    documents_dir = session_data_dir / "documents"
+    pending_dir = pending_docs_dir(session_data_dir)
+    documents_dir = committed_docs_dir(session_data_dir)
     local_doc_dirs: List[str] = []
     for candidate in (pending_dir, documents_dir):
         if candidate.exists() and any(

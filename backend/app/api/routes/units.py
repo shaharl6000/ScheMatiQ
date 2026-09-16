@@ -20,7 +20,8 @@ from app.models.unit import (
 from app.models.session import PaginatedData, DataRow, FilterSortRequest
 from app.services.unit_view_service import unit_view_service
 from app.services import session_manager, pubmed_enrichment_service
-from app.services.data_utils import candidate_data_dirs, get_data_dir
+from app.services.data_utils import get_data_dir
+from app.services.session_documents import local_document_dirs, committed_docs_dir, pending_docs_dir
 from app.services.file_parser import is_system_file
 from app.services.document_preprocessor import commit_document_to_documents_dir
 from app.storage import get_storage
@@ -186,19 +187,15 @@ def _find_local_document(session_id: str, name: str) -> Optional[Path]:
     source_document name may omit the extension or differ from the stored file
     (e.g. an original ``.pdf`` converted to ``.txt``).
     """
-    for base in candidate_data_dirs():
-        for sub in ("documents", "pending_documents"):
-            doc_dir = base / session_id / sub
-            if not doc_dir.is_dir():
+    for doc_dir in local_document_dirs(session_id):
+        exact = doc_dir / name
+        if exact.is_file():
+            return exact
+        for f in doc_dir.iterdir():
+            if not f.is_file() or f.name.startswith("."):
                 continue
-            exact = doc_dir / name
-            if exact.is_file():
-                return exact
-            for f in doc_dir.iterdir():
-                if not f.is_file() or f.name.startswith("."):
-                    continue
-                if _doc_names_match(name, f.name):
-                    return f
+            if _doc_names_match(name, f.name):
+                return f
     return None
 
 
@@ -345,9 +342,9 @@ async def attach_source_documents(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    pending_dir = get_data_dir() / session_id / "pending_documents"
+    pending_dir = pending_docs_dir(get_data_dir() / session_id)
     pending_dir.mkdir(parents=True, exist_ok=True)
-    documents_dir = get_data_dir() / session_id / "documents"
+    documents_dir = committed_docs_dir(get_data_dir() / session_id)
 
     attached: list[str] = []
     skipped: list[dict] = []

@@ -35,6 +35,7 @@ from schematiq.core.llm_backends import GeminiLLM
 from schematiq.core.model_specs import ModelNames
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 SCHEMATIQ_AVAILABLE = True
 
@@ -534,8 +535,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
         """Directories that may hold source documents for a session."""
         data_session_dir = Path(DEFAULT_DATA_DIR) / session_id
         schematiq_session_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
-        docs_dir = data_session_dir / "documents"
-        pending_dir = data_session_dir / "pending_documents"
+        docs_dir = committed_docs_dir(data_session_dir)
+        pending_dir = pending_docs_dir(data_session_dir)
 
         local_dirs_to_check: List[Path] = [docs_dir, pending_dir]
 
@@ -928,7 +929,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         """
         storage = get_storage()
         session_dir = Path(DEFAULT_DATA_DIR) / session_id
-        docs_dir = session_dir / "documents"
+        docs_dir = committed_docs_dir(session_dir)
         docs_dir.mkdir(parents=True, exist_ok=True)
 
         downloaded = []
@@ -1809,8 +1810,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             data_dir = Path(DEFAULT_DATA_DIR) / operation.session_id
             schematiq_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / operation.session_id
             session_dir = data_dir  # Keep for schema/output file paths
-            docs_dir = data_dir / "documents"
-            pending_dir = data_dir / "pending_documents"
+            docs_dir = committed_docs_dir(data_dir)
+            pending_dir = pending_docs_dir(data_dir)
 
             await self.broadcast_event(
                 operation.session_id,

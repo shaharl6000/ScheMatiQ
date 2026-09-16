@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.services import document_files
+from app.services import document_files, session_documents
 
 
 def _make_session(skipped=None, cloud_dataset=None):
@@ -41,7 +41,7 @@ def test_iter_local_documents_covers_both_dirs_and_dedupes(tmp_path, monkeypatch
     (tmp_path / "data" / session_id / "documents" / ".DS_Store").write_bytes(b"x")
 
     monkeypatch.setattr(
-        document_files, "candidate_data_dirs", lambda: [tmp_path / "data"]
+        session_documents, "candidate_data_dirs", lambda: [tmp_path / "data"]
     )
 
     found = sorted(p.name for p in document_files._iter_local_documents(session_id))
@@ -71,7 +71,7 @@ async def test_gather_bundles_skipped_and_on_disk_docs(tmp_path, monkeypatch):
         tmp_path, session_id, "documents", ["rowed.pdf", "skipped.pdf", "orphan.pdf"]
     )
     monkeypatch.setattr(
-        document_files, "candidate_data_dirs", lambda: [tmp_path / "data"]
+        session_documents, "candidate_data_dirs", lambda: [tmp_path / "data"]
     )
     # Only rowed.pdf is row-referenced.
     monkeypatch.setattr(
@@ -96,7 +96,7 @@ async def test_gather_is_superset_never_drops_rowed_docs(tmp_path, monkeypatch):
     session_id = "s2"
     _seed_docs(tmp_path, session_id, "documents", ["only_rowed.pdf"])
     monkeypatch.setattr(
-        document_files, "candidate_data_dirs", lambda: [tmp_path / "data"]
+        session_documents, "candidate_data_dirs", lambda: [tmp_path / "data"]
     )
     monkeypatch.setattr(
         document_files.unit_view_service,

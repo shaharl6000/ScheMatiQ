@@ -27,6 +27,7 @@ from schematiq.value_extraction.main import build_table_jsonl
 from schematiq.core.llm_backends import GeminiLLM
 from schematiq.core.model_specs import ModelNames
 from schematiq.core import utils
+from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 SCHEMATIQ_AVAILABLE = True
 
@@ -202,7 +203,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
             retriever = get_shared_retriever()
 
             # Find documents directory
-            docs_dir = session_dir / "documents"
+            docs_dir = committed_docs_dir(session_dir)
             if not docs_dir.exists():
                 # Look for uploaded documents in session
                 if session.metadata.uploaded_documents:
@@ -432,8 +433,8 @@ class SchemaManager(WebSocketBroadcasterMixin):
             else:
                 schematiq_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
                 candidate_dirs = [
-                    session_dir / "documents",
-                    session_dir / "pending_documents",
+                    committed_docs_dir(session_dir),
+                    pending_docs_dir(session_dir),
                 ]
                 # Check schematiq_work datasets directories
                 schematiq_datasets_dir = schematiq_dir / "datasets"
@@ -968,7 +969,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
             retriever = get_shared_retriever()
 
             # Find documents directory
-            docs_dir = session_dir / "documents"
+            docs_dir = committed_docs_dir(session_dir)
             if docs_dir.exists():
                 # Extract values with enhanced schema context
                 output_file = session_dir / f"enhanced_reprocessed_{column_name}.jsonl"

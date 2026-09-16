@@ -18,14 +18,17 @@ become extraction-capable rather than merely previewable:
      ``documents/`` / ``pending_documents/`` dirs that (1) and (2) missed
      (e.g. uploaded-but-not-yet-extracted files).
 
-NOTE: ``_find_local_document`` duplicates the helper of the same name in
-``app.api.routes.units``; a future refactor can fold both onto this module.
+NOTE: ``_find_local_document`` still shares a name with the helper in
+``app.api.routes.units``. The directory-search skeleton both used is now shared
+via ``session_documents.local_document_dirs``; only the per-site filename
+matcher remains distinct (this module does stem matching; ``units`` strips a
+known extension on either side), so the two are no longer copy-paste duplicates.
 """
 
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
-from app.services.data_utils import candidate_data_dirs
+from app.services.session_documents import local_document_dirs
 from app.services.unit_view_service import unit_view_service
 from app.storage import get_storage
 
@@ -39,19 +42,15 @@ def _find_local_document(session_id: str, name: str) -> Optional[Path]:
     """
     target_stem = Path(name).stem.lower()
     target_name = name.lower()
-    for base in candidate_data_dirs():
-        for sub in ("documents", "pending_documents"):
-            doc_dir = base / session_id / sub
-            if not doc_dir.is_dir():
+    for doc_dir in local_document_dirs(session_id):
+        exact = doc_dir / name
+        if exact.is_file():
+            return exact
+        for f in doc_dir.iterdir():
+            if not f.is_file() or f.name.startswith("."):
                 continue
-            exact = doc_dir / name
-            if exact.is_file():
-                return exact
-            for f in doc_dir.iterdir():
-                if not f.is_file() or f.name.startswith("."):
-                    continue
-                if f.name.lower() == target_name or f.stem.lower() == target_stem:
-                    return f
+            if f.name.lower() == target_name or f.stem.lower() == target_stem:
+                return f
     return None
 
 
@@ -63,15 +62,11 @@ def _iter_local_documents(session_id: str) -> Iterator[Path]:
     the same file discovered under multiple candidate roots is yielded once.
     """
     seen_names: set = set()
-    for base in candidate_data_dirs():
-        for sub in ("documents", "pending_documents"):
-            doc_dir = base / session_id / sub
-            if not doc_dir.is_dir():
-                continue
-            for f in sorted(doc_dir.iterdir()):
-                if f.is_file() and not f.name.startswith(".") and f.name not in seen_names:
-                    seen_names.add(f.name)
-                    yield f
+    for doc_dir in local_document_dirs(session_id):
+        for f in sorted(doc_dir.iterdir()):
+            if f.is_file() and not f.name.startswith(".") and f.name not in seen_names:
+                seen_names.add(f.name)
+                yield f
 
 
 def _skipped_document_names(session) -> List[str]:
