@@ -1220,8 +1220,16 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             await self._uniprot_enrichment_service.enrich_session(session_id)
 
     def _move_pending_documents(self, session_id: str):
-        """Move processed documents from pending_documents/ to documents/ as plain text."""
+        """Move processed documents from pending_documents/ to documents/ as plain text.
+
+        A document's per-document artifacts (figures, and any future type listed
+        in PER_DOCUMENT_ARTIFACT_SUBDIRS) ride this commit with the .txt: their
+        {subdir}/{stem} dir is moved into documents/ only for stems whose text
+        committed, so a failed conversion leaves both the text and the artifacts
+        in pending rather than orphaning artifacts in documents/.
+        """
         from app.services.document_preprocessor import commit_document_to_documents_dir
+        from app.services.session_documents import PER_DOCUMENT_ARTIFACT_SUBDIRS
 
         data_session_dir = Path(DEFAULT_DATA_DIR) / session_id
         pending_dir = pending_docs_dir(data_session_dir)
@@ -1229,23 +1237,39 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         if pending_dir.exists():
             completed_docs_dir.mkdir(parents=True, exist_ok=True)
             moved_count = 0
+            committed_stems: set[str] = set()
             for file_path in sorted(pending_dir.iterdir()):
                 if file_path.is_file():
-                    if commit_document_to_documents_dir(file_path, completed_docs_dir):
+                    dest = commit_document_to_documents_dir(file_path, completed_docs_dir)
+                    if dest:
                         moved_count += 1
+                        committed_stems.add(dest.stem)
             if moved_count:
                 logger.info(
                     "Committed %d file(s) from pending_documents/ to documents/ for session %s",
                     moved_count,
                     session_id,
                 )
-            # Remove the pending_documents/figures link/copy created by
-            # resolve_docs_paths (see config_handler.py) for this run — the
-            # real figures already live under documents/figures, so this was
-            # only needed to make them visible while the docs sat in pending.
-            pending_figures = pending_dir / "figures"
-            if pending_figures.exists():
-                if pending_figures.is_symlink():
-                    pending_figures.unlink()
-                else:
-                    shutil.rmtree(pending_figures, ignore_errors=True)
+            # Commit each committed document's per-document artifacts alongside
+            # its text. Uncommitted stems (a failed conversion) are left in
+            # pending. A leftover symlink from the old figures bridge is removed.
+            for subdir in PER_DOCUMENT_ARTIFACT_SUBDIRS:
+                pending_artifact = pending_dir / subdir
+                if pending_artifact.is_symlink():
+                    pending_artifact.unlink()
+                    continue
+                if not pending_artifact.is_dir():
+                    continue
+                committed_artifact = completed_docs_dir / subdir
+                for stem_dir in pending_artifact.iterdir():
+                    if not stem_dir.is_dir() or stem_dir.name not in committed_stems:
+                        continue
+                    committed_artifact.mkdir(parents=True, exist_ok=True)
+                    dest_dir = committed_artifact / stem_dir.name
+                    if dest_dir.exists():
+                        shutil.rmtree(stem_dir, ignore_errors=True)
+                    else:
+                        shutil.move(str(stem_dir), str(dest_dir))
+                # Drop the artifact dir only once nothing uncommitted remains.
+                if not any(pending_artifact.iterdir()):
+                    pending_artifact.rmdir()

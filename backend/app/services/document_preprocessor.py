@@ -97,9 +97,10 @@ def commit_document_to_documents_dir(
         # itself — it's the single point every upload path funnels through, so
         # hooking it there (rather than here too) covers the initial-upload
         # route as well, which calls preprocess_uploaded_file() directly and
-        # never reaches this function. See its docstring for why documents_dir
-        # is threaded through: figures land straight in their final location
-        # instead of needing to be moved alongside the .txt below.
+        # never reaches this function. This commit path passes documents_dir,
+        # but by the time a file is committed it is already a .txt, so no figure
+        # extraction happens here; figures were extracted into pending_documents/
+        # at upload and are moved into documents/ by _move_pending_documents.
         result = preprocess_uploaded_file(
             source_path,
             worker_id=worker_id,
@@ -292,11 +293,11 @@ def preprocess_uploaded_file(
     commit_document_to_documents_dir() for pipeline-continuation flows), so
     figure extraction for PDFs is hooked in here rather than in either
     individual caller — it must run before the PDF is deleted below.
-    Figures are persisted straight into ``documents_dir`` (the session's
-    documents/ folder) when given, not wherever source_path happens to sit
-    (pending_documents/ during the initial upload), so they land in their
-    final location immediately rather than needing to be moved/renamed
-    alongside the .txt by whatever later commits it into documents/.
+    Figures are written to ``documents_dir`` when given, else next to the text
+    in ``source_path.parent``. The initial-upload route passes ``None`` so a
+    document's figures land in pending_documents/ alongside its .txt and ride
+    the pending -> committed commit together with it (see
+    SchematiqRunner._move_pending_documents).
     """
     orig_name = original_filename or source_path.name
 
