@@ -556,3 +556,27 @@ def test_figure_extraction_captionless_image_yields_zero_figures(pending_dir, tm
     result = dp.commit_document_to_documents_dir(dest, documents_dir)
     assert result is not None
     assert not (documents_dir / "figures" / result.stem).exists()
+
+
+def test_link_document_artifacts_into_view_mirrors_figures(tmp_path):
+    """A document's figures/{stem} is mirrored into a derived view dir
+    (capped_documents/ or documents_filtered/); absent figures are a no-op and
+    the call is idempotent."""
+    from app.services.session_documents import link_document_artifacts_into_view
+
+    source = tmp_path / "documents"
+    (source / "figures" / "judges").mkdir(parents=True)
+    (source / "figures" / "judges" / "fig001.png").write_bytes(b"img")
+    view = tmp_path / "capped_documents"
+    view.mkdir()
+
+    link_document_artifacts_into_view(source, view, "judges")
+    assert (view / "figures" / "judges" / "fig001.png").read_bytes() == b"img"
+
+    # Idempotent: a second call neither raises nor changes anything.
+    link_document_artifacts_into_view(source, view, "judges")
+    assert (view / "figures" / "judges" / "fig001.png").read_bytes() == b"img"
+
+    # No-op when the document has no figures.
+    link_document_artifacts_into_view(source, view, "no_figs")
+    assert not (view / "figures" / "no_figs").exists()
