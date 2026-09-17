@@ -29,6 +29,7 @@ rather than baking in a single order.
 
 from pathlib import Path
 from typing import Iterator
+import shutil
 
 from app.services.data_utils import candidate_data_dirs
 
@@ -108,3 +109,21 @@ def link_document_artifacts_into_view(
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.symlink_to(src.resolve(), target_is_directory=True)
+
+
+def remove_document_artifacts(session_dir: Path, stem: str) -> None:
+    """Remove a document's per-document artifacts from pending and committed.
+
+    Counterpart to the commit and view helpers: when a document is deleted its
+    registered artifact ``{stem}`` dirs (``figures/{stem}``, ...) are removed
+    from both ``pending_documents/`` and ``documents/``, so nothing is orphaned
+    and a later re-upload of the same filename cannot inherit stale artifacts
+    (artifacts are keyed by stem).
+    """
+    for base in (pending_docs_dir(session_dir), committed_docs_dir(session_dir)):
+        for subdir in PER_DOCUMENT_ARTIFACT_SUBDIRS:
+            artifact = base / subdir / stem
+            if artifact.is_symlink():
+                artifact.unlink()
+            elif artifact.is_dir():
+                shutil.rmtree(artifact, ignore_errors=True)
