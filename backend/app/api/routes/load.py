@@ -38,7 +38,11 @@ router = APIRouter()
 
 # Module-level singleton (same pattern as schematiq_runner, reextraction_service, etc.)
 from app.services import pubmed_enrichment_service, uniprot_enrichment_service
-from app.services.session_documents import committed_docs_dir, pending_docs_dir
+from app.services.session_documents import (
+    committed_docs_dir,
+    pending_docs_dir,
+    remove_document_artifacts,
+)
 upload_processor = UploadDocumentProcessor(
     websocket_manager=websocket_manager,
     session_manager=session_manager,
@@ -1163,6 +1167,11 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
             docs_file.unlink()
             files_removed.append(str(docs_file))
             logger.debug(f"Removed file from documents: {docs_file}")
+
+        # Remove the document's per-document artifacts (figures, ...) from both
+        # pending and committed, so nothing is orphaned and a re-upload of the
+        # same filename cannot inherit stale artifacts.
+        remove_document_artifacts(session_dir, stem)
 
         # Update session status if no more documents
         if not session.metadata.uploaded_documents:

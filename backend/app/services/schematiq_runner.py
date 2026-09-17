@@ -48,7 +48,11 @@ from app.models.session import (
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.services.session_documents import committed_docs_dir, pending_docs_dir
+from app.services.session_documents import (
+    committed_docs_dir,
+    pending_docs_dir,
+    link_document_artifacts_into_view,
+)
 
 class ScheMatiQRunner(WebSocketBroadcasterMixin):
     """Handles ScheMatiQ execution and integration."""
@@ -757,6 +761,11 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                             dest = capped_dir / fname
                             if not dest.exists():
                                 os.symlink(source.resolve(), dest)
+                            # Mirror the document's figures into the capped view
+                            # so redirected runs still attach them.
+                            link_document_artifacts_into_view(
+                                Path(dp), capped_dir, Path(fname).stem
+                            )
                             break
                 schematiq_config["docs_path"] = [str(capped_dir)]
                 logger.info("Value extraction redirected to capped_documents/ with %d files", len(filenames))

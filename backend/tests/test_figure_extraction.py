@@ -556,3 +556,47 @@ def test_figure_extraction_captionless_image_yields_zero_figures(pending_dir, tm
     result = dp.commit_document_to_documents_dir(dest, documents_dir)
     assert result is not None
     assert not (documents_dir / "figures" / result.stem).exists()
+
+
+def test_link_document_artifacts_into_view_mirrors_figures(tmp_path):
+    """A document's figures/{stem} is mirrored into a derived view dir
+    (capped_documents/ or documents_filtered/); absent figures are a no-op and
+    the call is idempotent."""
+    from app.services.session_documents import link_document_artifacts_into_view
+
+    source = tmp_path / "documents"
+    (source / "figures" / "judges").mkdir(parents=True)
+    (source / "figures" / "judges" / "fig001.png").write_bytes(b"img")
+    view = tmp_path / "capped_documents"
+    view.mkdir()
+
+    link_document_artifacts_into_view(source, view, "judges")
+    assert (view / "figures" / "judges" / "fig001.png").read_bytes() == b"img"
+
+    # Idempotent: a second call neither raises nor changes anything.
+    link_document_artifacts_into_view(source, view, "judges")
+    assert (view / "figures" / "judges" / "fig001.png").read_bytes() == b"img"
+
+    # No-op when the document has no figures.
+    link_document_artifacts_into_view(source, view, "no_figs")
+    assert not (view / "figures" / "no_figs").exists()
+
+
+def test_remove_document_artifacts_clears_pending_and_committed(tmp_path):
+    """Deleting a document removes its figures/{stem} from both pending and
+    committed, leaves other documents' figures, and is a no-op when absent."""
+    from app.services.session_documents import remove_document_artifacts
+
+    for sub in ("pending_documents", "documents"):
+        (tmp_path / sub / "figures" / "judges").mkdir(parents=True)
+        (tmp_path / sub / "figures" / "judges" / "f.png").write_bytes(b"x")
+    (tmp_path / "documents" / "figures" / "other").mkdir(parents=True)
+    (tmp_path / "documents" / "figures" / "other" / "f.png").write_bytes(b"y")
+
+    remove_document_artifacts(tmp_path, "judges")
+
+    assert not (tmp_path / "pending_documents" / "figures" / "judges").exists()
+    assert not (tmp_path / "documents" / "figures" / "judges").exists()
+    assert (tmp_path / "documents" / "figures" / "other" / "f.png").read_bytes() == b"y"
+
+    remove_document_artifacts(tmp_path, "judges")

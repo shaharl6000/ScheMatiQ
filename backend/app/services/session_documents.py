@@ -29,6 +29,7 @@ rather than baking in a single order.
 
 from pathlib import Path
 from typing import Iterator
+import shutil
 
 from app.services.data_utils import candidate_data_dirs
 
@@ -81,3 +82,48 @@ def local_document_dirs(
         for doc_dir in ordered:
             if doc_dir.is_dir():
                 yield doc_dir
+
+
+def link_document_artifacts_into_view(
+    source_docs_dir: Path, view_dir: Path, stem: str
+) -> None:
+    """Mirror a document's per-document artifacts into a derived view directory.
+
+    The pipeline derives a document's artifact dir as ``<docs_dir>/{subdir}/{stem}``
+    from whichever directory it reads the document's text (see schematiq-lib
+    ``table_builder``). A run redirected to a derived view — ``capped_documents/``
+    (document cap) or ``documents_filtered/`` (incremental extraction) — reads the
+    text from the view, so each artifact ``{stem}`` dir must be present there too
+    or it is silently dropped. Symlink every registered artifact
+    (``PER_DOCUMENT_ARTIFACT_SUBDIRS``) into the view, the same way the view's
+    documents themselves are linked: a single mechanism with no per-platform
+    branching. The link is live, so it reflects later changes to the source and a
+    view that is not rebuilt between runs stays correct; re-linking is a no-op.
+    """
+    for subdir in PER_DOCUMENT_ARTIFACT_SUBDIRS:
+        src = source_docs_dir / subdir / stem
+        if not src.is_dir():
+            continue
+        dest = view_dir / subdir / stem
+        if dest.exists() or dest.is_symlink():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.symlink_to(src.resolve(), target_is_directory=True)
+
+
+def remove_document_artifacts(session_dir: Path, stem: str) -> None:
+    """Remove a document's per-document artifacts from pending and committed.
+
+    Counterpart to the commit and view helpers: when a document is deleted its
+    registered artifact ``{stem}`` dirs (``figures/{stem}``, ...) are removed
+    from both ``pending_documents/`` and ``documents/``, so nothing is orphaned
+    and a later re-upload of the same filename cannot inherit stale artifacts
+    (artifacts are keyed by stem).
+    """
+    for base in (pending_docs_dir(session_dir), committed_docs_dir(session_dir)):
+        for subdir in PER_DOCUMENT_ARTIFACT_SUBDIRS:
+            artifact = base / subdir / stem
+            if artifact.is_symlink():
+                artifact.unlink()
+            elif artifact.is_dir():
+                shutil.rmtree(artifact, ignore_errors=True)
