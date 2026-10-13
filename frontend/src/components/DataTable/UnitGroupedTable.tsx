@@ -74,6 +74,7 @@ import {
   buildExcerptMapping,
   parseExcerpts,
   normalizeToScheMatiQ,
+  type ParsedExcerpt,
 } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import { useTableSort } from './hooks/useTableSort';
@@ -1137,6 +1138,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={modalContent.title}
+        sessionId={sessionId}
         content={(() => {
           // Derive content from live unitData so undo/refetch updates the modal
           if (modalContent.rowName && modalContent.column) {
@@ -1276,8 +1278,11 @@ function formatCellValue(
     excerptColumnName &&
     rowData.data[excerptColumnName];
 
-  // Helper to get excerpts from the _excerpt column
-  const getExcerptsFromColumn = (): Array<{text: string; source: string}> => {
+  // Helper to get excerpts from the _excerpt column. Typed as ParsedExcerpt[]
+  // (not the narrower {text, source}[]) since parseExcerpts can also return
+  // figure-typed entries — this cell just hands excerpts off to onViewContent
+  // for display elsewhere (ContentModal), it doesn't read .text itself.
+  const getExcerptsFromColumn = (): ParsedExcerpt[] => {
     if (!hasExcerptColumn) return [];
     const excerptStr = String(rowData!.data[excerptColumnName]);
     return parseExcerpts([excerptStr]);

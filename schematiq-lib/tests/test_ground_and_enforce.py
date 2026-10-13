@@ -152,6 +152,53 @@ def test_vision_derived_answer_is_not_nulled_when_figure_images_attached():
     assert result["color_name"]["answer"] == "gray"
 
 
+def test_grounding_still_runs_for_text_excerpts_when_figure_images_attached():
+    """Regression test: a unit with an attached figure image (e.g. a
+    "Figure" observation unit) can still have OTHER columns whose excerpt
+    is genuine, literal source text (a caption quote, say) -- that excerpt
+    must still get real char_start/grounding_status so the frontend can
+    highlight it, instead of being left with none merely because some
+    OTHER column in the same unit is vision-derived.
+    """
+    s = _make_self(active_figure_images=[("Fig. 1: A diagram.", b"PNGDATA", "image/png")])
+    cleaned = {
+        "region_name": {
+            "answer": "d1_domain",
+            "excerpts": [{"text": "The CD45 phosphatase has a D1 domain", "source": "doc"}],
+        },
+    }
+    result = PaperProcessor._ground_and_enforce(s, cleaned, SOURCE_TEXT, "doc")
+    exc = result["region_name"]["excerpts"][0]
+    assert exc["grounding_status"] == "exact"
+    assert exc["char_start"] is not None
+
+
+def test_figure_typed_excerpt_is_not_nulled_without_attached_images():
+    """A figure-typed excerpt (caption fuzzy-matched via
+    _match_excerpt_to_figure_caption, not an attached image) is legitimate
+    support and must not be nulled, even when _active_figure_images is
+    empty for this call -- distinct from the attached-image carve-out
+    above.
+    """
+    s = _make_self()
+    cleaned = {
+        "figure_caption_title": {
+            "answer": "Galectin-1 death pathway",
+            "excerpts": [
+                {
+                    "type": "figure",
+                    "figure_id": "fig-5",
+                    "source": "doc",
+                    "caption": "Figure 5. A proposed model.",
+                    "image_filename": "fig5.png",
+                }
+            ],
+        },
+    }
+    result = PaperProcessor._ground_and_enforce(s, cleaned, SOURCE_TEXT, "doc")
+    assert result["figure_caption_title"]["answer"] == "Galectin-1 death pathway"
+
+
 def test_fabricated_answer_is_still_nulled_when_no_figure_images_attached():
     """The exemption above must not weaken the guard for ordinary text-only
     units — same fabricated-answer case as

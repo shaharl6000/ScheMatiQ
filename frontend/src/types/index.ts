@@ -421,10 +421,39 @@ export interface ProcessingStatus {
 // Content and display types
 
 // Excerpt with source information (new format)
-export interface ExcerptWithSource {
+export interface TextExcerpt {
+  // Absent (not `'text'`) on a real text excerpt — this is here only so
+  // `type` is a valid, TS-narrowable discriminant key across the whole
+  // ExcerptWithSource union (checking `excerpt.type === 'figure'` would
+  // otherwise be a compile error, since plain-text excerpts never set it).
+  type?: undefined;
   text: string;
   source: string;  // Source filename
+  // Set when the backend already located this excerpt in the source
+  // document (ExcerptGrounder.ground_all_excerpts). When present, the
+  // document viewer uses this span directly instead of re-searching for
+  // `text` client-side -- the backend's matching tolerates paraphrasing
+  // (fuzzy sliding-window match) that the frontend's own search does not.
+  char_start?: number;
+  char_end?: number;
+  grounding_status?: 'exact' | 'case_insensitive' | 'fuzzy' | 'not_found';
 }
+
+// A citation backed by a figure (image/table crop extracted from a source
+// document via Docling) rather than document text — no `text` to display,
+// instead render the figure image via unitsAPI.getFigureContentUrl(figure_id).
+// Discriminated from TextExcerpt by `type: 'figure'`; a plain TextExcerpt has
+// no `type` field at all, so `excerpt.type === 'figure'` is the check
+// everywhere this union is consumed.
+export interface FigureExcerpt {
+  type: 'figure';
+  figure_id: string;
+  source: string;  // Source document filename the figure came from
+  caption?: string;
+  image_filename?: string;
+}
+
+export type ExcerptWithSource = TextExcerpt | FigureExcerpt;
 
 // Union type for backwards compatibility
 export type Excerpt = string | ExcerptWithSource;

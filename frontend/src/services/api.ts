@@ -254,8 +254,12 @@ export const loadAPI = {
     // measured at ~28s for conversion alone, before request overhead. Scale it
     // like addCloudDocuments below, but with a much higher floor/per-file rate
     // since this path does real per-file CPU-bound ML inference, not just a
-    // cloud copy.
-    const timeoutMs = Math.max(90000, files.length * 60000);
+    // cloud copy. The floor also has to absorb a cold start: Docling's
+    // DocumentConverter (layout + table-structure models) is a lazy
+    // per-process singleton, so the very first upload after a backend
+    // restart pays extra one-time model-load time on top of conversion —
+    // real single-paper timeouts were observed at the previous 90s floor.
+    const timeoutMs = Math.max(240000, files.length * 60000);
     const response = await api.post(
       `/load/add-documents/${sessionId}?bypass_limit=${bypassLimit}`,
       formData,
@@ -1022,6 +1026,14 @@ export const unitsAPI = {
    */
   getDocumentContentUrl: (sessionId: string, name: string): string =>
     `${API_BASE}/units/document-content/${encodeURIComponent(sessionId)}?name=${encodeURIComponent(name)}`,
+
+  /**
+   * Build the URL that serves an extracted figure's image bytes for inline
+   * viewing — a cell whose citation is figure-typed (see FigureExcerpt)
+   * points here instead of at getDocumentContentUrl's whole source document.
+   */
+  getFigureContentUrl: (sessionId: string, figureId: string): string =>
+    `${API_BASE}/units/figure-content/${encodeURIComponent(sessionId)}?figure_id=${encodeURIComponent(figureId)}`,
 
   /**
    * Fetch a source document's raw text via the shared axios instance (so it

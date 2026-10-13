@@ -141,6 +141,15 @@ ENABLE_FIGURE_EXTRACTION = _env_flag("ENABLE_FIGURE_EXTRACTION", default=True)
 # own default HuggingFace cache location, downloading on first use if not
 # already cached there. Feature no-ops gracefully if model loading fails.
 DOCLING_ARTIFACTS_PATH = os.environ.get("DOCLING_ARTIFACTS_PATH") or None
+# Docling occasionally links a real caption to the wrong picture on the page
+# (its own layout/reading-order decision, not something we control — see
+# figure_extraction_service._verify_figure_caption). This runs one extra
+# vision call per extracted figure to catch and correct that. Kill-switch
+# for ops (cost/latency), same pattern as ENABLE_FIGURE_EXTRACTION.
+ENABLE_FIGURE_CAPTION_VERIFICATION = _env_flag("ENABLE_FIGURE_CAPTION_VERIFICATION", default=True)
+FIGURE_CAPTION_VERIFICATION_MODEL = os.environ.get(
+    "FIGURE_CAPTION_VERIFICATION_MODEL", ModelNames.GEMINI_35_FLASH_LITE
+)
 
 # ── Research Data Collection (Google Drive) ──────────────────────
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")

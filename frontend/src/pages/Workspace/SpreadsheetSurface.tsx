@@ -15,11 +15,10 @@ import {
   resolveCellGrounding,
   type CellGrounding,
 } from '@/components/DataTable/utils/excerptUtils';
-import ContentModal from '@/components/ContentModal/ContentModal';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { observationUnitAPI, schemaAPI, schematiqAPI } from '@/services/api';
-import type { ColumnInfo, DataRow, PaginatedData, SchemaData } from '@/types';
+import type { ColumnInfo, DataRow, FigureExcerpt, PaginatedData, SchemaData, TextExcerpt } from '@/types';
 import { formatColumnName } from '@/utils/formatting';
 import type { EditCommand } from './hooks/useEditHistory';
 
@@ -80,6 +79,8 @@ export function SpreadsheetSurface({
   searchTermRef,
   onSelectionChange,
   onGroundingHighlight,
+  onFigureGrounding,
+  onRequestSourcePanel,
   onGroundingScrollRequest,
   onRefresh,
   onSchemaRefresh,
@@ -116,8 +117,21 @@ export function SpreadsheetSurface({
   searchTermRef?: MutableRefObject<string | null>;
   onSelectionChange: (selection: SheetSelection) => void;
   // Reports all grounding excerpts of the newly selected data cell (or null when
-  // the cell has no grounding), so the source panel can highlight them.
-  onGroundingHighlight?: (texts: string[] | null) => void;
+  // the cell has no grounding), so the source panel can highlight them. Passed
+  // as full excerpt objects (not bare strings) so a backend-computed
+  // char_start/char_end -- when present -- can be used directly instead of
+  // re-searching for the text client-side.
+  onGroundingHighlight?: (excerpts: TextExcerpt[] | null) => void;
+  // Companion to onGroundingHighlight: reports the newly selected cell's
+  // figure citations (or null when it has none), so the source panel can
+  // show those figure images alongside the source document. Fires alongside
+  // onGroundingHighlight from the same selection handler.
+  onFigureGrounding?: (figures: FigureExcerpt[] | null) => void;
+  // Fires when the indicator on a grounded cell is clicked, so the source
+  // panel opens (if not already) to show this cell's evidence -- the panel
+  // already tracks the current selection's grounding via onGroundingHighlight/
+  // onFigureGrounding above, this just guarantees it's visible.
+  onRequestSourcePanel?: () => void;
   // Fires on each mouse click of a grounded data cell, so the source panel can
   // re-scroll to the highlight even when the same cell is clicked again.
   onGroundingScrollRequest?: () => void;
@@ -527,11 +541,6 @@ export function SpreadsheetSurface({
       return perColumn;
     });
   }, [data.rows]);
-
-  const [groundingModal, setGroundingModal] = useState<{
-    title: string;
-    content: { answer: string; excerpts: CellGrounding['excerpts'] };
-  } | null>(null);
 
   // --- Grouped cell merging (By Unit / By Document) ------------------------
   // Mirror the classic flow's grouped views: the leftmost grouping column
@@ -1960,6 +1969,7 @@ export function SpreadsheetSurface({
           if (row < 0 || col < 0 || row2 < 0 || col2 < 0) {
             onSelectionChange(null);
             onGroundingHighlight?.(null);
+            onFigureGrounding?.(null);
             return;
           }
           const fromRow = Math.min(row, row2);
@@ -1974,9 +1984,11 @@ export function SpreadsheetSurface({
 
           // Report the top-left cell's grounding excerpts so the source panel
           // can highlight every place the value came from (all marked; the
-          // first is scrolled into view).
-          if (onGroundingHighlight) {
-            let excerptTexts: string[] | null = null;
+          // first is scrolled into view) — and separately, every figure
+          // citation, so the panel can show those figure images alongside it.
+          if (onGroundingHighlight || onFigureGrounding) {
+            let textExcerpts: TextExcerpt[] | null = null;
+            let figureExcerpts: FigureExcerpt[] | null = null;
             if (activeSheet === 'data') {
               const column = sheet.columns[fromCol];
               const hot = hotTableRef.current?.hotInstance;
@@ -1985,12 +1997,16 @@ export function SpreadsheetSurface({
                 column && physicalRow != null && physicalRow >= 0
                   ? dataGrounding[physicalRow]?.[column.key]
                   : null;
-              const texts = (grounding?.excerpts ?? [])
-                .map((e) => e.text)
-                .filter((t): t is string => Boolean(t && t.trim()));
-              excerptTexts = texts.length > 0 ? texts : null;
+              const excerpts = grounding?.excerpts ?? [];
+              const texts = excerpts
+                .filter((e): e is TextExcerpt => e.type !== 'figure')
+                .filter((e) => Boolean(e.text && e.text.trim()));
+              textExcerpts = texts.length > 0 ? texts : null;
+              const figures = excerpts.filter((e): e is FigureExcerpt => e.type === 'figure');
+              figureExcerpts = figures.length > 0 ? figures : null;
             }
-            onGroundingHighlight(excerptTexts);
+            onGroundingHighlight?.(textExcerpts);
+            onFigureGrounding?.(figureExcerpts);
           }
         }}
         afterOnCellMouseDown={(event, coords) => {
@@ -2019,23 +2035,15 @@ export function SpreadsheetSurface({
             clickX >= rect.width - indicatorSize && clickY <= indicatorSize;
           if (!inIndicatorRegion) return;
 
-          const grounding = dataGrounding[physicalRow][column.key];
-          setGroundingModal({
-            title: `${columnDisplayLabel(column.key)} — grounding`,
-            content: { answer: grounding.answer, excerpts: grounding.excerpts },
-          });
+          // Ensure the Show Source panel is open and showing this cell's
+          // evidence. The panel already tracks the current selection's
+          // grounding (text highlights + figure images) via
+          // onGroundingHighlight/onFigureGrounding, so this just guarantees
+          // it's visible rather than duplicating that content in a popup.
+          onRequestSourcePanel?.();
         }}
         cells={cellsCallback}
       />
-      {groundingModal && (
-        <ContentModal
-          open
-          onClose={() => setGroundingModal(null)}
-          title={groundingModal.title}
-          content={groundingModal.content}
-          evidenceOnly
-        />
-      )}
     </div>
   );
 }

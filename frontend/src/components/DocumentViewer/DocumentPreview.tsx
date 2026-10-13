@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, ExternalLink, Download, FileX, Upload, Loader2 } from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
+import type { TextExcerpt } from '../../types';
 import { findHighlightRanges } from './highlightUtils';
 
 /** Extensions the browser can render inline in an <iframe>. */
@@ -21,24 +22,43 @@ const SANDBOX_EXTENSIONS = new Set(['html', 'htm', 'svg']);
  */
 const TEXT_EXTENSIONS = new Set(['txt', 'text', 'md', 'markdown', 'csv', 'tsv', 'json', 'log']);
 
+/**
+ * Binary office formats DocumentUpload accepts that aren't inline-renderable
+ * or text-renderable, but are still real, known extensions that should
+ * legitimately fall to the download-only branch below (as opposed to an
+ * arbitrary alphanumeric tail that merely looks like an extension).
+ */
+const OTHER_KNOWN_EXTENSIONS = new Set(['doc', 'docx', 'rtf']);
+
 const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf('.');
   if (dot < 0) return '';
   const ext = name.slice(dot + 1).toLowerCase();
-  // Only treat the suffix as a real extension if it looks like one. Document
-  // names often contain internal periods (e.g. "... Order No. 19-cv-7151"),
-  // where the text after the last dot is not an extension; those resolve to ''
-  // so they take the text-renderable path instead of the download fallback.
-  return /^[a-z0-9]{1,8}$/.test(ext) && /[a-z]/.test(ext) ? ext : '';
+  // Only treat the suffix as a real extension if it's one we actually know —
+  // not just "looks like one". Document/paper names often contain internal
+  // periods with a short alphanumeric tail that isn't a real extension (an
+  // arXiv-style ID's version suffix like "2512.10004v2", a docket number's
+  // trailing fragment, etc.); a generic shape-based regex was previously
+  // fooled by these. Those still resolve to '' so they take the
+  // text-renderable path instead of the false "preview unavailable" state.
+  const isKnownExtension =
+    INLINE_EXTENSIONS.has(ext) || TEXT_EXTENSIONS.has(ext) || OTHER_KNOWN_EXTENSIONS.has(ext);
+  return isKnownExtension ? ext : '';
 };
 
 type Availability = 'idle' | 'checking' | 'ok' | 'unavailable';
+
+/** A figure citation's image + optional caption, ready to render. */
+interface FigureItem {
+  url: string;
+  caption?: string;
+}
 
 interface DocumentPreviewProps {
   sessionId: string | null | undefined;
   /** Source-document name (raw value, as returned by the documents endpoint). */
   documentName: string | null;
-  /** Message shown when no document is selected. */
+  /** Message shown when no document and no figures are selected. */
   emptyHint?: string;
   /**
    * Bump this to force a fresh availability probe and iframe reload — e.g. after
@@ -62,14 +82,26 @@ interface DocumentPreviewProps {
    * (even `null`/`[]`) enables the highlight-capable inline text renderer for
    * text-based formats; the Documents tab omits it and keeps the plain iframe.
    * All excerpts are marked; the first found match is scrolled into view.
+   * When an excerpt carries `char_start`/`char_end` (the backend already
+   * located it via ExcerptGrounder), that span is used directly instead of
+   * re-searching for `text` client-side -- the backend's matching tolerates
+   * paraphrasing that the frontend's own search does not.
    */
-  highlightTexts?: string[] | null;
+  highlightTexts?: TextExcerpt[] | null;
   /**
    * Changes on every user click of a grounded cell. Re-scrolls to the first
    * highlight even when the excerpt set is unchanged (e.g. the user scrolled the
    * document away and clicked the same cell again).
    */
   scrollNonce?: number;
+  /**
+   * The selected cell's figure citations (if any), rendered as a stacked
+   * gallery below the document (or on their own, full-height, when there's no
+   * document to show). Unlike the document body, figures render directly with
+   * no HEAD-probe/availability gate — the same approach ContentModal's popup
+   * already uses successfully, and simpler: an <img> either loads or doesn't.
+   */
+  figures?: FigureItem[] | null;
 }
 
 /**
@@ -89,6 +121,10 @@ interface DocumentPreviewProps {
  * are visible as the user scrolls. PDFs/images/HTML cannot be annotated inside
  * their native iframe, so they keep the iframe and show a brief note when a
  * highlight was requested.
+ *
+ * When the selected cell also (or only) cites figures, they render as a
+ * gallery stacked below the document body, separated by a divider — or on
+ * their own when there's no document (e.g. a figure-only citation).
  */
 const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   sessionId,
@@ -99,6 +135,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   uploading,
   highlightTexts,
   scrollNonce,
+  figures,
 }) => {
   const contentUrl = useMemo(() => {
     if (!sessionId || !documentName) return null;
@@ -131,13 +168,23 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   const ext = documentName ? extensionOf(documentName) : '';
   const canRenderInline = ext === '' || INLINE_EXTENSIONS.has(ext);
   const needsSandbox = SANDBOX_EXTENSIONS.has(ext);
-  const showOpenFull = Boolean(contentUrl) && availability === 'ok';
 
   // Highlight mode is opt-in (the prop is present) and only applies to text
   // formats we can render and annotate ourselves.
   const highlightEnabled = highlightTexts !== undefined;
   const isTextRenderable = ext === '' || TEXT_EXTENSIONS.has(ext);
   const useInlineText = highlightEnabled && isTextRenderable;
+
+  const hasDocument = Boolean(contentUrl);
+  const hasFigures = Boolean(figures && figures.length > 0);
+  const hasTextGrounding = Boolean(highlightTexts && highlightTexts.length > 0);
+  // Only suppress the document section when we're in cell-grounding mode
+  // (highlightEnabled -- never true for the plain Documents tab, which never
+  // passes highlightTexts) AND this specific cell's citation is figure-only:
+  // a real text excerpt (or not being grounding-driven at all) always keeps
+  // the document visible.
+  const showDocumentSection = hasDocument && !(highlightEnabled && hasFigures && !hasTextGrounding);
+  const showOpenFull = showDocumentSection && availability === 'ok';
 
   const [text, setText] = useState<string | null>(null);
   const [textError, setTextError] = useState(false);
@@ -146,11 +193,21 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   // (e.g. a raw PDF whose conversion failed). Detect that and fall back to the
   // native iframe instead of rendering raw bytes as gibberish.
   const [contentIsBinary, setContentIsBinary] = useState(false);
+  // Which documentName `text` was actually fetched for. `text` is cleared by
+  // this same effect on a documentName change, but only on the NEXT effect
+  // pass -- for one render, `text` can still hold the PREVIOUS document's
+  // content while `highlightTexts` (a prop, updated in the same render as
+  // the new documentName) already reflects the new selection. Comparing
+  // against this ref -- set synchronously, so it's already up to date by
+  // the time the warning effect below runs in the same commit -- stops that
+  // transient mismatch from firing a false "no highlight found" warning.
+  const textDocumentRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!useInlineText || !sessionId || !documentName || availability !== 'ok') {
       setText(null);
       setTextError(false);
+      textDocumentRef.current = null;
       setContentIsBinary(false);
       return undefined;
     }
@@ -158,6 +215,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     setText(null);
     setTextError(false);
     setContentIsBinary(false);
+    textDocumentRef.current = null;
     unitsAPI
       .getDocumentContentText(sessionId, documentName)
       .then((content) => {
@@ -166,6 +224,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
           setContentIsBinary(true);
         } else {
           setText(content);
+          textDocumentRef.current = documentName;
         }
       })
       .catch(() => {
@@ -180,6 +239,25 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     () => (useInlineText ? findHighlightRanges(text, highlightTexts) : []),
     [useInlineText, text, highlightTexts],
   );
+
+  useEffect(() => {
+    // textDocumentRef guards against a transient one-render mismatch: on a
+    // documentName change, highlightTexts (a prop) already reflects the new
+    // selection, but `text` can still hold the PREVIOUS document's content
+    // until the fetch effect above clears it. Without this check, that
+    // stale combination would spuriously warn about excerpts that are
+    // perfectly fine once the correct document's text loads.
+    const textMatchesCurrentDocument = textDocumentRef.current === documentName;
+    if (
+      useInlineText && text && textMatchesCurrentDocument &&
+      highlightTexts && highlightTexts.length > 0 && highlightRanges.length === 0
+    ) {
+      console.warn(
+        '[DocumentPreview] No highlight match found for excerpt(s):',
+        highlightTexts.map((e) => e.text),
+      );
+    }
+  }, [useInlineText, text, documentName, highlightTexts, highlightRanges]);
 
   const firstMarkRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -235,14 +313,8 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     );
   };
 
-  const renderBody = () => {
-    if (!contentUrl) {
-      return (
-        <div className="h-full flex items-center justify-center text-sm text-muted-foreground text-center px-4">
-          {emptyHint || 'Select a document to preview it.'}
-        </div>
-      );
-    }
+  /** Renders the document body. Only called when contentUrl is set. */
+  const renderDocumentBody = () => {
     if (availability === 'checking' || availability === 'idle') {
       return (
         <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
@@ -291,7 +363,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
       return (
         <iframe
           key={contentUrl}
-          src={contentUrl}
+          src={contentUrl as string}
           title={documentName || 'Document preview'}
           className="w-full h-full border-0"
           {...(needsSandbox ? { sandbox: '' } : {})}
@@ -303,7 +375,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
         <FileText className="h-8 w-8 opacity-40" />
         <span>Preview isn&apos;t available for .{ext} files.</span>
         <a
-          href={contentUrl}
+          href={contentUrl as string}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors text-foreground"
@@ -323,11 +395,18 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     availability === 'ok' &&
     canRenderInline;
 
+  const figureLabel = hasFigures
+    ? (figures!.length === 1 ? (figures![0].caption || 'Figure') : `${figures!.length} figures`)
+    : null;
+  const headerLabel = showDocumentSection
+    ? (documentName || 'Document')
+    : figureLabel || documentName || 'No document selected';
+
   return (
     <div className="flex-1 min-w-0 h-full flex flex-col">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border text-xs">
-        <span className="truncate text-muted-foreground" title={documentName || ''}>
-          {documentName || 'No document selected'}
+        <span className="truncate text-muted-foreground" title={headerLabel}>
+          {headerLabel}
         </span>
         <span className="flex-1" />
         {showOpenFull && (
@@ -345,11 +424,41 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
 
       {showHighlightUnsupportedNote && (
         <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-b border-border bg-muted/20">
-          Source highlighting isn&apos;t available for .{ext || 'this'} files — see the grounding popup for the excerpt.
+          Source highlighting isn&apos;t available for .{ext || 'this'} files — see the figures below for image citations.
         </div>
       )}
 
-      <div className="flex-1 min-h-0 bg-muted/20">{renderBody()}</div>
+      <div className="flex-1 min-h-0 bg-muted/20 overflow-y-auto flex flex-col">
+        {!showDocumentSection && !hasFigures && (
+          <div className="h-full flex items-center justify-center text-sm text-muted-foreground text-center px-4">
+            {emptyHint || 'Select a document to preview it.'}
+          </div>
+        )}
+        {showDocumentSection && (
+          <div className={hasFigures ? 'h-[50vh] shrink-0' : 'flex-1 min-h-0'}>
+            {renderDocumentBody()}
+          </div>
+        )}
+        {showDocumentSection && hasFigures && <div className="border-t border-border shrink-0" />}
+        {hasFigures && (
+          <div className="p-3 flex flex-col gap-4">
+            {figures!.map((fig) => (
+              <div key={fig.url}>
+                <img
+                  src={fig.url}
+                  alt={fig.caption || 'Figure'}
+                  className="max-w-full rounded-md border border-border"
+                />
+                {fig.caption && (
+                  <p className="text-sm leading-relaxed mt-2 text-muted-foreground">
+                    {fig.caption}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

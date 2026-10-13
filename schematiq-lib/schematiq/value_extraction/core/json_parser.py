@@ -4,7 +4,7 @@ import difflib
 import json
 import re
 from datetime import datetime
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Callable, Dict, Any, List, Tuple, Optional
 
 from dateutil import parser as date_parser
 
@@ -107,25 +107,32 @@ class JSONResponseParser:
     def _normalize_parsed(self, data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         """Normalise a parsed JSON dict into the standard column format.
 
-        Each column entry is guaranteed to have "answer" (str) and "excerpts" (list).
+        Each column entry is guaranteed to have "answer" (str), "excerpts"
+        (list), and "figure_refs" (list — figure_id strings the model cited
+        for an image-backed answer; see schema_builder's response schema).
         """
         norm: Dict[str, Dict[str, Any]] = {}
         for col, val in data.items():
             if isinstance(val, dict):
                 answer = val.get("answer", "")
                 excerpts = val.get("excerpts", [])
+                figure_refs = val.get("figure_refs", [])
                 # Preserve explicit null — do NOT convert to the string "None".
                 # postprocess() checks for None and treats it as confirmed-empty.
                 if answer is not None and not isinstance(answer, str):
                     answer = _flatten_answer(answer)
                 if not isinstance(excerpts, list):
                     excerpts = [str(excerpts)]
-                entry: Dict[str, Any] = {"answer": answer, "excerpts": excerpts}
+                if not isinstance(figure_refs, list):
+                    figure_refs = [str(figure_refs)]
+                entry: Dict[str, Any] = {
+                    "answer": answer, "excerpts": excerpts, "figure_refs": figure_refs,
+                }
                 if val.get("suggested_for_allowed_values"):
                     entry["suggested_for_allowed_values"] = True
                 norm[col] = entry
             else:
-                norm[col] = {"answer": str(val), "excerpts": []}
+                norm[col] = {"answer": str(val), "excerpts": [], "figure_refs": []}
         return norm
 
     def _is_placeholder(self, answer: str, excerpts: List[str]) -> bool:
@@ -206,7 +213,8 @@ class JSONResponseParser:
         self,
         answer: str,
         allowed_values: List[str],
-        threshold: float = 0.8
+        threshold: float = 0.8,
+        semantic_matcher: Optional[Callable[[str, List[str]], Optional[str]]] = None,
     ) -> Tuple[str, bool, Optional[str]]:
         """
         Normalize extracted answer to closest allowed value using soft matching.
@@ -218,8 +226,13 @@ class JSONResponseParser:
         1. Date constraints (single-item "date" / "date:...") -> parse and format
         2. Numeric constraints (single-item "number" or min-max range)
         3. Case-insensitive exact match -> return allowed value
-        4. Fuzzy match above threshold -> return allowed value
-        5. No match -> keep original answer and flag for schema evolution
+        4. semantic_matcher(answer, allowed_values), if provided -> return its match
+           (an LLM-backed meaning check, since a fixed string-similarity ratio is a
+           weak proxy for meaning and fails free-form, sentence-length answers)
+        5. Otherwise, fuzzy string match above threshold -> return allowed value
+           (kept as a dependency-free fallback for callers with no LLM access,
+           e.g. isolated tests)
+        6. No match -> keep original answer and flag for schema evolution
         """
         if not allowed_values or not answer:
             return answer, False, None
@@ -274,7 +287,14 @@ class JSONResponseParser:
             if av.lower().strip() == answer_lower:
                 return av, True, None
 
-        # Fuzzy matching using difflib
+        # Semantic (LLM-backed) equivalence check, when a matcher was supplied
+        if semantic_matcher is not None:
+            matched = semantic_matcher(answer, allowed_values)
+            if matched is not None:
+                return matched, True, None
+            return answer, False, answer
+
+        # Fuzzy matching using difflib (fallback when no semantic_matcher given)
         best_match: Optional[str] = None
         best_ratio: float = 0.0
         for av in allowed_values:
@@ -289,11 +309,55 @@ class JSONResponseParser:
         # No match - keep original (soft enforcement) and flag for schema evolution
         return answer, False, answer
 
+    def is_type_constraint(self, allowed_values: List[str]) -> bool:
+        """True if allowed_values is a single-item TYPE/format constraint
+        (date / date:... / number / a min-max range) rather than a literal
+        set of categorical values -- mirrors _normalize_to_allowed_values's
+        single-item branch above. A caller deciding whether to gate
+        enforcement on multi-document corroboration should treat this case
+        specially: corroboration only makes sense for genuine categorical
+        values that might have been borrowed from an unrelated document.
+        A type constraint is a structural format rule the schema itself
+        declared, not content, so it should always apply -- and in fact
+        can never accumulate corroboration under the same key, since
+        _normalize_to_allowed_values returns the ANSWER's own parsed/
+        clamped value (e.g. "100.0"), never the literal constraint token
+        ("number"/"0-100"/"date"), so treating it like a categorical value
+        would silently disable it forever.
+        """
+        if not allowed_values or len(allowed_values) != 1 or not isinstance(allowed_values[0], str):
+            return False
+        raw = allowed_values[0].strip()
+        if self._strftime_format_from_date_constraint(raw) is not None:
+            return True
+        if raw.lower() == "number":
+            return True
+        return self._parse_numeric_range(raw.lower()) is not None
+
+    def matches_allowed_value(self, answer: str, allowed_values: List[str]) -> Optional[str]:
+        """Public read-only check: does *answer* match one of allowed_values
+        (same exact/case-insensitive/fuzzy rules postprocess's soft
+        enforcement uses)? Returns the canonical matched value, or None --
+        callers that only need to know "would this match," without applying
+        the replacement postprocess does, should use this instead of
+        reaching into _normalize_to_allowed_values directly.
+
+        Defensively typed at this public boundary (unlike the private
+        method it wraps, which trusts postprocess's own upstream
+        None/type/placeholder checks): a non-string answer or falsy
+        allowed_values just means "no match" rather than an AttributeError.
+        """
+        if not isinstance(answer, str) or not allowed_values:
+            return None
+        matched_value, matched, _ = self._normalize_to_allowed_values(answer, allowed_values)
+        return matched_value if matched else None
+
     def postprocess(
         self,
         parsed: Dict[str, Dict[str, Any]],
         requested_cols: List[str],
-        column_allowed_values: Optional[Dict[str, List[str]]] = None
+        column_allowed_values: Optional[Dict[str, List[str]]] = None,
+        semantic_matcher: Optional[Callable[[str, List[str]], Optional[str]]] = None,
     ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
         """
         Ensure missing columns are omitted or set to {} and clean placeholders.
@@ -303,6 +367,10 @@ class JSONResponseParser:
             parsed: Parsed LLM response
             requested_cols: List of requested column names
             column_allowed_values: Dict mapping column_name to list of allowed values
+            semantic_matcher: Optional LLM-backed equivalence check, passed
+                through to _normalize_to_allowed_values (see its docstring).
+                Callers with LLM access (PaperProcessor) should supply this;
+                it falls back to difflib string-similarity when omitted.
 
         Returns:
             Tuple of:
@@ -319,6 +387,7 @@ class JSONResponseParser:
                 continue  # omit missing column
             ans = entry.get("answer", "")
             exs = entry.get("excerpts", [])
+            figs = entry.get("figure_refs", [])
 
             # Explicit null answer = LLM confirmed this column is empty/not applicable.
             # Keep it in the output so it counts as "filled" and won't be retried.
@@ -329,21 +398,43 @@ class JSONResponseParser:
             # Check if LLM flagged this as a suggested new value
             suggested_for_allowed = entry.get("suggested_for_allowed_values", False)
 
-            if self._is_placeholder(ans, exs) or (isinstance(ans, str) and not ans.strip()):
+            # A figure_refs citation counts as "they gave evidence" the same
+            # way a text excerpt does — an image-backed answer legitimately
+            # has no text excerpt, and shouldn't be treated as an unsupported
+            # placeholder just because exs is empty.
+            if self._is_placeholder(ans, exs or figs) or (isinstance(ans, str) and not ans.strip()):
                 continue
             # normalize types
             if not isinstance(ans, str):
                 ans = _flatten_answer(ans)
             if not isinstance(exs, list):
                 exs = [str(exs)]
+            if not isinstance(figs, list):
+                figs = [str(figs)]
 
             # Apply allowed_values normalization (soft enforcement)
             normalized = False
             unmatched_original = None
             if col in column_allowed_values and column_allowed_values[col]:
-                ans, normalized, unmatched_original = self._normalize_to_allowed_values(ans, column_allowed_values[col])
+                # Deliberately does NOT clear/replace exs when normalization
+                # changes ans's content, even though exs was written to
+                # support the pre-normalization answer: exs is verified for
+                # real downstream, in _ground_and_enforce (paper_processor.py),
+                # which nulls the WHOLE answer if excerpts end up empty and
+                # this context isn't vision-derived -- so clearing a real,
+                # source-grounded excerpt here (tried once; see git history)
+                # doesn't trade "answer paired with an imperfect citation" for
+                # "answer paired with no citation," it trades it for "answer
+                # gone entirely," which is worse. Leaving exs as the model's
+                # own real excerpt lets _ground_and_enforce's actual
+                # source-text verification decide its fate instead.
+                ans, normalized, unmatched_original = self._normalize_to_allowed_values(
+                    ans, column_allowed_values[col], semantic_matcher=semantic_matcher
+                )
 
             out[col] = {"answer": ans, "excerpts": exs}
+            if figs:
+                out[col]["figure_refs"] = figs
             if normalized:
                 out[col]["normalized_to_allowed"] = True
 

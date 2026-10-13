@@ -24,21 +24,29 @@ touching the existing text-extraction path.
 
 from __future__ import annotations
 
+import json
+import mimetypes
 import os
 import shutil
 import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Tuple
 
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling_core.types.doc import BoundingBox, PictureItem, TableItem
 
-from app.core.config import DOCLING_ARTIFACTS_PATH, ENABLE_FIGURE_EXTRACTION
+from app.core.config import (
+    DOCLING_ARTIFACTS_PATH,
+    ENABLE_FIGURE_CAPTION_VERIFICATION,
+    ENABLE_FIGURE_EXTRACTION,
+    FIGURE_CAPTION_VERIFICATION_MODEL,
+)
 from app.models.figures import ExtractedFigure, FigureExtractionManifest
 
 # scale=1 ~ 72 DPI; the old PDFFigures2 pipeline rendered at 150 DPI (~2.08x).
@@ -281,6 +289,210 @@ def _build_figure_records(document, tmp_dir: Path, *, source_document: str) -> L
 
 
 # ---------------------------------------------------------------------------
+# Vision-based caption<->image verification.
+#
+# Docling links each caption to a picture during its own layout/reading-order
+# analysis, before this module ever sees the document -- that linking
+# decision is occasionally wrong (a real caption gets attached to the wrong
+# nearby picture on the page). caption_text() just resolves whatever Docling
+# already decided; nothing upstream validates it against the image's actual
+# content. Verified against a real session: one figure's saved image was a
+# bar chart while its manifest caption described an unrelated SDS-PAGE gel.
+#
+# Two-phase, best-effort (never raises -- a failure at either phase leaves
+# the affected figure(s)' captions exactly as Docling assigned them):
+#   Phase A verifies each (image, caption) pair independently.
+#   Phase B, only when >=2 mismatches were found in the same document, makes
+#   one more call giving the model every orphaned image + every orphaned
+#   (wrong) caption together, since a Docling mis-link often means a caption
+#   belongs to a *different* orphaned image, not simply nowhere.
+# ---------------------------------------------------------------------------
+
+_VERIFY_CAPTION_RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "matches": {"type": "BOOLEAN"},
+        "description": {"type": "STRING"},
+    },
+    "required": ["matches", "description"],
+}
+
+_REMATCH_RESPONSE_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "image": {"type": "STRING"},
+            "matched_caption": {"type": "STRING"},
+        },
+        "required": ["image", "matched_caption"],
+    },
+}
+
+
+def _media_type_for(filename: str) -> str:
+    return mimetypes.guess_type(filename)[0] or "image/png"
+
+
+def _get_genai_client():
+    """Lazy import + construct, mirroring reference_fill_service.py's pattern.
+    Raises if the API key is unavailable -- callers catch this as part of
+    their best-effort contract."""
+    from google import genai
+    from app.services.chat.deps import get_gemini_api_key
+
+    return genai.Client(api_key=get_gemini_api_key())
+
+
+def _verify_figure_caption(
+    image_bytes: bytes, mime_type: str, caption: str
+) -> Tuple[bool, Optional[str]]:
+    """One Gemini call: does this caption actually describe this image?
+
+    Best-effort: any failure (missing API key, network error, malformed
+    response) returns (True, None) so the caller keeps Docling's original
+    caption unchanged rather than treating an infrastructure hiccup as a
+    verified mismatch.
+    """
+    try:
+        from google.genai import types
+
+        client = _get_genai_client()
+        prompt = (
+            "An automated PDF pipeline extracted this image from a scientific "
+            "paper and linked it to the following caption. Judge whether the "
+            "caption actually describes this image's visual content -- ignore "
+            "whether it's well-written, only whether it matches what's shown.\n\n"
+            f"Caption:\n{caption}"
+        )
+        response = client.models.generate_content(
+            model=FIGURE_CAPTION_VERIFICATION_MODEL,
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                prompt,
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0,
+                response_mime_type="application/json",
+                response_schema=_VERIFY_CAPTION_RESPONSE_SCHEMA,
+            ),
+        )
+        data = json.loads(response.text)
+        return bool(data.get("matches")), (data.get("description") or None)
+    except Exception:
+        return True, None
+
+
+def _rematch_orphaned_figures(
+    orphaned: List[Tuple[ExtractedFigure, bytes, str]],
+) -> Dict[str, Optional[str]]:
+    """One Gemini call: given N images whose Docling-assigned captions were
+    each independently rejected by _verify_figure_caption, find the best 1:1
+    re-pairing among this orphaned pool -- a rejected caption often belongs to
+    a *different* orphaned image, not to no image at all.
+
+    Returns {figure_id: recovered_caption_or_None}. Best-effort: any failure
+    maps every figure to None (same outcome as if Phase B were skipped).
+    """
+    fallback = {fig.figure_id: None for fig, _, _ in orphaned}
+    try:
+        from google.genai import types
+
+        client = _get_genai_client()
+        image_labels = [f"Image {chr(65 + i)}" for i in range(len(orphaned))]
+        caption_labels = [f"Caption {i + 1}" for i in range(len(orphaned))]
+        captions_block = "\n\n".join(
+            f"{caption_labels[i]}: {fig.caption}"
+            for i, (fig, _, _) in enumerate(orphaned)
+        )
+        prompt = (
+            "Each image below was extracted from a scientific paper, but automatic "
+            "caption linking got every one of these pairings wrong -- none of these "
+            "images match the caption they were originally assigned. Here are all "
+            "the mis-linked captions, unordered:\n\n"
+            f"{captions_block}\n\n"
+            "For each image (in the order shown), determine which caption (if any) "
+            "actually describes it. A caption may belong to none of these images "
+            "(its real image may not have been extracted at all) -- don't force a "
+            "match in that case, and never assign the same caption to two images.\n\n"
+            "Respond with one entry per image, in order. Set matched_caption to the "
+            "exact caption label (e.g. \"Caption 2\") if you found a real match, or "
+            "to an empty string if none of the captions match."
+        )
+        contents: list = []
+        for label, (_fig, image_bytes, mime_type) in zip(image_labels, orphaned):
+            contents.append(f"{label}:")
+            contents.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
+        contents.append(prompt)
+
+        response = client.models.generate_content(
+            model=FIGURE_CAPTION_VERIFICATION_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                temperature=0,
+                response_mime_type="application/json",
+                response_schema=_REMATCH_RESPONSE_SCHEMA,
+            ),
+        )
+        data = json.loads(response.text)
+        chosen_by_image = {
+            entry.get("image"): (entry.get("matched_caption") or None)
+            for entry in data
+            if isinstance(entry, dict)
+        }
+        caption_text_by_label = {
+            caption_labels[i]: fig.caption for i, (fig, _, _) in enumerate(orphaned)
+        }
+
+        result: Dict[str, Optional[str]] = dict(fallback)
+        used_labels: set = set()
+        for label, (fig, _, _) in zip(image_labels, orphaned):
+            chosen_label = chosen_by_image.get(label)
+            if chosen_label and chosen_label in caption_text_by_label and chosen_label not in used_labels:
+                result[fig.figure_id] = caption_text_by_label[chosen_label]
+                used_labels.add(chosen_label)
+        return result
+    except Exception:
+        return fallback
+
+
+def _verify_and_rematch_captions(
+    figures: List[ExtractedFigure], tmp_dir: Path
+) -> List[ExtractedFigure]:
+    """Best-effort vision pass over every captioned figure in one document.
+    Mutates and returns `figures` in place. Never raises."""
+    if not ENABLE_FIGURE_CAPTION_VERIFICATION or not figures:
+        return figures
+
+    orphaned: List[Tuple[ExtractedFigure, bytes, str]] = []
+    for fig in figures:
+        if not fig.caption:
+            continue
+        try:
+            image_bytes = (tmp_dir / fig.image_filename).read_bytes()
+        except OSError:
+            continue
+        mime_type = _media_type_for(fig.image_filename)
+        matches, description = _verify_figure_caption(image_bytes, mime_type, fig.caption)
+        if description is not None:
+            fig.vision_description = description
+            fig.vision_model = FIGURE_CAPTION_VERIFICATION_MODEL
+            fig.vision_extracted_at = datetime.now()
+        if not matches:
+            orphaned.append((fig, image_bytes, mime_type))
+
+    if len(orphaned) >= 2:
+        rematch = _rematch_orphaned_figures(orphaned)
+        for fig, _, _ in orphaned:
+            fig.caption = rematch.get(fig.figure_id)
+    else:
+        for fig, _, _ in orphaned:
+            fig.caption = None
+
+    return figures
+
+
+# ---------------------------------------------------------------------------
 # Extraction + persistence
 # ---------------------------------------------------------------------------
 
@@ -352,6 +564,15 @@ def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str
         figures = _build_figure_records(conv_res.document, tmp_dir, source_document=source_document)
     except Exception as e:
         return _FigureBuildResult([], tmp_dir, status="failed", error=str(e))
+
+    try:
+        # Best-effort on its own: a bug/failure here must not discard an
+        # otherwise-successful extraction (_verify_and_rematch_captions
+        # already catches per-call API failures; this is only a last-resort
+        # guard against a bug in the orchestration itself).
+        figures = _verify_and_rematch_captions(figures, tmp_dir)
+    except Exception:
+        pass
 
     return _FigureBuildResult(figures, tmp_dir, status="ok", error=None)
 

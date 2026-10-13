@@ -1,6 +1,7 @@
 """Paper processing for value extraction."""
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import mimetypes
@@ -124,18 +125,28 @@ def _build_figure_label(fig: Dict[str, Any]) -> str:
 
     Without this, an image reaches the model as an anonymous byte blob with
     no way to know it's "Figure 4" versus any other image in the call — an
-    explicit label anchors it, e.g. "Figure 4: Fig. 4. Expression of the
-    a2,3 sialylated...". Degrades gracefully (never raises): label-only or
-    caption-only when a field is missing, "" (no text part at all) if both
-    figure_label/origin_name and caption are absent.
+    explicit label anchors it, e.g. "[figure_id: paper1_fig003] Figure 4:
+    Fig. 4. Expression of the a2,3 sialylated...". The leading
+    "[figure_id: ...]" token is a stable, model-citable identifier (see
+    `figure_refs` on the response schema) distinct from the human-readable
+    "Figure 4" label, which can repeat/reset per document and isn't unique.
+    Degrades gracefully (never raises): missing figure_id, label, or caption
+    are each just omitted rather than raising.
     """
     prefix = " ".join(
         part for part in (fig.get("figure_label"), fig.get("origin_name")) if part
     ).strip()
     caption = (fig.get("caption") or "").strip()
     if prefix and caption:
-        return f"{prefix}: {caption}"
-    return caption or prefix
+        label = f"{prefix}: {caption}"
+    else:
+        label = caption or prefix
+
+    figure_id = (fig.get("figure_id") or "").strip()
+    if not figure_id:
+        return label
+    tag = f"[figure_id: {figure_id}]"
+    return f"{tag} {label}" if label else tag
 
 
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
@@ -186,6 +197,28 @@ class PaperProcessor:
         self.on_warning = on_warning
         # Schema evolution tracking: {column_name: {value: [list of documents]}}
         self.suggested_values: Dict[str, Dict[str, list]] = {}
+        # Corroboration tracking for allowed_values enforcement (see
+        # _enforceable_allowed_values): {column_name: {allowed_value: {documents}}}.
+        # Kept separate from suggested_values, which is reserved for
+        # genuinely novel values proposed for schema evolution.
+        #
+        # Concurrency note (see _load_document_figures's docstring for the
+        # established pattern this follows): extract_values_for_paper --
+        # which reads and writes this dict via _enforceable_allowed_values/
+        # _record_allowed_value_confirmations -- is reachable through
+        # TableBuilder's ThreadPoolExecutor path (process_single_paper), so
+        # multiple documents can mutate this SAME dict/set concurrently from
+        # different worker threads. Unlike _active_figure_images, this is
+        # safe from corruption: every mutation here is a plain dict/set
+        # setdefault/add, atomic under the GIL. The only real consequence of
+        # a race is staleness -- two documents in flight at the same moment
+        # each see a snapshot that doesn't yet include the other's answer,
+        # so a value both would have corroborated together might not be
+        # enforced until a later document confirms it. That degrades
+        # gracefully (worst case: enforcement kicks in a bit later than
+        # ideal) and never re-introduces the original bug (an unrelated
+        # document's answer getting force-replaced), so no lock is used.
+        self._allowed_value_confirmations: Dict[str, Dict[str, Set[str]]] = {}
         # Cache for fallback retriever (created on-demand, reused across papers)
         self._cached_fallback_retriever = None
         # Excerpt grounding for hallucination detection
@@ -198,6 +231,11 @@ class PaperProcessor:
         # Each entry is (label, image_bytes, mime_type); label (e.g. "Figure 4:
         # <caption>") rides as its own text part immediately before the image.
         self._active_figure_images: List[Tuple[str, bytes, str]] = []
+        # figure_id -> that figure's manifest dict, for the current document —
+        # lets _attach_source_to_excerpts cheaply validate a model-cited
+        # figure_refs entry against what was actually shown this run, instead
+        # of trusting an arbitrary string back from the model.
+        self._active_figures_by_id: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
     def _flatten_extracted(cleaned: Dict[str, Any]) -> Dict[str, str]:
@@ -279,6 +317,7 @@ class PaperProcessor:
             self.llm.delete_context_cache(self._active_context_cache)
             self._active_context_cache = None
         self._active_figure_images = []
+        self._active_figures_by_id = {}
 
     def _ground_and_enforce(
         self, cleaned: Dict[str, Any], source_text: str, context_label: str
@@ -297,16 +336,19 @@ class PaperProcessor:
         """
         if not source_text:
             return cleaned
-        if getattr(self, "_active_figure_images", None):
-            # An answer here may legitimately come from reading an attached
-            # figure image rather than the document's text (e.g. "what color
-            # appears in this figure") — there's no text excerpt to find for
-            # that, so this check can't distinguish "vision-derived" from
-            # "fabricated" and would null out correct answers. Skip grounding
-            # for units with attached images; the text-only path below still
-            # gets full enforcement.
-            return cleaned
+        # ground_all_excerpts only stamps char_start/char_end/grounding_status
+        # onto excerpts -- it never deletes an answer -- so it's safe (and
+        # gives the frontend real highlighting data instead of nothing) to
+        # run it unconditionally, even for units with an attached figure
+        # image. Only the null-ENFORCEMENT loop below is skipped for those
+        # units: an answer there may legitimately come from reading the
+        # image itself (e.g. "what color appears in this figure") rather
+        # than the document's text, so a missing/ungrounded excerpt can't
+        # be distinguished from "vision-derived" vs "fabricated" and
+        # enforcing here would null out correct answers.
         grounding_stats = self.excerpt_grounder.ground_all_excerpts(cleaned, source_text)
+        if getattr(self, "_active_figure_images", None):
+            return cleaned
         if grounding_stats.get("not_found", 0) > 0:
             print(
                 f"📍 Excerpt grounding for {context_label}: "
@@ -329,6 +371,16 @@ class PaperProcessor:
                 exc.get("grounding_status") for exc in excerpts if isinstance(exc, dict)
             }
             grounded = bool(statuses & {"exact", "case_insensitive", "fuzzy"})
+            if not grounded:
+                # A figure-typed excerpt (image-derived answer, matched via
+                # caption fuzzy-matching rather than an attached image) has
+                # no text span to ground and is skipped by ground_all_excerpts
+                # entirely -- it's still legitimate support, same category as
+                # the attached-figure-image carve-out above.
+                grounded = any(
+                    isinstance(exc, dict) and exc.get("type") == "figure"
+                    for exc in excerpts
+                )
             if not grounded:
                 # ExcerptGrounder's fuzzy phase re-verifies a word-level match by
                 # joining the matched words with single spaces and doing a plain
@@ -370,8 +422,21 @@ class PaperProcessor:
         self._active_figure_images empty, degrading to today's text-only
         behavior exactly like figure_extraction_service.py degrades to "no
         figures extracted" on its own failures.
+
+        Not thread-safe: self._active_figure_images/_active_figures_by_id are
+        plain instance attributes reset-then-refilled per document on a
+        PaperProcessor instance that TableBuilder reuses across its whole run
+        (see TableBuilder.__init__). This is safe today only because every
+        caller of this method processes documents in a strictly sequential
+        loop (_process_papers_with_observation_units) rather than through the
+        ThreadPoolExecutor TableBuilder already uses for its other per-paper
+        path (process_single_paper). Do not route this method's callers
+        through that executor without first making this state thread-local
+        (or giving each worker its own PaperProcessor) -- concurrent calls
+        would cross-contaminate figures/citations between documents.
         """
         self._active_figure_images = []
+        self._active_figures_by_id = {}
         if not ENABLE_FIGURE_VISION_CONTEXT:
             return
         if not figures_dir:
@@ -394,6 +459,7 @@ class PaperProcessor:
 
         images: List[Tuple[str, bytes, str]] = []
         attached_ids: Set[str] = set()
+        figures_by_id: Dict[str, Dict[str, Any]] = {}
         for fig in manifest.get("figures", []):
             image_filename = fig.get("image_filename")
             if not image_filename:
@@ -410,11 +476,17 @@ class PaperProcessor:
             fig_id = fig.get("figure_id")
             if fig_id:
                 attached_ids.add(fig_id)
+                # Only a figure whose image was actually attached this run is a
+                # valid citation target — matches what the model was actually
+                # shown, so _attach_source_to_excerpts can't accept a citation
+                # for a figure the model never saw.
+                figures_by_id[fig_id] = fig
 
         if not images:
             return
 
         self._active_figure_images = images
+        self._active_figures_by_id = figures_by_id
         logger.debug(
             "Loaded %d figure image(s) for document context (%s)",
             len(images), manifest_path,
@@ -488,6 +560,152 @@ class PaperProcessor:
                 ):
                     self.suggested_values[col_name][value].append(document_name)
 
+    def _column_dict_for_prompt(self, col: Column) -> dict:
+        """Column spec dict for the EXTRACTION prompt -- unlike col.to_dict()
+        (used for storage/other purposes), this never includes a genuinely
+        categorical allowed_values list, regardless of how many documents
+        have corroborated it.
+
+        Real format constraints (date/number/min-max range -- a structural
+        rule the schema itself declares about output FORMATTING) are kept,
+        since removing those would just make output formatting less
+        consistent for no safety benefit. But a categorical allowed_values
+        list is content the model could simply copy as its "extracted"
+        answer instead of actually looking at this specific document/figure
+        -- which is exactly what was happening (e.g. one document's real
+        figure title got copied verbatim into 6 unrelated documents' rows,
+        each with no supporting excerpt, because the model could just read
+        it off the prompt's own "allowed values" hint). Any reconciling of
+        similar wording across documents now happens strictly AFTER each
+        document has produced its own independently-grounded answer -- see
+        _semantic_matcher, used by postprocess().
+        """
+        d = col.to_dict()
+        if col.allowed_values and not self.json_parser.is_type_constraint(col.allowed_values):
+            d.pop("allowed_values", None)
+        return d
+
+    def _semantic_matcher(self, answer: str, allowed_values: List[str]) -> Optional[str]:
+        """Ask the fast/cheap extraction backend whether `answer` means the
+        same real-world thing as one of `allowed_values`, so wording can be
+        reconciled across documents WITHOUT ever having shown the model
+        those values during extraction (see _column_dict_for_prompt).
+
+        This replaces difflib string-similarity for categorical matching:
+        a fixed ratio threshold is a weak proxy for meaning and fails
+        exactly the free-form, sentence-length answers this column type
+        tends to produce (two genuinely-equivalent descriptions phrased
+        very differently score low on difflib but should read as "the
+        same" semantically). Returns the matched candidate VERBATIM (never
+        text the model invents that isn't actually in allowed_values), or
+        None if nothing matches or the call fails -- callers must treat
+        None as "leave the raw answer as its own, ungrounded-in-anyone-
+        else's-wording answer," never as an error to propagate.
+
+        This is a small, isolated text-only call -- deliberately NOT
+        routed through self._generate(), which would attach the current
+        document's figure images / context cache; neither is relevant or
+        wanted for a plain wording-equivalence check between two strings.
+        """
+        if not answer or not allowed_values:
+            return None
+        candidates_text = "\n".join(f"- {v}" for v in allowed_values)
+        prompt = (
+            "You are checking whether a newly extracted answer means the same "
+            "real-world thing as one of a list of previously accepted answers "
+            "for the same data field, even if worded differently.\n\n"
+            f"New answer: {answer!r}\n\n"
+            f"Previously accepted answers:\n{candidates_text}\n\n"
+            "If the new answer means the same thing as exactly one of the "
+            "previously accepted answers, reply with that accepted answer's "
+            "text VERBATIM and nothing else. If it does not clearly match "
+            "any of them, reply with exactly: NONE"
+        )
+        try:
+            raw = self.llm.generate(prompt, temperature=0, max_output_tokens=200)
+        except Exception:
+            logger.warning(
+                "Semantic allowed-value matcher call failed; leaving answer unmatched",
+                exc_info=True,
+            )
+            return None
+        reply = (raw or "").strip()
+        if reply.upper() == "NONE":
+            return None
+        for v in allowed_values:
+            if v.strip() == reply:
+                return v
+        return None
+
+    def _enforceable_allowed_values(self, column: Column) -> List[str]:
+        """Subset of column.allowed_values corroborated by enough distinct
+        documents (column.auto_expand_threshold) to be safely enforced.
+
+        allowed_values is meant for genuinely categorical columns whose
+        values legitimately recur across documents (e.g. "graph_type":
+        bar chart/line plot/...). A freshly schema-discovered set is seeded
+        from whichever single document happened to be sampled during
+        discovery -- for a column that's actually open-ended/descriptive
+        (each document's real answer is unique), nothing else will ever
+        independently reproduce one of those values, and enforcing it onto
+        an unrelated document's answer silently replaces a correct,
+        document-grounded answer with borrowed text from a different
+        document's subject matter.
+
+        A value only becomes enforceable once `threshold` DISTINCT documents
+        have independently produced it as their own raw answer (see
+        _record_allowed_value_confirmations, which populates
+        self._allowed_value_confirmations from each document's own raw,
+        not-yet-enforced answer). This intentionally counts ALL recorded
+        documents, including whichever one happened to seed the value in
+        the schema in the first place -- schema discovery doesn't record
+        per-value provenance, so there's no way to identify and exclude
+        "the seed" specifically. Requiring the full `threshold` (not
+        `threshold - 1`) is what actually keeps this guardrail meaningful:
+        with the previous `threshold - 1` version, threshold=2 (a common
+        default) meant a value became "enforceable" the moment its OWN
+        seeding document matched it once -- zero independent corroboration
+        actually required, silently defeating the guardrail's purpose. A
+        value that genuinely recurs across documents (e.g. "graph_type":
+        bar chart/line plot/...) still earns enforcement automatically as
+        real documents independently reproduce it; a value that's actually
+        specific to one document's subject matter (e.g. a figure's own
+        title, wrongly seeded as if categorical) never accumulates a
+        second independent occurrence and is simply left as each
+        document's own real answer.
+        """
+        if not column.allowed_values:
+            return []
+        threshold = column.auto_expand_threshold
+        if not threshold or threshold <= 1:
+            return column.allowed_values  # feature disabled -> today's behavior
+        if self.json_parser.is_type_constraint(column.allowed_values):
+            return column.allowed_values  # format rule, not a borrowed-content risk
+        confirmed = self._allowed_value_confirmations.get(column.name, {})
+        return [v for v in column.allowed_values if len(confirmed.get(v, ())) >= threshold]
+
+    def _record_allowed_value_confirmations(
+        self, parsed: Dict[str, Any], columns: List[Column], document_name: str
+    ) -> None:
+        """Record, for each column with allowed_values, whether
+        *document_name*'s own raw answer independently matches one of them --
+        the corroboration signal _enforceable_allowed_values reads. Must run
+        with each column's FULL allowed_values (not the enforceable subset),
+        so a not-yet-trusted value can still accumulate corroboration.
+        """
+        for col in columns:
+            if not col.allowed_values or self.json_parser.is_type_constraint(col.allowed_values):
+                continue
+            entry = parsed.get(col.name)
+            ans = entry.get("answer") if entry else None
+            if not isinstance(ans, str) or not ans.strip():
+                continue
+            matched_value = self.json_parser.matches_allowed_value(ans, col.allowed_values)
+            if matched_value is None:
+                continue
+            bucket = self._allowed_value_confirmations.setdefault(col.name, {})
+            bucket.setdefault(matched_value, set()).add(document_name)
+
     def get_suggested_values(self, threshold: int = 2) -> Dict[str, Dict[str, Any]]:
         """
         Return values that appear in threshold+ documents.
@@ -535,25 +753,162 @@ class PaperProcessor:
                 "⚠️  on_value_extracted callback is NOT SET - cell streaming disabled"
             )
 
+    def _match_excerpt_to_figure_caption(self, excerpt_text: str) -> Optional[str]:
+        """Return the figure_id whose caption this text excerpt best fuzzy-matches, or None.
+
+        Catches the common case where the model quotes a figure's caption
+        back as a normal text excerpt instead of citing it via figure_refs
+        (observed in practice: the model quoted "...POE production..." for
+        an answer whose figure caption actually reads "...PGE
+        production..." — a text-layer artifact, not a paraphrase, so exact
+        matching alone would miss it). Reuses self.excerpt_grounder's
+        exact -> case-insensitive -> fuzzy-sliding-window matching (same
+        0.6 threshold already established for grounding decisions
+        elsewhere) as the candidate gate, called with whichever of
+        {excerpt, caption} is longer as the "source text" being searched
+        within — a caption can span multiple sub-panels ("a, ... b, ...")
+        and be much longer than the quoted fragment.
+
+        Documents can have several figures with similar/overlapping-vocabulary
+        captions (e.g. multiple bar charts), where more than one clears the
+        0.6 gate. Picking the *first* one to clear it (in manifest/page
+        order) previously meant an unrelated excerpt could get attached to
+        the wrong figure whenever a less-similar caption happened to appear
+        earlier in the document than the true match. Every candidate that
+        clears the gate is now scored with a whole-string similarity ratio
+        (difflib.SequenceMatcher) and the highest-scoring one wins; ties keep
+        the earliest (manifest order), same as before.
+
+        Both strings are whitespace-normalized (collapsed to single spaces)
+        before matching. Verified against a real extracted caption: Docling
+        renders captions with stray double-spaces (PDF justification
+        artifacts, e.g. "Fig.  1 a, Stimulation  by  SEM...") that the model
+        doesn't reproduce when quoting them back. ground_excerpt's fuzzy
+        phase re-verifies its own word-level match with `" ".join(...)`
+        (single-spaced) against the *original* (unnormalized) source_text —
+        so without this normalization, a real caption's double-spaces make
+        that re-verification's `.find()` fail and the whole match silently
+        reports "not_found" even though the excerpt and caption agree word
+        for word. Confirmed empirically before writing this.
+        """
+        figures_by_id = getattr(self, "_active_figures_by_id", None) or {}
+        if not figures_by_id:
+            return None
+        norm_excerpt = " ".join(excerpt_text.split())
+        best_figure_id: Optional[str] = None
+        best_score = -1.0
+        for figure_id, fig in figures_by_id.items():
+            caption = (fig.get("caption") or "").strip()
+            if not caption:
+                continue
+            norm_caption = " ".join(caption.split())
+            short, long_ = (
+                (norm_excerpt, norm_caption)
+                if len(norm_excerpt) <= len(norm_caption)
+                else (norm_caption, norm_excerpt)
+            )
+            _, _, status = self.excerpt_grounder.ground_excerpt(short, long_)
+            if status == "not_found":
+                continue
+            score = difflib.SequenceMatcher(None, norm_excerpt, norm_caption).ratio()
+            if score > best_score:
+                best_score = score
+                best_figure_id = figure_id
+        return best_figure_id
+
     def _attach_source_to_excerpts(
         self, data: Dict[str, Any], source_filename: str
     ) -> Dict[str, Any]:
         """Attach source filename to each excerpt in the extracted data.
 
         Converts plain excerpt strings to objects with source info:
-        {"text": "excerpt text", "source": "filename.txt"}
+        {"text": "excerpt text", "source": "filename.txt"} — unless the
+        excerpt text itself fuzzy-matches one of this call's figure
+        captions (see _match_excerpt_to_figure_caption), in which case it
+        becomes a figure-typed excerpt instead, same as an explicit
+        figure_refs citation.
+
+        Also consumes each column's `figure_refs` (a list of figure_id
+        strings the model cited, from the response schema — see
+        schema_builder.build_extraction_response_schema): a cited figure_id
+        that matches self._active_figures_by_id (i.e. a figure actually
+        attached to this call, not an arbitrary string) becomes its own
+        figure-typed excerpt entry, {"type": "figure", "figure_id": ...,
+        "source": source_filename, "caption": ..., "image_filename": ...}.
+        An unresolvable/hallucinated figure_id is dropped rather than stored
+        — same "don't show an unverifiable citation" default as text
+        grounding. `figure_refs` itself is consumed here and not carried
+        into the stored cell (the resulting figure excerpts are the
+        durable record).
+
+        The two routes are NOT run as independent, equally-trusted signals:
+        figure_refs is the model's own explicit self-report, so when a
+        column has at least one resolved figure_refs entry, the caption-match
+        fallback is skipped entirely for that column's text excerpts. The
+        fallback exists specifically to cover columns where the model didn't
+        cite a figure explicitly at all (see _match_excerpt_to_figure_caption)
+        — letting it also run on columns that already have a trustworthy
+        explicit citation only risked a second, independently-guessed (and
+        possibly wrong) figure competing with or contaminating that citation.
         """
+        figures_by_id = getattr(self, "_active_figures_by_id", None) or {}
         for col_name, col_value in data.items():
-            if isinstance(col_value, dict) and "excerpts" in col_value:
-                excerpts = col_value.get("excerpts", [])
-                col_value["excerpts"] = [
-                    (
-                        {"text": exc, "source": source_filename}
-                        if isinstance(exc, str)
-                        else exc
-                    )
-                    for exc in excerpts
-                ]
+            if not isinstance(col_value, dict) or "excerpts" not in col_value:
+                continue
+            excerpts = col_value.get("excerpts", [])
+
+            # Resolve the explicit citation first so we know whether the
+            # caption-match fallback should even run for this column.
+            figure_refs = col_value.pop("figure_refs", None) or []
+            resolved_refs = []
+            for figure_id in figure_refs:
+                fig = figures_by_id.get(figure_id)
+                if not fig:
+                    continue
+                resolved_refs.append({
+                    "type": "figure",
+                    "figure_id": figure_id,
+                    "source": source_filename,
+                    "caption": fig.get("caption"),
+                    "image_filename": fig.get("image_filename"),
+                })
+            allow_caption_fallback = not resolved_refs
+
+            def _wrap(exc):
+                if not isinstance(exc, str):
+                    return exc
+                matched_figure_id = (
+                    self._match_excerpt_to_figure_caption(exc)
+                    if figures_by_id and allow_caption_fallback
+                    else None
+                )
+                if matched_figure_id:
+                    fig = figures_by_id[matched_figure_id]
+                    return {
+                        "type": "figure",
+                        "figure_id": matched_figure_id,
+                        "source": source_filename,
+                        "caption": fig.get("caption"),
+                        "image_filename": fig.get("image_filename"),
+                    }
+                return {"text": exc, "source": source_filename}
+
+            col_value["excerpts"] = [_wrap(exc) for exc in excerpts] + resolved_refs
+
+            # Dedup figure-typed entries by figure_id (kept as a safety net;
+            # with the fallback now mutually exclusive with figure_refs per
+            # column, there's rarely anything left to dedup). Keep text
+            # excerpts and first-seen order as-is.
+            seen_figure_ids = set()
+            deduped = []
+            for exc in col_value["excerpts"]:
+                if isinstance(exc, dict) and exc.get("type") == "figure":
+                    fid = exc.get("figure_id")
+                    if fid in seen_figure_ids:
+                        continue
+                    seen_figure_ids.add(fid)
+                deduped.append(exc)
+            col_value["excerpts"] = deduped
         return data
 
     def _should_skip_truncation(self) -> bool:
@@ -647,7 +1002,7 @@ class PaperProcessor:
             schema.query,
             paper_title,
             eff,
-            [col.to_dict()],
+            [self._column_dict_for_prompt(col)],
             mode="one_by_one",
             strict=strict,
         )
@@ -671,15 +1026,16 @@ class PaperProcessor:
             parsed = self.json_parser.parse_response(raw)
             # Build allowed_values dict for postprocessing
             column_allowed_values = (
-                {col.name: col.allowed_values} if col.allowed_values else {}
+                {col.name: self._enforceable_allowed_values(col)} if col.allowed_values else {}
             )
             cleaned, unmatched = self.json_parser.postprocess(
-                parsed, [col.name], column_allowed_values
+                parsed, [col.name], column_allowed_values, semantic_matcher=self._semantic_matcher
             )
             result = cleaned.get(col.name, {})
 
             # Track unmatched values for schema evolution
             self._track_unmatched_values(unmatched, paper_title)
+            self._record_allowed_value_confirmations(parsed, [col], paper_title)
 
             # Cache the result
             self.cache.put(cache_key, result)
@@ -749,7 +1105,7 @@ class PaperProcessor:
             schema.query,
             paper_title,
             eff,
-            [col.to_dict() for col in columns],
+            [self._column_dict_for_prompt(col) for col in columns],
             mode="all",
             strict=True,  # strict for fallback
             already_extracted=already_extracted,
@@ -782,14 +1138,15 @@ class PaperProcessor:
             requested = [c.name for c in columns]
             # Build allowed_values dict for postprocessing
             column_allowed_values = {
-                c.name: c.allowed_values for c in columns if c.allowed_values
+                c.name: self._enforceable_allowed_values(c) for c in columns if c.allowed_values
             }
             cleaned, unmatched = self.json_parser.postprocess(
-                parsed, requested, column_allowed_values
+                parsed, requested, column_allowed_values, semantic_matcher=self._semantic_matcher
             )
 
             # Track unmatched values for schema evolution
             self._track_unmatched_values(unmatched, paper_title)
+            self._record_allowed_value_confirmations(parsed, columns, paper_title)
 
             debug_dumps.dump_llm_call(
                 pass_name="pass3_batch_fallback",
@@ -873,7 +1230,7 @@ class PaperProcessor:
                     schema.query,
                     paper_title,
                     effective_text,
-                    [c.to_dict() for c in p2_batch],
+                    [self._column_dict_for_prompt(c) for c in p2_batch],
                     mode="all",
                     strict=True,
                     already_extracted=already_flat,
@@ -902,7 +1259,7 @@ class PaperProcessor:
                         self.json_parser.parse_response(raw_re), key_map_re
                     )
                     reorder_allowed = {
-                        c.name: c.allowed_values
+                        c.name: self._enforceable_allowed_values(c)
                         for c in p2_batch
                         if c.allowed_values
                     }
@@ -910,8 +1267,10 @@ class PaperProcessor:
                         parsed_re,
                         [c.name for c in p2_batch],
                         reorder_allowed,
+                        semantic_matcher=self._semantic_matcher,
                     )
                     self._track_unmatched_values(unmatched_re, paper_title)
+                    self._record_allowed_value_confirmations(parsed_re, p2_batch, paper_title)
                     cleaned_re = self._attach_source_to_excerpts(
                         cleaned_re, paper_title
                     )
@@ -1118,7 +1477,7 @@ class PaperProcessor:
                 schema.query,
                 paper_title,
                 eff,
-                [col.to_dict()],
+                [self._column_dict_for_prompt(col)],
                 mode="one_by_one",
                 strict=strict,
             )
@@ -1149,15 +1508,16 @@ class PaperProcessor:
                 parsed = self._remap_response_keys(self.json_parser.parse_response(raw), key_map)
                 # Build allowed_values dict for postprocessing
                 column_allowed_values = (
-                    {col.name: col.allowed_values} if col.allowed_values else {}
+                    {col.name: self._enforceable_allowed_values(col)} if col.allowed_values else {}
                 )
                 cleaned, unmatched = self.json_parser.postprocess(
-                    parsed, [col.name], column_allowed_values
+                    parsed, [col.name], column_allowed_values, semantic_matcher=self._semantic_matcher
                 )
                 result = cleaned.get(col.name, {})
 
                 # Track unmatched values for schema evolution
                 self._track_unmatched_values(unmatched, paper_title)
+                self._record_allowed_value_confirmations(parsed, [col], paper_title)
 
                 # Cache the result
                 self.cache.put(cache_key, result)
@@ -1200,7 +1560,7 @@ class PaperProcessor:
                     schema.query,
                     paper_title,
                     eff,
-                    [c.to_dict() for c in col_batch],
+                    [self._column_dict_for_prompt(c) for c in col_batch],
                     mode="all",
                     strict=False,
                 )
@@ -1236,14 +1596,15 @@ class PaperProcessor:
 
                 requested = [c.name for c in col_batch]
                 column_allowed_values = {
-                    c.name: c.allowed_values
+                    c.name: self._enforceable_allowed_values(c)
                     for c in col_batch
                     if c.allowed_values
                 }
                 batch_cleaned, unmatched = self.json_parser.postprocess(
-                    parsed, requested, column_allowed_values
+                    parsed, requested, column_allowed_values, semantic_matcher=self._semantic_matcher
                 )
                 self._track_unmatched_values(unmatched, paper_title)
+                self._record_allowed_value_confirmations(parsed, col_batch, paper_title)
                 batch_cleaned = self._attach_source_to_excerpts(
                     batch_cleaned, paper_title
                 )
@@ -1883,7 +2244,7 @@ class PaperProcessor:
                 schema.query,
                 f"{paper_title} - {unit_name}",
                 eff,
-                [c.to_dict() for c in col_batch],
+                [self._column_dict_for_prompt(c) for c in col_batch],
                 mode="all",
                 strict=False,
                 already_extracted=already_extracted,
@@ -1936,14 +2297,15 @@ class PaperProcessor:
                 )
                 requested = [c.name for c in col_batch]
                 column_allowed_values = {
-                    c.name: c.allowed_values
+                    c.name: self._enforceable_allowed_values(c)
                     for c in col_batch
                     if c.allowed_values
                 }
                 cleaned, unmatched = self.json_parser.postprocess(
-                    parsed, requested, column_allowed_values
+                    parsed, requested, column_allowed_values, semantic_matcher=self._semantic_matcher
                 )
                 self._track_unmatched_values(unmatched, paper_title)
+                self._record_allowed_value_confirmations(parsed, col_batch, paper_title)
                 cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
 
                 debug_dumps.dump_llm_call(

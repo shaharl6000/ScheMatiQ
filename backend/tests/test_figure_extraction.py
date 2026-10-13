@@ -23,6 +23,7 @@ import pytest
 from docling_core.types.doc import BoundingBox, CoordOrigin
 from docling_core.types.doc.base import Size
 
+from app.models.figures import ExtractedFigure
 from app.services import document_preprocessor as dp
 from app.services import figure_extraction_service as svc
 from app.services.figure_extraction_service import (
@@ -481,8 +482,9 @@ def test_commit_pdf_forwards_documents_dir_to_preprocess(pending_dir, tmp_path, 
     documents_dir through to preprocess_uploaded_file(), which does."""
     captured = {}
 
-    def fake_preprocess(source_path, *, worker_id=None, original_filename=None, documents_dir=None):
+    def fake_preprocess(source_path, *, worker_id=None, original_filename=None, documents_dir=None, figure_stem=None):
         captured["documents_dir"] = documents_dir
+        captured["figure_stem"] = figure_stem
         return dp.ExtractionResult(
             output_path=source_path,
             display_name=source_path.name,
@@ -500,6 +502,48 @@ def test_commit_pdf_forwards_documents_dir_to_preprocess(pending_dir, tmp_path, 
 
     dp.commit_document_to_documents_dir(dest, documents_dir)
     assert captured["documents_dir"] == documents_dir
+    assert captured["figure_stem"] == "whatever"
+
+
+def test_commit_same_stem_pdfs_get_distinct_figure_stems(pending_dir, tmp_path, monkeypatch):
+    """Two PDFs that share a base name (e.g. uploaded from different source
+    folders in separate batches) must not collide when committed into the
+    same documents_dir: persist_figures' rmtree-then-rename would otherwise
+    let the second document's figures silently destroy the first's, even
+    though the .txt files themselves get de-duplicated with a _N suffix.
+    Regression test for the figure_stem plumbing in
+    commit_document_to_documents_dir/preprocess_uploaded_file."""
+    persisted_stems = []
+
+    def fake_extract(pdf_path, documents_dir, *, source_document):
+        return _FigureBuildResult(figures=[], tmp_dir=tmp_path / f"tmp_{len(persisted_stems)}", status="ok", error=None)
+
+    def fake_persist(build_result, documents_dir, doc_stem, *, source_document):
+        persisted_stems.append(doc_stem)
+        return documents_dir / "figures" / doc_stem
+
+    def fake_convert_file(source_path, out_dir, soffice_path, wid):
+        (out_dir / f"{source_path.stem}.txt").write_text("hello", encoding="utf-8")
+        return True, "converted"
+
+    monkeypatch.setattr("app.services.figure_extraction_service.extract_figures", fake_extract)
+    monkeypatch.setattr("app.services.figure_extraction_service.persist_figures", fake_persist)
+    monkeypatch.setattr(dp, "convert_file", fake_convert_file)
+
+    documents_dir = tmp_path / "documents"
+
+    first = pending_dir / "report.pdf"
+    first.write_bytes(b"%PDF-1.4 fake-1")
+    dp.commit_document_to_documents_dir(first, documents_dir)
+
+    second = pending_dir / "report.pdf"
+    second.write_bytes(b"%PDF-1.4 fake-2")
+    dp.commit_document_to_documents_dir(second, documents_dir)
+
+    assert persisted_stems == ["report", "report_1"]
+    # The de-duplicated .txt file matches the figure_stem it was persisted
+    # under, so figures and text stay correlated for the second document too.
+    assert (documents_dir / "report_1.txt").exists()
 
 
 def test_commit_non_pdf_never_touches_figure_extraction(pending_dir, tmp_path, monkeypatch):
@@ -556,6 +600,182 @@ def test_figure_extraction_captionless_image_yields_zero_figures(pending_dir, tm
     result = dp.commit_document_to_documents_dir(dest, documents_dir)
     assert result is not None
     assert not (documents_dir / "figures" / result.stem).exists()
+
+
+# ---------------------------------------------------------------------------
+# Vision-based caption<->image verification (_verify_and_rematch_captions).
+#
+# Docling occasionally links a real caption to the wrong picture on the page
+# (its own layout decision, made before this module sees the document) --
+# these tests cover the best-effort Gemini verification/re-matching pass that
+# catches that, mocked at the Gemini-client boundary (_get_genai_client), no
+# real API calls or Docling models needed.
+# ---------------------------------------------------------------------------
+
+def _make_figure(figure_id, image_filename, caption):
+    return ExtractedFigure(
+        figure_id=figure_id,
+        source_document="paper.pdf",
+        figure_label="Figure",
+        page_no=1,
+        image_filename=image_filename,
+        caption=caption,
+    )
+
+
+def _write_fake_image(tmp_dir, filename):
+    (tmp_dir / filename).write_bytes(b"fake-png-bytes")
+
+
+def test_verify_and_rematch_keeps_caption_on_verified_match(tmp_path, monkeypatch):
+    fig = _make_figure("fig001", "fig001.png", "Fig. 1 a bar chart of X.")
+    _write_fake_image(tmp_path, "fig001.png")
+
+    monkeypatch.setattr(svc, "_verify_figure_caption", lambda *a, **k: (True, "a bar chart of X"))
+
+    def boom(*a, **k):
+        raise AssertionError("Phase B must not run when there is nothing to re-match")
+    monkeypatch.setattr(svc, "_rematch_orphaned_figures", boom)
+
+    result = svc._verify_and_rematch_captions([fig], tmp_path)
+
+    assert result[0].caption == "Fig. 1 a bar chart of X."
+    assert result[0].vision_description == "a bar chart of X"
+    assert result[0].vision_model == svc.FIGURE_CAPTION_VERIFICATION_MODEL
+    assert result[0].vision_extracted_at is not None
+
+
+def test_verify_and_rematch_clears_caption_on_lone_mismatch(tmp_path, monkeypatch):
+    """Only one figure mismatches in the whole document -- nothing to
+    re-pair it against, so Phase B is skipped and the caption is dropped."""
+    fig = _make_figure("fig001", "fig001.png", "Fig. 1 SDS-PAGE gel analysis.")
+    _write_fake_image(tmp_path, "fig001.png")
+
+    monkeypatch.setattr(svc, "_verify_figure_caption", lambda *a, **k: (False, "a bar chart"))
+
+    def boom(*a, **k):
+        raise AssertionError("Phase B must not run for a single mismatch")
+    monkeypatch.setattr(svc, "_rematch_orphaned_figures", boom)
+
+    result = svc._verify_and_rematch_captions([fig], tmp_path)
+
+    assert result[0].caption is None
+    assert result[0].vision_description == "a bar chart"  # still recorded, even though mismatched
+
+
+def test_verify_and_rematch_recovers_swapped_captions(tmp_path, monkeypatch):
+    """Two figures both fail Phase A (each mismatches its own assigned
+    caption); Phase B determines each one's caption actually belongs to the
+    *other* figure -- the real "swap" pattern found in a live session."""
+    fig_a = _make_figure("fig001", "fig001.png", "Fig. 1 SDS-PAGE gel analysis.")
+    fig_b = _make_figure("fig002", "fig002.png", "Fig. 2 a bar chart of X.")
+    _write_fake_image(tmp_path, "fig001.png")
+    _write_fake_image(tmp_path, "fig002.png")
+
+    monkeypatch.setattr(svc, "_verify_figure_caption", lambda *a, **k: (False, None))
+
+    def fake_rematch(orphaned):
+        # orphaned == [(fig_a, bytes, mime), (fig_b, bytes, mime)]
+        assert {fig.figure_id for fig, _, _ in orphaned} == {"fig001", "fig002"}
+        return {"fig001": fig_b.caption, "fig002": fig_a.caption}
+    monkeypatch.setattr(svc, "_rematch_orphaned_figures", fake_rematch)
+
+    result = svc._verify_and_rematch_captions([fig_a, fig_b], tmp_path)
+
+    by_id = {f.figure_id: f for f in result}
+    assert by_id["fig001"].caption == "Fig. 2 a bar chart of X."
+    assert by_id["fig002"].caption == "Fig. 1 SDS-PAGE gel analysis."
+
+
+def test_verify_and_rematch_falls_back_to_none_when_no_rematch_found(tmp_path, monkeypatch):
+    """Phase B runs (>=2 mismatches) but legitimately can't place either one
+    (e.g. their real images were never extracted at all) -- both fall back
+    to captionless rather than a forced wrong pairing."""
+    fig_a = _make_figure("fig001", "fig001.png", "Fig. 1 unrelated caption A.")
+    fig_b = _make_figure("fig002", "fig002.png", "Fig. 2 unrelated caption B.")
+    _write_fake_image(tmp_path, "fig001.png")
+    _write_fake_image(tmp_path, "fig002.png")
+
+    monkeypatch.setattr(svc, "_verify_figure_caption", lambda *a, **k: (False, None))
+    monkeypatch.setattr(svc, "_rematch_orphaned_figures", lambda orphaned: {"fig001": None, "fig002": None})
+
+    result = svc._verify_and_rematch_captions([fig_a, fig_b], tmp_path)
+
+    assert all(f.caption is None for f in result)
+
+
+def test_verify_figure_caption_api_failure_keeps_original_caption(monkeypatch):
+    """A failure constructing the client (missing key, network error, etc.)
+    must degrade to (True, None), not raise or report a false mismatch."""
+    def boom():
+        raise RuntimeError("no API key configured")
+    monkeypatch.setattr(svc, "_get_genai_client", boom)
+
+    matches, description = svc._verify_figure_caption(b"bytes", "image/png", "Fig. 1 a gel.")
+
+    assert matches is True
+    assert description is None
+
+
+def test_rematch_orphaned_figures_parses_real_response_shape(monkeypatch):
+    """Exercises the actual JSON-parsing/label-resolution logic (not just the
+    orchestration around it) against a fake client shaped like the real
+    google-genai response, mirroring test_reference_fill_service.py's
+    _FakeClient/_FakeModels pattern."""
+    fig_a = _make_figure("fig001", "fig001.png", "Fig. 1 SDS-PAGE gel analysis.")
+    fig_b = _make_figure("fig002", "fig002.png", "Fig. 2 a bar chart of X.")
+    orphaned = [(fig_a, b"bytes-a", "image/png"), (fig_b, b"bytes-b", "image/png")]
+
+    captured = {}
+
+    class _FakeModels:
+        def generate_content(self, model, contents, config=None):
+            captured["model"] = model
+            captured["config"] = config
+            payload = json.dumps([
+                {"image": "Image A", "matched_caption": "Caption 2"},
+                {"image": "Image B", "matched_caption": "Caption 1"},
+            ])
+            return type("R", (), {"text": payload})()
+
+    class _FakeClient:
+        models = _FakeModels()
+
+    monkeypatch.setattr(svc, "_get_genai_client", lambda: _FakeClient())
+
+    result = svc._rematch_orphaned_figures(orphaned)
+
+    assert result == {
+        "fig001": "Fig. 2 a bar chart of X.",
+        "fig002": "Fig. 1 SDS-PAGE gel analysis.",
+    }
+    assert captured["model"] == svc.FIGURE_CAPTION_VERIFICATION_MODEL
+
+
+def test_rematch_orphaned_figures_never_assigns_same_caption_twice(monkeypatch):
+    """A malformed/hallucinated response that points two images at the same
+    caption label must not duplicate it -- only the first claim wins."""
+    fig_a = _make_figure("fig001", "fig001.png", "Fig. 1 caption.")
+    fig_b = _make_figure("fig002", "fig002.png", "Fig. 2 caption.")
+    orphaned = [(fig_a, b"bytes-a", "image/png"), (fig_b, b"bytes-b", "image/png")]
+
+    class _FakeModels:
+        def generate_content(self, model, contents, config=None):
+            payload = json.dumps([
+                {"image": "Image A", "matched_caption": "Caption 1"},
+                {"image": "Image B", "matched_caption": "Caption 1"},
+            ])
+            return type("R", (), {"text": payload})()
+
+    class _FakeClient:
+        models = _FakeModels()
+
+    monkeypatch.setattr(svc, "_get_genai_client", lambda: _FakeClient())
+
+    result = svc._rematch_orphaned_figures(orphaned)
+
+    assert result["fig001"] == "Fig. 1 caption."
+    assert result["fig002"] is None
 
 
 def test_link_document_artifacts_into_view_mirrors_figures(tmp_path):
