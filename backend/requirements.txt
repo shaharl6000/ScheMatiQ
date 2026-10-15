@@ -25,6 +25,10 @@ docling>=2.15.0,<3.0.0
 openai>=1.10.0
 together>=0.2.0
 google-genai>=1.0.0
+# datasets 5.1.0 (2026-10-05) requires huggingface-hub>=1.31 and imports
+# BucketNotFoundError unguarded, but transformers<5 forces huggingface-hub<1.0,
+# so the backend crashes at import. Keep datasets below 5.1 until transformers>=5.
+datasets>=2.0.0,<5.1.0
 sentence-transformers>=2.0.0,<5.0.0
 transformers>=4.40.0,<5.0.0
 torch>=2.2.0
