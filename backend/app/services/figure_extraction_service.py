@@ -41,6 +41,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 
+from docling.datamodel.backend_options import ThreadedDoclingParseBackendOptions
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -103,8 +104,23 @@ def _build_converter() -> DocumentConverter:
     pipeline_options.do_ocr = False
     if DOCLING_ARTIFACTS_PATH:
         pipeline_options.artifacts_path = DOCLING_ARTIFACTS_PATH
+    # docling_parse 7.x decodes pages on several native threads by default, and
+    # that path intermittently hits an access violation (a race: the same PDF
+    # crashed in ~3 of 6 runs, killing the process). One parser thread gave 0
+    # crashes in 10 runs with identical figures/text and no slowdown, since the
+    # layout model, not parsing, dominates conversion time.
+    backend_options = ThreadedDoclingParseBackendOptions(
+        parser_threads=1,
+        include_bitmap_images=pipeline_options.generate_picture_images,
+        render_pages=pipeline_options.generate_page_images,
+        render_scale=pipeline_options.images_scale,
+    )
     return DocumentConverter(
-        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=pipeline_options, backend_options=backend_options
+            )
+        }
     )
 
 
