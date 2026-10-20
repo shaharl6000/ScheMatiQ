@@ -186,6 +186,27 @@ class PaperProcessor:
         self.on_warning = on_warning
         # Schema evolution tracking: {column_name: {value: [list of documents]}}
         self.suggested_values: Dict[str, Dict[str, list]] = {}
+        # Corroboration tracking for allowed_values enforcement (see
+        # _enforceable_allowed_values): {column_name: {allowed_value: {documents}}}.
+        # Kept separate from suggested_values, which is reserved for
+        # genuinely novel values proposed for schema evolution.
+        #
+        # Concurrency note: extract_values_for_paper --
+        # which reads and writes this dict via _enforceable_allowed_values/
+        # _record_allowed_value_confirmations -- is reachable through
+        # TableBuilder's ThreadPoolExecutor path (process_single_paper), so
+        # multiple documents can mutate this SAME dict/set concurrently from
+        # different worker threads. Unlike _active_figure_images, this is
+        # safe from corruption: every mutation here is a plain dict/set
+        # setdefault/add, atomic under the GIL. The only real consequence of
+        # a race is staleness -- two documents in flight at the same moment
+        # each see a snapshot that doesn't yet include the other's answer,
+        # so a value both would have corroborated together might not be
+        # enforced until a later document confirms it. That degrades
+        # gracefully (worst case: enforcement kicks in a bit later than
+        # ideal) and never re-introduces the original bug (an unrelated
+        # document's answer getting force-replaced), so no lock is used.
+        self._allowed_value_confirmations: Dict[str, Dict[str, Set[str]]] = {}
         # Cache for fallback retriever (created on-demand, reused across papers)
         self._cached_fallback_retriever = None
         # Excerpt grounding for hallucination detection
@@ -488,6 +509,152 @@ class PaperProcessor:
                 ):
                     self.suggested_values[col_name][value].append(document_name)
 
+    def _column_dict_for_prompt(self, col: Column) -> dict:
+        """Column spec dict for the EXTRACTION prompt -- unlike col.to_dict()
+        (used for storage/other purposes), this never includes a genuinely
+        categorical allowed_values list, regardless of how many documents
+        have corroborated it.
+
+        Real format constraints (date/number/min-max range -- a structural
+        rule the schema itself declares about output FORMATTING) are kept,
+        since removing those would just make output formatting less
+        consistent for no safety benefit. But a categorical allowed_values
+        list is content the model could simply copy as its "extracted"
+        answer instead of actually looking at this specific document/figure
+        -- which is exactly what was happening (e.g. one document's real
+        figure title got copied verbatim into 6 unrelated documents' rows,
+        each with no supporting excerpt, because the model could just read
+        it off the prompt's own "allowed values" hint). Any reconciling of
+        similar wording across documents now happens strictly AFTER each
+        document has produced its own independently-grounded answer -- see
+        _semantic_matcher, used by postprocess().
+        """
+        d = col.to_dict()
+        if col.allowed_values and not self.json_parser.is_type_constraint(col.allowed_values):
+            d.pop("allowed_values", None)
+        return d
+
+    def _semantic_matcher(self, answer: str, allowed_values: List[str]) -> Optional[str]:
+        """Ask the fast/cheap extraction backend whether `answer` means the
+        same real-world thing as one of `allowed_values`, so wording can be
+        reconciled across documents WITHOUT ever having shown the model
+        those values during extraction (see _column_dict_for_prompt).
+
+        This replaces difflib string-similarity for categorical matching:
+        a fixed ratio threshold is a weak proxy for meaning and fails
+        exactly the free-form, sentence-length answers this column type
+        tends to produce (two genuinely-equivalent descriptions phrased
+        very differently score low on difflib but should read as "the
+        same" semantically). Returns the matched candidate VERBATIM (never
+        text the model invents that isn't actually in allowed_values), or
+        None if nothing matches or the call fails -- callers must treat
+        None as "leave the raw answer as its own, ungrounded-in-anyone-
+        else's-wording answer," never as an error to propagate.
+
+        This is a small, isolated text-only call -- deliberately NOT
+        routed through self._generate(), which would attach the current
+        document's figure images / context cache; neither is relevant or
+        wanted for a plain wording-equivalence check between two strings.
+        """
+        if not answer or not allowed_values:
+            return None
+        candidates_text = "\n".join(f"- {v}" for v in allowed_values)
+        prompt = (
+            "You are checking whether a newly extracted answer means the same "
+            "real-world thing as one of a list of previously accepted answers "
+            "for the same data field, even if worded differently.\n\n"
+            f"New answer: {answer!r}\n\n"
+            f"Previously accepted answers:\n{candidates_text}\n\n"
+            "If the new answer means the same thing as exactly one of the "
+            "previously accepted answers, reply with that accepted answer's "
+            "text VERBATIM and nothing else. If it does not clearly match "
+            "any of them, reply with exactly: NONE"
+        )
+        try:
+            raw = self.llm.generate(prompt, temperature=0, max_output_tokens=200)
+        except Exception:
+            logger.warning(
+                "Semantic allowed-value matcher call failed; leaving answer unmatched",
+                exc_info=True,
+            )
+            return None
+        reply = (raw or "").strip()
+        if reply.upper() == "NONE":
+            return None
+        for v in allowed_values:
+            if v.strip() == reply:
+                return v
+        return None
+
+    def _enforceable_allowed_values(self, column: Column) -> List[str]:
+        """Subset of column.allowed_values corroborated by enough distinct
+        documents (column.auto_expand_threshold) to be safely enforced.
+
+        allowed_values is meant for genuinely categorical columns whose
+        values legitimately recur across documents (e.g. "graph_type":
+        bar chart/line plot/...). A freshly schema-discovered set is seeded
+        from whichever single document happened to be sampled during
+        discovery -- for a column that's actually open-ended/descriptive
+        (each document's real answer is unique), nothing else will ever
+        independently reproduce one of those values, and enforcing it onto
+        an unrelated document's answer silently replaces a correct,
+        document-grounded answer with borrowed text from a different
+        document's subject matter.
+
+        A value only becomes enforceable once `threshold` DISTINCT documents
+        have independently produced it as their own raw answer (see
+        _record_allowed_value_confirmations, which populates
+        self._allowed_value_confirmations from each document's own raw,
+        not-yet-enforced answer). This intentionally counts ALL recorded
+        documents, including whichever one happened to seed the value in
+        the schema in the first place -- schema discovery doesn't record
+        per-value provenance, so there's no way to identify and exclude
+        "the seed" specifically. Requiring the full `threshold` (not
+        `threshold - 1`) is what actually keeps this guardrail meaningful:
+        with the previous `threshold - 1` version, threshold=2 (a common
+        default) meant a value became "enforceable" the moment its OWN
+        seeding document matched it once -- zero independent corroboration
+        actually required, silently defeating the guardrail's purpose. A
+        value that genuinely recurs across documents (e.g. "graph_type":
+        bar chart/line plot/...) still earns enforcement automatically as
+        real documents independently reproduce it; a value that's actually
+        specific to one document's subject matter (e.g. a figure's own
+        title, wrongly seeded as if categorical) never accumulates a
+        second independent occurrence and is simply left as each
+        document's own real answer.
+        """
+        if not column.allowed_values:
+            return []
+        threshold = column.auto_expand_threshold
+        if not threshold or threshold <= 1:
+            return column.allowed_values  # feature disabled -> today's behavior
+        if self.json_parser.is_type_constraint(column.allowed_values):
+            return column.allowed_values  # format rule, not a borrowed-content risk
+        confirmed = self._allowed_value_confirmations.get(column.name, {})
+        return [v for v in column.allowed_values if len(confirmed.get(v, ())) >= threshold]
+
+    def _record_allowed_value_confirmations(
+        self, parsed: Dict[str, Any], columns: List[Column], document_name: str
+    ) -> None:
+        """Record, for each column with allowed_values, whether
+        *document_name*'s own raw answer independently matches one of them --
+        the corroboration signal _enforceable_allowed_values reads. Must run
+        with each column's FULL allowed_values (not the enforceable subset),
+        so a not-yet-trusted value can still accumulate corroboration.
+        """
+        for col in columns:
+            if not col.allowed_values or self.json_parser.is_type_constraint(col.allowed_values):
+                continue
+            entry = parsed.get(col.name)
+            ans = entry.get("answer") if entry else None
+            if not isinstance(ans, str) or not ans.strip():
+                continue
+            matched_value = self.json_parser.matches_allowed_value(ans, col.allowed_values)
+            if matched_value is None:
+                continue
+            bucket = self._allowed_value_confirmations.setdefault(col.name, {})
+            bucket.setdefault(matched_value, set()).add(document_name)
+
     def get_suggested_values(self, threshold: int = 2) -> Dict[str, Dict[str, Any]]:
         """
         Return values that appear in threshold+ documents.
@@ -647,7 +814,7 @@ class PaperProcessor:
             schema.query,
             paper_title,
             eff,
-            [col.to_dict()],
+            [self._column_dict_for_prompt(col)],
             mode="one_by_one",
             strict=strict,
         )
@@ -671,15 +838,16 @@ class PaperProcessor:
             parsed = self.json_parser.parse_response(raw)
             # Build allowed_values dict for postprocessing
             column_allowed_values = (
-                {col.name: col.allowed_values} if col.allowed_values else {}
+                {col.name: self._enforceable_allowed_values(col)} if col.allowed_values else {}
             )
             cleaned, unmatched = self.json_parser.postprocess(
-                parsed, [col.name], column_allowed_values
+                parsed, [col.name], column_allowed_values, semantic_matcher=self._semantic_matcher
             )
             result = cleaned.get(col.name, {})
 
             # Track unmatched values for schema evolution
             self._track_unmatched_values(unmatched, paper_title)
+            self._record_allowed_value_confirmations(parsed, [col], paper_title)
 
             # Cache the result
             self.cache.put(cache_key, result)
@@ -749,7 +917,7 @@ class PaperProcessor:
             schema.query,
             paper_title,
             eff,
-            [col.to_dict() for col in columns],
+            [self._column_dict_for_prompt(col) for col in columns],
             mode="all",
             strict=True,  # strict for fallback
             already_extracted=already_extracted,
@@ -782,14 +950,15 @@ class PaperProcessor:
             requested = [c.name for c in columns]
             # Build allowed_values dict for postprocessing
             column_allowed_values = {
-                c.name: c.allowed_values for c in columns if c.allowed_values
+                c.name: self._enforceable_allowed_values(c) for c in columns if c.allowed_values
             }
             cleaned, unmatched = self.json_parser.postprocess(
-                parsed, requested, column_allowed_values
+                parsed, requested, column_allowed_values, semantic_matcher=self._semantic_matcher
             )
 
             # Track unmatched values for schema evolution
             self._track_unmatched_values(unmatched, paper_title)
+            self._record_allowed_value_confirmations(parsed, columns, paper_title)
 
             debug_dumps.dump_llm_call(
                 pass_name="pass3_batch_fallback",
@@ -873,7 +1042,7 @@ class PaperProcessor:
                     schema.query,
                     paper_title,
                     effective_text,
-                    [c.to_dict() for c in p2_batch],
+                    [self._column_dict_for_prompt(c) for c in p2_batch],
                     mode="all",
                     strict=True,
                     already_extracted=already_flat,
@@ -902,7 +1071,7 @@ class PaperProcessor:
                         self.json_parser.parse_response(raw_re), key_map_re
                     )
                     reorder_allowed = {
-                        c.name: c.allowed_values
+                        c.name: self._enforceable_allowed_values(c)
                         for c in p2_batch
                         if c.allowed_values
                     }
@@ -910,8 +1079,10 @@ class PaperProcessor:
                         parsed_re,
                         [c.name for c in p2_batch],
                         reorder_allowed,
+                        semantic_matcher=self._semantic_matcher,
                     )
                     self._track_unmatched_values(unmatched_re, paper_title)
+                    self._record_allowed_value_confirmations(parsed_re, p2_batch, paper_title)
                     cleaned_re = self._attach_source_to_excerpts(
                         cleaned_re, paper_title
                     )
@@ -1118,7 +1289,7 @@ class PaperProcessor:
                 schema.query,
                 paper_title,
                 eff,
-                [col.to_dict()],
+                [self._column_dict_for_prompt(col)],
                 mode="one_by_one",
                 strict=strict,
             )
@@ -1149,15 +1320,16 @@ class PaperProcessor:
                 parsed = self._remap_response_keys(self.json_parser.parse_response(raw), key_map)
                 # Build allowed_values dict for postprocessing
                 column_allowed_values = (
-                    {col.name: col.allowed_values} if col.allowed_values else {}
+                    {col.name: self._enforceable_allowed_values(col)} if col.allowed_values else {}
                 )
                 cleaned, unmatched = self.json_parser.postprocess(
-                    parsed, [col.name], column_allowed_values
+                    parsed, [col.name], column_allowed_values, semantic_matcher=self._semantic_matcher
                 )
                 result = cleaned.get(col.name, {})
 
                 # Track unmatched values for schema evolution
                 self._track_unmatched_values(unmatched, paper_title)
+                self._record_allowed_value_confirmations(parsed, [col], paper_title)
 
                 # Cache the result
                 self.cache.put(cache_key, result)
@@ -1200,7 +1372,7 @@ class PaperProcessor:
                     schema.query,
                     paper_title,
                     eff,
-                    [c.to_dict() for c in col_batch],
+                    [self._column_dict_for_prompt(c) for c in col_batch],
                     mode="all",
                     strict=False,
                 )
@@ -1236,14 +1408,15 @@ class PaperProcessor:
 
                 requested = [c.name for c in col_batch]
                 column_allowed_values = {
-                    c.name: c.allowed_values
+                    c.name: self._enforceable_allowed_values(c)
                     for c in col_batch
                     if c.allowed_values
                 }
                 batch_cleaned, unmatched = self.json_parser.postprocess(
-                    parsed, requested, column_allowed_values
+                    parsed, requested, column_allowed_values, semantic_matcher=self._semantic_matcher
                 )
                 self._track_unmatched_values(unmatched, paper_title)
+                self._record_allowed_value_confirmations(parsed, col_batch, paper_title)
                 batch_cleaned = self._attach_source_to_excerpts(
                     batch_cleaned, paper_title
                 )
@@ -1883,7 +2056,7 @@ class PaperProcessor:
                 schema.query,
                 f"{paper_title} - {unit_name}",
                 eff,
-                [c.to_dict() for c in col_batch],
+                [self._column_dict_for_prompt(c) for c in col_batch],
                 mode="all",
                 strict=False,
                 already_extracted=already_extracted,
@@ -1936,14 +2109,15 @@ class PaperProcessor:
                 )
                 requested = [c.name for c in col_batch]
                 column_allowed_values = {
-                    c.name: c.allowed_values
+                    c.name: self._enforceable_allowed_values(c)
                     for c in col_batch
                     if c.allowed_values
                 }
                 cleaned, unmatched = self.json_parser.postprocess(
-                    parsed, requested, column_allowed_values
+                    parsed, requested, column_allowed_values, semantic_matcher=self._semantic_matcher
                 )
                 self._track_unmatched_values(unmatched, paper_title)
+                self._record_allowed_value_confirmations(parsed, col_batch, paper_title)
                 cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
 
                 debug_dumps.dump_llm_call(
