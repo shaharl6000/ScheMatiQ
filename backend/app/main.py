@@ -65,14 +65,20 @@ from schematiq.core.config import config as lib_config
 lib_config.write_artifacts = DEVELOPER_MODE
 
 
+def _warm_up_docling() -> None:
+    # Imported here, not at module level: importing Docling (and torch) alone
+    # takes seconds, which is why document_preprocessor imports it lazily too.
+    from app.services.figure_extraction_service import warm_up_converter
+
+    warm_up_converter()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load Docling's models in the background as soon as the server starts, so
     # the first PDF upload doesn't pay the model-load time inside its request.
     # Not awaited: startup (and /health) must not wait on it.
-    from app.services.figure_extraction_service import warm_up_converter
-
-    warm_up = asyncio.create_task(asyncio.to_thread(warm_up_converter))
+    warm_up = asyncio.create_task(asyncio.to_thread(_warm_up_docling))
     yield
     warm_up.cancel()
 
