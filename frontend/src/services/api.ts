@@ -254,12 +254,10 @@ export const loadAPI = {
     // measured at ~28s for conversion alone, before request overhead. Scale it
     // like addCloudDocuments below, but with a much higher floor/per-file rate
     // since this path does real per-file CPU-bound ML inference, not just a
-    // cloud copy. The floor also has to absorb a cold start: Docling's
-    // DocumentConverter (layout + table-structure models) is a lazy
-    // per-process singleton, so the very first upload after a backend
-    // restart pays extra one-time model-load time on top of conversion —
-    // real single-paper timeouts were observed at the previous 90s floor.
-    const timeoutMs = Math.max(240000, files.length * 60000);
+    // cloud copy. Docling's models are loaded when the backend starts
+    // (figure_extraction_service.warm_up_converter), so this doesn't need to
+    // cover a model-load cold start.
+    const timeoutMs = Math.max(120000, files.length * 60000);
     const response = await api.post(
       `/load/add-documents/${sessionId}?bypass_limit=${bypassLimit}`,
       formData,

@@ -25,6 +25,7 @@ touching the existing text-extraction path.
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import os
 import shutil
@@ -48,6 +49,8 @@ from app.core.config import (
     FIGURE_CAPTION_VERIFICATION_MODEL,
 )
 from app.models.figures import ExtractedFigure, FigureExtractionManifest
+
+logger = logging.getLogger(__name__)
 
 # scale=1 ~ 72 DPI; the old PDFFigures2 pipeline rendered at 150 DPI (~2.08x).
 _IMAGES_SCALE = 2.0
@@ -109,10 +112,33 @@ def _get_doc_converter() -> Optional[DocumentConverter]:
             return _doc_converter
         try:
             _doc_converter = _build_converter()
-        except Exception:
+        except Exception as e:
+            logger.warning("Docling converter unavailable; figure extraction disabled: %s", e)
             _doc_converter = None
         _converter_resolved = True
         return _doc_converter
+
+
+def warm_up_converter() -> None:
+    """Load Docling's layout/table models ahead of the first upload.
+
+    DocumentConverter() itself is cheap; the model weights load when the PDF
+    pipeline is first initialized, which otherwise happens inside the first
+    upload's request. Called once from the app's startup hook (in a background
+    thread) so that cost is paid before any user is waiting. Never raises.
+    """
+    if not ENABLE_FIGURE_EXTRACTION:
+        return
+    started = time.monotonic()
+    converter = _get_doc_converter()
+    if converter is None:
+        return
+    try:
+        converter.initialize_pipeline(InputFormat.PDF)
+    except Exception as e:
+        logger.warning("Docling warm-up failed; models will load on first upload: %s", e)
+        return
+    logger.info("Docling models loaded in %.1fs", time.monotonic() - started)
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +405,8 @@ def _verify_figure_caption(
         )
         data = json.loads(response.text)
         return bool(data.get("matches")), (data.get("description") or None)
-    except Exception:
+    except Exception as e:
+        logger.warning("Figure caption verification failed; keeping Docling's caption: %s", e)
         return True, None
 
 
@@ -452,7 +479,8 @@ def _rematch_orphaned_figures(
                 result[fig.figure_id] = caption_text_by_label[chosen_label]
                 used_labels.add(chosen_label)
         return result
-    except Exception:
+    except Exception as e:
+        logger.warning("Figure caption re-matching failed; dropping rejected captions: %s", e)
         return fallback
 
 

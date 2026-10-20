@@ -379,8 +379,6 @@ async def get_figure_content(
     }
     return StreamingResponse(io.BytesIO(content), media_type=media_type, headers=headers)
 
-    raise HTTPException(status_code=404, detail="Figure not found in this session")
-
 
 # Per-file ceiling, mirroring the add-documents upload guard.
 _MAX_ATTACH_FILE_BYTES = 25 * 1024 * 1024
