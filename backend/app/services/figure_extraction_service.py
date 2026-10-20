@@ -8,13 +8,13 @@ only those with a resolvable caption, matching the old PDFFigures2 behavior
 (a captionless embedded image, e.g. a signature block, legitimately yields
 zero results, which is not a failure).
 
-There is deliberately no hard wall-clock timeout here. The old subprocess
-call got one for free from `subprocess.run(timeout=...)`, which also gave
-OS-level crash isolation (a JVM hang only killed that subprocess). Docling
-runs on this process directly, so replicating both properties would require
-a persistent worker process; that complexity isn't taken on for this pass
-since Docling doesn't have PDFFigures2's known hang history. If it proves
-necessary, `extract_figures()` is the place to add it.
+Conversion runs in a separate worker process (see app/core/figure_worker.py).
+Docling's native PDF parser can hit an access violation on some PDFs, which
+silently killed the whole backend mid-run. In the worker, a crash only loses
+that one attempt: the worker is replaced and the PDF retried once, then the
+PDF degrades to "no figures". A hung conversion is killed after
+FIGURE_EXTRACTION_TIMEOUT_SECONDS. The worker stays alive between PDFs so the
+Docling models load once, not per document.
 
 Called from document_preprocessor.preprocess_uploaded_file() for every
 uploaded PDF. Never raises: a missing/broken model install, a crashed
@@ -27,11 +27,15 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import multiprocessing
 import os
 import shutil
 import tempfile
 import threading
 import time
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +55,13 @@ from app.core.config import (
 from app.models.figures import ExtractedFigure, FigureExtractionManifest
 
 logger = logging.getLogger(__name__)
+
+# Run Docling in a crash-isolated worker process. Off only for tests that
+# inject a fake in-process converter.
+ISOLATE_FIGURE_EXTRACTION = os.environ.get("ISOLATE_FIGURE_EXTRACTION", "1") != "0"
+_WORKER_TIMEOUT_SECONDS = float(os.environ.get("FIGURE_EXTRACTION_TIMEOUT_SECONDS", "600"))
+# A native crash is intermittent on the same PDF, so one retry often succeeds.
+_WORKER_ATTEMPTS = 2
 
 # scale=1 ~ 72 DPI; the old PDFFigures2 pipeline rendered at 150 DPI (~2.08x).
 _IMAGES_SCALE = 2.0
@@ -561,6 +572,90 @@ def _sweep_stale_staging_dirs(staging_root: Path) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# Crash-isolated worker process
+# ---------------------------------------------------------------------------
+
+_pool_lock = threading.Lock()
+_pool: Optional[ProcessPoolExecutor] = None
+
+
+def _get_pool() -> ProcessPoolExecutor:
+    global _pool
+    if _pool is None:
+        from app.core.figure_worker import init_worker
+
+        crash_log = None
+        log_dir = os.environ.get("BACKEND_LOG_DIR")
+        if log_dir is None and not os.environ.get("RAILWAY_ENVIRONMENT"):
+            log_dir = str(Path(__file__).resolve().parents[2] / "logs")
+        if log_dir:
+            Path(log_dir).mkdir(parents=True, exist_ok=True)
+            crash_log = str(Path(log_dir) / "figure_worker_crash.log")
+        _pool = ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=multiprocessing.get_context("spawn"),
+            initializer=init_worker,
+            initargs=(crash_log,),
+        )
+    return _pool
+
+
+def _discard_pool() -> None:
+    """Kill the worker (crashed or hung) so the next call starts a fresh one."""
+    global _pool
+    pool, _pool = _pool, None
+    if pool is None:
+        return
+    for proc in list((getattr(pool, "_processes", None) or {}).values()):
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        pool.shutdown(wait=False, cancel_futures=True)
+    except Exception:
+        pass
+
+
+def _convert_isolated(pdf_path: Path, tmp_dir: Path, source_document: str) -> List[ExtractedFigure]:
+    """Run Docling for one PDF in the worker process. Raises on failure.
+
+    Serialized by _pool_lock so the timeout measures this PDF only, and so
+    at most one Docling instance (~1.5GB) is resident at a time.
+    """
+    from app.core.figure_worker import convert_pdf_figures
+
+    last_error: Optional[BaseException] = None
+    with _pool_lock:
+        for attempt in range(1, _WORKER_ATTEMPTS + 1):
+            future = _get_pool().submit(
+                convert_pdf_figures, str(pdf_path), str(tmp_dir), source_document
+            )
+            try:
+                records = future.result(timeout=_WORKER_TIMEOUT_SECONDS)
+                return [ExtractedFigure.model_validate(r) for r in records]
+            except BrokenProcessPool as e:
+                logger.warning(
+                    "Docling worker crashed on %s (attempt %d/%d); restarting worker",
+                    pdf_path.name, attempt, _WORKER_ATTEMPTS,
+                )
+                _discard_pool()
+                last_error = e
+            except FutureTimeoutError as e:
+                logger.warning(
+                    "Docling timed out after %.0fs on %s; killing worker, skipping figures",
+                    _WORKER_TIMEOUT_SECONDS, pdf_path.name,
+                )
+                _discard_pool()
+                raise RuntimeError(
+                    f"figure extraction timed out after {_WORKER_TIMEOUT_SECONDS:.0f}s"
+                ) from e
+    raise RuntimeError(
+        f"Docling worker crashed {_WORKER_ATTEMPTS} times on this PDF"
+    ) from last_error
+
+
 def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str) -> Optional[_FigureBuildResult]:
     """Run Docling on pdf_path (still on disk) into a staging dir under
     documents_dir/figures/.
@@ -578,9 +673,12 @@ def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str
     """
     if not ENABLE_FIGURE_EXTRACTION:
         return None
-    converter = _get_doc_converter()
-    if converter is None:
-        return None
+    if ISOLATE_FIGURE_EXTRACTION:
+        converter = None  # built inside the worker process
+    else:
+        converter = _get_doc_converter()
+        if converter is None:
+            return None
 
     staging_root = documents_dir / "figures"
     staging_root.mkdir(parents=True, exist_ok=True)
@@ -588,9 +686,13 @@ def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str
     tmp_dir = Path(tempfile.mkdtemp(prefix=".extract_", dir=str(staging_root)))
 
     try:
-        conv_res = converter.convert(str(pdf_path))
-        figures = _build_figure_records(conv_res.document, tmp_dir, source_document=source_document)
+        if ISOLATE_FIGURE_EXTRACTION:
+            figures = _convert_isolated(pdf_path, tmp_dir, source_document)
+        else:
+            conv_res = converter.convert(str(pdf_path))
+            figures = _build_figure_records(conv_res.document, tmp_dir, source_document=source_document)
     except Exception as e:
+        logger.warning("Figure extraction failed for %s: %s", pdf_path.name, e)
         return _FigureBuildResult([], tmp_dir, status="failed", error=str(e))
 
     try:

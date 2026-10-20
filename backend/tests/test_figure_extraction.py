@@ -38,6 +38,14 @@ def _bbox(l, t, r, b):
     return BoundingBox(l=l, t=t, r=r, b=b, coord_origin=CoordOrigin.BOTTOMLEFT)
 
 LEGAL_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "legal_corpus"
+
+
+@pytest.fixture(autouse=True)
+def _in_process_conversion(monkeypatch):
+    """These tests inject a fake converter into this process, so bypass the
+    crash-isolated worker (covered by the real-PDF integration run)."""
+    monkeypatch.setattr(svc, "ISOLATE_FIGURE_EXTRACTION", False)
+
 FIGURE_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "figures"
 
 
