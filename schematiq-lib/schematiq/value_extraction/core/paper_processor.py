@@ -207,6 +207,9 @@ class PaperProcessor:
         # ideal) and never re-introduces the original bug (an unrelated
         # document's answer getting force-replaced), so no lock is used.
         self._allowed_value_confirmations: Dict[str, Dict[str, Set[str]]] = {}
+        # _semantic_matcher results, keyed by (answer, candidates): the same
+        # answer recurs across units and retries, and each lookup is an LLM call.
+        self._semantic_match_cache: Dict[Tuple[str, Tuple[str, ...]], Optional[str]] = {}
         # Cache for fallback retriever (created on-demand, reused across papers)
         self._cached_fallback_retriever = None
         # Excerpt grounding for hallucination detection
@@ -547,9 +550,10 @@ class PaperProcessor:
         very differently score low on difflib but should read as "the
         same" semantically). Returns the matched candidate VERBATIM (never
         text the model invents that isn't actually in allowed_values), or
-        None if nothing matches or the call fails -- callers must treat
-        None as "leave the raw answer as its own, ungrounded-in-anyone-
-        else's-wording answer," never as an error to propagate.
+        None if nothing matches -- callers must treat None as "leave the raw
+        answer as its own, ungrounded-in-anyone-else's-wording answer,"
+        never as an error to propagate. If the call itself fails, falls back
+        to the difflib string match instead.
 
         This is a small, isolated text-only call -- deliberately NOT
         routed through self._generate(), which would attach the current
@@ -558,6 +562,9 @@ class PaperProcessor:
         """
         if not answer or not allowed_values:
             return None
+        cache_key = (answer, tuple(allowed_values))
+        if cache_key in self._semantic_match_cache:
+            return self._semantic_match_cache[cache_key]
         candidates_text = "\n".join(f"- {v}" for v in allowed_values)
         prompt = (
             "You are checking whether a newly extracted answer means the same "
@@ -571,20 +578,31 @@ class PaperProcessor:
             "any of them, reply with exactly: NONE"
         )
         try:
-            raw = self.llm.generate(prompt, temperature=0, max_output_tokens=200)
+            # thinking_budget=0: on Gemini thinking models, thinking tokens
+            # count against max_output_tokens and can leave no room for the reply.
+            raw = self.llm.generate(
+                prompt, temperature=0, max_output_tokens=200, **self._gemini_kwargs(thinking_budget=0)
+            )
         except Exception:
+            # Not cached, so a later call can retry. Fall back to the string
+            # match postprocess would have used without a matcher: otherwise an
+            # outage would flag every answer as an unmatched (suggested) value.
             logger.warning(
-                "Semantic allowed-value matcher call failed; leaving answer unmatched",
+                "Semantic allowed-value matcher call failed; falling back to string matching",
                 exc_info=True,
             )
-            return None
-        reply = (raw or "").strip()
-        if reply.upper() == "NONE":
-            return None
-        for v in allowed_values:
-            if v.strip() == reply:
-                return v
-        return None
+            return self.json_parser.matches_allowed_value(answer, allowed_values)
+        # Models often wrap the value in quotes or add a trailing period, or
+        # change its case; compare loosely but always return the canonical value.
+        reply = (raw or "").strip().rstrip(".").strip("`\"'").rstrip(".").strip().casefold()
+        result = None
+        if reply != "none":
+            for v in allowed_values:
+                if v.strip().casefold() == reply:
+                    result = v
+                    break
+        self._semantic_match_cache[cache_key] = result
+        return result
 
     def _enforceable_allowed_values(self, column: Column) -> List[str]:
         """Subset of column.allowed_values corroborated by enough distinct

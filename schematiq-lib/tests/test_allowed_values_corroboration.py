@@ -47,8 +47,12 @@ class FakeSelf:
     def __init__(self, llm: Optional[FakeLLM] = None):
         self.json_parser = JSONResponseParser()
         self._allowed_value_confirmations: Dict[str, Dict[str, Set[str]]] = {}
+        self._semantic_match_cache: dict = {}
         if llm is not None:
             self.llm = llm
+
+    def _gemini_kwargs(self, thinking_budget: int = 0) -> dict:
+        return {}
 
 
 def _enforceable(fake_self: FakeSelf, column: FakeColumn) -> List[str]:
@@ -385,6 +389,31 @@ class TestSemanticMatcher:
         s = FakeSelf(llm=FakeLLM(reply=RuntimeError("API down")))
         result = PaperProcessor._semantic_matcher(s, "some answer", ["bar chart"])
         assert result is None
+
+    def test_llm_call_failure_falls_back_to_string_matching(self):
+        """An outage must not turn every answer into an unmatched value --
+        a near-identical answer still matches via difflib."""
+        s = FakeSelf(llm=FakeLLM(reply=RuntimeError("API down")))
+        result = PaperProcessor._semantic_matcher(s, "bar charts", ["bar chart", "line plot"])
+        assert result == "bar chart"
+
+    def test_reply_with_quotes_case_and_period_still_matches_canonical_value(self):
+        s = FakeSelf(llm=FakeLLM(reply='"Bar Chart".'))
+        result = PaperProcessor._semantic_matcher(s, "vertical bars", ["bar chart", "line plot"])
+        assert result == "bar chart"
+
+    def test_repeated_lookup_is_cached(self):
+        s = FakeSelf(llm=FakeLLM(reply="bar chart"))
+        for _ in range(3):
+            assert PaperProcessor._semantic_matcher(s, "vertical bars", ["bar chart"]) == "bar chart"
+        assert len(s.llm.calls) == 1
+
+    def test_failed_call_is_not_cached(self):
+        llm = FakeLLM(reply=RuntimeError("API down"))
+        s = FakeSelf(llm=llm)
+        assert PaperProcessor._semantic_matcher(s, "vertical bars", ["bar chart"]) is None
+        llm.reply = "bar chart"
+        assert PaperProcessor._semantic_matcher(s, "vertical bars", ["bar chart"]) == "bar chart"
 
     def test_no_candidates_short_circuits_without_calling_the_llm(self):
         s = FakeSelf(llm=FakeLLM(reply="bar chart"))
