@@ -1,6 +1,7 @@
 """API routes for observation unit view and merge operations."""
 
 import io
+import json
 import mimetypes
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -303,6 +304,79 @@ async def get_document_content(
             "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
         )
 
+    return StreamingResponse(io.BytesIO(content), media_type=media_type, headers=headers)
+
+
+def _find_figure(session_id: str, figure_id: str) -> Optional[Tuple[Path, dict]]:
+    """Locate a figure's image path and manifest entry by figure_id.
+
+    Scans figures/*/manifest.json under the session's committed and pending
+    document dirs (same search roots _find_local_document uses — figures stay
+    in pending_documents/ until their document is committed) for a figure
+    whose id matches. This doubles as the allowlist: a figure_id is only ever
+    servable if it actually appears in one of this session's own manifests —
+    never a raw caller-supplied path — so this is safe against path traversal
+    the same way get_document_content's name-allowlist is.
+    """
+    for doc_dir_root in local_document_dirs(session_id):
+        figures_root = doc_dir_root / "figures"
+        if not figures_root.is_dir():
+            continue
+        for doc_dir in figures_root.iterdir():
+            if not doc_dir.is_dir():
+                continue
+            manifest_path = doc_dir / "manifest.json"
+            if not manifest_path.is_file():
+                continue
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            for fig in manifest.get("figures", []):
+                if fig.get("figure_id") != figure_id:
+                    continue
+                image_filename = fig.get("image_filename")
+                if not image_filename:
+                    return None
+                image_path = doc_dir / image_filename
+                if not image_path.is_file():
+                    return None
+                return image_path, fig
+    return None
+
+
+@router.get(
+    "/figure-content/{session_id}",
+    summary="Serve an extracted figure image inline",
+    description="Stream the raw bytes of a figure image (extracted from a source document) for inline viewing",
+)
+async def get_figure_content(
+    session_id: str,
+    figure_id: str = Query(..., description="Figure id, e.g. 'paper1_fig003'"),
+):
+    """Serve a Docling-extracted figure's image bytes for the grounding popup
+    and Show Source panel, when a cell's citation points at a figure rather
+    than document text (see paper_processor._attach_source_to_excerpts).
+    """
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    found = _find_figure(session_id, figure_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Figure not found in this session")
+    image_path, fig = found
+
+    content = image_path.read_bytes()
+    media_type = _media_type_for(image_path.name)
+
+    ascii_fallback = image_path.name.encode("ascii", "ignore").decode("ascii").replace('"', "").strip() or "figure"
+    headers = {
+        "Content-Disposition": (
+            f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(image_path.name)}"
+        ),
+        "Cache-Control": "private, max-age=300",
+    }
     return StreamingResponse(io.BytesIO(content), media_type=media_type, headers=headers)
 
 

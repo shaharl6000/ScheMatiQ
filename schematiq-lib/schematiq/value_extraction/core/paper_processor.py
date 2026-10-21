@@ -1,6 +1,7 @@
 """Paper processing for value extraction."""
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import mimetypes
@@ -124,18 +125,28 @@ def _build_figure_label(fig: Dict[str, Any]) -> str:
 
     Without this, an image reaches the model as an anonymous byte blob with
     no way to know it's "Figure 4" versus any other image in the call — an
-    explicit label anchors it, e.g. "Figure 4: Fig. 4. Expression of the
-    a2,3 sialylated...". Degrades gracefully (never raises): label-only or
-    caption-only when a field is missing, "" (no text part at all) if both
-    figure_label/origin_name and caption are absent.
+    explicit label anchors it, e.g. "[figure_id: paper1_fig003] Figure 4:
+    Fig. 4. Expression of the a2,3 sialylated...". The leading
+    "[figure_id: ...]" token is a stable, model-citable identifier (see
+    `figure_refs` on the response schema) distinct from the human-readable
+    "Figure 4" label, which can repeat/reset per document and isn't unique.
+    Degrades gracefully (never raises): missing figure_id, label, or caption
+    are each just omitted rather than raising.
     """
     prefix = " ".join(
         part for part in (fig.get("figure_label"), fig.get("origin_name")) if part
     ).strip()
     caption = (fig.get("caption") or "").strip()
     if prefix and caption:
-        return f"{prefix}: {caption}"
-    return caption or prefix
+        label = f"{prefix}: {caption}"
+    else:
+        label = caption or prefix
+
+    figure_id = (fig.get("figure_id") or "").strip()
+    if not figure_id:
+        return label
+    tag = f"[figure_id: {figure_id}]"
+    return f"{tag} {label}" if label else tag
 
 
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
@@ -198,6 +209,11 @@ class PaperProcessor:
         # Each entry is (label, image_bytes, mime_type); label (e.g. "Figure 4:
         # <caption>") rides as its own text part immediately before the image.
         self._active_figure_images: List[Tuple[str, bytes, str]] = []
+        # figure_id -> that figure's manifest dict, for the current document —
+        # lets _attach_source_to_excerpts cheaply validate a model-cited
+        # figure_refs entry against what was actually shown this run, instead
+        # of trusting an arbitrary string back from the model.
+        self._active_figures_by_id: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
     def _flatten_extracted(cleaned: Dict[str, Any]) -> Dict[str, str]:
@@ -279,6 +295,7 @@ class PaperProcessor:
             self.llm.delete_context_cache(self._active_context_cache)
             self._active_context_cache = None
         self._active_figure_images = []
+        self._active_figures_by_id = {}
 
     def _ground_and_enforce(
         self, cleaned: Dict[str, Any], source_text: str, context_label: str
@@ -297,16 +314,19 @@ class PaperProcessor:
         """
         if not source_text:
             return cleaned
-        if getattr(self, "_active_figure_images", None):
-            # An answer here may legitimately come from reading an attached
-            # figure image rather than the document's text (e.g. "what color
-            # appears in this figure") — there's no text excerpt to find for
-            # that, so this check can't distinguish "vision-derived" from
-            # "fabricated" and would null out correct answers. Skip grounding
-            # for units with attached images; the text-only path below still
-            # gets full enforcement.
-            return cleaned
+        # ground_all_excerpts only stamps char_start/char_end/grounding_status
+        # onto excerpts -- it never deletes an answer -- so it's safe (and
+        # gives the frontend real highlighting data instead of nothing) to
+        # run it unconditionally, even for units with an attached figure
+        # image. Only the null-ENFORCEMENT loop below is skipped for those
+        # units: an answer there may legitimately come from reading the
+        # image itself (e.g. "what color appears in this figure") rather
+        # than the document's text, so a missing/ungrounded excerpt can't
+        # be distinguished from "vision-derived" vs "fabricated" and
+        # enforcing here would null out correct answers.
         grounding_stats = self.excerpt_grounder.ground_all_excerpts(cleaned, source_text)
+        if getattr(self, "_active_figure_images", None):
+            return cleaned
         if grounding_stats.get("not_found", 0) > 0:
             print(
                 f"📍 Excerpt grounding for {context_label}: "
@@ -329,6 +349,16 @@ class PaperProcessor:
                 exc.get("grounding_status") for exc in excerpts if isinstance(exc, dict)
             }
             grounded = bool(statuses & {"exact", "case_insensitive", "fuzzy"})
+            if not grounded:
+                # A figure-typed excerpt (image-derived answer, matched via
+                # caption fuzzy-matching rather than an attached image) has
+                # no text span to ground and is skipped by ground_all_excerpts
+                # entirely -- it's still legitimate support, same category as
+                # the attached-figure-image carve-out above.
+                grounded = any(
+                    isinstance(exc, dict) and exc.get("type") == "figure"
+                    for exc in excerpts
+                )
             if not grounded:
                 # ExcerptGrounder's fuzzy phase re-verifies a word-level match by
                 # joining the matched words with single spaces and doing a plain
@@ -370,8 +400,21 @@ class PaperProcessor:
         self._active_figure_images empty, degrading to today's text-only
         behavior exactly like figure_extraction_service.py degrades to "no
         figures extracted" on its own failures.
+
+        Not thread-safe: self._active_figure_images/_active_figures_by_id are
+        plain instance attributes reset-then-refilled per document on a
+        PaperProcessor instance that TableBuilder reuses across its whole run
+        (see TableBuilder.__init__). This is safe today only because every
+        caller of this method processes documents in a strictly sequential
+        loop (_process_papers_with_observation_units) rather than through the
+        ThreadPoolExecutor TableBuilder already uses for its other per-paper
+        path (process_single_paper). Do not route this method's callers
+        through that executor without first making this state thread-local
+        (or giving each worker its own PaperProcessor) -- concurrent calls
+        would cross-contaminate figures/citations between documents.
         """
         self._active_figure_images = []
+        self._active_figures_by_id = {}
         if not ENABLE_FIGURE_VISION_CONTEXT:
             return
         if not figures_dir:
@@ -394,6 +437,7 @@ class PaperProcessor:
 
         images: List[Tuple[str, bytes, str]] = []
         attached_ids: Set[str] = set()
+        figures_by_id: Dict[str, Dict[str, Any]] = {}
         for fig in manifest.get("figures", []):
             image_filename = fig.get("image_filename")
             if not image_filename:
@@ -410,11 +454,17 @@ class PaperProcessor:
             fig_id = fig.get("figure_id")
             if fig_id:
                 attached_ids.add(fig_id)
+                # Only a figure whose image was actually attached this run is a
+                # valid citation target — matches what the model was actually
+                # shown, so _attach_source_to_excerpts can't accept a citation
+                # for a figure the model never saw.
+                figures_by_id[fig_id] = fig
 
         if not images:
             return
 
         self._active_figure_images = images
+        self._active_figures_by_id = figures_by_id
         logger.debug(
             "Loaded %d figure image(s) for document context (%s)",
             len(images), manifest_path,
@@ -535,25 +585,162 @@ class PaperProcessor:
                 "⚠️  on_value_extracted callback is NOT SET - cell streaming disabled"
             )
 
+    def _match_excerpt_to_figure_caption(self, excerpt_text: str) -> Optional[str]:
+        """Return the figure_id whose caption this text excerpt best fuzzy-matches, or None.
+
+        Catches the common case where the model quotes a figure's caption
+        back as a normal text excerpt instead of citing it via figure_refs
+        (observed in practice: the model quoted "...POE production..." for
+        an answer whose figure caption actually reads "...PGE
+        production..." — a text-layer artifact, not a paraphrase, so exact
+        matching alone would miss it). Reuses self.excerpt_grounder's
+        exact -> case-insensitive -> fuzzy-sliding-window matching (same
+        0.6 threshold already established for grounding decisions
+        elsewhere) as the candidate gate, called with whichever of
+        {excerpt, caption} is longer as the "source text" being searched
+        within — a caption can span multiple sub-panels ("a, ... b, ...")
+        and be much longer than the quoted fragment.
+
+        Documents can have several figures with similar/overlapping-vocabulary
+        captions (e.g. multiple bar charts), where more than one clears the
+        0.6 gate. Picking the *first* one to clear it (in manifest/page
+        order) previously meant an unrelated excerpt could get attached to
+        the wrong figure whenever a less-similar caption happened to appear
+        earlier in the document than the true match. Every candidate that
+        clears the gate is now scored with a whole-string similarity ratio
+        (difflib.SequenceMatcher) and the highest-scoring one wins; ties keep
+        the earliest (manifest order), same as before.
+
+        Both strings are whitespace-normalized (collapsed to single spaces)
+        before matching. Verified against a real extracted caption: Docling
+        renders captions with stray double-spaces (PDF justification
+        artifacts, e.g. "Fig.  1 a, Stimulation  by  SEM...") that the model
+        doesn't reproduce when quoting them back. ground_excerpt's fuzzy
+        phase re-verifies its own word-level match with `" ".join(...)`
+        (single-spaced) against the *original* (unnormalized) source_text —
+        so without this normalization, a real caption's double-spaces make
+        that re-verification's `.find()` fail and the whole match silently
+        reports "not_found" even though the excerpt and caption agree word
+        for word. Confirmed empirically before writing this.
+        """
+        figures_by_id = getattr(self, "_active_figures_by_id", None) or {}
+        if not figures_by_id:
+            return None
+        norm_excerpt = " ".join(excerpt_text.split())
+        best_figure_id: Optional[str] = None
+        best_score = -1.0
+        for figure_id, fig in figures_by_id.items():
+            caption = (fig.get("caption") or "").strip()
+            if not caption:
+                continue
+            norm_caption = " ".join(caption.split())
+            short, long_ = (
+                (norm_excerpt, norm_caption)
+                if len(norm_excerpt) <= len(norm_caption)
+                else (norm_caption, norm_excerpt)
+            )
+            _, _, status = self.excerpt_grounder.ground_excerpt(short, long_)
+            if status == "not_found":
+                continue
+            score = difflib.SequenceMatcher(None, norm_excerpt, norm_caption).ratio()
+            if score > best_score:
+                best_score = score
+                best_figure_id = figure_id
+        return best_figure_id
+
     def _attach_source_to_excerpts(
         self, data: Dict[str, Any], source_filename: str
     ) -> Dict[str, Any]:
         """Attach source filename to each excerpt in the extracted data.
 
         Converts plain excerpt strings to objects with source info:
-        {"text": "excerpt text", "source": "filename.txt"}
+        {"text": "excerpt text", "source": "filename.txt"} — unless the
+        excerpt text itself fuzzy-matches one of this call's figure
+        captions (see _match_excerpt_to_figure_caption), in which case it
+        becomes a figure-typed excerpt instead, same as an explicit
+        figure_refs citation.
+
+        Also consumes each column's `figure_refs` (a list of figure_id
+        strings the model cited, from the response schema — see
+        schema_builder.build_extraction_response_schema): a cited figure_id
+        that matches self._active_figures_by_id (i.e. a figure actually
+        attached to this call, not an arbitrary string) becomes its own
+        figure-typed excerpt entry, {"type": "figure", "figure_id": ...,
+        "source": source_filename, "caption": ..., "image_filename": ...}.
+        An unresolvable/hallucinated figure_id is dropped rather than stored
+        — same "don't show an unverifiable citation" default as text
+        grounding. `figure_refs` itself is consumed here and not carried
+        into the stored cell (the resulting figure excerpts are the
+        durable record).
+
+        The two routes are NOT run as independent, equally-trusted signals:
+        figure_refs is the model's own explicit self-report, so when a
+        column has at least one resolved figure_refs entry, the caption-match
+        fallback is skipped entirely for that column's text excerpts. The
+        fallback exists specifically to cover columns where the model didn't
+        cite a figure explicitly at all (see _match_excerpt_to_figure_caption)
+        — letting it also run on columns that already have a trustworthy
+        explicit citation only risked a second, independently-guessed (and
+        possibly wrong) figure competing with or contaminating that citation.
         """
+        figures_by_id = getattr(self, "_active_figures_by_id", None) or {}
         for col_name, col_value in data.items():
-            if isinstance(col_value, dict) and "excerpts" in col_value:
-                excerpts = col_value.get("excerpts", [])
-                col_value["excerpts"] = [
-                    (
-                        {"text": exc, "source": source_filename}
-                        if isinstance(exc, str)
-                        else exc
-                    )
-                    for exc in excerpts
-                ]
+            if not isinstance(col_value, dict) or "excerpts" not in col_value:
+                continue
+            excerpts = col_value.get("excerpts", [])
+
+            # Resolve the explicit citation first so we know whether the
+            # caption-match fallback should even run for this column.
+            figure_refs = col_value.pop("figure_refs", None) or []
+            resolved_refs = []
+            for figure_id in figure_refs:
+                fig = figures_by_id.get(figure_id)
+                if not fig:
+                    continue
+                resolved_refs.append({
+                    "type": "figure",
+                    "figure_id": figure_id,
+                    "source": source_filename,
+                    "caption": fig.get("caption"),
+                    "image_filename": fig.get("image_filename"),
+                })
+            allow_caption_fallback = not resolved_refs
+
+            def _wrap(exc):
+                if not isinstance(exc, str):
+                    return exc
+                matched_figure_id = (
+                    self._match_excerpt_to_figure_caption(exc)
+                    if figures_by_id and allow_caption_fallback
+                    else None
+                )
+                if matched_figure_id:
+                    fig = figures_by_id[matched_figure_id]
+                    return {
+                        "type": "figure",
+                        "figure_id": matched_figure_id,
+                        "source": source_filename,
+                        "caption": fig.get("caption"),
+                        "image_filename": fig.get("image_filename"),
+                    }
+                return {"text": exc, "source": source_filename}
+
+            col_value["excerpts"] = [_wrap(exc) for exc in excerpts] + resolved_refs
+
+            # Dedup figure-typed entries by figure_id (kept as a safety net;
+            # with the fallback now mutually exclusive with figure_refs per
+            # column, there's rarely anything left to dedup). Keep text
+            # excerpts and first-seen order as-is.
+            seen_figure_ids = set()
+            deduped = []
+            for exc in col_value["excerpts"]:
+                if isinstance(exc, dict) and exc.get("type") == "figure":
+                    fid = exc.get("figure_id")
+                    if fid in seen_figure_ids:
+                        continue
+                    seen_figure_ids.add(fid)
+                deduped.append(exc)
+            col_value["excerpts"] = deduped
         return data
 
     def _should_skip_truncation(self) -> bool:

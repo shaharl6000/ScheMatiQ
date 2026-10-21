@@ -111,6 +111,7 @@ schematiq-lib/dist/
 # Root-level data/research files
 *.txt
 !requirements.txt
+!requirements-dev.txt
 
 # Test scripts at root
 # Test scripts at root (ad-hoc scripts, not the real suite)

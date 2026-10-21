@@ -1,0 +1,8 @@
+# Test-only dependencies (not installed in the production image)
+-r requirements.txt
+
+pytest
+pytest-asyncio
+
+# Builds synthetic PDF fixtures for the column-aware extraction tests
+reportlab>=4.0.0

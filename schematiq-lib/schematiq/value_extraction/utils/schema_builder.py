@@ -117,6 +117,11 @@ def build_extraction_response_schema(
             "answer": {"type": "STRING", "nullable": True},
             "excerpts": {"type": "ARRAY", "items": {"type": "STRING"}},
             "suggested_for_allowed_values": {"type": "BOOLEAN"},
+            # Optional: figure_id(s) (from a shown figure's "[figure_id: ...]"
+            # label, see paper_processor._build_figure_label) that back this
+            # answer, when it came from an attached image rather than text.
+            # Not required — omit/leave empty for a text-backed answer.
+            "figure_refs": {"type": "ARRAY", "items": {"type": "STRING"}},
         },
         "required": ["answer", "excerpts"],
     }

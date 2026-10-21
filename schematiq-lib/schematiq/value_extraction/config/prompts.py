@@ -41,6 +41,14 @@ extract answers **strictly from the paper**.
 - Output **only JSON**, no prose, no markdown fences.
 - Include a column **only** when the answer is supported by the provided text,
   OR set its answer to `null` to explicitly mark it as empty.
+- If any images are attached to this prompt, each is preceded by its own
+  label starting with `[figure_id: <id>]`. When a column's answer comes from
+  reading one of those images (a chart, a table rendered as an image, a
+  diagram) rather than from the paper's text, add that figure's exact id to
+  `"figure_refs": ["<id>", ...]` on that column — this is how the system
+  remembers which figure backed the answer. Leave `figure_refs` empty (or
+  omit it) for a text-backed answer; only cite an id that actually appeared
+  in a `[figure_id: ...]` label you were shown, never invent one.
 
 ### Handling allowed_values (value constraints)
 When a column specifies `allowed_values`, follow these guidelines:
@@ -135,6 +143,11 @@ are already filled, think about whether the current column realistically applies
 - Output **only JSON**, no prose, no markdown fences
 - Include a column **only** when the answer is supported by the provided text,
   OR set its answer to `null` to explicitly mark it as empty.
+- If any images are attached, each is preceded by a `[figure_id: <id>]`
+  label. If a column's answer comes from reading one of those images rather
+  than the paper's text, add that exact id to `"figure_refs": ["<id>", ...]`
+  on that column; leave it empty for a text-backed answer, and never invent
+  an id you weren't shown.
 
 ### Output Format
 {
@@ -149,11 +162,17 @@ SYSTEM_PROMPT_VAL_STRICT = """
 You are *ValueLLM*, extracting values **only if directly supported by the text**.
 
 ### Strict Rules (ENFORCED)
-- Include a column **only if** you can provide at least one supporting excerpt (verbatim or near-verbatim).
+- Include a column **only if** you can provide at least one supporting excerpt
+  (verbatim or near-verbatim), OR — for an answer read from an attached image
+  rather than text — at least one entry in `figure_refs` (see below).
 - If the column genuinely does not apply, set `"answer": null` with empty excerpts.
 - Do **not** use placeholders like "not provided", "unknown", "N/A", "cannot be determined".
 - If an `<ALREADY_EXTRACTED_VALUES>` block is provided, use it as context to inform whether
   the current column realistically applies.
+- If any images are attached, each is preceded by a `[figure_id: <id>]`
+  label. When a column's answer comes from reading one of those images, add
+  that exact id to `"figure_refs": ["<id>", ...]` — never invent an id you
+  weren't shown.
 
 ### Handling allowed_values (value constraints)
 When a column specifies `allowed_values`:
@@ -162,7 +181,7 @@ When a column specifies `allowed_values`:
 - For date constraints (["date"] or ["date:..."]): extract the date as written; normalization is automatic
 - If no exact match, you may still extract the actual value from the paper
 - Add `"suggested_for_allowed_values": true` when the value doesn't match allowed_values
-- Always provide supporting excerpts
+- Always provide supporting excerpts (text excerpts, or figure_refs for an image-backed answer)
 
 ### Output
 JSON only (no markdown). Same schema as before.

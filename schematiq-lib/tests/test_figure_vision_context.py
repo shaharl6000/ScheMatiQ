@@ -35,7 +35,8 @@ def _write_manifest(figures_dir, figures):
     manifest = {"source_document": "doc", "figure_count": len(figures), "figures": figures, "status": "ok"}
     (figures_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     for fig in figures:
-        (figures_dir / fig["image_filename"]).write_bytes(b"fake-image-bytes-" + fig["figure_id"].encode())
+        tag = fig.get("figure_id", "no-id").encode()
+        (figures_dir / fig["image_filename"]).write_bytes(b"fake-image-bytes-" + tag)
 
 
 class TestLoadDocumentFigures:
@@ -70,7 +71,11 @@ class TestLoadDocumentFigures:
         PaperProcessor._load_document_figures(s, figures_dir)
 
         label, _, _ = s._active_figure_images[0]
-        assert label == "Figure 4: Fig. 4. Expression of the a2,3 sialylated CZ-1 epitope."
+        # Leading "[figure_id: ...]" is the model-citable token (see
+        # figure_refs on the response schema) — distinct from the
+        # human-readable "Figure 4" label, which isn't unique across a
+        # document (see test_figure_citations.py for the citation-facing tests).
+        assert label == "[figure_id: doc_fig001] Figure 4: Fig. 4. Expression of the a2,3 sialylated CZ-1 epitope."
 
     def test_label_falls_back_to_caption_only_when_figure_label_missing(self, tmp_path):
         figures_dir = tmp_path / "figures" / "doc"
@@ -82,12 +87,24 @@ class TestLoadDocumentFigures:
         PaperProcessor._load_document_figures(s, figures_dir)
 
         label, _, _ = s._active_figure_images[0]
-        assert label == "A caption."
+        assert label == "[figure_id: doc_fig001] A caption."
 
-    def test_label_is_empty_string_when_no_label_fields_at_all(self, tmp_path):
+    def test_label_is_just_the_figure_id_tag_when_no_other_label_fields(self, tmp_path):
         figures_dir = tmp_path / "figures" / "doc"
         _write_manifest(figures_dir, [
             {"figure_id": "doc_fig001", "image_filename": "doc-Figure1-1.png"},
+        ])
+        s = _make_self()
+
+        PaperProcessor._load_document_figures(s, figures_dir)
+
+        label, _, _ = s._active_figure_images[0]
+        assert label == "[figure_id: doc_fig001]"
+
+    def test_label_is_empty_string_when_figure_id_and_all_other_fields_missing(self, tmp_path):
+        figures_dir = tmp_path / "figures" / "doc"
+        _write_manifest(figures_dir, [
+            {"image_filename": "doc-Figure1-1.png"},
         ])
         s = _make_self()
 

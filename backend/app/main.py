@@ -34,7 +34,9 @@ for _handler in logging.root.handlers:
 # Suppress noisy uvicorn access logs (frontend polling every ~3s floods Railway logs)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
+import asyncio
 import re
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,7 +64,27 @@ from app.core.config import (
 from schematiq.core.config import config as lib_config
 lib_config.write_artifacts = DEVELOPER_MODE
 
+
+def _warm_up_docling() -> None:
+    # Imported here, not at module level: importing Docling (and torch) alone
+    # takes seconds, which is why document_preprocessor imports it lazily too.
+    from app.services.figure_extraction_service import warm_up_converter
+
+    warm_up_converter()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load Docling's models in the background as soon as the server starts, so
+    # the first PDF upload doesn't pay the model-load time inside its request.
+    # Not awaited: startup (and /health) must not wait on it.
+    warm_up = asyncio.create_task(asyncio.to_thread(_warm_up_docling))
+    yield
+    warm_up.cancel()
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title=API_TITLE,
     description=API_DESCRIPTION,
     version=API_VERSION,

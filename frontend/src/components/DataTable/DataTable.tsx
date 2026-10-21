@@ -1653,6 +1653,7 @@ const DataTable: React.FC<DataTableProps> = ({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={modalContent.title}
+        sessionId={sessionId}
         content={(() => {
           // Derive content from live data so undo/refetch updates the modal
           if (modalContent.rowName && modalContent.column) {

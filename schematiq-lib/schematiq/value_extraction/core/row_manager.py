@@ -113,22 +113,31 @@ class RowDataManager:
                 # If both have answers but different, combine them
                 merged_answer = f"{existing_answer}; {new_answer}"
             
-            # Merge excerpts, removing duplicates while preserving order
-            # Handle both old format (plain strings) and new format (objects with text/source)
+            # Merge excerpts, removing duplicates while preserving order.
+            # Handle three shapes: old format (plain strings), text excerpts
+            # (objects with text/source), and figure excerpts (objects with
+            # type: "figure", figure_id — no `text` key at all). A figure
+            # excerpt has nothing to lowercase-compare, so it needs its own
+            # identity key (figure_id) — keying everything off `.text` alone
+            # would give every figure excerpt the same empty-string identity
+            # and silently drop all but (at most) one of them.
             all_excerpts = existing_excerpts + new_excerpts
             unique_excerpts = []
             seen = set()
             for excerpt in all_excerpts:
-                # Extract text content for comparison - handle both formats
-                if isinstance(excerpt, dict):
-                    excerpt_text = excerpt.get('text', '').strip()
+                if isinstance(excerpt, dict) and excerpt.get('type') == 'figure':
+                    figure_id = str(excerpt.get('figure_id', '')).strip()
+                    dedup_key = f"figure:{figure_id.lower()}" if figure_id else None
+                elif isinstance(excerpt, dict):
+                    excerpt_text = str(excerpt.get('text', '')).strip()
+                    dedup_key = excerpt_text.lower() if excerpt_text else None
                 else:
                     excerpt_text = str(excerpt).strip()
+                    dedup_key = excerpt_text.lower() if excerpt_text else None
 
-                excerpt_clean = excerpt_text.lower()
-                if excerpt_clean and excerpt_clean not in seen:
+                if dedup_key and dedup_key not in seen:
                     unique_excerpts.append(excerpt)
-                    seen.add(excerpt_clean)
+                    seen.add(dedup_key)
             
             merged_cell = {
                 'answer': merged_answer,

@@ -107,25 +107,32 @@ class JSONResponseParser:
     def _normalize_parsed(self, data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         """Normalise a parsed JSON dict into the standard column format.
 
-        Each column entry is guaranteed to have "answer" (str) and "excerpts" (list).
+        Each column entry is guaranteed to have "answer" (str), "excerpts"
+        (list), and "figure_refs" (list — figure_id strings the model cited
+        for an image-backed answer; see schema_builder's response schema).
         """
         norm: Dict[str, Dict[str, Any]] = {}
         for col, val in data.items():
             if isinstance(val, dict):
                 answer = val.get("answer", "")
                 excerpts = val.get("excerpts", [])
+                figure_refs = val.get("figure_refs", [])
                 # Preserve explicit null — do NOT convert to the string "None".
                 # postprocess() checks for None and treats it as confirmed-empty.
                 if answer is not None and not isinstance(answer, str):
                     answer = _flatten_answer(answer)
                 if not isinstance(excerpts, list):
                     excerpts = [str(excerpts)]
-                entry: Dict[str, Any] = {"answer": answer, "excerpts": excerpts}
+                if not isinstance(figure_refs, list):
+                    figure_refs = [str(figure_refs)]
+                entry: Dict[str, Any] = {
+                    "answer": answer, "excerpts": excerpts, "figure_refs": figure_refs,
+                }
                 if val.get("suggested_for_allowed_values"):
                     entry["suggested_for_allowed_values"] = True
                 norm[col] = entry
             else:
-                norm[col] = {"answer": str(val), "excerpts": []}
+                norm[col] = {"answer": str(val), "excerpts": [], "figure_refs": []}
         return norm
 
     def _is_placeholder(self, answer: str, excerpts: List[str]) -> bool:
@@ -319,6 +326,7 @@ class JSONResponseParser:
                 continue  # omit missing column
             ans = entry.get("answer", "")
             exs = entry.get("excerpts", [])
+            figs = entry.get("figure_refs", [])
 
             # Explicit null answer = LLM confirmed this column is empty/not applicable.
             # Keep it in the output so it counts as "filled" and won't be retried.
@@ -329,13 +337,19 @@ class JSONResponseParser:
             # Check if LLM flagged this as a suggested new value
             suggested_for_allowed = entry.get("suggested_for_allowed_values", False)
 
-            if self._is_placeholder(ans, exs) or (isinstance(ans, str) and not ans.strip()):
+            # A figure_refs citation counts as "they gave evidence" the same
+            # way a text excerpt does — an image-backed answer legitimately
+            # has no text excerpt, and shouldn't be treated as an unsupported
+            # placeholder just because exs is empty.
+            if self._is_placeholder(ans, exs or figs) or (isinstance(ans, str) and not ans.strip()):
                 continue
             # normalize types
             if not isinstance(ans, str):
                 ans = _flatten_answer(ans)
             if not isinstance(exs, list):
                 exs = [str(exs)]
+            if not isinstance(figs, list):
+                figs = [str(figs)]
 
             # Apply allowed_values normalization (soft enforcement)
             normalized = False
@@ -344,6 +358,8 @@ class JSONResponseParser:
                 ans, normalized, unmatched_original = self._normalize_to_allowed_values(ans, column_allowed_values[col])
 
             out[col] = {"answer": ans, "excerpts": exs}
+            if figs:
+                out[col]["figure_refs"] = figs
             if normalized:
                 out[col]["normalized_to_allowed"] = True
 
