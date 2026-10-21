@@ -6,6 +6,7 @@ import json
 import logging
 import mimetypes
 import re
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
@@ -73,18 +74,59 @@ def _chunk_list(lst: List, size: int) -> Iterator[List]:
         yield lst[i : i + size]
 
 
-# Matches "Fig. 1", "Figure 12", "fig3", etc. Used by _deduplicate_units() to
-# recognize numbered-enumeration unit names, whose embeddings are too similar
-# to each other (differing only by digit) for the semantic-similarity check to
-# reliably tell "Fig. 1" apart from "Fig. 2" — see that method's docstring.
-_NUMBERED_UNIT_RE = re.compile(r"fig(?:ure)?\.?\s*(\d+)", re.IGNORECASE)
+# Names of distinct units often differ only in a small marker -- "Fig. 1" vs
+# "Fig. 7", "NES1" vs "NES2", "residues 54-80" vs "263-284", "B56α" vs "B56β",
+# "N-terminal" vs "C-terminal" -- and embed too close together for any
+# similarity threshold to tell them from genuine naming variants. These markers
+# are compared directly instead; see _distinct_unit_names().
+# "nes2", "sox14a", "b56", "54"; a bare "1a" reads as "1" (Figure 1 = Figure 1a)
+_NUMBERED_TOKEN_RE = re.compile(r"[a-z]+\d+(?:[a-z](?![a-z]))?|\d+")
+# A letter suffix after a hyphen: "BRO-A", "NES-b", "MRTF-B" (not "N-WASP").
+_SUFFIX_LETTER_RE = re.compile(r"(?<=[a-z0-9]-)[a-z](?![a-z0-9])")
+_GREEK_LETTERS = {
+    "α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon", "ζ": "zeta",
+    "η": "eta", "θ": "theta", "ι": "iota", "κ": "kappa", "λ": "lambda", "μ": "mu",
+}
+_GREEK_WORD_RE = re.compile(r"(?<![a-z])(" + "|".join(_GREEK_LETTERS.values()) + r")(?![a-z])")
+_POSITION_WORD_RE = re.compile(
+    r"\b(n|c)[\s-]?(?:terminal|terminus|term)\b|\b(n|c)-?nes\b|\b(central|middle|internal)\b"
+    r"|\b(amino|carboxyl?)[\s-]?terminal\b"
+)
+_POSITION_ALIASES = {"amino": "n", "carboxyl": "c", "carboxy": "c"}
 
 
-def _numbered_unit_id(name: str) -> Optional[str]:
-    """Extract the figure number from a name like 'Fig. 3', or None if the
-    name doesn't match the numbered-figure pattern at all."""
-    m = _NUMBERED_UNIT_RE.search(name or "")
-    return m.group(1) if m else None
+# A standalone capital letter is a type or variant designator ("Influenza A virus").
+_LETTER_DESIGNATOR_RE = re.compile(r"(?<![A-Za-z0-9-])[A-Z](?![A-Za-z0-9-])")
+
+
+def _unit_name_markers(name: str) -> Dict[str, Counter]:
+    letters = set(_LETTER_DESIGNATOR_RE.findall(name or ""))
+    text = (name or "").lower()
+    letters |= {c.upper() for c in _SUFFIX_LETTER_RE.findall(text)}
+    for letter, word in _GREEK_LETTERS.items():
+        text = text.replace(letter, f" {word} ")
+    positions = set()
+    for m in _POSITION_WORD_RE.finditer(text):
+        word = next(g for g in m.groups() if g)
+        positions.add(_POSITION_ALIASES.get(word, word))
+    return {
+        # Counted, so "PGC-1α NES 1" and "PGC-1α NES 2" differ though both contain a 1.
+        "numbers": Counter(_NUMBERED_TOKEN_RE.findall(re.sub(r"[^a-z0-9]+", " ", text))),
+        "greek": Counter(set(_GREEK_WORD_RE.findall(text))),
+        "positions": Counter(positions),
+        "letters": Counter(letters),
+    }
+
+
+def _distinct_unit_names(a: Dict[str, Counter], b: Dict[str, Counter]) -> bool:
+    """True when the names carry conflicting markers: each has a number,
+    Greek letter, terminal position or letter designator the other lacks. A
+    name that only adds markers ("CPEB1 NES" vs "CPEB1 NES (95-104)") is not
+    a conflict."""
+    for kind in ("numbers", "greek", "positions", "letters"):
+        if (a[kind] - b[kind]) and (b[kind] - a[kind]):
+            return True
+    return False
 
 
 # Default batch size for fallback column extraction
@@ -1792,7 +1834,7 @@ class PaperProcessor:
         # Compute embeddings for all unit names
         names = [u.get("unit_name", "") for u in units]
         embeddings = [_embed(name) for name in names]
-        numbered_ids = [_numbered_unit_id(name) for name in names]
+        markers = [_unit_name_markers(name) for name in names]
 
         # Greedy clustering
         clusters: List[List[int]] = []  # each cluster is a list of indices
@@ -1808,19 +1850,13 @@ class PaperProcessor:
                 if j in assigned:
                     continue
 
-                # Both names are numbered-figure references (e.g. "Fig. 1",
-                # "Fig. 2") with different numbers: never merge, regardless of
-                # similarity. Short enumerated names like this embed too close
-                # together for the similarity check below to tell "different
-                # figure" from "same figure, different naming convention" —
-                # empirically, 'Fig. 1' vs 'Fig. 7' (0.89 similarity) scores
-                # lower than genuine duplicates like 'Figure 1' vs 'Figure 1a'
-                # (0.89), so no similarity threshold can separate both cases.
-                if (
-                    numbered_ids[i] is not None
-                    and numbered_ids[j] is not None
-                    and numbered_ids[i] != numbered_ids[j]
-                ):
+                # Names with conflicting markers ("Fig. 1" / "Fig. 7", "NES1" /
+                # "NES2", "B56α" / "B56β", "N-terminal" / "C-terminal") are
+                # different units: never merge, regardless of similarity.
+                # Such names embed too close together for the check below to
+                # tell them apart -- 'Fig. 1' vs 'Fig. 7' (0.89) scores like
+                # the genuine duplicate 'Figure 1' vs 'Figure 1a' (0.89).
+                if _distinct_unit_names(markers[i], markers[j]):
                     continue
 
                 # Check semantic similarity
