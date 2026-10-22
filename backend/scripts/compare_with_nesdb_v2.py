@@ -1005,11 +1005,14 @@ def main(argv=None):
 
     # Per NES: a field counts as recovered if any row of that NES recovered it.
     per_nes = defaultdict(lambda: {"rows": 0, "fields": defaultdict(lambda: None), "entry": None})
+    col_nes = defaultdict(dict)  # column -> NES ID -> did any row of that NES recover it
     for c in cells:
         nes = per_nes[c["nes_id"]]
         r = {"recovered": True, "missed": False}.get(c["result"]) if c["counted"] == "yes" else None
         if r is not None:
             nes["fields"][c["nesdb_field"]] = bool(nes["fields"][c["nesdb_field"]]) or r
+            col_nes[c["column"]][c["nes_id"]] = col_nes[c["column"]].get(c["nes_id"], False) or r
+    col_nes_hits = {col: (sum(d.values()), len(d)) for col, d in col_nes.items()}
     for best in row_results:
         if best:
             per_nes[best[1]["nes_id"]]["rows"] += 1
@@ -1105,11 +1108,13 @@ def main(argv=None):
         args.uniprot_cache.parent.mkdir(parents=True, exist_ok=True)
         args.uniprot_cache.write_text(json.dumps(uniprot_store, indent=1), encoding="utf-8")
 
-    print("\nRecovered per column")
+    print("\nRecovered per column, per NES (an NES counts once, recovered if any of its rows got it; per row in brackets)")
     for col in mapping:
         hits, total = col_hits[col]
+        col_got, col_n = col_nes_hits.get(col, (0, 0))
         note = " - from UniProt, not in totals" if mapping[col] in EXTERNAL_FIELDS and not args.score_external else ""
-        print(f"  {col}: {hits}/{total}" + (f" ({hits / total:.0%})" if total else "") + note)
+        print(f"  {col}: {col_got}/{col_n} NES" + (f" ({col_got / col_n:.0%})" if col_n else "")
+              + f"  [rows {hits}/{total}" + (f" ({hits / total:.0%})" if total else "") + "]" + note)
     if nes_rates:
         print(f"\nPer NES ({len(nes_rates)} NES): average {mean:.0%} of fields recovered, median {median:.0%}, "
               f"pooled {nes_got}/{nes_total} ({nes_got / nes_total:.0%})")
@@ -1153,7 +1158,11 @@ def main(argv=None):
     for col in mapping:
         hits, total = col_hits[col]
         external = mapping[col] in EXTERNAL_FIELDS and not args.score_external
-        summary.append(["Recovered per column", col, f"{hits}/{total}" + (f" ({hits / total:.0%})" if total else ""),
+        col_got, col_n = col_nes_hits.get(col, (0, 0))
+        summary.append(["Recovered per column, per NES", col,
+                        f"{col_got}/{col_n}" + (f" ({col_got / col_n:.0%})" if col_n else ""),
+                        "an NES counts once: recovered if any of its rows recovered it"])
+        summary.append(["Recovered per column, per row", col, f"{hits}/{total}" + (f" ({hits / total:.0%})" if total else ""),
                         f"NESdb field: {mapping[col]}" + ("; from UniProt, not the paper - not in totals" if external else "")])
     if nes_rates:
         summary += [["Per NES", "NES IDs scored", len(nes_rates), ""],
