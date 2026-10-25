@@ -32,6 +32,9 @@ Writes, next to the CSV (or to --out-dir):
   <name>_vs_nesdb_per_nes.csv     per NES ID: how many NESdb fields any row recovered
   <name>_vs_nesdb_per_signal.csv  per paper and NESdb signal: found by sequence / location / missed
   <name>_vs_nesdb_cells.csv       every compared cell, side by side with NESdb
+  <name>_vs_nesdb_precision_recall.csv  per column: precision and recall over the cells NESdb has a value
+                                  for (an empty cell counts only against recall); per NES: precision per row
+                                  giving an NES, recall per NESdb NES
   <name>_vs_nesdb_summary.csv     the printed summary, with a note on how each number was reached
 
 NESdb pages are scraped once and cached in --cache.
@@ -40,13 +43,15 @@ Usage (from the repo root):
     .venv\\Scripts\\python.exe backend\\scripts\\compare_with_nesdb_v2.py <export.csv>
         [--name-col "Full Name"] [--map "CSV column=field" ...] [--skip "CSV column" ...]
         [--docs-dir <project documents folder>] [--score-external]
-        [--llm-judge] [--include-uncited] [--include-doubt] [--refresh]
+        [--llm-judge | --llm-judge-all] [--include-uncited] [--include-doubt] [--refresh]
 
 --docs-dir is the project's documents folder (backend/data/<session id>/documents): every
 paper in it is checked, including papers that produced no rows.
 
 --llm-judge sends free-text cells the rules call a miss (evidence, secondary structure, other
 residues, and mutations written in words) to Gemini (GEMINI_API_KEY from backend/.env) and saves each verdict, so re-runs are free.
+--llm-judge-all has Gemini judge every filled cell the rules call a miss, in every field. A rule hit always
+stands: Gemini can only turn a miss into a match (it misreads peptides inside NESdb's long regions).
 
 Fields for --map: name, alt_names, organism, uniprot, evidence, mutations,
 mutations_export, mutations_crm1, signals, secondary_structure, other_residues,
@@ -469,6 +474,10 @@ LLM_HINTS = {
                  "positions, a deletion, or other positions is not a match.",
 }
 LLM_HINTS["mutations_export"] = LLM_HINTS["mutations_crm1"] = LLM_HINTS["mutations"]
+LLM_HINTS["signals"] = (" NESdb may list several NESs; it is a match if the extracted value is any one of them. It is the "
+                        "same NES when the peptides overlap or one lies inside the other (a core NES inside NESdb's longer "
+                        "region, or the reverse), when they differ by a residue or two, or when the residue ranges overlap "
+                        "even if shifted by a few residues. A range or peptide elsewhere in the protein is not a match.")
 LLM_MODEL = "gemini-3.5-flash-lite"  # the model the backend uses for its own verification calls
 LLM_PROMPT = """You are checking whether an automatic extraction from a scientific paper recovered the value that \
 the curated NESdb database (nuclear export signals) records for the same protein.
@@ -505,7 +514,8 @@ def llm_judge_cells(pending, rows, row_results, mapping, args) -> dict:
         prompt += LLM_HINTS.get(mapping[col], "")
         jobs[(i, col)] = (hashlib.sha1(f"{args.llm_model}\n{prompt}".encode()).hexdigest(), prompt)
     todo = {key: prompt for key, prompt in jobs.values() if key not in saved}
-    print(f"\nLLM judge: {len(pending)} free-text cells the rules missed, {len(todo)} new calls to {args.llm_model}")
+    print(f"\nLLM judge: {len(pending)} cells the rules missed, "
+          f"{len(todo)} new calls to {args.llm_model}")
 
     if todo:
         load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -560,6 +570,27 @@ def same_name(a: str, b: str) -> bool:
     return a.replace(" ", "") == b.replace(" ", "") or f" {a} " in f" {b} " or f" {b} " in f" {a} "
 
 
+def row_names(row: dict, cols: dict) -> list[str]:
+    """The protein names a row gives: full name, alternative names, and its unit name up to 'NES'."""
+    names = [row.get(cols["name"], "")]
+    if cols.get("alt"):
+        names += re.split(r"[,;]", row[cols["alt"]])
+    if cols.get("unit"):
+        names.append(re.sub(r"\bnes\b.*$", "", row[cols["unit"]], flags=re.I))
+    return [n.strip() for n in names if has_value(n)]
+
+
+def names_agree(names: list[str], entry: dict, args) -> bool:
+    """A row name is one of the entry's: close spelling, as whole words, the same words in another order
+    ('UL84 protein' = 'Protein UL84'), or the same once Greek letters are spelled out (IkBa = IκBα)."""
+    entry_raw = [entry.get("full_name", ""), entry.get("name", "")] + re.split(r"[,;]", entry.get("alt_names", ""))
+    entry_compact = set().union(*(compact_name(n) for n in entry_raw if has_value(n))) - {""}
+    entry_words = [sorted(norm(n).split()) for n in entry_names(entry)]
+    return any(name_score(n, entry) >= args.name_threshold - 0.1 or any(same_name(n, en) for en in entry_names(entry))
+               or compact_name(n) & entry_compact or sorted(norm(n).split()) in entry_words
+               for n in names)
+
+
 def match_row(row: dict, cols: dict, by_pmid: dict, by_name: dict, entries: list[dict], args) -> tuple[list[dict], float, str]:
     """Match a row to NESdb entries. Returns (entries, score, how).
 
@@ -567,12 +598,7 @@ def match_row(row: dict, cols: dict, by_pmid: dict, by_name: dict, entries: list
     protein the row names - the paper is ground truth for it. 'name only': the protein is in NESdb
     but NESdb does not cite this paper for it (e.g. a control NES mentioned in passing).
     """
-    names = [row.get(cols["name"], "")]
-    if cols.get("alt"):
-        names += re.split(r"[,;]", row[cols["alt"]])
-    if cols.get("unit"):
-        names.append(re.sub(r"\bnes\b.*$", "", row[cols["unit"]], flags=re.I))
-    names = [n.strip() for n in names if has_value(n)]
+    names = row_names(row, cols)
 
     m = re.match(r"(.*)_(\d{5,9})_full", row.get(cols.get("source") or "", ""))
     if m:
@@ -615,6 +641,24 @@ def row_signal(row: dict, entry: dict, mapping: dict) -> tuple[str | None, dict 
             if any(signal_hit(v, s) == kind for v in values):
                 return kind, s
     return None, None
+
+
+def nes_owners(row: dict, names: list[str], mapping: dict, entries: list[dict], args) -> list[dict]:
+    """NESdb entries one of whose NESs is the row's peptide (8+ shared residues, or all of a shorter NES)
+    and whose names agree with the row's - e.g. the p53 NES that a paper on another protein cites, when
+    the row's name was matched to another entry. A peptide alone is not enough: a control NES (PKI's)
+    written into a row about another protein would move it. Entries whose organism contradicts the
+    row's (an ortholog with a similar NES) are left out."""
+    peptides = [p for p in row_peptides(signal_values(row, mapping)) if len(p) >= 8]
+    if not peptides:
+        return []
+    owners = []
+    for entry in entries:
+        if names_agree(names, entry, args) and any(longest_common(p, s["seq"].upper()) >= min(8, len(s["seq"])) for p in peptides for s in entry_signals(entry)) \
+                and not any(field == "organism" and has_value(row[col]) and COMPARATORS[field](row[col], entry, args)[1] is False
+                            for col, field in mapping.items()):
+            owners.append(entry)
+    return owners
 
 
 # How a row relates to NESdb's NESs for its protein, as shown in the "NES Match" column.
@@ -815,6 +859,9 @@ def main(argv=None):
     parser.add_argument("--name-threshold", type=float, default=0.85, help="Min name similarity to accept a protein match (default: %(default)s)")
     parser.add_argument("--text-threshold", type=float, default=0.6, help="Min similarity for free-text fields (default: %(default)s)")
     parser.add_argument("--llm-judge", action="store_true", help="Ask Gemini about free-text cells the rules call a miss")
+    parser.add_argument("--llm-judge-all", action="store_true",
+                        help="Let Gemini judge every filled cell the rules call a miss, in every field; "
+                             "implies --llm-judge")
     parser.add_argument("--llm-fields", nargs="+", default=list(LLM_FIELDS), choices=list(COMPARATORS),
                         help="NESdb fields the LLM judges (default: %(default)s)")
     parser.add_argument("--llm-model", default=LLM_MODEL, help="Gemini model (default: %(default)s)")
@@ -862,11 +909,6 @@ def main(argv=None):
     found = [match_row(r, cols, by_pmid, by_name, entries, args) for r in rows]
     # Rows matched by name only are listed but not scored: NESdb's values come from other papers.
     matches = [cands if how == "cited" or args.include_uncited else [] for cands, _, how in found]
-    hows = [how for _, _, how in found]
-    print(f"\n{len(rows)} rows: {hows.count('cited')} matched to an NES that NESdb cites the row's paper for, "
-          f"{hows.count('name only')} to an NES NESdb cites other papers for"
-          f"{' (scored too)' if args.include_uncited else ' (not scored; --include-uncited to score)'}, "
-          f"{hows.count('')} not in NESdb")
 
     # Decide which NESdb field each column is compared with.
     forced = {}
@@ -894,6 +936,26 @@ def main(argv=None):
                 continue
             mapping[col], how = field, f"auto, {rate:.0%} agreement"
         print(f"  {col!r} -> {mapping[col]} ({how})")
+
+    # A row whose peptide is none of its name-matched protein's NESs but is another NESdb protein's NES
+    # (a paper citing another protein's NES, or a name matched to the wrong entry) belongs to that protein.
+    moved = 0
+    for i, row in enumerate(rows):
+        cands = found[i][0]
+        if any(row_signal(row, e, mapping)[0] == "sequence" for e in cands):
+            continue
+        owners = nes_owners(row, row_names(row, cols), mapping, entries, args)
+        if owners:
+            m = SOURCE_RE.match(row.get(cols.get("source") or "", ""))
+            cited = [e for e in owners if m and m.group(2) in (e.get("pmids") or [])]
+            found[i] = (cited or owners, 1.0, "cited" if cited else "name only")
+            moved += 1
+    matches = [cands if how == "cited" or args.include_uncited else [] for cands, _, how in found]
+    hows = [how for _, _, how in found]
+    print(f"\n{len(rows)} rows: {hows.count('cited')} matched to an NES that NESdb cites the row's paper for, "
+          f"{hows.count('name only')} to an NES NESdb cites other papers for"
+          f"{' (scored too)' if args.include_uncited else ' (not scored; --include-uncited to score)'}, "
+          f"{hows.count('')} not in NESdb; {moved} rows moved to the NESdb protein whose NES their peptide is")
 
     # Score every cell. A row matching several NES IDs is scored against the one whose NES it gives,
     # then the one it recovers most of. A row about another species or protein is not scored, and
@@ -928,12 +990,14 @@ def main(argv=None):
     def counted(col: str, value: str) -> bool:
         return args.score_external or not is_external(mapping[col], value)
 
-    # Free-text cells the rules missed go to the LLM judge.
+    # Free-text cells the rules missed go to the LLM judge (with --llm-judge-all, missed cells of every field).
+    # Rule hits are never sent: Gemini overruled exact peptide and range hits it could not find in NESdb's long regions.
     judged = {}
-    if args.llm_judge:
+    if args.llm_judge or args.llm_judge_all:
         pending = [(i, col) for i, best in enumerate(row_results) if best
                    for col, (_, r) in best[2].items()
-                   if r is False and mapping[col] in args.llm_fields and has_value(rows[i][col])]
+                   if has_value(rows[i][col]) and r is False and (
+                       counted(col, rows[i][col]) if args.llm_judge_all else mapping[col] in args.llm_fields)]
         judged = llm_judge_cells(pending, rows, row_results, mapping, args)
         for (i, col), (match, reason) in judged.items():
             truth, _ = row_results[i][2][col]
@@ -980,15 +1044,15 @@ def main(argv=None):
                 w.writerow([row[c] for c in columns] + [ids, names, note, f"{score:.2f}", nes_match_text(cls), *check, "", ""])
                 continue
             _, entry, res = best
-            judged = [r for col, (_, r) in res.items() if r in (True, False) and counted(col, row[col])]
+            scored = [r for col, (_, r) in res.items() if r in (True, False) and counted(col, row[col])]
             for col, (_, r) in res.items():
                 if r in (True, False):
                     col_hits[col][0] += r
                     col_hits[col][1] += 1
-            pct = f"{sum(judged) / len(judged):.0%}" if judged else ""
+            pct = f"{sum(scored) / len(scored):.0%}" if scored else ""
             w.writerow([row[c] for c in columns] + [
                 entry["nes_id"], entry.get("full_name", ""), how, f"{score:.2f}", nes_match_text(cls), *check,
-                f"{sum(judged)}/{len(judged)}", pct])
+                f"{sum(scored)}/{len(scored)}", pct])
         external_cols = {c for c in mapping if mapping[c] in EXTERNAL_FIELDS and not args.score_external}
         all_hits = sum(h for c, (h, _) in col_hits.items() if c not in external_cols)
         all_total = sum(t for c, (_, t) in col_hits.items() if c not in external_cols)
@@ -1149,6 +1213,72 @@ def main(argv=None):
         print("  Signals found by location only: "
               + ", ".join(f"{k} {v}" for k, v in sorted(location_quality.items(), key=lambda kv: -kv[1])))
 
+    # Precision and recall. Per column, over the cells NESdb has a value for: a filled cell is TRUE when it
+    # states NESdb's value (the rules' hit, or Gemini's verdict on a rule miss) and FALSE when not;
+    # an empty cell is no answer - left out of precision, a miss for recall.
+    def ratio(a: int, b: int) -> str:
+        return f"{a}/{b} ({a / b:.0%})" if b else ""
+
+    def f1(tp: int, predicted: int, gold: int) -> str:
+        p, r = (tp / predicted if predicted else 0), (tp / gold if gold else 0)
+        return f"{2 * p * r / (p + r):.0%}" if p + r else ""
+
+    pr_rows = []
+    print("\nPrecision / recall per column (cells NESdb has a value for; empty CSV cells count only against recall)")
+    for col in mapping:
+        tp = fp = empty = by_llm = 0
+        for i, best in enumerate(row_results):
+            if not best or best[2][col][1] not in (True, False):
+                continue
+            if not has_value(rows[i][col]):
+                empty += 1
+            elif best[2][col][1]:
+                tp += 1
+            else:
+                fp += 1
+            by_llm += (i, col) in judged
+        predicted, gold = tp + fp, tp + fp + empty
+        note = "from UniProt, not the paper" if mapping[col] in EXTERNAL_FIELDS and not args.score_external else ""
+        pr_rows.append(["Column", col, mapping[col], tp, fp, empty, ratio(tp, predicted), ratio(tp, gold),
+                        f1(tp, predicted, gold), f"{by_llm} of {predicted} filled cells by Gemini", note])
+        print(f"  {col}: precision {ratio(tp, predicted) or '-'}, recall {ratio(tp, gold) or '-'}"
+              f" (TRUE {tp}, FALSE {fp}, empty {empty}; Gemini judged {by_llm})" + (f" - {note}" if note else ""))
+
+    # NESs. Precision per row that gives an NES of an NESdb protein with mapped NESs: TRUE when it is one of
+    # NESdb's NESs, FALSE when it is none of them (an extra NES - NESdb may simply not list it). Rows about
+    # another species/protein, rows giving no NES and proteins NESdb has no mapped NES for are left out.
+    # Recall per NES NESdb cites these papers for, per paper and per distinct NES.
+    seq_rows, loc_rows, extra_rows = classes["sequence"], classes["location"], classes[EXTRA_NES]
+    nes_given = seq_rows + loc_rows + extra_rows
+    best_signal = {}
+    for r in signal_rows:
+        key = (r[2], r[4])
+        best_signal[key] = max(best_signal.get(key, 0), signal_rank.get(r[5], 0))
+    distinct = defaultdict(int)
+    for rank in best_signal.values():
+        distinct[rank] += 1
+    pairs_seq, pairs_loc = statuses["sequence"], statuses["location"]
+    for label, true_rows, true_pairs, true_distinct in [
+            ("by sequence", seq_rows, pairs_seq, distinct[2]),
+            ("by sequence or location", seq_rows + loc_rows, pairs_seq + pairs_loc, distinct[2] + distinct[1])]:
+        pr_rows.append(["NES rows", f"precision {label}", "", true_rows, nes_given - true_rows, "",
+                        ratio(true_rows, nes_given), "", "", f"{extra_rows} rows give an NES NESdb doesn't list", ""])
+        pr_rows.append(["NES per paper", f"recall {label}", "", true_pairs, len(signal_rows) - true_pairs, "", "",
+                        ratio(true_pairs, len(signal_rows)), "", "an NES counts once per paper NESdb cites for it", ""])
+        pr_rows.append(["NES distinct", f"recall {label}", "", true_distinct, len(best_signal) - true_distinct, "", "",
+                        ratio(true_distinct, len(best_signal)), "", "found in at least one of its papers", ""])
+    print(f"\nNES precision (rows giving an NES): by sequence {ratio(seq_rows, nes_given) or '-'}, "
+          f"with location {ratio(seq_rows + loc_rows, nes_given) or '-'} ({extra_rows} rows give an NES NESdb doesn't list)")
+    print(f"NES recall: per paper {ratio(pairs_seq, len(signal_rows)) or '-'} by sequence, "
+          f"{ratio(pairs_seq + pairs_loc, len(signal_rows)) or '-'} with location; distinct NESs "
+          f"{ratio(distinct[2], len(best_signal)) or '-'} by sequence, "
+          f"{ratio(distinct[2] + distinct[1], len(best_signal)) or '-'} with location")
+    with (out_dir / f"{stem}_precision_recall.csv").open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["Section", "Metric", "NESdb Field", "TRUE", "FALSE", "Empty", "Precision", "Recall", "F1",
+                    "Judged / Note", "Note"])
+        w.writerows(pr_rows)
+
     # The same summary as a table, with how each number was reached.
     summary = [["Rows", "CSV rows", len(rows), ""],
                ["Rows", "Matched to an NES NESdb cites the row's paper for", hows.count("cited"), ""],
@@ -1209,7 +1339,7 @@ def main(argv=None):
         w.writerows(summary)
 
     print(f"\n{len(per_nes)} NES IDs covered. Wrote {stem}.csv, {stem}_per_nes.csv, {stem}_per_signal.csv, "
-          f"{stem}_cells.csv, {stem}_summary.csv to {out_dir}")
+          f"{stem}_cells.csv, {stem}_precision_recall.csv, {stem}_summary.csv to {out_dir}")
 
 
 if __name__ == "__main__":
