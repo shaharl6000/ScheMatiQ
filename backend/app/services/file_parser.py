@@ -1085,8 +1085,15 @@ class FileParser:
                                         logger.debug("ast.literal_eval failed for excerpt part: %s — %s", part[:80], parse_err)
                                         # Try regex extraction for cases where ast.literal_eval fails
                                         # (e.g., text contains apostrophes like "it's")
-                                        text_match = re.search(r"'text'\s*:\s*'(.*?)'(?:\s*,\s*'source'|\s*})", part, re.DOTALL)
-                                        source_match = re.search(r"'source'\s*:\s*'(.*?)'", part)
+                                        # The part is one dict, so read to its end: the text runs to the last
+                                        # quote before the closing ", 'source': '...'}" (a lazy (.*?) stopped
+                                        # at an "'}" or "', 'source'" inside the excerpt itself).
+                                        # With a source first: the greedy text would otherwise swallow it.
+                                        text_match = re.match(
+                                            r"\{\s*'text'\s*:\s*'(.*)'\s*,\s*'source'\s*:\s*'[^']*'\s*\}\Z",
+                                            part, re.DOTALL,
+                                        ) or re.match(r"\{\s*'text'\s*:\s*'(.*)'\s*\}\Z", part, re.DOTALL)
+                                        source_match = re.search(r"'source'\s*:\s*'([^']*)'\s*\}\Z", part)
                                         if text_match:
                                             excerpts.append({
                                                 "text": text_match.group(1),

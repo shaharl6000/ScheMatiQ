@@ -4,9 +4,41 @@ Shared by FileParser (flat-row views) and UnitViewService (unit-grouped views)
 so both apply identical semantics to the same row shape.
 """
 
-import re
-from functools import cmp_to_key
+from functools import cmp_to_key, lru_cache
 from typing import Any, Dict, List, Optional, Sequence
+
+# The third-party `regex` engine, not `re`: a 'regex' filter is a pattern the
+# user typed, and only `regex` can stop a catastrophically backtracking one
+# ("(a+)+$") instead of tying up a worker thread.
+import regex
+
+_MAX_FILTER_PATTERN_LENGTH = 500
+_REGEX_TIMEOUT_SECONDS = 0.05
+# Patterns that timed out once: every further row would time out too.
+_timed_out_patterns: set = set()
+
+
+@lru_cache(maxsize=128)
+def _compile_filter_pattern(pattern: str, case_sensitive: bool):
+    """The compiled pattern, or None when it is too long or not valid regex."""
+    if len(pattern) > _MAX_FILTER_PATTERN_LENGTH:
+        return None
+    try:
+        return regex.compile(pattern, 0 if case_sensitive else regex.IGNORECASE)
+    except regex.error:
+        return None
+
+
+def _regex_matches(pattern: str, value: str, case_sensitive: bool) -> bool:
+    key = (pattern, case_sensitive)
+    compiled = _compile_filter_pattern(pattern, case_sensitive)
+    if compiled is None or key in _timed_out_patterns:
+        return False
+    try:
+        return compiled.search(value, timeout=_REGEX_TIMEOUT_SECONDS) is not None
+    except TimeoutError:
+        _timed_out_patterns.add(key)
+        return False
 
 
 def apply_search(
@@ -108,11 +140,7 @@ def _evaluate_filter(cell_value: Any, operator: str, filter_value: Any, case_sen
     if operator == 'endsWith':
         return str_value.endswith(filter_str)
     if operator == 'regex':
-        try:
-            flags = 0 if case_sensitive else re.IGNORECASE
-            return bool(re.search(str(filter_value), str(cell_value), flags))
-        except Exception:
-            return False
+        return _regex_matches(str(filter_value), str(cell_value), case_sensitive)
 
     if operator in ['eq', 'gt', 'lt', 'gte', 'lte', 'between']:
         try:

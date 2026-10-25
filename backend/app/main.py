@@ -124,7 +124,8 @@ app = FastAPI(
 # session that would not open had to read a log where every relevant line said
 # [no-session], including the Supabase calls that failed.
 _SESSION_ID_IN_PATH = re.compile(
-    r"/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+    # A whole path segment, so a longer hex run that merely contains a UUID's shape is not taken for one.
+    r"/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?=/|$)"
 )
 
 

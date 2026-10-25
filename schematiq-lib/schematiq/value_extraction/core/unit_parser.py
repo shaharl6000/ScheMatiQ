@@ -53,7 +53,8 @@ class UnitIdentificationParser:
 
     def __init__(self):
         self.json_fence_re = re.compile(r"```json(.*?)```", re.S)
-        self.last_json_re = re.compile(r"\{[\s\S]*\}\s*$", re.S)
+        # From the first "{" to a "}" that ends the text; anchored so it is tried once (see json_parser).
+        self.last_json_re = re.compile(r"[^{]*(\{[\s\S]*\}\s*)\Z")
 
     def parse_response(self, text: str) -> UnitParseResult:
         """Parse an LLM response for observation unit identification.
@@ -131,9 +132,9 @@ class UnitIdentificationParser:
             return m.group(1).strip()
 
         # Fall back to finding last JSON object
-        m = self.last_json_re.search(text)
+        m = self.last_json_re.match(text)
         if m:
-            return m.group(0)
+            return m.group(1)
 
         raise ValueError("No JSON object found in output")
 

@@ -51,6 +51,16 @@ def _normalize_for_search(text: str) -> str:
     return " ".join(text.split())
 
 
+_UNIT_PREFIX_RE = re.compile(r"^[a-z]{2,5}-")
+# In a raw upload's underscore-separated name the leading lowercase word is the paper's own
+# ("beta-catenin_..."), so the prefix is taken off only when what follows starts a title.
+_UNIT_PREFIX_BEFORE_TITLE_RE = re.compile(r"^[a-z]{2,5}-(?=[A-Z0-9])")
+
+
+def _strip_unit_prefix(name: str) -> str:
+    return (_UNIT_PREFIX_BEFORE_TITLE_RE if "_" in name else _UNIT_PREFIX_RE).sub("", name)
+
+
 def _clean_source_doc_to_title(source_doc: str) -> Optional[str]:
     """Convert a source document name to a searchable paper title.
 
@@ -66,7 +76,7 @@ def _clean_source_doc_to_title(source_doc: str) -> Optional[str]:
     name = source_doc
 
     # Strip observation-unit prefix (2-5 lowercase chars followed by dash)
-    name = re.sub(r"^[a-z]{2,5}-", "", name)
+    name = _strip_unit_prefix(name)
 
     # Handle underscore-separated filenames (raw uploads)
     if "_" in name:
@@ -137,7 +147,7 @@ def _extract_pmid_from_filename(source_doc: str) -> Optional[str]:
     a trailing 6-9 digit number after an underscore, optionally followed
     by ``_full`` and a file extension. Rejects 4-digit runs (likely years).
     """
-    name = re.sub(r"^[a-z]{2,5}-", "", source_doc)
+    name = _strip_unit_prefix(source_doc)
     name = re.sub(r"\.(txt|pdf|doc|docx|md|rtf)$", "", name, flags=re.IGNORECASE)
     name = re.sub(r"_full$", "", name, flags=re.IGNORECASE)
 

@@ -244,7 +244,8 @@ class GTComparator:
     def _numeric_match(self, predicted: str, gt: str) -> ComparisonResult:
         """Handle numeric comparisons."""
         try:
-            pred_num = float(re.search(r'[\d.]+', predicted).group())
+            # A number with its sign, not any run of digits and dots ("1.2.3", ".").
+            pred_num = float(re.search(r'-?\d+(?:\.\d+)?', predicted).group())
             gt_num = float(gt)
 
             # Calculate relative error

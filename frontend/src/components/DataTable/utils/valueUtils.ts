@@ -94,7 +94,12 @@ export function parsePythonString(val: string): unknown {
     // Try targeted parsing for {'text': '...', 'source': '...'} patterns
     // This handles apostrophes within text content correctly
     try {
-      const textMatch = trimmed.match(/\{\s*'text'\s*:\s*'([\s\S]*?)'\s*(?:,\s*'source'\s*:\s*'([\s\S]*?)'\s*)?\}/);
+      // Anchored to the whole dict: the text runs to the last quote before the closing
+      // ", 'source': '...'}" (a lazy match stopped at an "'}" inside the excerpt itself).
+      // With a source first: the greedy text would otherwise swallow it.
+      const textMatch =
+        trimmed.match(/^\{\s*'text'\s*:\s*'([\s\S]*)'\s*,\s*'source'\s*:\s*'([^']*)'\s*\}$/) ??
+        trimmed.match(/^\{\s*'text'\s*:\s*'([\s\S]*)'\s*\}$/);
       if (textMatch) {
         const result: Record<string, string> = { text: textMatch[1] };
         if (textMatch[2]) result.source = textMatch[2];
@@ -105,9 +110,9 @@ export function parsePythonString(val: string): unknown {
     try {
       const jsonified = trimmed
         .replace(/'/g, '"')
-        .replace(/None/g, 'null')
-        .replace(/True/g, 'true')
-        .replace(/False/g, 'false');
+        .replace(/\bNone\b/g, 'null') // whole words, so "Nonetheless" or "Trueman" stay as written
+        .replace(/\bTrue\b/g, 'true')
+        .replace(/\bFalse\b/g, 'false');
       return JSON.parse(jsonified);
     } catch {
       return val;

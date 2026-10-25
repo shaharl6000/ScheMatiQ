@@ -230,7 +230,10 @@ def extract_gene_symbols(alt_names_field):
     symbols = []
     for part in parts:
         part = str(part).strip()
-        if re.match(r"^[A-Z][A-Z0-9]{1,11}$", part):
+        # All capitals (HTT, MEN1, HLA-A), or mixed case with a digit (mouse/yeast Bmal1, Mdm2, Gln3,
+        # C9orf72) -- but not a plain word like "Huntingtin", which would crowd out the real symbols
+        # (only the first three are queried).
+        if re.fullmatch(r"[A-Z][A-Z0-9-]{1,11}|(?=[A-Za-z0-9-]*\d)[A-Za-z][A-Za-z0-9-]{1,11}", part):
             symbols.append(part)
     return symbols
 

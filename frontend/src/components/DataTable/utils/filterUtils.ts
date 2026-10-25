@@ -7,6 +7,68 @@ import {
 } from '../types/filters';
 import { isEmpty } from './valueUtils';
 
+// A 'regex' filter is a pattern the user typed, and JavaScript regexes can't be
+// stopped once running: a catastrophically backtracking one ("(a+)+$") freezes
+// the tab. So patterns of that shape, and overly long ones, are refused, and a
+// cell is tested on its first MAX_REGEX_SUBJECT_LENGTH characters only.
+const MAX_REGEX_PATTERN_LENGTH = 500;
+export const MAX_REGEX_SUBJECT_LENGTH = 10000;
+const regexCache = new Map<string, RegExp | null>();
+
+/**
+ * True when a group that contains a quantifier is itself quantified -- "(a+)+",
+ * "(\w*)*", "(x{1,9})+" -- the shape behind catastrophic backtracking.
+ */
+export function hasNestedQuantifier(pattern: string): boolean {
+  const groupHasQuantifier: boolean[] = [];
+  let inClass = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === '\\') {
+      i++; // the escaped character is a literal
+      continue;
+    }
+    if (inClass) {
+      if (ch === ']') inClass = false;
+      continue;
+    }
+    if (ch === '[') {
+      inClass = true;
+    } else if (ch === '(') {
+      groupHasQuantifier.push(false);
+    } else if (ch === ')') {
+      const inner = groupHasQuantifier.pop() ?? false;
+      const next = pattern[i + 1];
+      const quantified = next === '+' || next === '*' || next === '{';
+      if (inner && quantified) return true;
+      // The enclosing group now contains a quantified (or quantifier-holding) group.
+      if ((inner || quantified) && groupHasQuantifier.length) {
+        groupHasQuantifier[groupHasQuantifier.length - 1] = true;
+      }
+    } else if ((ch === '+' || ch === '*' || ch === '{') && groupHasQuantifier.length) {
+      groupHasQuantifier[groupHasQuantifier.length - 1] = true;
+    }
+  }
+  return false;
+}
+
+/** The user's pattern compiled, or null when it is invalid, too long, or of a backtracking shape. */
+export function compileUserRegex(pattern: string, caseSensitive: boolean): RegExp | null {
+  const key = `${caseSensitive ? 's' : 'i'}:${pattern}`;
+  if (regexCache.has(key)) return regexCache.get(key) ?? null;
+  let regex: RegExp | null = null;
+  if (pattern.length <= MAX_REGEX_PATTERN_LENGTH && !hasNestedQuantifier(pattern)) {
+    try {
+      regex = new RegExp(pattern, caseSensitive ? '' : 'i');
+    } catch {
+      regex = null;
+    }
+  }
+  if (regexCache.size > 100) regexCache.clear();
+  regexCache.set(key, regex);
+  return regex;
+}
+
 /**
  * Apply all filter rules to a set of rows
  */
@@ -82,13 +144,10 @@ function evaluateFilterRule(value: CellValue, rule: FilterRule): boolean {
         return compareValue.startsWith(compareSearch);
       case 'endsWith':
         return compareValue.endsWith(compareSearch);
-      case 'regex':
-        try {
-          const regex = new RegExp(searchValue, caseSensitive ? '' : 'i');
-          return regex.test(stringValue);
-        } catch {
-          return false;
-        }
+      case 'regex': {
+        const regex = compileUserRegex(searchValue, caseSensitive);
+        return regex !== null && regex.test(stringValue.slice(0, MAX_REGEX_SUBJECT_LENGTH));
+      }
       default:
         return true;
     }

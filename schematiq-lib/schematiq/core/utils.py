@@ -361,12 +361,12 @@ def fit_prompt(
         title, sep, abstract = block.partition("Paper content:")
         if not sep:                       # separator missing → leave as‑is
             return block
-        sentences = re.split(r"(?<=[.!?])\\s+", abstract.strip())
+        sentences = re.split(r"(?<=[.!?])\s+", abstract.strip())
         short_abs = " ".join(sentences[:sentence_cap])
         return f"{title}{sep} {short_abs}"
 
-    header, _, papers_blob = user_msg.partition("\\n\\nPapers:\\n\\n")
-    blocks = papers_blob.split("\\n\\n") if papers_blob else []
+    header, _, papers_blob = user_msg.partition("\n\nPapers:\n\n")
+    blocks = papers_blob.split("\n\n") if papers_blob else []
 
     full_len = n_tokens(user_msg) + max_new
     if full_len <= context_window_size - SAFETY_MARGIN:
@@ -375,7 +375,7 @@ def fit_prompt(
     # 1) shorten Paper contents ----------------------------------------
     for cap in sentence_levels:
         new_blocks = [shorten(b, cap) for b in blocks]
-        short_prompt = header + "\\n\\nPapers:\\n\\n" + "\\n\\n".join(new_blocks)
+        short_prompt = header + "\n\nPapers:\n\n" + "\n\n".join(new_blocks)
         if n_tokens(short_prompt) + max_new <= context_window_size - safety_margins:
             print(f"✂️  Trimmed Paper contents to ≤ {cap} sentences each.")
             messages[1]["content"] = short_prompt
@@ -384,7 +384,7 @@ def fit_prompt(
     # 2) drop papers from the end --------------------------------------
     while blocks:
         blocks.pop()
-        short_prompt = header + "\\n\\nPapers:\\n\\n" + "\\n\\n".join(blocks)
+        short_prompt = header + "\n\nPapers:\n\n" + "\n\n".join(blocks)
         if n_tokens(short_prompt) + max_new <= context_window_size - safety_margins:
             print(f"📄  Dropped papers – {len(blocks)} remain.")
             messages[1]["content"] = short_prompt

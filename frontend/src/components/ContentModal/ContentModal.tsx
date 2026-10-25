@@ -63,9 +63,9 @@ const parsePythonString = (val: string): any => {
     try {
       const jsonified = trimmed
         .replace(/'/g, '"')
-        .replace(/None/g, 'null')
-        .replace(/True/g, 'true')
-        .replace(/False/g, 'false');
+        .replace(/\bNone\b/g, 'null') // whole words, so "Nonetheless" or "Trueman" stay as written
+        .replace(/\bTrue\b/g, 'true')
+        .replace(/\bFalse\b/g, 'false');
       return JSON.parse(jsonified);
     } catch {
       return val;

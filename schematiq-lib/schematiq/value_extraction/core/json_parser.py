@@ -47,7 +47,9 @@ class JSONResponseParser:
 
     def __init__(self):
         self.json_fence_re = re.compile(r"```json(.*?)```", re.S)
-        self.last_js_re = re.compile(r"\{[\s\S]*\}\s*$", re.S)
+        # From the first "{" to a "}" that ends the text. Anchored at the start with [^{]* so it is tried
+        # once; unanchored, search() retried from every "{" and each try scanned to the end (quadratic).
+        self.last_js_re = re.compile(r"[^{]*(\{[\s\S]*\}\s*)\Z")
         self.placeholder_re = re.compile(
             r"^(not\s+provided|not\s+specified|not\s+mentioned|no\s+(information|data)|"
             r"cannot\s+be\s+determined|unknown|n/?a|no\s+answer|insufficient\s+information|"
@@ -61,10 +63,10 @@ class JSONResponseParser:
         candidate = m.group(1).strip() if m else None
 
         if candidate is None:
-            m = self.last_js_re.search(text)
+            m = self.last_js_re.match(text)
             if not m:
                 raise ValueError("No JSON object found in output.")
-            candidate = m.group(0)
+            candidate = m.group(1)
 
         return candidate
     

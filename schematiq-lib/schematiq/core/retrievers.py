@@ -55,7 +55,9 @@ def safe_parse_json(text: str, fallback_key: Optional[str] = None) -> Dict[str, 
     if fallback_key == "ranked":
         ranked = []
         # find {"i": 3, "score": 0.87} like objects
-        for m in re.finditer(r'\{\s*"i"\s*:\s*(\d+).*?"score"\s*:\s*([0-9.]+)', candidate, re.S):
+        # [^{}]*? keeps "i" and "score" in the same object (.*? paired one object's i with the next one's
+        # score), and the score is a number, not any run of digits and dots.
+        for m in re.finditer(r'\{\s*"i"\s*:\s*(\d+)[^{}]*?"score"\s*:\s*(\d+(?:\.\d+)?)', candidate):
             ranked.append({"i": int(m.group(1)), "score": float(m.group(2))})
         if ranked:
             return {"ranked": ranked}

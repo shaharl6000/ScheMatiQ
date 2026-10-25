@@ -604,7 +604,12 @@ class DataCollectionService:
     @staticmethod
     def _sanitize_config(config: Dict[str, Any]) -> Dict[str, Any]:
         """Recursively strip keys that look like secrets and values that look like API keys."""
-        secret_key_re = re.compile(r"(api_key|secret|token|password|credential)\b", re.IGNORECASE)
+        # Plurals and spellings too ("credentials", "api-keys", "apiKey", "passwd"); a bare "token" only at the
+        # end of the key, so "access_token" is redacted but "max_tokens" is kept.
+        secret_key_re = re.compile(
+            r"(?:api[_-]?keys?|secrets?|passwords?|passwd|credentials?|private[_-]?keys?|token)(?![a-z])",
+            re.IGNORECASE,
+        )
         sanitized = {}
         for key, value in config.items():
             if secret_key_re.search(key):

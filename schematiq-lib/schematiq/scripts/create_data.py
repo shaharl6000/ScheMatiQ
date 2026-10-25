@@ -127,7 +127,7 @@ def text_from_url_s2orc(url):
     # download via wget. this can take a while...
     response = requests.get(f"https://api.semanticscholar.org/datasets/v1/release/{RELEASE_ID}/dataset/{DATASET_NAME}/", headers={"x-api-key": API_KEY}).json()
     for url in tqdm(response["files"]):
-        match = re.match(r"https://ai2-s2ag.s3.amazonaws.com/staging/(.*)/s2orc/(.*).gz(.*)", url)
+        match = re.match(r"https://ai2-s2ag\.s3\.amazonaws\.com/staging/([^/]+)/s2orc/([^/?]+)\.gz(\?.*)?$", url)
         assert match.group(1) == RELEASE_ID
         SHARD_ID = match.group(2)
         wget.download(url, out=os.path.join(LOCAL_PATH, f"{SHARD_ID}.gz"))
