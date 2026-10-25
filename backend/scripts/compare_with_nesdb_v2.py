@@ -120,13 +120,16 @@ _AA3 = "|".join(THREE_LETTER)
 MUTATION3_RE = re.compile(rf"\b({_AA3})[\s\-]?(\d{{1,4}})\s*(?:to|->|→|>|-)?\s*({_AA3})\b", re.I)
 MUTATION_RE = re.compile(r"\b([A-Z])-?(\d{1,4})\s*(?:->|→|>|-)?\s*([A-Z])\b")
 # L348/352A, L348,352A and 14,16L->A: one substitution applied at several positions
-MUTATION_LIST_RE = re.compile(r"\b([A-Z])?(\d{1,4}(?:\s*[/,]\s*\d{1,4})+)\s*([A-Z])?\s*(?:->|→|>|to)?\s*([A-Z])\b")
+# (?<![\d/,]): a list is read from its first number only, not again from each later one (quadratic on long lists).
+MUTATION_LIST_RE = re.compile(
+    r"\b([A-Z])?(?<![\d/,])(\d{1,4}(?:\s*[/,]\s*\d{1,4})+)\s*([A-Z])?\s*(?:->|→|>|to)?\s*([A-Z])\b")
 ORGANISM_ADJECTIVES = {"canine": "dog", "murine": "mouse", "porcine": "pig", "equine": "horse",
                        "feline": "cat", "ovine": "sheep", "simian": "monkey"}
 GENERIC_NAME_WORDS = {"kinase", "factor", "receptor", "domain", "subunit", "homolog", "transcription factor",
                       "protein kinase", "nes", "complex", "enzyme", "helicase", "phosphatase"}
 GENERIC_ORGANISM_WORDS = {"virus", "cells", "cell", "strain", "mammal", "mammalian", "in vitro", "yeast cells"}
-RANGE_RE = re.compile(r"(\d{1,4})\s*(?:-|–|—|to|\.\.)\s*(\d{1,4})")
+# Whole numbers only, so a PMID or a longer number is not read as part of a residue range.
+RANGE_RE = re.compile(r"(?<!\d)(\d{1,4})\s*(?:-|–|—|to|\.\.)\s*(\d{1,4})(?!\d)")
 UNIPROT_RE = re.compile(r"\b([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})\b")
 # A peptide as written in a paper or a cell: upper case only, so words like "signal" don't count.
 PEPTIDE_RE = re.compile(r"[ACDEFGHIKLMNPQRSTVWY]{6,}")
