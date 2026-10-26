@@ -369,11 +369,16 @@ def longest_common(a: str, b: str) -> int:
 
 
 def entry_signals(entry: dict) -> list[dict]:
-    """NESdb's NESs for an entry. Falls back to the signal text when the page gave a long region whose
-    sequence is broken by spaces ("194 SLPP...QDF DLL 256"), which the <sup>start</sup> seq <sup>end</sup>
-    scrape misses; a missing end is taken from the sequence length."""
-    if entry.get("signals"):
-        return entry["signals"]
+    """NESdb's NESs for an entry: the scraped ones plus any the signal text adds. The <sup>start</sup> seq
+    <sup>end</sup> scrape misses a long region whose sequence NESdb breaks with spaces ("224 TEPS...LPKT
+    DEVF 287"), also when another NES of the same protein was scraped, so the text is always read; a missing
+    end is taken from the sequence length."""
+    scraped = list(entry.get("signals") or [])
+    starts = {s["start"] for s in scraped}
+    return scraped + [s for s in _signals_from_text(entry) if s["start"] not in starts]
+
+
+def _signals_from_text(entry: dict) -> list[dict]:
     parsed = []
     for piece in str(entry.get("signals_text", "")).split(","):
         m = re.fullmatch(r"\s*(\d{1,5})\s+([A-Za-z][A-Za-z\s]*?)\s*(\d{1,5})?\s*", piece)
