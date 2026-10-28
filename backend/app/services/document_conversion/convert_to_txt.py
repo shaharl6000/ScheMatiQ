@@ -15,13 +15,14 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import pdfplumber
 import pytesseract
@@ -186,43 +187,35 @@ _MIN_AVG_WORDS_PER_LINE_PER_SIDE = 2
 # ---------------------------------------------------------------------------
 # Missing-literal-space-glyph word tolerance
 # ---------------------------------------------------------------------------
-# Some PDF producers (observed on certain Cell Press/Elsevier exports) place
-# words via pure glyph positioning with no literal space character in the
-# content stream at all. pdfplumber then decides word boundaries purely from
-# the geometric gap between adjacent characters vs. x_tolerance (default 3pt,
-# used everywhere in this file); when such a PDF's true inter-word gap is
-# smaller than that, words are silently glued together
+# Many PDF producers place words via pure glyph positioning with no literal
+# space character in the content stream at all. pdfplumber then decides word
+# boundaries purely from the geometric gap between adjacent characters vs.
+# x_tolerance (default 3pt, absolute); when such a PDF's true inter-word gap
+# is smaller than that, words are silently glued together
 # ("wordsgluedlikethis"), which breaks anything downstream that needs the
-# real source text (e.g. matching an excerpt back to its source for
-# citation grounding).
+# real source text (e.g. matching an excerpt back to its source for citation
+# grounding).
 #
-# _derive_word_gap_threshold below detects this -- via two independent,
-# confident, measured gates, exactly the same philosophy as
-# _detect_column_gutter -- and derives a page-specific x_tolerance from that
-# page's own character-gap distribution, instead of guessing a single global
-# constant. Every gate is calibrated against the one confirmed real repro
-# (kerning gaps ~0.0pt, real inter-word gap 1.2pt); treat as a starting point
-# pending a larger corpus of real "glued" PDFs.
+# Measured on 80 real papers (268 such pages), gaps scale with the font, so
+# they are measured in em (gap / font size): within a word the gap is at most
+# ~0.04 em, between words at least ~0.16 em, and almost nothing falls in
+# between, whatever the font size. Word gaps of 1.6-2.8pt (a 6-10pt font)
+# are below the absolute 3pt default, which glued 317 of 448 papers. So a
+# page with no space glyphs splits words at 0.10 em; a page that has them
+# keeps pdfplumber's default unchanged.
 _MIN_CHARS_FOR_GAP_ANALYSIS = 200  # mirror _CHARS_PER_PAGE_THRESHOLD -- too little text, no reliable signal
 # Real glued pages aren't uniformly glued -- parenthetical citations,
 # accession-number lists, etc. keep literal spaces even on an otherwise-glued
-# page. Measured directly against the real repro document's glued
-# "Experimental Procedures" section: space characters are ~1.4-1.7% of text
-# there, not 0%. Calibrated with margin above that (still ~3x) while staying
-# far below normal English prose's ~15-17% space ratio, so
-# _MIN_AVG_WORD_LEN_FOR_GLUING_SIGNAL remains the gate that protects normal
-# pages from a false trigger.
-_MAX_SPACE_CHAR_FRACTION = 0.05  # pages already using real space glyphs throughout must be left untouched
-_MIN_AVG_WORD_LEN_FOR_GLUING_SIGNAL = 15  # default-tolerance "words" averaging longer than this look glued (English mean word length ~4.7 chars)
-_MIN_GAP_SAMPLES = 60  # need enough adjacent-char gaps for the distribution to mean anything
-_MIN_GAP_CLUSTER_FRACTION = 0.05  # each side of a candidate split must hold a real share of the gaps, not a lone outlier
-_MAX_UPPER_GAP_CLUSTER_FRACTION = 0.5  # word-boundary gaps should be a minority of all adjacent-char gaps in real prose
-_MIN_GAP_JUMP_PT = 0.4  # the jump between the two populations must be non-trivial in absolute terms
-_MIN_GAP_JUMP_TO_SPREAD_RATIO = 3.0  # the jump must dwarf the lower (kerning) cluster's own spread, or it's not a real bimodal split
+# page (~1.4-1.7% of characters measured on one), while normal English prose
+# is ~15-17% spaces.
+_MAX_SPACE_CHAR_FRACTION = 0.05
+_WORD_GAP_EM = 0.10
 
 
 def _detect_column_gutter(
-    page: "pdfplumber.page.Page", x_tolerance: float = DEFAULT_X_TOLERANCE
+    page: "pdfplumber.page.Page",
+    x_tolerance: float = DEFAULT_X_TOLERANCE,
+    x_tolerance_ratio: Optional[float] = None,
 ) -> Optional[Tuple[float, float]]:
     """Return (gutter_x0, gutter_x1) if *page* has a confident two-column
     layout, else None. A pure function of page geometry -- no I/O.
@@ -232,7 +225,8 @@ def _detect_column_gutter(
     if not page.width or not page.height:
         return None  # degenerate/malformed page geometry -- nothing safe to measure
 
-    words = [w for w in page.extract_words(x_tolerance=x_tolerance) if w.get("upright", True)]
+    words = [w for w in page.extract_words(x_tolerance=x_tolerance, x_tolerance_ratio=x_tolerance_ratio)
+             if w.get("upright", True)]
     if len(words) < _MIN_WORDS_FOR_COLUMN_DETECTION:
         return None
 
@@ -322,113 +316,27 @@ def _detect_column_gutter(
     return best["x0"], best["x1"]
 
 
-def _page_needs_gap_derived_tolerance(page: "pdfplumber.page.Page") -> bool:
-    """True only when *page* independently shows both: (a) essentially no
-    literal space glyphs despite substantial text, and (b) today's
-    default-tolerance extraction already produces suspiciously long "words"
-    (i.e. words are actually glued runs). Both must hold so a page that's
-    merely low on spaces for a legitimate reason (e.g. a dense table of
-    identifiers) doesn't get an unnecessary override --
-    _find_bimodal_gap_threshold is a further, independent gate on top.
-    """
+def _page_lacks_space_glyphs(page: "pdfplumber.page.Page") -> bool:
+    """True when *page* has substantial text but essentially no literal
+    space glyphs, so its word boundaries come from geometry alone."""
     if getattr(page, "rotation", 0) not in (0, None):
         return False  # rotated pages: same axis-reliability caveat as _detect_column_gutter
-    chars = getattr(page, "chars", None)
-    if not chars:
-        return False
-    text_chars = [c for c in chars if c.get("upright", True)]
+    text_chars = [c for c in (getattr(page, "chars", None) or []) if c.get("upright", True)]
     if len(text_chars) < _MIN_CHARS_FOR_GAP_ANALYSIS:
         return False
     space_count = sum(1 for c in text_chars if c["text"].isspace())
-    if space_count / len(text_chars) > _MAX_SPACE_CHAR_FRACTION:
-        return False
-    words = page.extract_words()
-    if not words:
-        return False
-    avg_word_len = sum(len(w["text"]) for w in words) / len(words)
-    return avg_word_len >= _MIN_AVG_WORD_LEN_FOR_GLUING_SIGNAL
+    return space_count / len(text_chars) <= _MAX_SPACE_CHAR_FRACTION
 
 
-def _collect_adjacent_char_gaps(page: "pdfplumber.page.Page") -> List[float]:
-    """Adjacent same-line, non-space character x-gaps on *page*. Pure
-    function of page.chars -- no I/O.
-    """
-    chars = [c for c in page.chars if c.get("upright", True) and not c["text"].isspace()]
-    if len(chars) < 2:
-        return []
-    lines = cluster_objects(chars, "top", _LINE_CLUSTER_TOLERANCE_PT)
-    gaps: list[float] = []
-    for line in lines:
-        line_sorted = sorted(line, key=lambda c: c["x0"])
-        for a, b in zip(line_sorted, line_sorted[1:]):
-            gaps.append(max(b["x0"] - a["x1"], 0.0))
-    return gaps
-
-
-def _find_bimodal_gap_threshold(gaps: List[float]) -> Optional[float]:
-    """Look for a genuine two-population split in *gaps* -- a tight
-    "kerning" population near 0 and a separate, larger "word-boundary"
-    population -- and return a threshold between them, biased toward the
-    lower cluster. Returns None when no confident split exists (e.g. a
-    continuous/unimodal spread, as on normally-kerned or letter-spaced
-    text).
-
-    Scans candidate split indices in increasing order and returns the
-    FIRST one that clears both confidence checks, rather than the single
-    largest jump anywhere in the valid range. Taking the largest jump is
-    wrong whenever a third population of legitimately wider (but still
-    non-word-boundary) gaps -- e.g. around superscripts/subscripts or
-    numbering runs -- reaches _MIN_GAP_CLUSTER_FRACTION of samples: the
-    biggest jump then sits between the real word-gap cluster and that third
-    population, not between kerning and real word-gaps, which silently
-    picks a much-too-large threshold. Scanning left-to-right instead always
-    finds the boundary of the tight low kerning cluster first.
-    """
-    if len(gaps) < _MIN_GAP_SAMPLES:
-        return None
-    s = sorted(gaps)
-    n = len(s)
-    min_side = max(1, int(n * _MIN_GAP_CLUSTER_FRACTION))
-    max_upper = int(n * _MAX_UPPER_GAP_CLUSTER_FRACTION)
-
-    for i in range(min_side, n - min_side + 1):
-        if (n - i) > max_upper:
-            continue
-        jump = s[i] - s[i - 1]
-        if jump < _MIN_GAP_JUMP_PT:
-            continue
-        lower_spread = s[i - 1] - s[0]
-        if jump < _MIN_GAP_JUMP_TO_SPREAD_RATIO * max(lower_spread, 0.05):
-            continue
-        return s[i - 1] + jump / 2
-
-    return None
-
-
-def _derive_word_gap_threshold(page: "pdfplumber.page.Page") -> Optional[float]:
-    """Page-specific x_tolerance derived from *page*'s own char-gap
-    distribution, or None when pdfplumber's DEFAULT_X_TOLERANCE should be
-    used unchanged (the case for the overwhelming majority of pages).
-    """
+def _word_tolerance(page: "pdfplumber.page.Page") -> dict:
+    """pdfplumber word-splitting arguments for *page*: 0.10 em on a page
+    with no space glyphs, pdfplumber's default otherwise."""
     try:
-        if not _page_needs_gap_derived_tolerance(page):
-            return None
-        threshold = _find_bimodal_gap_threshold(_collect_adjacent_char_gaps(page))
-        if threshold is None:
-            return None
-        # Only ever tighten, never loosen, relative to pdfplumber's default --
-        # this fix must never merge words on a page that wasn't glued.
-        threshold = min(threshold, DEFAULT_X_TOLERANCE)
-        logger.debug("Derived x_tolerance=%.2f for page with no literal space glyphs", threshold)
-        return threshold
+        if _page_lacks_space_glyphs(page):
+            return {"x_tolerance": DEFAULT_X_TOLERANCE, "x_tolerance_ratio": _WORD_GAP_EM}
     except Exception:
-        logger.debug("Word-gap tolerance derivation failed, using pdfplumber's default", exc_info=True)
-        return None
-
-
-def _effective_x_tolerance(page: "pdfplumber.page.Page") -> float:
-    threshold = _derive_word_gap_threshold(page)
-    return threshold if threshold is not None else DEFAULT_X_TOLERANCE
+        logger.debug("Space-glyph check failed, using pdfplumber's default", exc_info=True)
+    return {"x_tolerance": DEFAULT_X_TOLERANCE, "x_tolerance_ratio": None}
 
 
 def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
@@ -444,18 +352,22 @@ def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
     failing the whole document's conversion.
     """
     try:
-        x_tolerance = _effective_x_tolerance(page)
-        gutter = _detect_column_gutter(page, x_tolerance=x_tolerance)
+        tolerance = _word_tolerance(page)
+        gutter = _detect_column_gutter(page, **tolerance)
         if gutter is None:
-            return page.extract_text(x_tolerance=x_tolerance) or ""
+            return page.extract_text(**tolerance) or ""
 
         mid = (gutter[0] + gutter[1]) / 2
-        left = page.within_bbox((0, 0, mid, page.height)).extract_text(x_tolerance=x_tolerance) or ""
-        right = page.within_bbox((mid, 0, page.width, page.height)).extract_text(x_tolerance=x_tolerance) or ""
+        # The page box need not start at (0, 0) (seen: (9, -9, 603, 774));
+        # a crop reaching outside it raises, which used to silently drop the
+        # page to the plain fallback below.
+        x0, top, x1, bottom = page.bbox
+        left = page.within_bbox((x0, top, mid, bottom)).extract_text(**tolerance) or ""
+        right = page.within_bbox((mid, top, x1, bottom)).extract_text(**tolerance) or ""
 
         # Cheap RTL accommodation: if most words on the page are RTL-directed,
         # the visually-first column is the right one.
-        words = page.extract_words(x_tolerance=x_tolerance)
+        words = page.extract_words(**tolerance)
         if words and sum(1 for w in words if w.get("direction") == "rtl") / len(words) > 0.5:
             left, right = right, left
 
@@ -467,26 +379,117 @@ def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
         # run at effectively 100% failure rate, forever, with no signal
         # that the column-aware path is even being exercised.
         logger.debug("Column-aware extraction failed, falling back to plain extract_text()", exc_info=True)
-        return page.extract_text() or ""
+        try:
+            return page.extract_text(**_word_tolerance(page)) or ""
+        except Exception:
+            return page.extract_text() or ""
 
 
-def convert_pdf_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
-    """Convert a PDF to text via pdfplumber; fall back to OCR for scanned pages."""
-    output_path = output_dir / (input_path.stem + ".txt")
+# ---------------------------------------------------------------------------
+# Unreadable text layer
+# ---------------------------------------------------------------------------
+# Some PDFs (typically older papers, e.g. made by Acrobat Distiller 4) embed
+# subset fonts with a private encoding and no ToUnicode map. The page renders
+# fine, but its text layer has no recoverable characters: pdfplumber returns
+# "(cid:N)" placeholders, mixed with arbitrary punctuation where letters
+# should be. Such a page looks full of text to the chars-per-page check, so it
+# never reached OCR and the garbage was passed on as the paper's text.
+# A normal paper has at most a handful of (cid:N) glyphs (an odd symbol), far
+# below this fraction; an unmapped-font paper is mostly (cid:N).
+#
+# The common case is recoverable without OCR: such fonts name each glyph
+# "C<n>" in their /Differences encoding, where n is the character's code in
+# Adobe StandardEncoding ("C86" is "V", "C174" the "fi" ligature). pdfminer
+# does not know these names and gives up; _install_glyph_name_fallbacks
+# teaches it to read them. Whatever stays unreadable goes to OCR.
+#
+# The same gap loses Greek letters and math symbols in many otherwise
+# readable papers: the Linotype Mathematical Pi / Universal Greek fonts used
+# by several journals (JBC, MCB, PNAS) name their glyphs "H<n>", so "IκB"
+# came out as "I(cid:1)B". _MATH_PI_GLYPHS maps the names seen in this
+# corpus. Each entry was read off its context in real papers (H9253 in
+# "[γ-32P]ATP", H11006 in "mean ± SD"); the Greek letters run in order from
+# H9251 (α), with H9269 the final sigma. Names whose meaning was not clear
+# from context are left out and stay (cid:N).
 
-    with pdfplumber.open(input_path) as pdf:
-        page_count = max(1, len(pdf.pages))
-        text_parts = [_extract_page_text_column_aware(p) for p in pdf.pages]
+_CID_GLYPH = re.compile(r"\(cid:\d+\)")
+_MAX_CID_GLYPH_FRACTION = 0.2
+_C_NUMBER_GLYPH = re.compile(r"C(\d{2,3})")
 
-    total_chars = sum(len(t) for t in text_parts)
+_MATH_PI_GLYPHS = {
+    # Greek capitals
+    "H9004": "Δ", "H9021": "Φ", "H9023": "Ψ", "H9024": "Ω",
+    # Greek lowercase, alphabetical from H9251
+    **{f"H{9251 + i}": letter for i, letter in enumerate("αβγδεζηθικλμνξοπρσςτυφχψω")},
+    "H9278": "ϕ", "H9280": "ϵ",
+    # Math and typographic symbols
+    "H11001": "+", "H11002": "−", "H11003": "×", "H11005": "=", "H11006": "±",
+    "H11011": "∼", "H11015": "≈", "H11021": "<", "H11022": ">",
+    "H11032": "′", "H11033": "″", "H11034": "°", "H11349": "≤", "H11350": "≥",
+    "H11541": "′", "H11545": "+", "H11546": "−", "H11569": "*", "H11601": "∼",
+    "H18528": "–", "H20841": "|", "H20862": "/", "H23041": "®",
+}
 
-    if total_chars / page_count >= _CHARS_PER_PAGE_THRESHOLD:
-        output_path.write_text(
-            "\n\n".join(t for t in text_parts if t), encoding="utf-8",
-        )
-        return True, f"Converted: {output_path}"
 
-    # Scanned PDF — OCR page-by-page to avoid loading all images into RAM.
+def _install_glyph_name_fallbacks() -> None:
+    """Make pdfminer read the glyph names it does not know: "C<n>" as
+    StandardEncoding character n, and the Mathematical Pi "H<n>" names.
+
+    pdfminer skips a /Differences name it does not know, so the code keeps
+    its base-encoding character ("#" for 35) or none at all ((cid:N)); these
+    names override either. Fonts with a ToUnicode map (which, when present,
+    is authoritative) are left alone.
+    """
+    from pdfminer.encodingdb import EncodingDB
+    from pdfminer.pdffont import PDFSimpleFont
+    from pdfminer.pdftypes import resolve1
+
+    original_init = PDFSimpleFont.__init__
+    if getattr(original_init, "_reads_glyph_name_fallbacks", False):
+        return
+
+    def __init__(self, descriptor, widths, spec):
+        original_init(self, descriptor, widths, spec)
+        if self.unicode_map is not None:
+            return
+        encoding = resolve1(spec.get("Encoding"))
+        if not isinstance(encoding, dict):
+            return
+        code = 0
+        for item in resolve1(encoding.get("Differences", [])) or []:
+            if isinstance(item, int):
+                code = item
+                continue
+            name = getattr(item, "name", "")
+            match = _C_NUMBER_GLYPH.fullmatch(name)
+            # Below 32 the number is not a character code ("C21" decoded
+            # to a control character where the page shows "≈").
+            if match and 32 <= int(match[1]) < 256 and int(match[1]) != 127:
+                n = int(match[1])
+                self.cid2unicode[code] = EncodingDB.std2unicode.get(n) or chr(n)
+            elif name in _MATH_PI_GLYPHS:
+                self.cid2unicode[code] = _MATH_PI_GLYPHS[name]
+            code += 1
+
+    __init__._reads_glyph_name_fallbacks = True
+    PDFSimpleFont.__init__ = __init__
+
+
+_install_glyph_name_fallbacks()
+
+
+def looks_garbled(text: str) -> bool:
+    """True when much of the extracted text is unmapped (cid:N) glyphs."""
+    cid_count = len(_CID_GLYPH.findall(text))
+    if not cid_count:
+        return False
+    other_glyphs = sum(1 for c in _CID_GLYPH.sub("", text) if not c.isspace())
+    return cid_count / (cid_count + other_glyphs) >= _MAX_CID_GLYPH_FRACTION
+
+
+def _ocr_pdf(input_path: Path) -> Tuple[Optional[str], str]:
+    """OCR every page. Returns (text, "") or (None, why it failed)."""
+    # Page-by-page to avoid loading all images into RAM.
     with tempfile.TemporaryDirectory(prefix="ocr_pages_") as tmpdir:
         try:
             page_images = convert_from_path(
@@ -496,20 +499,57 @@ def convert_pdf_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
                 fmt="png",
             )
         except Exception as e:
-            return False, f"pdf2image failed: {e}"
+            return None, f"pdf2image failed: {e}"
 
         ocr_parts: list[str] = []
-        for img in page_images:
-            text = pytesseract.image_to_string(img)
-            if text.strip():
-                ocr_parts.append(text)
-            # Let each PIL image be freed before the next page is processed.
-            img.close()
+        try:
+            for img in page_images:
+                try:
+                    text = pytesseract.image_to_string(img)
+                finally:
+                    # Let each PIL image be freed before the next page is processed.
+                    img.close()
+                if text.strip():
+                    ocr_parts.append(text)
+        except Exception as e:
+            return None, f"OCR failed: {e}"
 
     if not ocr_parts:
-        return False, "No text extracted from PDF (tried pdfplumber and OCR)"
+        return None, "No text extracted from PDF (tried pdfplumber and OCR)"
+    return "\n\n".join(ocr_parts), ""
 
-    output_path.write_text("\n\n".join(ocr_parts), encoding="utf-8")
+
+def convert_pdf_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
+    """Convert a PDF to text via pdfplumber; fall back to OCR for scanned
+    pages or an unreadable text layer."""
+    output_path = output_dir / (input_path.stem + ".txt")
+
+    with pdfplumber.open(input_path) as pdf:
+        page_count = max(1, len(pdf.pages))
+        text_parts = [_extract_page_text_column_aware(p) for p in pdf.pages]
+
+    total_chars = sum(len(t) for t in text_parts)
+    text = "\n\n".join(t for t in text_parts if t)
+    garbled = looks_garbled(text)
+
+    if total_chars / page_count >= _CHARS_PER_PAGE_THRESHOLD and not garbled:
+        output_path.write_text(text, encoding="utf-8")
+        return True, f"Converted: {output_path}"
+
+    ocr_text, error = _ocr_pdf(input_path)
+    if ocr_text is None:
+        if not garbled:
+            return False, error
+        # Keep the document (its figures are still usable) rather than
+        # rejecting a paper that was accepted before OCR was tried.
+        logger.warning(
+            "%s: text layer is unreadable (fonts without a Unicode map) and "
+            "OCR failed, keeping the garbled text: %s", input_path.name, error,
+        )
+        output_path.write_text(text, encoding="utf-8")
+        return True, f"Converted: {output_path}"
+
+    output_path.write_text(ocr_text, encoding="utf-8")
     return True, f"Converted (OCR): {output_path}"
 
 
