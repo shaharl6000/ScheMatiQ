@@ -25,7 +25,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Bump when the conversion output changes, so stale entries are not reused.
-_CACHE_VERSION = "1"
+_CACHE_VERSION = "2"  # 2: em-relative word gaps, C<n>/H<n> glyph names
 
 
 def _resolve_cache_dir() -> Optional[Path]:
@@ -77,6 +77,12 @@ def restore(key: Optional[str], text_output: Path, figures_target: Path) -> Opti
         meta = json.loads((entry / "meta.json").read_text(encoding="utf-8"))
         text = (entry / "text.txt").read_text(encoding="utf-8")
     except (OSError, ValueError):
+        return None
+    from app.services.document_conversion.convert_to_txt import looks_garbled
+    if looks_garbled(text):
+        # Converted before unreadable text layers were sent to OCR: drop the
+        # entry so the fresh conversion is stored in its place.
+        shutil.rmtree(entry, ignore_errors=True)
         return None
     try:
         text_output.write_text(text, encoding="utf-8")

@@ -263,6 +263,7 @@ def _draw_words_glued(
     *,
     inter_word_gap: float,
     space_every_n_words: int | None = None,
+    font_size: float = _FONT_SIZE,
 ) -> None:
     """Draw `words` left-to-right via individual `drawString` calls, cursor
     advanced by each word's rendered width plus `inter_word_gap` points --
@@ -283,9 +284,9 @@ def _draw_words_glued(
             chunk = chunk + " " + words[i]
             i += 1
         count += 1
-        chunk_width = c.stringWidth(chunk, _FONT_NAME, _FONT_SIZE)
+        chunk_width = c.stringWidth(chunk, _FONT_NAME, font_size)
         if x > x0 and x + chunk_width > max_x:
-            x, y = x0, y - _LINE_HEIGHT
+            x, y = x0, y - _LINE_HEIGHT * font_size / _FONT_SIZE
             if y < _BOTTOM_MARGIN:
                 break
         c.drawString(x, y, chunk)
@@ -298,6 +299,7 @@ def build_glued_word_pdf(
     *,
     inter_word_gap: float = 1.2,
     space_every_n_words: int | None = None,
+    font_size: float = _FONT_SIZE,
     page_size=letter,
 ) -> None:
     """A page where every word is drawn via its own `drawString` call,
@@ -312,7 +314,7 @@ def build_glued_word_pdf(
     width, height = page_size
     x_margin, max_x = 72, width - 72
     c = Canvas(str(path), pagesize=page_size)
-    c.setFont(_FONT_NAME, _FONT_SIZE)
+    c.setFont(_FONT_NAME, font_size)
     _draw_words_glued(
         c,
         words,
@@ -321,6 +323,7 @@ def build_glued_word_pdf(
         height - _TOP_MARGIN,
         inter_word_gap=inter_word_gap,
         space_every_n_words=space_every_n_words,
+        font_size=font_size,
     )
     c.showPage()
     c.save()
