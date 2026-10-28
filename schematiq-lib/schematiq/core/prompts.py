@@ -238,21 +238,20 @@ Return valid JSON only:
       "rationale": "Why this is important for answering the query",
       "allowed_values": ["val1", "val2"] | ["0-100"] | null
     }}
-  ],
-  "suggested_value_additions": []
+  ]
 }}
 
 ### allowed_values
+Use a categorical list only for short labels shared by many documents, such as ["yes", "no"] or ["cnn", "rnn", "transformer"].
+Use null for an answer that belongs to one document, such as a title, a name, or a finding.
+Do not add values to a list that already exists. The list changes only when a person edits it.
+
 | Type | Format | Examples |
 |------|--------|----------|
-| Categorical | list | ["yes", "no"], ["cnn", "rnn", "transformer"] |
+| Categorical | list of short shared labels | ["yes", "no"], ["cnn", "rnn", "transformer"] |
 | Numeric range | ["min-max"] | ["0-100"], ["0.0-1.0"] |
 | Any number | ["number"] | Unconstrained numeric |
-| Free-form | null | Titles, names, descriptions |
-
-### Evolving allowed_values
-If passages reveal new categorical values for an existing column:
-{{"column_name": "...", "new_values": ["..."], "reason": "..."}}
+| Free-form | null | Titles, names, findings |
 
 ### Remember
 - Include only fields that appear meaningful and useful for analysis
@@ -340,21 +339,20 @@ Return valid JSON only:
       "rationale": "Why this column captures important document information",
       "allowed_values": ["val1", "val2"] | ["0-100"] | null
     }}
-  ],
-  "suggested_value_additions": []
+  ]
 }}
 
 ### allowed_values
+Use a categorical list only for short labels shared by many documents, such as ["yes", "no"] or ["cnn", "rnn", "transformer"].
+Use null for an answer that belongs to one document, such as a title, a name, or a finding.
+Do not add values to a list that already exists. The list changes only when a person edits it.
+
 | Type | Format | Examples |
 |------|--------|----------|
-| Categorical | list | ["yes", "no"], ["cnn", "rnn", "transformer"] |
+| Categorical | list of short shared labels | ["yes", "no"], ["cnn", "rnn", "transformer"] |
 | Numeric range | ["min-max"] | ["0-100"], ["0.0-1.0"] |
 | Any number | ["number"] | Unconstrained numeric |
-| Free-form | null | Titles, names, descriptions |
-
-### Evolving allowed_values
-If passages reveal new categorical values for an existing column:
-{{"column_name": "...", "new_values": ["..."], "reason": "..."}}
+| Free-form | null | Titles, names, findings |
 
 ### Remember
 - **FEWER columns = BETTER schema**
@@ -417,12 +415,16 @@ Return valid JSON only:
 }}
 
 ### allowed_values
+Use a categorical list only for short labels shared by many documents, such as ["yes", "no"] or ["cnn", "rnn", "transformer"].
+Use null for an answer that belongs to one document, such as a title, a name, or a finding.
+Do not add values to a list that already exists. The list changes only when a person edits it.
+
 | Type | Format | Examples |
 |------|--------|----------|
-| Categorical | list | ["yes", "no"], ["cnn", "rnn", "transformer"] |
+| Categorical | list of short shared labels | ["yes", "no"], ["cnn", "rnn", "transformer"] |
 | Numeric range | ["min-max"] | ["0-100"], ["0.0-1.0"] |
 | Any number | ["number"] | Unconstrained numeric |
-| Free-form | null | Titles, names, descriptions |
+| Free-form | null | Titles, names, findings |
 
 ### Remember
 - Think about what a researcher would want in a structured dataset to answer this query
@@ -680,7 +682,7 @@ You are *SchemaLLM*, a schema designer. The user has pre-defined a set of column
 ### How to fill each field
 - **definition**: one or two sentences describing precisely what this column captures, phrased so it can be answered at the level of a single observation unit instance. Be concrete and extraction-oriented.
 - **rationale**: one sentence explaining why this column is relevant to the research query.
-- **allowed_values**: include ONLY if the column is clearly categorical with a small, closed set of values evident from the query, the observation unit, or the passages. Otherwise omit it (do not guess open-ended values).
+- **allowed_values**: include a categorical list ONLY for short labels shared by many documents. Omit it for an answer that belongs to one document, such as a title, a name, or a finding. Do not guess open-ended values, and do not add values to a list that already exists.
 
 Use the research query and observation unit as primary context. Use the document passages as supporting evidence for phrasing and for plausible allowed_values, but do not let incidental passage content narrow a column that should stay general.
 

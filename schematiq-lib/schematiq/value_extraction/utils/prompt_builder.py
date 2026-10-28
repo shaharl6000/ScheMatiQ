@@ -5,7 +5,30 @@ from typing import List, Dict
 from schematiq.core.schema import Column
 
 from ..config.prompts import SYSTEM_PROMPT_VAL, SYSTEM_PROMPT_VAL_STRICT
+from ..core.json_parser import is_categorical_allowed_values
 from .reference_retrieval import ReferenceRetriever, build_reference_query
+
+# Appended to a categorical allowed_values list in the column block. Per-unit
+# extraction replaces the system prompt, so these rules have to travel with
+# the column that is actually sent.
+_CATEGORICAL_ALLOWED_VALUES_RULES = (
+    "Same meaning (case, abbreviations, synonyms) maps to a listed value. "
+    "A different meaning stays as written. Do not pick the closest listed value. "
+    "If it is not stated, use null."
+)
+
+
+def _allowed_values_clause(values, *, inline: bool) -> str:
+    """Render allowed_values for the column block that is sent to the model."""
+    if not values:
+        return ""
+    if inline:
+        clause = f" (allowed values: {', '.join(values)})"
+    else:
+        clause = f"\nallowed_values: {values}"
+    if is_categorical_allowed_values(values):
+        clause += f"\n{_CATEGORICAL_ALLOWED_VALUES_RULES}"
+    return clause
 
 
 class PromptBuilder:
@@ -63,10 +86,7 @@ class PromptBuilder:
         """
         if mode in {"one", "one_by_one"}:
             col = columns[0]
-            # Build allowed_values line if present
-            allowed_values_line = ""
-            if col.get("allowed_values"):
-                allowed_values_line = f"\nallowed_values: {col['allowed_values']}"
+            allowed_values_line = _allowed_values_clause(col.get("allowed_values"), inline=False)
             col_block = f"""
             <REQUESTED_COLUMN>
             name: {col['column']}
@@ -77,8 +97,7 @@ class PromptBuilder:
             col_specs = []
             for c in columns:
                 spec = f"- **{c['column']}**: {c['definition']}"
-                if c.get("allowed_values"):
-                    spec += f" (allowed values: {', '.join(c['allowed_values'])})"
+                spec += _allowed_values_clause(c.get("allowed_values"), inline=True)
                 col_specs.append(spec)
             col_block = f"""
             <REQUESTED_COLUMNS>

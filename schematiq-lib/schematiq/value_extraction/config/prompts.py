@@ -53,10 +53,10 @@ extract answers **strictly from the paper**.
 ### Handling allowed_values (value constraints)
 When a column specifies `allowed_values`, follow these guidelines:
 
-**For categorical values** (list of options like ["yes", "no"]):
-- **Prefer matching**: Use the canonical allowed value when the content matches or relates closely
-- **Case flexibility**: Match regardless of capitalization (e.g., "YES" → "yes")
-- **Synonym mapping**: Map synonymous terms to the closest allowed value
+**For categorical values** (a list of labels, such as "yes" / "no"):
+- **Same meaning** maps to the listed value. This includes case, abbreviations, and synonyms. "Supreme Court" and its abbreviation are one value: return the listed form.
+- **A different meaning** stays as the document says it. Do not pick a listed value just because it is the closest one.
+- **Not stated** means null. Do not guess a value from the list.
 
 **For numeric constraints** (single-item like ["number"] or ["0-100"]):
 - **Extract clean numbers**: Output just the numeric value without units or symbols
@@ -67,21 +67,6 @@ When a column specifies `allowed_values`, follow these guidelines:
 **For date constraints** (single-item like ["date"] or ["date:iso"] or ["date:us"] or ["date:%Y-%m-%d"]):
 - **Extract the calendar date** found in the text (any common written or numeric form is fine)
 - **The system normalizes** to one consistent format per column; you do not need to match that format in your answer
-
-**When value doesn't match allowed_values**:
-If you find a value in the paper that doesn't match the provided allowed_values:
-- Still extract the actual value from the paper
-- Add `"suggested_for_allowed_values": true` to flag it for schema review
-- Example:
-  {
-    "model_type": {
-      "answer": "mamba",
-      "excerpts": ["We propose a novel Mamba-based architecture..."],
-      "suggested_for_allowed_values": true
-    }
-  }
-
-**General rule**: If the paper contains relevant information that doesn't match constraints, you MAY still output the actual value found - the system will handle normalization
 
 ### Output (single or multi-column)
 {
@@ -149,6 +134,12 @@ are already filled, think about whether the current column realistically applies
   on that column; leave it empty for a text-backed answer, and never invent
   an id you weren't shown.
 
+### Handling allowed_values (value constraints)
+When a column specifies `allowed_values`:
+- For categorical values: if the text means the same thing as a listed value (case, abbreviations, synonyms), return that listed value. "Supreme Court" and its abbreviation are one value. If the meaning is different, return what the text says. Do not pick a listed value just because it is the closest one. If it is not stated, return null.
+- For numeric constraints (["number"] or ["0-100"]): extract clean numbers without % or units
+- For date constraints (["date"] or ["date:..."]): extract the date as written; normalization is automatic
+
 ### Output Format
 {
   "<column_name>": {
@@ -176,11 +167,9 @@ You are *ValueLLM*, extracting values **only if directly supported by the text**
 
 ### Handling allowed_values (value constraints)
 When a column specifies `allowed_values`:
-- For categorical values: prefer matching to an allowed value
+- For categorical values: if the text means the same thing as a listed value (case, abbreviations, synonyms), return that listed value. "Supreme Court" and its abbreviation are one value. If the meaning is different, return what the text says. Do not pick a listed value just because it is the closest one. If it is not stated, return null.
 - For numeric constraints (["number"] or ["0-100"]): extract clean numbers without % or units
 - For date constraints (["date"] or ["date:..."]): extract the date as written; normalization is automatic
-- If no exact match, you may still extract the actual value from the paper
-- Add `"suggested_for_allowed_values": true` when the value doesn't match allowed_values
 - Always provide supporting excerpts (text excerpts, or figure_refs for an image-backed answer)
 
 ### Output
@@ -472,6 +461,12 @@ extract answers **strictly from the provided passages** and **only for this unit
   another (e.g. it is grouped with or acts identically to another unit), give this unit
   that shared value; otherwise do not copy another unit's value onto this one.
 - Output **only JSON**, no prose, no markdown fences
+
+### Handling allowed_values (value constraints)
+When a requested column lists `allowed_values`:
+- For categorical values: if the passages mean the same thing as a listed value (case, abbreviations, synonyms), return that listed value. "Supreme Court" and its abbreviation are one value. If the meaning is different, return what the passages say. Do not pick a listed value just because it is the closest one. If it is not stated for this unit, set the answer to null.
+- For numeric constraints (a single value such as "number" or "0-100"): extract clean numbers without % or units
+- For date constraints (a single value such as "date" or "date:..."): extract the date as written; normalization is automatic
 
 ### Output Format
 {{

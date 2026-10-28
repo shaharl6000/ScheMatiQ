@@ -61,21 +61,6 @@ SCHEMA_DISCOVERY_RESPONSE_SCHEMA = {
                 "required": ["name", "definition"],
             },
         },
-        "suggested_value_additions": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "column_name": {"type": "STRING"},
-                    "new_values": {
-                        "type": "ARRAY",
-                        "items": {"type": "STRING"},
-                    },
-                    "reason": {"type": "STRING"},
-                },
-                "required": ["column_name", "new_values"],
-            },
-        },
     },
     "required": ["columns"],
 }
@@ -858,33 +843,12 @@ def discover_schema(
             )
         completion_done = True
 
-        proposed, document_helpful, suggested_value_additions, _ = generate_schema(
+        # suggested_value_additions is parsed and ignored. The list changes
+        # only when the user edits it.
+        proposed, document_helpful, _suggested_value_additions, _ = generate_schema(
             passages, query, max_keys_schema, schema, llm, context_window_size,
             observation_unit=observation_unit
         )
-
-        # Apply suggested value additions to existing schema columns
-        if suggested_value_additions:
-            for suggestion in suggested_value_additions:
-                col_name = suggestion.get("column_name", "")
-                new_values = suggestion.get("new_values", [])
-                reason = suggestion.get("reason", "")
-                if col_name and new_values:
-                    # Find the column in the current schema and add new values
-                    for col in schema.columns:
-                        if col.name.lower() == col_name.lower() and col.allowed_values is not None:
-                            # Only add values that don't already exist
-                            existing_lower = {v.lower() for v in col.allowed_values}
-                            added = []
-                            for val in new_values:
-                                if val.lower() not in existing_lower:
-                                    col.allowed_values.append(val)
-                                    existing_lower.add(val.lower())
-                                    added.append(val)
-                            if added:
-                                logging.info("Iteration %d — Added values %s to column '%s': %s",
-                                           it, added, col_name, reason)
-                            break
 
         # Tag proposed columns with source document info BEFORE merging
         # Use first document in batch as source (representative)
@@ -894,7 +858,7 @@ def discover_schema(
             col.discovery_iteration = it
 
         # Track document contributions
-        if document_helpful and (len(proposed.columns) > 0 or suggested_value_additions):
+        if document_helpful and len(proposed.columns) > 0:
             contributing_files.extend(batch_filenames)
             logging.info("Iteration %d — Helpful documents: %s", it, batch_filenames)
         else:

@@ -233,94 +233,9 @@ async def process_suggested_values(
     suggested_values: Dict[str, Dict[str, Any]],
     ws_manager,
 ):
-    """Process suggested values from value extraction for schema evolution.
+    """Kept so callers stay valid. Does not change allowed_values or pending_values.
 
-    For each column with allowed_values:
-    - Auto-add values that meet the column's auto_expand_threshold
-    - Store remaining values as pending_values for user review
+    The list on a column changes only when the user edits it. auto_expand_threshold
+    and pending_values stay on the session so old JSON still loads.
     """
-    from app.models.session import PendingValue
-
-    if not suggested_values:
-        return
-
-    logger.info("Processing %d suggested values for schema evolution", sum(len(vals) for vals in suggested_values.values()))
-
-    # Count values actually auto-added in THIS run (accumulated per column below).
-    total_auto_added = 0
-
-    for col in session.columns:
-        if col.name not in suggested_values:
-            continue
-
-        col_suggestions = suggested_values[col.name]
-        if not col_suggestions:
-            continue
-
-        threshold = col.auto_expand_threshold if col.auto_expand_threshold is not None else 2
-
-        existing_pending = {pv.value for pv in (col.pending_values or [])}
-
-        auto_added = []
-        pending = []
-
-        for value, details in col_suggestions.items():
-            doc_count = details.get("count", 0)
-            documents = details.get("documents", [])
-
-            if col.allowed_values and value in col.allowed_values:
-                continue
-
-            if threshold > 0 and doc_count >= threshold:
-                if col.allowed_values is None:
-                    col.allowed_values = []
-                col.allowed_values.append(value)
-                auto_added.append(value)
-                # If this value was pending from an earlier run, it is now
-                # promoted to allowed_values. Drop the stale pending entry so the
-                # value does not linger in both lists once it crosses threshold.
-                if value in existing_pending:
-                    existing_pending.discard(value)
-                    if col.pending_values:
-                        col.pending_values = [pv for pv in col.pending_values if pv.value != value]
-                        if not col.pending_values:
-                            col.pending_values = None
-                logger.info("  Auto-added '%s' to %s (appeared in %d docs, threshold=%d)", value, col.name, doc_count, threshold)
-            elif value not in existing_pending:
-                existing_pending.add(value)
-                pending.append(PendingValue(
-                    value=value,
-                    document_count=doc_count,
-                    first_seen=datetime.now(),
-                    documents=documents[:10]
-                ))
-            else:
-                # Already pending from an earlier run. Counts are recomputed
-                # cumulatively over all current documents on every run, so refresh
-                # the stored count/documents to the latest figures instead of
-                # leaving the first-seen values stale.
-                for pv in (col.pending_values or []):
-                    if pv.value == value:
-                        pv.document_count = doc_count
-                        pv.documents = documents[:10]
-                        break
-
-        if pending:
-            if col.pending_values is None:
-                col.pending_values = []
-            col.pending_values.extend(pending)
-            logger.info("  Added %d pending values to %s for review", len(pending), col.name)
-
-        if auto_added:
-            total_auto_added += len(auto_added)
-            logger.info("  Auto-expanded %s allowed_values with %d new values", col.name, len(auto_added))
-
-    total_pending = sum(len(col.pending_values or []) for col in session.columns)
-
-    if total_auto_added > 0 or total_pending > 0:
-        await ws_manager.broadcast_schema_updated(session.id, {
-            "operation": "schema_evolution",
-            "auto_added_values": total_auto_added,
-            "pending_values": total_pending,
-            "columns": [col.model_dump(mode='json') for col in session.columns]
-        })
+    return None

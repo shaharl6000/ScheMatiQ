@@ -294,6 +294,46 @@ async def test_per_row_call_uses_reference_fill_model(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_categorical_fill_prompt_uses_extraction_rules():
+    """A categorical list is a hint: same meaning maps, a different meaning stays, absence is null."""
+    svc = ReferenceFillService(None, None, None, None)
+    captured: dict = {}
+
+    class _FakeModels:
+        async def generate_content(self, model, contents, config=None):
+            captured["contents"] = contents
+            return type("R", (), {"text": "district court"})()
+
+    class _FakeClient:
+        aio = type("A", (), {"models": _FakeModels()})()
+
+    await svc._extract_value_for_row(
+        _FakeClient(),
+        "this case",
+        "court",
+        "Which court decided it",
+        "The district court reversed.",
+        allowed_values=["supreme court", "appellate court"],
+    )
+    text = captured["contents"]
+    assert "copied verbatim" not in text
+    assert "same thing as a listed value" in text
+    assert "return exactly: null" in text
+
+    await svc._extract_value_for_row(
+        _FakeClient(),
+        "this case",
+        "score",
+        "The score",
+        "The score was 95.",
+        allowed_values=["0-100"],
+    )
+    number_text = captured["contents"]
+    assert "type or range constraint" in number_text
+    assert "copied verbatim" not in number_text
+
+
+@pytest.mark.asyncio
 async def test_load_all_rows_import_path_resolves(monkeypatch):
     """Exercises the real _load_all_rows (not stubbed) so a wrong deps import path
     surfaces here. Regression for the 'app.services.deps' ModuleNotFoundError."""
