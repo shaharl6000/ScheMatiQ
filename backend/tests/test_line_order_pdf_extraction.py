@@ -37,10 +37,14 @@ def _norm(text: str) -> str:
 
 
 def _read(path):
-    layout = pymupdf.open(path)
+    layout_doc = convert_to_txt._open_layout_document(path)
+    try:
+        line_layout = convert_to_txt._page_line_layout(layout_doc, 0)
+    finally:
+        convert_to_txt._close_layout_document(layout_doc)
     with pdfplumber.open(path) as pdf:
         page = pdf.pages[0]
-        return _extract_page_text_by_lines(page, layout[0]), _extract_page_text_column_aware(page)
+        return _extract_page_text_by_lines(page, line_layout), _extract_page_text_column_aware(page)
 
 
 # Php4's JBC columns are 11.9pt apart, under the gutter search's 12pt.
@@ -141,6 +145,38 @@ def test_without_pymupdf_the_gutter_search_is_used(tmp_path, monkeypatch):
 
     assert ok
     assert "perfectly ordinary" in (tmp_path / "paper.txt").read_text(encoding="utf-8")
+
+
+def test_pymupdf_is_only_called_under_the_lock():
+    # MuPDF is not thread-safe and conversions run in worker threads.
+    class _Doc:
+        page_count = 1
+
+        def __getitem__(self, index):
+            assert convert_to_txt.PYMUPDF_LOCK.locked()
+            return self
+
+        rotation = 0
+
+        def get_text(self, kind):
+            assert convert_to_txt.PYMUPDF_LOCK.locked()
+            return {"blocks": []}
+
+        def close(self):
+            assert convert_to_txt.PYMUPDF_LOCK.locked()
+
+    doc = _Doc()
+    assert convert_to_txt._layout_page_count(doc) == 1
+    assert convert_to_txt._page_line_layout(doc, 0) == ([], [])
+    convert_to_txt._close_layout_document(doc)
+
+
+def test_a_page_pymupdf_cannot_lay_out_is_read_the_old_way(tmp_path):
+    class _BrokenDoc:
+        def __getitem__(self, index):
+            raise RuntimeError("cannot load page")
+
+    assert convert_to_txt._page_line_layout(_BrokenDoc(), 0) is None
 
 
 class _FakePage:

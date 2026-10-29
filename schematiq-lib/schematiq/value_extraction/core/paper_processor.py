@@ -571,7 +571,8 @@ class PaperProcessor:
         """
         if self._active_figure_images:
             kwargs.setdefault("images", self._active_figure_images)
-        if self._active_context_cache and hasattr(self.llm, 'generate_with_cache'):
+        cache = self._active_context_cache
+        if cache and hasattr(self.llm, 'generate_with_cache'):
             uncached_prompt = prompt
             if isinstance(prompt, list):
                 system_parts = [m["content"] for m in prompt if m.get("role") == "system"]
@@ -589,18 +590,20 @@ class PaperProcessor:
                             new_prompt.append(m)
                     prompt = new_prompt
             try:
-                return self.llm.generate_with_cache(prompt, self._active_context_cache, **kwargs)
+                return self.llm.generate_with_cache(prompt, cache, **kwargs)
             except Exception as e:
                 if not _is_missing_cache_error(e):
                     raise
                 # The cache expired, e.g. while a slow call was retried. The prompt
                 # carries the document text itself, so go on without the cache for
-                # the rest of this document instead of losing its units.
+                # the rest of this document instead of losing its units. Only this
+                # cache is dropped: the attribute may already hold another one.
                 logger.warning(
                     "Context cache %s is gone; continuing this document without it",
-                    getattr(self._active_context_cache, "name", "?"),
+                    getattr(cache, "name", "?"),
                 )
-                self._active_context_cache = None
+                if self._active_context_cache is cache:
+                    self._active_context_cache = None
                 return self.llm.generate(uncached_prompt, **kwargs)
         return self.llm.generate(prompt, **kwargs)
 

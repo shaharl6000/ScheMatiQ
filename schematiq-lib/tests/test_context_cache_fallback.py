@@ -60,6 +60,22 @@ def test_later_calls_skip_the_dropped_cache():
     assert s.llm.generate.call_count == 2
 
 
+def test_a_newer_cache_is_not_dropped():
+    # The attribute may hold another document's cache by the time the old one fails.
+    s = _make_self()
+    newer = MagicMock()
+
+    def _expire(prompt, cache, **kwargs):
+        s._active_context_cache = newer
+        raise api_error(403, "PERMISSION_DENIED", "CachedContent not found")
+
+    s.llm.generate_with_cache.side_effect = _expire
+    s.llm.generate.return_value = "ok"
+
+    assert PaperProcessor._generate(s, PROMPT) == "ok"
+    assert s._active_context_cache is newer
+
+
 def test_other_errors_still_raise():
     s = _make_self()
     s.llm.generate_with_cache.side_effect = api_error(403, "PERMISSION_DENIED", "API key not valid")

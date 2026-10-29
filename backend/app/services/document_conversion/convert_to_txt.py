@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Optional, Tuple
@@ -476,16 +477,61 @@ try:
 except ImportError:  # optional: without it, every page is read the old way
     pymupdf = None
 
+# MuPDF is not thread-safe, not even for separate documents, and conversions
+# run in worker threads (asyncio.to_thread), so every PyMuPDF call -- here and
+# in pdf_utils -- is made under this lock.
+PYMUPDF_LOCK = threading.Lock()
+
 
 def _open_layout_document(input_path: Path):
     """The PDF opened with PyMuPDF for its line layout, or None."""
     if pymupdf is None:
         return None
     try:
-        return pymupdf.open(input_path)
+        with PYMUPDF_LOCK:
+            return pymupdf.open(input_path)
     except Exception:
         logger.debug("PyMuPDF could not open %s; using the gutter search only", input_path.name, exc_info=True)
         return None
+
+
+def _layout_page_count(layout_doc) -> Optional[int]:
+    try:
+        with PYMUPDF_LOCK:
+            return layout_doc.page_count
+    except Exception:
+        return None
+
+
+def _close_layout_document(layout_doc) -> None:
+    if layout_doc is not None:
+        with PYMUPDF_LOCK:
+            layout_doc.close()
+
+
+def _page_line_layout(layout_doc, index: int) -> Optional[Tuple[list, list]]:
+    """PyMuPDF's upright text lines on page *index* -- (line bboxes in reading
+    order, their non-space characters) as plain data -- or None."""
+    try:
+        with PYMUPDF_LOCK:
+            layout_page = layout_doc[index]
+            if layout_page.rotation:
+                return None
+            blocks = layout_page.get_text("rawdict")["blocks"]
+    except Exception:
+        logger.debug("PyMuPDF could not lay out page %d", index + 1, exc_info=True)
+        return None
+    lines, layout_chars = [], []
+    for block in blocks:
+        if block.get("type") != 0:
+            continue
+        for line in block["lines"]:
+            cos, sin = line["dir"]
+            if cos <= 0 or abs(sin) > 1e-3:
+                continue  # rotated text: left to the leftover pass of _extract_page_text_by_lines
+            lines.append(line["bbox"])
+            layout_chars.extend(ch for span in line["spans"] for ch in span["chars"] if not ch["c"].isspace())
+    return lines, layout_chars
 
 
 def _coordinate_offset(chars: list, layout_chars: list) -> Optional[Tuple[float, float]]:
@@ -545,21 +591,13 @@ def _line_word_tolerance(line_chars: list, page_tolerance: dict) -> dict:
     return page_tolerance
 
 
-def _extract_page_text_by_lines(page: "pdfplumber.page.Page", layout_page) -> Optional[str]:
-    """The page's text in PyMuPDF's line order, built from pdfplumber's
-    characters; None when the lines cannot be trusted to cover the page."""
-    if getattr(page, "rotation", 0) not in (0, None) or layout_page.rotation:
+def _extract_page_text_by_lines(page: "pdfplumber.page.Page", line_layout: Tuple[list, list]) -> Optional[str]:
+    """The page's text in PyMuPDF's line order (from _page_line_layout), built
+    from pdfplumber's characters; None when the lines cannot be trusted to
+    cover the page."""
+    if getattr(page, "rotation", 0) not in (0, None):
         return None
-    lines, layout_chars = [], []
-    for block in layout_page.get_text("rawdict")["blocks"]:
-        if block.get("type") != 0:
-            continue
-        for line in block["lines"]:
-            cos, sin = line["dir"]
-            if cos <= 0 or abs(sin) > 1e-3:
-                continue  # rotated text: left to the leftover pass below
-            lines.append(line["bbox"])
-            layout_chars.extend(ch for span in line["spans"] for ch in span["chars"] if not ch["c"].isspace())
+    lines, layout_chars = line_layout
     upright = [c for c in page.chars if c.get("upright", True)]
     visible = [c for c in upright if not c["text"].isspace()]
     if not visible:
@@ -595,8 +633,10 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", layout_page) -> Op
     for line_chars in placed:
         if line_chars:
             # Figure labels are often drawn twice in place; one line built from
-            # both copies interleaves them ("pp--SS7744--CCddcc66").
-            line_chars = dedupe_chars(line_chars)
+            # both copies interleaves them ("pp--SS7744--CCddcc66"). The
+            # tolerance stays under a narrow letter's width ("ll" at 5pt is
+            # ~1.1pt apart), so real double letters are kept.
+            line_chars = dedupe_chars(line_chars, tolerance=0.5)
             text = extract_text(line_chars, **_line_word_tolerance(line_chars, tolerance)).replace("\n", " ").strip()
             if text:
                 out.append(text)
@@ -608,13 +648,16 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", layout_page) -> Op
     return "\n".join(out)
 
 
-def _extract_page_text(page: "pdfplumber.page.Page", layout_page=None) -> str:
+def _extract_page_text(page: "pdfplumber.page.Page", line_layout: Optional[Tuple[list, list]] = None) -> str:
     """A page's text: in the PDF's own line order when PyMuPDF's layout covers
     the page, otherwise through the gutter search."""
-    _decode_symbol_font_chars(page)
-    if layout_page is not None:
+    try:
+        _decode_symbol_font_chars(page)
+    except Exception:
+        logger.debug("Symbol font decoding failed", exc_info=True)
+    if line_layout is not None:
         try:
-            text = _extract_page_text_by_lines(page, layout_page)
+            text = _extract_page_text_by_lines(page, line_layout)
             if text is not None:
                 return text
         except Exception:
@@ -627,7 +670,7 @@ def _extract_page_text(page: "pdfplumber.page.Page", layout_page=None) -> str:
 # ---------------------------------------------------------------------------
 # A Symbol / SymbolGreek font with a ToUnicode map often maps its codes into
 # the Private Use Area at U+F000 + code (Microsoft's convention), so "10 μm"
-# came out as "10 m" and "α-actinin" as "-Actinin". Read such a
+# came out as "10 U+F06Dm" and "α-actinin" as "U+F061-Actinin". Read such a
 # character by Adobe's Symbol encoding instead. Codes for bracket and arrow
 # pieces are left out.
 _SYMBOL_ENCODING = {
@@ -727,6 +770,15 @@ _UNNAMED_CODE_GLYPHS = (
 _SUBSET_PREFIX = re.compile(r"^[A-Z]{6}\+")
 
 
+def _pdf_name(value) -> str:
+    """A PDF name object's text; names that are not UTF-8 come as bytes
+    (seen: a BaseFont of b"ABCDEE+\\xcb\\xce\\xcc\\xe5")."""
+    name = getattr(value, "name", value)
+    if isinstance(name, bytes):
+        return name.decode("latin-1")
+    return name if isinstance(name, str) else ""
+
+
 def _install_glyph_name_fallbacks() -> None:
     """Make pdfminer read the glyph names it does not know: "C<n>" as
     StandardEncoding character n (or a cmsy position, in Elsevier's math
@@ -749,11 +801,17 @@ def _install_glyph_name_fallbacks() -> None:
 
     def __init__(self, descriptor, widths, spec):
         original_init(self, descriptor, widths, spec)
+        try:
+            _add_glyph_fallbacks(self, spec)
+        except Exception:
+            # A malformed font is read as pdfminer reads it, never not at all.
+            logger.debug("Glyph-name fallbacks skipped for a font", exc_info=True)
+
+    def _add_glyph_fallbacks(font, spec):
         # Without /Differences pdfminer hands every font the same shared
         # encoding dict; writing to it would change all later fonts.
-        self.cid2unicode = dict(self.cid2unicode)
-        base_font = resolve1(spec.get("BaseFont"))
-        font_name = _SUBSET_PREFIX.sub("", getattr(base_font, "name", str(base_font or "")))
+        font.cid2unicode = dict(font.cid2unicode)
+        font_name = _SUBSET_PREFIX.sub("", _pdf_name(resolve1(spec.get("BaseFont"))))
         cmsy = bool(_CMSY_FONT.match(font_name))
         encoding = resolve1(spec.get("Encoding"))
         code = 0
@@ -762,25 +820,27 @@ def _install_glyph_name_fallbacks() -> None:
             if isinstance(item, int):
                 code = item
                 continue
-            name = getattr(item, "name", "")
+            name = _pdf_name(item)
             named.add(code)
             match = _C_NUMBER_GLYPH.fullmatch(name) or (cmsy and re.fullmatch(r"C(\d)", name))
+            if match and cmsy:
+                # A cmsy position at any n ("C48" is ′, not "0"); only the
+                # positions read off this corpus are mapped.
+                if int(match[1]) in _CMSY_GLYPHS:
+                    font.cid2unicode[code] = _CMSY_GLYPHS[int(match[1])]
             # Below 32 the number is not a character code ("C21" decoded
             # to a control character where the page shows "≈").
-            if match and cmsy and int(match[1]) < 32:
-                if int(match[1]) in _CMSY_GLYPHS:
-                    self.cid2unicode[code] = _CMSY_GLYPHS[int(match[1])]
             elif match and 32 <= int(match[1]) < 256 and int(match[1]) != 127:
                 n = int(match[1])
-                self.cid2unicode[code] = EncodingDB.std2unicode.get(n) or chr(n)
+                font.cid2unicode[code] = EncodingDB.std2unicode.get(n) or chr(n)
             elif name in _MATH_PI_GLYPHS:
-                self.cid2unicode[code] = _MATH_PI_GLYPHS[name]
+                font.cid2unicode[code] = _MATH_PI_GLYPHS[name]
             code += 1
         for font_re, glyphs in _UNNAMED_CODE_GLYPHS:
             if font_re.match(font_name):
                 # Overrides the base encoding too: these fonts have no Latin
                 # letters or digits, so StandardEncoding's "a" at 97 is wrong.
-                self.cid2unicode.update({c: g for c, g in glyphs.items() if c not in named})
+                font.cid2unicode.update({c: g for c, g in glyphs.items() if c not in named})
 
     __init__._reads_glyph_name_fallbacks = True
     PDFSimpleFont.__init__ = __init__
@@ -835,15 +895,17 @@ def convert_pdf_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
     pages or an unreadable text layer."""
     output_path = output_dir / (input_path.stem + ".txt")
 
-    layout = _open_layout_document(input_path)
+    layout_doc = _open_layout_document(input_path)
     try:
         with pdfplumber.open(input_path) as pdf:
             page_count = max(1, len(pdf.pages))
-            same_pages = layout is not None and len(layout) == len(pdf.pages)
-            text_parts = [_extract_page_text(p, layout[i] if same_pages else None) for i, p in enumerate(pdf.pages)]
+            same_pages = layout_doc is not None and _layout_page_count(layout_doc) == len(pdf.pages)
+            text_parts = [
+                _extract_page_text(p, _page_line_layout(layout_doc, i) if same_pages else None)
+                for i, p in enumerate(pdf.pages)
+            ]
     finally:
-        if layout is not None:
-            layout.close()
+        _close_layout_document(layout_doc)
 
     total_chars = sum(len(t) for t in text_parts)
     text = "\n\n".join(t for t in text_parts if t)
