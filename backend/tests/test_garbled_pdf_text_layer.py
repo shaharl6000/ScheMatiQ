@@ -157,7 +157,7 @@ def pdf_path(tmp_path):
 
 
 def _stub_pages(monkeypatch, text):
-    monkeypatch.setattr(convert_to_txt, "_extract_page_text", lambda page, layout_page=None: text)
+    monkeypatch.setattr(convert_to_txt, "_extract_page_text", lambda page, line_layout=None: text)
 
 
 def test_garbled_text_layer_is_replaced_by_ocr(monkeypatch, pdf_path, tmp_path):

@@ -446,9 +446,15 @@ def _layout_page_count(layout_doc) -> Optional[int]:
 
 
 def _close_layout_document(layout_doc) -> None:
-    if layout_doc is not None:
+    """Close the PyMuPDF document; never raises (it runs in a finally, where an
+    error would hide the conversion's own result or exception)."""
+    if layout_doc is None:
+        return
+    try:
         with PYMUPDF_LOCK:
             layout_doc.close()
+    except Exception:
+        logger.debug("PyMuPDF could not close a document", exc_info=True)
 
 
 def _page_line_layout(layout_doc, index: int) -> Optional[Tuple[list, list]]:

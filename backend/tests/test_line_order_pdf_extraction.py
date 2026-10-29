@@ -147,6 +147,14 @@ def test_without_pymupdf_the_gutter_search_is_used(tmp_path, monkeypatch):
     assert "perfectly ordinary" in (tmp_path / "paper.txt").read_text(encoding="utf-8")
 
 
+def test_a_failing_close_does_not_fail_the_conversion():
+    class _Doc:
+        def close(self):
+            raise RuntimeError("already closed")
+
+    convert_to_txt._close_layout_document(_Doc())
+
+
 def test_pymupdf_is_only_called_under_the_lock():
     # MuPDF is not thread-safe and conversions run in worker threads.
     class _Doc:
