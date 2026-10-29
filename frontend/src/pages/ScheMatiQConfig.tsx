@@ -142,6 +142,10 @@ const ScheMatiQConfigPage = () => {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/rtf': ['.rtf'],
       'application/json': ['.json'],
+      // Supplementary figures: attached to the paper whose name they start with.
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/webp': ['.webp'],
     },
     maxSize: 25 * 1024 * 1024, // 25MB per file
     onFilesSelected: setUploadedFiles,
@@ -884,7 +888,7 @@ const ScheMatiQConfigPage = () => {
                     {isDragActive ? 'Drop files here...' : 'Drag and drop files here, or click to browse'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Supports: .txt, .md, .pdf, .doc, .docx, .rtf, .json (max 25MB each)
+                    Supports: .txt, .md, .pdf, .doc, .docx, .rtf, .json (max 25MB each); .png/.jpg/.webp images are attached to the paper whose name they start with
                   </p>
                 </div>
 

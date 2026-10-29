@@ -38,6 +38,12 @@ router = APIRouter()
 
 # Module-level singleton (same pattern as schematiq_runner, reextraction_service, etc.)
 from app.services import pubmed_enrichment_service, uniprot_enrichment_service
+from app.services.uploaded_figures import (
+    attach_held_images,
+    held_images as held_uploaded_images,
+    hold_dir as uploaded_image_hold_dir,
+    is_image as is_uploaded_image,
+)
 from app.services.session_documents import (
     committed_docs_dir,
     pending_docs_dir,
@@ -902,6 +908,9 @@ async def _add_documents_locked(session_id: str, files: List[UploadFile], bypass
         # Document count: separate valid files from system files
         valid_files = [f for f in files if not _is_system_file(f.filename)]
         system_files = [f for f in files if _is_system_file(f.filename)]
+        # Images are a paper's figures, not documents: they don't count toward the limit.
+        image_files = [f for f in valid_files if is_uploaded_image(f.filename)]
+        valid_files = [f for f in valid_files if not is_uploaded_image(f.filename)]
 
         already_received = set(session.metadata.uploaded_documents or [])
         existing_count = len(already_received)
@@ -942,8 +951,8 @@ async def _add_documents_locked(session_id: str, files: List[UploadFile], bypass
             limit_applied = True
             logger.debug(f"Document limit reached ({MAX_DOCUMENTS}); ignoring {new_count - len(valid_files)} new files")
 
-        # Reconstruct files list: valid (possibly trimmed) + system files
-        files = valid_files + system_files
+        # Reconstruct files list: valid (possibly trimmed) + images + system files
+        files = valid_files + image_files + system_files
 
         logger.debug(f"Session status: {session.status}, extracted schema available")
         
@@ -979,7 +988,14 @@ async def _add_documents_locked(session_id: str, files: List[UploadFile], bypass
                 continue
             
             total_size += file.size
-            
+
+            # An image is held until its paper is present, then attached to that paper's figures.
+            if is_uploaded_image(file.filename):
+                held = uploaded_image_hold_dir(pending_dir)
+                held.mkdir(parents=True, exist_ok=True)
+                (held / Path(file.filename).name).write_bytes(await file.read())
+                continue
+
             # Validate file type (text files, PDFs, docs, etc.)
             allowed_extensions = {'.txt', '.md', '.pdf', '.doc', '.docx', '.rtf', '.json'}
             file_ext = Path(file.filename).suffix.lower()
@@ -1019,6 +1035,15 @@ async def _add_documents_locked(session_id: str, files: List[UploadFile], bypass
                 errors.append(f"Failed to save file '{file.filename}': {str(e)}")
                 failed_files.append({"filename": file.filename, "status": f"failed: {e}"})
         
+        # Attach held images whose paper has arrived (this batch or an earlier one).
+        attached_images = attach_held_images(pending_dir, [pending_dir, docs_dir])
+        for image, stems in attached_images.items():
+            warnings.append(f"Image '{image}' attached to the figures of {', '.join(stems)}")
+        waiting_images = [f.filename for f in image_files if Path(f.filename).name in held_uploaded_images(pending_dir)]
+        for image in waiting_images:
+            warnings.append(f"Image '{image}' is waiting for its paper (a document whose name starts the same); "
+                            "it is attached when that paper is uploaded or the run starts")
+
         # Check total size limit (100MB total)
         if total_size > 100 * 1024 * 1024:
             errors.append("Total upload size exceeds 100MB limit")
@@ -1049,6 +1074,8 @@ async def _add_documents_locked(session_id: str, files: List[UploadFile], bypass
             "document_extraction": document_extraction,
             "failed_files": failed_files if failed_files else None,
             "errors": errors if failed_files else None,
+            "attached_images": attached_images,
+            "waiting_images": waiting_images,
         }
         if limit_applied:
             response["limit_applied"] = True

@@ -84,6 +84,10 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/rtf': ['.rtf'],
       'application/json': ['.json'],
+      // Supplementary figures: attached to the paper whose name they start with.
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/webp': ['.webp'],
     },
     maxSize: 25 * 1024 * 1024, // 25MB per file
     onFilesSelected: onFilesChange,
@@ -237,7 +241,7 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
               {isDragActive ? 'Drop files here' : 'Drop documents here or click to browse'}
             </h4>
             <p className="text-sm text-muted-foreground">
-              Supported formats: TXT, MD, PDF, DOC, DOCX, RTF
+              Supported formats: TXT, MD, PDF, DOC, DOCX, RTF; PNG/JPG images are attached to the paper whose name they start with
             </p>
             <p className="text-sm text-muted-foreground">
               Max 25MB per file, 100MB total
