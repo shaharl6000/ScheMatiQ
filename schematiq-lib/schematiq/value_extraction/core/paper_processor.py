@@ -17,7 +17,7 @@ from schematiq.core.results import UnitIdentificationResult, ExtractionResult
 from schematiq.value_extraction.config.messages import (
     NO_UNITS_FOUND, NO_KNOWN_UNITS, KNOWN_UNITS_EMPTY
 )
-from schematiq.core.llm_backends import LLMInterface, _is_invalid_api_key_error
+from schematiq.core.llm_backends import LLMInterface, _is_invalid_api_key_error, _is_missing_cache_error
 from schematiq.core.network_resilience import is_transient_error
 from sentence_transformers import util as st_util
 from schematiq.core.llm_call_tracker import LLMCallTracker
@@ -352,7 +352,10 @@ class PaperProcessor:
             return None
         if not hasattr(self.llm, 'create_context_cache'):
             return None
-        return self.llm.create_context_cache(system_prompt, paper_text, ttl_seconds=300)
+        # The cache is deleted when the document is done; the TTL only has to outlast
+        # its units. 300s did not: one call may run 300s before it times out and
+        # is retried, and a document can have 15 units.
+        return self.llm.create_context_cache(system_prompt, paper_text, ttl_seconds=1800)
 
     def _delete_document_cache(self):
         """Clear per-document state: the active context cache and any loaded figure images."""
@@ -569,6 +572,7 @@ class PaperProcessor:
         if self._active_figure_images:
             kwargs.setdefault("images", self._active_figure_images)
         if self._active_context_cache and hasattr(self.llm, 'generate_with_cache'):
+            uncached_prompt = prompt
             if isinstance(prompt, list):
                 system_parts = [m["content"] for m in prompt if m.get("role") == "system"]
                 if system_parts:
@@ -584,7 +588,20 @@ class PaperProcessor:
                         else:
                             new_prompt.append(m)
                     prompt = new_prompt
-            return self.llm.generate_with_cache(prompt, self._active_context_cache, **kwargs)
+            try:
+                return self.llm.generate_with_cache(prompt, self._active_context_cache, **kwargs)
+            except Exception as e:
+                if not _is_missing_cache_error(e):
+                    raise
+                # The cache expired, e.g. while a slow call was retried. The prompt
+                # carries the document text itself, so go on without the cache for
+                # the rest of this document instead of losing its units.
+                logger.warning(
+                    "Context cache %s is gone; continuing this document without it",
+                    getattr(self._active_context_cache, "name", "?"),
+                )
+                self._active_context_cache = None
+                return self.llm.generate(uncached_prompt, **kwargs)
         return self.llm.generate(prompt, **kwargs)
 
     def _track_unmatched_values(
