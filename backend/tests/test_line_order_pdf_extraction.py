@@ -101,6 +101,37 @@ def test_text_drawn_twice_in_place_is_read_once(tmp_path):
     assert "pp--" not in by_lines
 
 
+def test_space_less_line_on_a_page_with_spaces_is_split(tmp_path):
+    # Cdc6, p. 8: figure labels full of spaces, body text drawn word by word
+    # with no space glyph and gaps (~0.25 em) under pdfplumber's 3pt default.
+    from reportlab.pdfgen.canvas import Canvas
+
+    from tests.helpers.pdf_fixtures import _draw_words_glued
+
+    path = tmp_path / "paper.pdf"
+    c = Canvas(str(path))
+    c.setFont("Helvetica", 8)
+    for y in range(750, 600, -12):
+        c.drawString(50, y, "Ctrl     CyA     Ctrl     CyA     Ctrl     CyA")
+    words = "expressed as means of three determinations obtained in each of three experiments".split()
+    _draw_words_glued(c, words, 50, 560, 560, inter_word_gap=2.0, font_size=8)
+    c.showPage()
+    c.save()
+
+    by_lines, _ = _read(path)
+
+    assert " ".join(words) in _norm(by_lines)
+    assert "Ctrl CyA" in _norm(by_lines)
+
+
+def test_short_space_less_label_is_left_whole():
+    chars = [{"text": ch} for ch in "p-S74-Cdc6"]
+
+    assert convert_to_txt._line_word_tolerance(chars, {"x_tolerance": 3, "x_tolerance_ratio": None}) == {
+        "x_tolerance": 3, "x_tolerance_ratio": None,
+    }
+
+
 def test_without_pymupdf_the_gutter_search_is_used(tmp_path, monkeypatch):
     monkeypatch.setattr(convert_to_txt, "pymupdf", None)
     path = tmp_path / "paper.pdf"

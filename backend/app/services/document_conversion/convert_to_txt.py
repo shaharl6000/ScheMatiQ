@@ -409,6 +409,9 @@ _MAX_ALIGN_SPREAD_PT = 1.5
 # describe the page, and the page is read the old way.
 _MAX_UNPLACED_FRACTION = 0.02
 _LINE_SLACK_PT = 1.0
+# A line this long with no space glyph is split at 0.10 em (_WORD_GAP_EM);
+# a shorter one ("p-S74-Cdc6", "N1") may well be a single word.
+_MIN_CHARS_FOR_LINE_GAP_ANALYSIS = 15
 
 try:
     import pymupdf
@@ -468,6 +471,22 @@ def _coordinate_offset(chars: list, layout_chars: list) -> Optional[Tuple[float,
     return best
 
 
+def _line_word_tolerance(line_chars: list, page_tolerance: dict) -> dict:
+    """Word-splitting arguments for one line: 0.10 em when the line has no
+    space glyphs, else the page's.
+
+    The page-level check misses a page whose body text has no space glyphs
+    but whose figure labels are full of them (Cdc6, p. 8: 16% spaces on the
+    page, 0% in every body and caption line), so its 6-8pt text, with word
+    gaps of ~0.25 em but under the 3pt default, came out glued
+    ("thecytoplasm.Cytoplasmiclocation"). On 415 papers this rule split 367
+    lines and cut no word in two.
+    """
+    if len(line_chars) >= _MIN_CHARS_FOR_LINE_GAP_ANALYSIS and not any(c["text"].isspace() for c in line_chars):
+        return {**page_tolerance, "x_tolerance_ratio": _WORD_GAP_EM}
+    return page_tolerance
+
+
 def _extract_page_text_by_lines(page: "pdfplumber.page.Page", layout_page) -> Optional[str]:
     """The page's text in PyMuPDF's line order, built from pdfplumber's
     characters; None when the lines cannot be trusted to cover the page."""
@@ -520,7 +539,7 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", layout_page) -> Op
             # Figure labels are often drawn twice in place; one line built from
             # both copies interleaves them ("pp--SS7744--CCddcc66").
             line_chars = dedupe_chars(line_chars)
-            text = extract_text(line_chars, **tolerance).replace("\n", " ").strip()
+            text = extract_text(line_chars, **_line_word_tolerance(line_chars, tolerance)).replace("\n", " ").strip()
             if text:
                 out.append(text)
     if leftover:
