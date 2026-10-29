@@ -17,8 +17,12 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
     Returns:
         Extracted text content in markdown format
     """
+    from app.services.document_conversion.convert_to_txt import PYMUPDF_LOCK
+
     try:
-        return pymupdf4llm.to_markdown(str(pdf_path))
+        # MuPDF is not thread-safe; this runs in worker threads, as conversion does.
+        with PYMUPDF_LOCK:
+            return pymupdf4llm.to_markdown(str(pdf_path))
     except Exception as e:
         raise ValueError(f"Failed to extract text from PDF: {e}")
 
