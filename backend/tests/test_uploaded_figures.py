@@ -5,10 +5,12 @@ figures/{stem}/manifest.json next to any figures Docling extracted, in the form
 paper_processor._load_document_figures reads.
 """
 
+import io
 import json
 import os
 
 import pytest
+from PIL import Image
 
 from app.models.figures import ExtractedFigure, FigureExtractionManifest
 from app.models.schematiq import LLMConfig, ScheMatiQConfig
@@ -39,24 +41,36 @@ def test_match_documents(image, expected):
     assert match_documents(image, DOCS) == expected
 
 
-def _hold(pending, name, data=b"\x89PNG fake"):
+def _image_bytes(fmt="PNG", size=(40, 30)):
+    buf = io.BytesIO()
+    Image.new("RGB", size, "white").save(buf, fmt)
+    return buf.getvalue()
+
+
+def _hold(pending, name, data=None):
     hold_dir(pending).mkdir(parents=True, exist_ok=True)
-    (hold_dir(pending) / name).write_bytes(data)
+    (hold_dir(pending) / name).write_bytes(_image_bytes() if data is None else data)
+
+
+def _pdf_figures(doc_dir, stem):
+    """A figures folder as Docling leaves it for a PDF."""
+    figures = doc_dir / "figures" / stem
+    figures.mkdir(parents=True)
+    (figures / "fig001.png").write_bytes(_image_bytes())
+    (figures / "manifest.json").write_text(FigureExtractionManifest(
+        source_document=f"{stem}.pdf", figure_count=1, status="ok",
+        figures=[ExtractedFigure(figure_id=f"{stem}_fig001", source_document=f"{stem}.pdf",
+                                 figure_label="Figure", page_no=3, image_filename="fig001.png", caption="Fig. 1")],
+    ).model_dump_json(), encoding="utf-8")
+    return figures
 
 
 def test_attaches_next_to_extracted_figures(tmp_path):
     pending = tmp_path / "pending_documents"
     pending.mkdir()
     (pending / "STAT1_12588893_full.txt").write_text("paper", encoding="utf-8")
-    figures = pending / "figures" / "STAT1_12588893_full"
-    figures.mkdir(parents=True)
-    (figures / "fig001.png").write_bytes(b"png")
-    (figures / "manifest.json").write_text(FigureExtractionManifest(
-        source_document="STAT1_12588893_full.pdf", figure_count=1, status="ok",
-        figures=[ExtractedFigure(figure_id="STAT1_12588893_full_fig001", source_document="STAT1_12588893_full.pdf",
-                                 figure_label="Figure", page_no=3, image_filename="fig001.png", caption="Fig. 1")],
-    ).model_dump_json(), encoding="utf-8")
-    _hold(pending, "STAT1_12588893_supp_Fig1.jpg", b"jpeg bytes")
+    figures = _pdf_figures(pending, "STAT1_12588893_full")
+    _hold(pending, "STAT1_12588893_supp_Fig1.jpg", _image_bytes("JPEG"))
 
     attached = attach_held_images(pending, [pending])
 
@@ -67,7 +81,7 @@ def test_attaches_next_to_extracted_figures(tmp_path):
     assert new["figure_id"] == "STAT1_12588893_full_upl001"
     assert new["image_filename"] == "upl001.jpg"
     assert new["origin_name"] == "STAT1_12588893_supp_Fig1.jpg"
-    assert (figures / "upl001.jpg").read_bytes() == b"jpeg bytes"
+    assert Image.open(figures / "upl001.jpg").format == "JPEG"
     assert not hold_dir(pending).exists()
 
 
@@ -112,7 +126,7 @@ async def test_run_start_attaches_images_uploaded_before_their_paper(tmp_path, m
     pending = tmp_path / "data" / session_id / "pending_documents"
     pending.mkdir(parents=True)
     (pending / "STAT1_12588893_full.txt").write_text("paper", encoding="utf-8")
-    _hold(pending, "STAT1_12588893_supp_Table1.jpg")
+    _hold(pending, "STAT1_12588893_supp_Table1.jpg", _image_bytes("JPEG"))
     backend = LLMConfig(provider="openai")
     config = ScheMatiQConfig(query="q", docs_path=None, schema_creation_backend=backend,
                              value_extraction_backend=backend, output_path="outputs/out.json")
@@ -121,3 +135,57 @@ async def test_run_start_attaches_images_uploaded_before_their_paper(tmp_path, m
 
     assert resolved[0].endswith(os.path.join(session_id, "pending_documents"))
     assert (pending / "figures" / "STAT1_12588893_full" / "upl001.jpg").exists()
+
+
+def test_webp_and_large_images_are_reencoded(tmp_path):
+    """The figure loader labels images by extension, and mimetypes may not know .webp."""
+    pending = tmp_path / "pending_documents"
+    pending.mkdir()
+    (pending / "STAT1_12588893_full.txt").write_text("paper", encoding="utf-8")
+    _hold(pending, "STAT1_12588893_supp_Fig1.webp", _image_bytes("WEBP", size=(5000, 1000)))
+
+    attach_held_images(pending, [pending])
+
+    figures = pending / "figures" / "STAT1_12588893_full"
+    manifest = json.loads((figures / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["figures"][0]["image_filename"] == "upl001.png"
+    img = Image.open(figures / "upl001.png")
+    assert img.format == "PNG" and img.size == (2048, 410)
+
+
+def test_unreadable_image_is_dropped_not_retried(tmp_path):
+    pending = tmp_path / "pending_documents"
+    pending.mkdir()
+    (pending / "STAT1_12588893_full.txt").write_text("paper", encoding="utf-8")
+    _hold(pending, "STAT1_12588893_supp_Fig1.png", b"not an image")
+
+    assert attach_held_images(pending, [pending]) == {}
+    assert held_images(pending) == []
+    assert not (pending / "figures").exists()
+
+
+def test_corrupt_manifest_keeps_image_held(tmp_path):
+    pending = tmp_path / "pending_documents"
+    pending.mkdir()
+    (pending / "STAT1_12588893_full.txt").write_text("paper", encoding="utf-8")
+    figures = pending / "figures" / "STAT1_12588893_full"
+    figures.mkdir(parents=True)
+    (figures / "manifest.json").write_text("{broken", encoding="utf-8")
+    _hold(pending, "STAT1_12588893_supp_Fig1.png")
+
+    assert attach_held_images(pending, [pending]) == {}
+    assert held_images(pending) == ["STAT1_12588893_supp_Fig1.png"]
+
+
+def test_tie_prefers_the_document_with_pdf_figures(tmp_path):
+    """A converted supplementary table shares the paper's name prefix but is not where figures go."""
+    pending = tmp_path / "pending_documents"
+    pending.mkdir()
+    for stem in ("AP1-gamma_26673895_full", "AP1-gamma_26673895_supp1", "AP1-gamma_26673895_supp5"):
+        (pending / f"{stem}.txt").write_text("text", encoding="utf-8")
+    _pdf_figures(pending, "AP1-gamma_26673895_full")
+    _hold(pending, "AP1-gamma_26673895_Fig7-figsupp1.jpg", _image_bytes("JPEG"))
+
+    attached = attach_held_images(pending, [pending])
+
+    assert attached == {"AP1-gamma_26673895_Fig7-figsupp1.jpg": ["AP1-gamma_26673895_full"]}

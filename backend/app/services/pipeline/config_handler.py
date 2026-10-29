@@ -1,5 +1,6 @@
 """Configuration validation, conversion, and document path resolution."""
 
+import asyncio
 import logging
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -60,7 +61,7 @@ async def resolve_docs_paths(config: ScheMatiQConfig, session_id: str, work_dir:
     # Images uploaded before their paper (uploads arrive in shuffled batches)
     # are attached to its figures now that every document is present.
     from app.services.uploaded_figures import attach_held_images, held_images
-    attach_held_images(pending_dir, [pending_dir, documents_dir])
+    await asyncio.to_thread(attach_held_images, pending_dir, [pending_dir, documents_dir])
     for image in held_images(pending_dir):
         logger.warning("Uploaded image %s matches no document; its figures are not used", image)
 

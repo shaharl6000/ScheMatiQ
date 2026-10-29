@@ -991,9 +991,13 @@ async def _add_documents_locked(session_id: str, files: List[UploadFile], bypass
 
             # An image is held until its paper is present, then attached to that paper's figures.
             if is_uploaded_image(file.filename):
-                held = uploaded_image_hold_dir(pending_dir)
-                held.mkdir(parents=True, exist_ok=True)
-                (held / Path(file.filename).name).write_bytes(await file.read())
+                try:
+                    held = uploaded_image_hold_dir(pending_dir)
+                    held.mkdir(parents=True, exist_ok=True)
+                    (held / Path(file.filename).name).write_bytes(await file.read())
+                except Exception as e:
+                    errors.append(f"Failed to save image '{file.filename}': {e}")
+                    failed_files.append({"filename": file.filename, "status": f"failed: {e}"})
                 continue
 
             # Validate file type (text files, PDFs, docs, etc.)
@@ -1036,10 +1040,11 @@ async def _add_documents_locked(session_id: str, files: List[UploadFile], bypass
                 failed_files.append({"filename": file.filename, "status": f"failed: {e}"})
         
         # Attach held images whose paper has arrived (this batch or an earlier one).
-        attached_images = attach_held_images(pending_dir, [pending_dir, docs_dir])
+        attached_images = await asyncio.to_thread(attach_held_images, pending_dir, [pending_dir, docs_dir])
         for image, stems in attached_images.items():
             warnings.append(f"Image '{image}' attached to the figures of {', '.join(stems)}")
-        waiting_images = [f.filename for f in image_files if Path(f.filename).name in held_uploaded_images(pending_dir)]
+        still_held = set(held_uploaded_images(pending_dir))
+        waiting_images = [f.filename for f in image_files if Path(f.filename).name in still_held]
         for image in waiting_images:
             warnings.append(f"Image '{image}' is waiting for its paper (a document whose name starts the same); "
                             "it is attached when that paper is uploaded or the run starts")

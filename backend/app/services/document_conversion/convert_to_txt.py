@@ -158,41 +158,77 @@ XLSX_SHEET_MAX_CHARS = int(os.environ.get("XLSX_SHEET_MAX_CHARS", "30000"))
 XLSX_MAX_CHARS = int(os.environ.get("XLSX_MAX_CHARS", "300000"))
 
 
-def _sheet_to_csv(df, max_chars: int) -> str:
-    """The sheet's rows as CSV, cut after the row that passes max_chars."""
+def _cell_text(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _sheet_to_csv(sheet, max_chars: int) -> str:
+    """The sheet's non-empty rows as CSV, cut after the row that passes max_chars.
+
+    Streams the rows, so a huge sheet is only read up to the cut. Columns empty
+    in every row kept are dropped (sheets are often padded with empty columns).
+    """
     import csv
     import io
 
-    rows = df.values.tolist()
+    kept: list[list[str]] = []
+    size = 0
+    read = 0
+    cut = False
+    for row in sheet.iter_rows(values_only=True):
+        read += 1
+        cells = [_cell_text(v) for v in row]
+        if not any(cells):
+            continue
+        if size >= max_chars:
+            cut = True
+            break
+        kept.append(cells)
+        size += sum(len(c) + 1 for c in cells)
+    if not kept:
+        return ""
+
+    width = max(len(r) for r in kept)
+    used = [j for j in range(width) if any(j < len(r) and r[j] for r in kept)]
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
-    for i, row in enumerate(rows):
-        writer.writerow(row)
-        if buf.tell() >= max_chars and i + 1 < len(rows):
-            return buf.getvalue() + f"[... {len(rows) - i - 1} more rows not included]\n"
+    for r in kept:
+        writer.writerow([r[j] if j < len(r) else "" for j in used])
+    if cut:
+        # max_row comes from the sheet's stated dimensions and counts empty rows.
+        left = (sheet.max_row or 0) - read + 1
+        buf.write(f"[... about {left} more rows not included]\n" if left > 0 else "[... more rows not included]\n")
     return buf.getvalue()
 
 
 def convert_xlsx_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
-    """Write every sheet of a workbook as CSV under a '## Sheet: name' header."""
-    import pandas as pd  # local import: pandas is heavy and only needed here
+    """Write every sheet of a workbook as CSV under a '## Sheet: name' header.
+
+    Cells are written as stored (no header row inferred: supplementary tables
+    often open with title rows), formulas as their last computed value.
+    """
+    from openpyxl import load_workbook
 
     output_path = output_dir / (input_path.stem + ".txt")
     try:
-        # header=None and dtype=str keep the cells verbatim: supplementary
-        # tables often open with title rows, and ids/years must not become floats.
-        sheets = pd.read_excel(input_path, sheet_name=None, header=None, dtype=str)
+        workbook = load_workbook(input_path, read_only=True, data_only=True)
+    except Exception as e:
+        return False, f"XLSX extraction failed: {e}"
+    try:
         parts: list[str] = []
         total = 0
-        for n, (name, df) in enumerate(sheets.items()):
-            df = df.dropna(how="all").dropna(axis=1, how="all").fillna("")
-            if df.empty:
-                continue
+        sheets = workbook.worksheets
+        for n, sheet in enumerate(sheets):
             if total >= XLSX_MAX_CHARS:
-                omitted = [str(rest) for rest in list(sheets)[n:]]
+                omitted = [s.title for s in sheets[n:]]
                 parts.append(f"[... {len(omitted)} more sheets not included: {', '.join(omitted)}]")
                 break
-            part = f"## Sheet: {name}\n" + _sheet_to_csv(df, min(XLSX_SHEET_MAX_CHARS, XLSX_MAX_CHARS - total))
+            rows = _sheet_to_csv(sheet, min(XLSX_SHEET_MAX_CHARS, XLSX_MAX_CHARS - total))
+            if not rows:
+                continue
+            part = f"## Sheet: {sheet.title}\n{rows}"
             parts.append(part.rstrip())
             total += len(part)
         if not parts:
@@ -201,6 +237,9 @@ def convert_xlsx_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
         return True, f"Converted: {output_path}"
     except Exception as e:
         return False, f"XLSX extraction failed: {e}"
+    finally:
+        # read_only keeps the file open; on Windows the upload could not be deleted after.
+        workbook.close()
 
 
 # ---------------------------------------------------------------------------
