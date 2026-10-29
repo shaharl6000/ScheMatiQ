@@ -56,6 +56,21 @@ interface ScheMatiQMonitorProps {
   onExtractionStarted?: (columns: string[], operationId?: string) => void;
   /** Keep WebSocket alive before resume so extraction events stream incrementally. */
   onResumeStarted?: () => void;
+  /**
+   * Whether this session owns a live pipeline (backend SessionType.SCHEMATIQ).
+   * Imported (UPLOAD) sessions cannot start or resume a pipeline run: the
+   * backend gates /schematiq/run and /schematiq/resume on has_live_pipeline
+   * and answers 404. For them the monitor is read-only: it still tracks
+   * re-extraction / fill-empty runs, logs and LLM stats, but hides the
+   * Start, Try Again and Edit & Rediscover controls.
+   */
+  canRunPipeline?: boolean;
+  /**
+   * What the imported table holds (columns, rows, source documents). Shown in
+   * place of the pipeline phases when canRunPipeline is false and no
+   * extraction has run in this view.
+   */
+  importedSummary?: { columns: number; rows: number; documents: number };
 }
 
 /** Format observation unit for monitor logs and summary surfaces. */
@@ -96,6 +111,8 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   initialCapacityMessage = '',
   onExtractionStarted,
   onResumeStarted,
+  canRunPipeline = true,
+  importedSummary,
 }) => {
   const queryClient = useQueryClient();
   const llmStatsCacheKey = ['schematiq-llm-stats', sessionId];
@@ -311,6 +328,20 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       // ignore; live websocket updates still cover active runs
     });
   }, [llmStats, status?.status, sessionId, queryClient]);
+
+  // An imported session has no pipeline history: its backend status is
+  // 'completed' from the import itself, not from a run. Until a re-extraction
+  // actually runs in this view, show an import summary instead of the
+  // pipeline's "Completed Successfully" hero and phase cards.
+  const [importedRunSeen, setImportedRunSeen] = useState(false);
+  useEffect(() => {
+    if (processingState === 'starting' || processingState === 'schema' || processingState === 'extraction') {
+      setImportedRunSeen(true);
+    }
+  }, [processingState]);
+  useEffect(() => {
+    setImportedRunSeen(false);
+  }, [sessionId]);
 
   // WebSocket connection status is now updated via message handlers below
   // (removed redundant 1-second polling interval)
@@ -836,6 +867,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   };
 
   const handleStart = async () => {
+    if (!canRunPipeline) return;
     if (processingState !== 'idle' && processingState !== 'error' && processingState !== 'completed' && processingState !== 'stopped') {
       return;
     }
@@ -993,6 +1025,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   };
 
   const handleResume = async (skipEdit = false) => {
+    if (!canRunPipeline) return;
     setIsResuming(true);
     setReviewSaveError('');
     try {
@@ -1085,6 +1118,12 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   };
 
   const isProcessing = processingState === 'starting' || processingState === 'schema' || processingState === 'extraction';
+  const showImportedSummary =
+    !canRunPipeline && !importedRunSeen && (processingState === 'idle' || processingState === 'completed');
+  // Imported columns: prefer the workspace's schema count, then the backend's
+  // len(session.columns). schemaProgress.columnsDiscovered stays 0 for imports
+  // because they never set schema_discovery_completed.
+  const importedColumns = importedSummary?.columns ?? status?.columns_discovered ?? 0;
 
   // While mid-run review panel is open, backend phase is not `observation_unit_review` — keep phase cards live
   const phaseDisplayState: ProcessingState =
@@ -1112,10 +1151,39 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       {/* HERO PROCESSING SECTION */}
       <Card className="border-2">
         <CardContent className="py-6 flex flex-col items-center justify-center min-h-[160px]">
-          {/* IDLE STATE */}
-          {processingState === 'idle' && (
+          {/* IMPORTED PROJECT (no extraction run yet in this view) */}
+          {showImportedSummary && (
             <>
-              {quotaExceeded ? (
+              <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
+                <Table className="h-7 w-7 text-muted-foreground" />
+              </div>
+              <p className="text-xl font-semibold mb-1">Imported project</p>
+              <p className="text-sm text-muted-foreground mb-2 text-center">
+                {importedColumns} columns · {importedSummary?.rows ?? 0} rows · {importedSummary?.documents ?? 0} source documents
+              </p>
+              <p className="text-sm text-muted-foreground text-center max-w-md">
+                {(importedSummary?.documents ?? 0) > 0
+                  ? 'To extract more values, use Fill empty cells or Re-extract from the Data sheet or the chat. Progress and logs appear here while they run.'
+                  : 'No source documents are attached, so values cannot be extracted yet. Add documents first, then use Fill empty cells or Re-extract.'}
+              </p>
+            </>
+          )}
+
+          {/* IDLE STATE */}
+          {processingState === 'idle' && !showImportedSummary && (
+            <>
+              {!canRunPipeline ? (
+                <>
+                  <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
+                    <Info className="h-7 w-7 text-muted-foreground" />
+                  </div>
+                  <p className="text-xl font-semibold text-muted-foreground mb-1">Imported project</p>
+                  <p className="text-sm text-muted-foreground text-center max-w-md">
+                    No pipeline run to start here. To extract more values, use Fill empty cells or
+                    Re-extract from the Data sheet or the chat. Progress and logs appear here while they run.
+                  </p>
+                </>
+              ) : quotaExceeded ? (
                 <>
                   <div className="w-14 h-14 rounded-full bg-orange-100 flex items-center justify-center mb-4">
                     <AlertTriangle className="h-7 w-7 text-orange-600" />
@@ -1194,16 +1262,18 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
           )}
 
           {/* COMPLETED STATE */}
-          {processingState === 'completed' && (
+          {processingState === 'completed' && !showImportedSummary && (
             <>
               <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4">
                 <CheckCircle2 className="h-8 w-8 text-green-600" />
               </div>
               <p className="text-xl font-semibold text-green-600 mb-1">
-                {schemaOnly ? 'Schema Discovery Complete' : 'Completed Successfully!'}
+                {!canRunPipeline ? 'Extraction Finished' : schemaOnly ? 'Schema Discovery Complete' : 'Completed Successfully!'}
               </p>
               <p className="text-muted-foreground text-center max-w-md">
-                {schemaOnly
+                {!canRunPipeline
+                  ? currentStepMessage || 'The extraction run finished.'
+                  : schemaOnly
                   ? `Discovered ${schemaProgress.columnsDiscovered || status?.columns_discovered || 0} columns. Value extraction was skipped — extract your table below when ready.`
                   : schemaProgress.columnsDiscovered > 0 && extractionProgress.totalDocs > 0
                     ? `Discovered ${schemaProgress.columnsDiscovered} columns from ${extractionProgress.totalDocs} documents`
@@ -1222,10 +1292,12 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
               <p className="text-muted-foreground mb-4 text-center max-w-md">
                 {errorMessage || 'An unexpected error occurred'}
               </p>
-              <Button onClick={handleStart}>
-                <Play className="h-4 w-4 mr-2" />
-                Try Again
-              </Button>
+              {canRunPipeline && (
+                <Button onClick={handleStart}>
+                  <Play className="h-4 w-4 mr-2" />
+                  Try Again
+                </Button>
+              )}
             </>
           )}
 
@@ -1435,46 +1507,48 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                 )}
               </div>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-purple-600 hover:text-purple-800 hover:bg-purple-100 shrink-0"
-              disabled={isResuming}
-              onClick={async () => {
-                // Enter edit mode without stopping the pipeline — stop only happens on confirmed change
-                setProcessingStateBeforeEdit(processingState);
-                setReviewEntryMode(isProcessing ? 'mid_run' : 'post_run');
-                // Load fresh observation unit from session
-                try {
-                  const session = await loadAPI.getSession(sessionId);
-                  if (session?.observation_unit) {
-                    const obsData: ObservationUnitReadyData = {
-                      name: session.observation_unit.name,
-                      definition: session.observation_unit.definition,
-                      example_names: session.observation_unit.example_names || [],
-                    };
-                    setReviewObsUnit(obsData);
-                    setEditName(obsData.name);
-                    setEditDefinition(obsData.definition);
-                    setEditExamples(obsData.example_names || []);
-                    setEditBaseline(obsData);
+            {canRunPipeline && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-purple-600 hover:text-purple-800 hover:bg-purple-100 shrink-0"
+                disabled={isResuming}
+                onClick={async () => {
+                  // Enter edit mode without stopping the pipeline — stop only happens on confirmed change
+                  setProcessingStateBeforeEdit(processingState);
+                  setReviewEntryMode(isProcessing ? 'mid_run' : 'post_run');
+                  // Load fresh observation unit from session
+                  try {
+                    const session = await loadAPI.getSession(sessionId);
+                    if (session?.observation_unit) {
+                      const obsData: ObservationUnitReadyData = {
+                        name: session.observation_unit.name,
+                        definition: session.observation_unit.definition,
+                        example_names: session.observation_unit.example_names || [],
+                      };
+                      setReviewObsUnit(obsData);
+                      setEditName(obsData.name);
+                      setEditDefinition(obsData.definition);
+                      setEditExamples(obsData.example_names || []);
+                      setEditBaseline(obsData);
+                    }
+                  } catch (e) {
+                    // Fall back to the cached observation unit data
+                    if (reviewObsUnit) {
+                      setEditBaseline({
+                        name: reviewObsUnit.name,
+                        definition: reviewObsUnit.definition,
+                        example_names: reviewObsUnit.example_names || [],
+                      });
+                    }
                   }
-                } catch (e) {
-                  // Fall back to the cached observation unit data
-                  if (reviewObsUnit) {
-                    setEditBaseline({
-                      name: reviewObsUnit.name,
-                      definition: reviewObsUnit.definition,
-                      example_names: reviewObsUnit.example_names || [],
-                    });
-                  }
-                }
-                setProcessingState('observation_unit_review');
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5 mr-1.5" />
-              Edit & Rediscover
-            </Button>
+                  setProcessingState('observation_unit_review');
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                Edit & Rediscover
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1529,7 +1603,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         {/* Phase 1: Schema Discovery */}
         {/* Schema is complete if explicitly marked OR if overall process completed */}
         {(() => {
-          const schemaIsComplete = schemaProgress.isComplete || processingState === 'completed';
+          const schemaIsComplete = !canRunPipeline || schemaProgress.isComplete || processingState === 'completed';
           return (
             <Card className={`transition-all ${phaseDisplayState === 'schema' || phaseDisplayState === 'starting' ? 'border-primary border-2 shadow-md' : ''}`}>
               <CardContent className="pt-4 pb-4">
@@ -1545,11 +1619,13 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                     Phase 1: Schema
                   </span>
                   <Badge variant={schemaIsComplete ? 'success' : phaseDisplayState === 'schema' || phaseDisplayState === 'starting' ? 'default' : 'secondary'}>
-                    {schemaIsComplete
-                      ? 'Complete'
-                      : phaseDisplayState === 'schema' || phaseDisplayState === 'starting'
-                        ? 'In Progress'
-                        : 'Pending'}
+                    {!canRunPipeline
+                      ? 'Imported'
+                      : schemaIsComplete
+                        ? 'Complete'
+                        : phaseDisplayState === 'schema' || phaseDisplayState === 'starting'
+                          ? 'In Progress'
+                          : 'Pending'}
                   </Badge>
                 </div>
                 <Progress
@@ -1557,8 +1633,10 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                   className={`h-2 ${(phaseDisplayState === 'schema' || phaseDisplayState === 'starting') && !schemaIsComplete ? 'animate-pulse' : ''}`}
                 />
                 <p className="text-xs text-muted-foreground mt-2">
-                  {schemaIsComplete
-                    ? `${schemaProgress.columnsDiscovered} columns discovered`
+                  {!canRunPipeline
+                    ? `${importedColumns} columns imported`
+                    : schemaIsComplete
+                    ? `${schemaProgress.columnsDiscovered || status?.columns_discovered || 0} columns discovered`
                     : (phaseDisplayState === 'schema' || phaseDisplayState === 'starting') && schemaProgress.iteration > 0
                       ? `Iteration ${schemaProgress.iteration}/${schemaProgress.maxIterations}`
                       : phaseDisplayState === 'schema' || phaseDisplayState === 'starting'
@@ -1573,10 +1651,11 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         {/* Phase 2: Value Extraction */}
         {(() => {
           const extractionIsComplete =
-            extractionProgress.isComplete ||
-            (!schemaOnly &&
-              extractionProgress.totalDocs > 0 &&
-              extractionProgress.processedDocs >= extractionProgress.totalDocs);
+            !showImportedSummary &&
+            (extractionProgress.isComplete ||
+              (!schemaOnly &&
+                extractionProgress.totalDocs > 0 &&
+                extractionProgress.processedDocs >= extractionProgress.totalDocs));
           return (
             <Card className={`transition-all ${!schemaOnly && phaseDisplayState === 'extraction' ? 'border-primary border-2 shadow-md' : ''} ${schemaOnly ? 'opacity-60' : ''}`}>
               <CardContent className="pt-4 pb-4">
@@ -1596,7 +1675,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                     Phase 2: Extraction
                   </span>
                   <Badge variant={schemaOnly ? 'secondary' : extractionIsComplete ? 'success' : phaseDisplayState === 'extraction' ? 'default' : 'secondary'}>
-                    {schemaOnly
+                    {showImportedSummary
+                      ? 'Not run'
+                      : schemaOnly
                       ? 'Skipped'
                       : extractionIsComplete
                         ? 'Complete'
@@ -1616,7 +1697,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                   className={`h-2 ${!schemaOnly && phaseDisplayState === 'extraction' && !extractionIsComplete ? 'animate-pulse' : ''}`}
                 />
                 <p className="text-xs text-muted-foreground mt-2">
-                  {schemaOnly
+                  {showImportedSummary
+                    ? 'No extraction run yet'
+                    : schemaOnly
                     ? 'Extraction was skipped'
                     : extractionIsComplete
                       ? `${extractionProgress.totalDocs} documents processed`
