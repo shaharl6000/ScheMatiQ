@@ -204,3 +204,17 @@ def test_symbol_font_private_use_characters_are_decoded():
     _decode_symbol_font_chars(_FakePage(chars))
 
     assert [c["text"] for c in chars] == ["α", "μ", "=", "", "a"]
+
+
+def test_math_pi_private_use_characters_are_decoded():
+    # CID-keyed Math Pi fonts whose ToUnicode map gives U+E000 + code.
+    chars = [
+        {"text": "", "fontname": "HVKXKA+MathematicalPi-One"},  # "eEF1α"
+        {"text": "", "fontname": "HVKXKA+MathematicalPi-One"},  # "5′"
+        {"text": "", "fontname": "SWXLIE+MathematicalPi-Five"},  # "∼25%"
+        {"text": "", "fontname": "ABCDEF+TimesNewRoman"},  # not Math Pi: left alone
+    ]
+
+    _decode_symbol_font_chars(_FakePage(chars))
+
+    assert [c["text"] for c in chars] == ["α", "′", "∼", ""]

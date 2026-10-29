@@ -738,12 +738,19 @@ _SYMBOL_FONT = re.compile(r"(?:^|\+)Symbol", re.IGNORECASE)
 
 
 def _decode_symbol_font_chars(page: "pdfplumber.page.Page") -> None:
-    """Replace a Symbol font's Private Use Area characters on *page* in place
-    (pdfplumber caches the page's chars, so every later read sees them)."""
+    """Replace Private Use Area characters on *page* in place (pdfplumber
+    caches the page's chars, so every later read sees them): a Symbol font's,
+    and those of the fonts in _UNNAMED_CODE_GLYPHS, whose ToUnicode maps put
+    each code at U+E000 + code (U+E061 for α in Math Pi One)."""
     for c in page.chars:
         text = c["text"]
-        if len(text) == 1 and 0xF020 <= ord(text) <= 0xF0FF and _SYMBOL_FONT.search(c.get("fontname", "")):
+        if len(text) != 1:
+            continue
+        fontname = c.get("fontname", "")
+        if 0xF020 <= ord(text) <= 0xF0FF and _SYMBOL_FONT.search(fontname):
             c["text"] = _SYMBOL_ENCODING.get(ord(text) - 0xF000, text)
+        elif 0xE020 <= ord(text) <= 0xE0FF:
+            c["text"] = _unnamed_code_glyphs(_SUBSET_PREFIX.sub("", fontname)).get(ord(text) - 0xE000, text)
 
 
 # ---------------------------------------------------------------------------
@@ -770,19 +777,24 @@ def _decode_symbol_font_chars(page: "pdfplumber.page.Page") -> None:
 # came out as "I(cid:1)B". _MATH_PI_GLYPHS maps the names seen in this
 # corpus. Each entry was read off its context in real papers (H9253 in
 # "[γ-32P]ATP", H11006 in "mean ± SD"); the Greek letters run in order from
-# H9251 (α), with H9269 the final sigma. Names whose meaning was not clear
-# from context are left out and stay (cid:N).
+# H9251 (α), with H9269 the final sigma, and the capitals from H9001 (Α).
+# Names whose meaning was not clear from context are left out and stay
+# (cid:N). Fonts with no /Encoding carry these names in their embedded font
+# program instead, and some map them to Private Use Area characters in their
+# ToUnicode map (U+E061 for α); both are read the same way.
 
 _CID_GLYPH = re.compile(r"\(cid:\d+\)")
 _MAX_CID_GLYPH_FRACTION = 0.2
 _C_NUMBER_GLYPH = re.compile(r"C(\d{2,3})")
 
 _MATH_PI_GLYPHS = {
-    # Greek capitals
-    "H9004": "Δ", "H9021": "Φ", "H9023": "Ψ", "H9024": "Ω",
+    # Greek capitals, alphabetical from H9001
+    **{f"H{9001 + i}": letter for i, letter in enumerate("ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ")},
     # Greek lowercase, alphabetical from H9251
     **{f"H{9251 + i}": letter for i, letter in enumerate("αβγδεζηθικλμνξοπρσςτυφχψω")},
-    "H9278": "ϕ", "H9280": "ϵ",
+    # The variant phi and epsilon, as the plain letters so that searches for
+    # "14-3-3ε" or "φ-x-x-φ" find them.
+    "H9278": "φ", "H9280": "ε",
     # Math and typographic symbols
     "H11001": "+", "H11002": "−", "H11003": "×", "H11005": "=", "H11006": "±",
     "H11011": "∼", "H11015": "≈", "H11021": "<", "H11022": ">",
@@ -799,19 +811,38 @@ _MATH_PI_GLYPHS = {
 _CMSY_FONT = re.compile(r"Adv(?:P4C4E\d+|MT_SY|MacMthSy)$")
 _CMSY_GLYPHS = {0: "−", 1: "·", 2: "×", 3: "∗", 6: "±", 14: "°", 20: "≤", 21: "≥", 24: "∼", 25: "≈"}
 
-# Fonts whose codes carry no glyph name at all. The Mathematical Pi /
-# Universal Greek fonts put Greek at the Latin letter's code, as Symbol does
-# (97 "a" is α, 109 "m" is μ, 68 "D" is Δ), and the math signs from 46 up,
-# matching their H11001.. names (49 is H11001 "+", 59 is H11011 "∼"). Each
-# code was checked against its context in several papers ("importin α/β",
-# "100 μg/ml", "−80 °C", "3′ portion", "Scale bar = 10 mm", ">90% pure").
+# Fonts whose codes carry no glyph name at all. The Mathematical Pi One /
+# Universal Greek fonts put Greek at the Latin letter's code in a Greek
+# keyboard layout, not Symbol's (97 "a" is α, but 117 "u" is θ and 99 "c"
+# ψ), and the math signs from 46 up. The layout is these fonts' own: the
+# glyph names their embedded copies give each code (117 is H9258, θ). Codes
+# were also checked against context ("importin α/β", "100 μg/ml", "−80 °C",
+# "3′ portion", "Scale bar = 10 mm", ">90% pure").
+_MATH_PI_ONE_LETTER_NAMES = dict(zip(
+    (*range(0x41, 0x5B), *range(0x61, 0x7B)),
+    "H9001 H9002 H9023 H9004 H9005 H9021 H9003 H9007 H9009 H9014 H9010 H9011 H9012 "
+    "H9013 H9015 H9016 H9008 H9017 H9018 H9019 H9052 H9024 H9281 H9022 H9020 H9006 "
+    "H9251 H9252 H9274 H9254 H9280 H9278 H9253 H9257 H9259 H9264 H9260 H9261 H9262 "
+    "H9263 H9265 H9266 H9277 H9267 H9268 H9270 H9258 H9275 H9272 H9273 H9271 H9256".split(),
+))
 _UNNAMED_CODE_GLYPHS = (
-    (re.compile(r"MathematicalPi-One$|Universal-GreekwithMathPi"), {
-        **{code: _SYMBOL_ENCODING[code] for code in (*range(0x41, 0x5B), *range(0x61, 0x7B))},
+    (re.compile(r"MathematicalPi-One(?:Sl)?$|Universal-GreekwithMathPi"), {
+        **{code: _MATH_PI_GLYPHS[name] for code, name in _MATH_PI_ONE_LETTER_NAMES.items()
+           if name in _MATH_PI_GLYPHS},
         46: ">", 49: "+", 50: "−", 51: "×", 53: "=", 54: "±", 56: "°", 57: "′", 59: "∼",
     }),
+    (re.compile(r"MathematicalPi-Five$"), {122: "∼"}),  # H11601, "∼25% of cells"
     (re.compile(r"AdvTimes(?:-\w+)?$"), {129: "ffi"}),  # "eﬃcient", "traﬃcking"
 )
+
+
+def _unnamed_code_glyphs(font_name: str) -> dict:
+    """The _UNNAMED_CODE_GLYPHS entries for a font name (subset prefix removed)."""
+    glyphs = {}
+    for font_re, code_glyphs in _UNNAMED_CODE_GLYPHS:
+        if font_re.match(font_name):
+            glyphs.update(code_glyphs)
+    return glyphs
 _SUBSET_PREFIX = re.compile(r"^[A-Z]{6}\+")
 
 
@@ -832,25 +863,79 @@ def _install_glyph_name_fallbacks() -> None:
 
     pdfminer skips a /Differences name it does not know, so the code keeps
     its base-encoding character ("#" for 35) or none at all ((cid:N)); these
-    names override either. A font's ToUnicode map stays authoritative:
-    pdfminer reads it first and falls back to these only for the codes it
-    lacks (which used to come out as (cid:N)).
+    names override either. A font with no /Encoding takes the names from its
+    embedded font program, as pdfminer does. A font's ToUnicode map stays
+    authoritative, except where it maps one of these codes to a Private Use
+    Area character, which no reader can display.
     """
+    from io import BytesIO
+
     from pdfminer.encodingdb import EncodingDB
-    from pdfminer.pdffont import PDFSimpleFont
+    from pdfminer.pdffont import PDFSimpleFont, PDFType1Font, Type1FontHeaderParser
+    from pdfminer.psparser import PSEOF
     from pdfminer.pdftypes import resolve1
 
     original_init = PDFSimpleFont.__init__
     if getattr(original_init, "_reads_glyph_name_fallbacks", False):
         return
+    original_type1_init = PDFType1Font.__init__
 
     def __init__(self, descriptor, widths, spec):
         original_init(self, descriptor, widths, spec)
+        if not (isinstance(self, PDFType1Font) and "Encoding" not in spec and "FontFile" in descriptor):
+            # Otherwise type1_init adds them, once the font program is read.
+            _add_glyph_fallbacks_safely(self, spec)
+
+    def type1_init(self, rsrcmgr, spec):
+        original_type1_init(self, rsrcmgr, spec)
+        if "Encoding" not in spec and getattr(self, "fontfile", None) is not None:
+            # pdfminer has just replaced the encoding with the font program's.
+            _add_glyph_fallbacks_safely(self, spec)
+
+    def _add_glyph_fallbacks_safely(font, spec):
         try:
-            _add_glyph_fallbacks(self, spec)
+            _add_glyph_fallbacks(font, spec)
         except Exception:
             # A malformed font is read as pdfminer reads it, never not at all.
             logger.debug("Glyph-name fallbacks skipped for a font", exc_info=True)
+
+    def _font_program_names(fontfile) -> dict:
+        data = fontfile.get_data()[: int(resolve1(fontfile["Length1"]))]
+        parser = Type1FontHeaderParser(BytesIO(data))
+        names = {}
+        while True:
+            try:
+                code, name = parser.nextobject()
+            except PSEOF:
+                return names
+            names[code] = _pdf_name(name)
+
+    def _glyph_names(font, spec) -> dict:
+        names = {}
+        if "Encoding" not in spec and getattr(font, "fontfile", None) is not None:
+            names.update(_font_program_names(font.fontfile))
+        encoding = resolve1(spec.get("Encoding"))
+        code = 0
+        for item in (resolve1(encoding.get("Differences", [])) or []) if isinstance(encoding, dict) else []:
+            if isinstance(item, int):
+                code = item
+                continue
+            names[code] = _pdf_name(item)
+            code += 1
+        return names
+
+    def _glyph_for_name(name: str, cmsy: bool) -> Optional[str]:
+        match = _C_NUMBER_GLYPH.fullmatch(name) or (cmsy and re.fullmatch(r"C(\d)", name))
+        if match and cmsy:
+            # A cmsy position at any n ("C48" is ′, not "0"); only the
+            # positions read off this corpus are mapped.
+            return _CMSY_GLYPHS.get(int(match[1]))
+        # Below 32 the number is not a character code ("C21" decoded to a
+        # control character where the page shows "≈").
+        if match and 32 <= int(match[1]) < 256 and int(match[1]) != 127:
+            n = int(match[1])
+            return EncodingDB.std2unicode.get(n) or chr(n)
+        return _MATH_PI_GLYPHS.get(name)
 
     def _add_glyph_fallbacks(font, spec):
         # Without /Differences pdfminer hands every font the same shared
@@ -858,37 +943,29 @@ def _install_glyph_name_fallbacks() -> None:
         font.cid2unicode = dict(font.cid2unicode)
         font_name = _SUBSET_PREFIX.sub("", _pdf_name(resolve1(spec.get("BaseFont"))))
         cmsy = bool(_CMSY_FONT.match(font_name))
-        encoding = resolve1(spec.get("Encoding"))
-        code = 0
-        named = set()
-        for item in (resolve1(encoding.get("Differences", [])) or []) if isinstance(encoding, dict) else []:
-            if isinstance(item, int):
-                code = item
-                continue
-            name = _pdf_name(item)
-            named.add(code)
-            match = _C_NUMBER_GLYPH.fullmatch(name) or (cmsy and re.fullmatch(r"C(\d)", name))
-            if match and cmsy:
-                # A cmsy position at any n ("C48" is ′, not "0"); only the
-                # positions read off this corpus are mapped.
-                if int(match[1]) in _CMSY_GLYPHS:
-                    font.cid2unicode[code] = _CMSY_GLYPHS[int(match[1])]
-            # Below 32 the number is not a character code ("C21" decoded
-            # to a control character where the page shows "≈").
-            elif match and 32 <= int(match[1]) < 256 and int(match[1]) != 127:
-                n = int(match[1])
-                font.cid2unicode[code] = EncodingDB.std2unicode.get(n) or chr(n)
-            elif name in _MATH_PI_GLYPHS:
-                font.cid2unicode[code] = _MATH_PI_GLYPHS[name]
-            code += 1
-        for font_re, glyphs in _UNNAMED_CODE_GLYPHS:
-            if font_re.match(font_name):
-                # Overrides the base encoding too: these fonts have no Latin
-                # letters or digits, so StandardEncoding's "a" at 97 is wrong.
-                font.cid2unicode.update({c: g for c, g in glyphs.items() if c not in named})
+        names = _glyph_names(font, spec)
+        glyphs = {}
+        for code, name in names.items():
+            glyph = _glyph_for_name(name, cmsy)
+            if glyph:
+                glyphs[code] = glyph
+        # Overrides the base encoding too: these fonts have no Latin letters
+        # or digits, so StandardEncoding's "a" at 97 is wrong.
+        glyphs.update({c: g for c, g in _unnamed_code_glyphs(font_name).items() if c not in names})
+        font.cid2unicode.update(glyphs)
+
+        unicode_map = getattr(font, "unicode_map", None)
+        if unicode_map is not None and glyphs:
+            to_unicode = dict(unicode_map.cid2unichr)
+            for code, glyph in glyphs.items():
+                text = to_unicode.get(code)
+                if text and len(text) == 1 and "" <= text <= "":
+                    to_unicode[code] = glyph
+            unicode_map.cid2unichr = to_unicode
 
     __init__._reads_glyph_name_fallbacks = True
     PDFSimpleFont.__init__ = __init__
+    PDFType1Font.__init__ = type1_init
 
 
 _install_glyph_name_fallbacks()

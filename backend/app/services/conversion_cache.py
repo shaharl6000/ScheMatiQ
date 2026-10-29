@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 # 2: em-relative word gaps, C<n>/H<n> glyph names
 # 3: PyMuPDF line order, Symbol / Math Pi / cmsy glyphs
 # 4: em-relative word gaps per line, not only per page
-_CACHE_VERSION = "4"
+# 5: Math Pi glyphs from the font program and private-use ToUnicode maps
+_CACHE_VERSION = "5"
 
 
 def _resolve_cache_dir() -> Optional[Path]:
