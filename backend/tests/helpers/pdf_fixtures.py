@@ -353,3 +353,36 @@ def build_two_column_glued_pdf(
     _draw_words_glued(c, right_words, right_x, max_right_x, y0, inter_word_gap=inter_word_gap)
     c.showPage()
     c.save()
+
+
+def build_titled_two_column_pdf(
+    path: Path,
+    title: str,
+    left_text: str,
+    right_text: str,
+    *,
+    gutter: float = 30,
+    crop_box=None,
+    page_size=letter,
+) -> None:
+    """A full-width title over two columns `gutter` points apart -- the
+    first page of most papers, which the gutter search reads straight
+    across both columns."""
+    width, height = page_size
+    left_x = 50
+    col_width = (width - 100 - gutter) / 2
+    right_x = left_x + col_width + gutter
+
+    c = Canvas(str(path), pagesize=page_size)
+    if crop_box is not None:
+        c.setCropBox(crop_box)
+    c.setFont(_FONT_NAME, _FONT_SIZE)
+    y = height - _TOP_MARGIN
+    for line in _wrapped_lines(title, width - 100, repeat=1):
+        c.drawString(left_x, y, line)
+        y -= _LINE_HEIGHT
+    start_y = y - _LINE_HEIGHT
+    _draw_column_from_y(c, _wrapped_lines(left_text, col_width), left_x, start_y)
+    _draw_column_from_y(c, _wrapped_lines(right_text, col_width), right_x, start_y)
+    c.showPage()
+    c.save()

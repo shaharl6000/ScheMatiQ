@@ -21,19 +21,20 @@ _PROSE = (
 _GARBLED = "(cid:24)(cid:4)#(cid:11))*(cid:1)(cid:2)(cid:15) n$clear e:port " * 200
 
 
-def _type1_font(differences):
+def _type1_font(differences, base_font="IDBEIL+AdvUnivers-r"):
     from pdfminer.pdffont import PDFType1Font
     from pdfminer.psparser import LIT
 
     spec = {
         "Subtype": LIT("Type1"),
-        "BaseFont": LIT("IDBEIL+AdvUnivers-r"),
+        "BaseFont": LIT(base_font),
         "FirstChar": 1,
-        "LastChar": 40,
-        "Widths": [500] * 40,
+        "LastChar": 140,
+        "Widths": [500] * 140,
         "FontDescriptor": {"FontBBox": [0, 0, 1000, 1000]},
-        "Encoding": {"Type": LIT("Encoding"), "Differences": differences},
     }
+    if differences is not None:
+        spec["Encoding"] = {"Type": LIT("Encoding"), "Differences": differences}
     return PDFType1Font(None, spec)
 
 
@@ -66,6 +67,46 @@ def test_math_pi_glyph_names_decode_to_greek_and_symbols():
         font.to_unichr(5)
 
 
+def test_elsevier_math_font_small_c_names_are_cmsy_positions():
+    from pdfminer.psparser import LIT
+
+    # "−80 °C", "16000 × g", "n ≥ 3" in Elsevier papers; C15 is not mapped.
+    font = _type1_font([1, LIT("C0"), LIT("C14"), LIT("C2"), LIT("C21"), LIT("C15")], "ABCDEF+AdvP4C4E74")
+
+    assert [font.to_unichr(code) for code in (1, 2, 3, 4)] == ["−", "°", "×", "≥"]
+    with pytest.raises(Exception):
+        font.to_unichr(5)
+
+
+def test_small_c_names_in_other_fonts_stay_unmapped():
+    from pdfminer.psparser import LIT
+
+    font = _type1_font([1, LIT("C0"), LIT("C21")])
+
+    for code in (1, 2):
+        with pytest.raises(Exception):
+            font.to_unichr(code)
+
+
+def test_unnamed_math_pi_codes_decode_like_symbol():
+    # "importin α/β", "100 μg/ml", "−80 °C", "3′": codes with no glyph name.
+    font = _type1_font(None, "ABCDEF+MathematicalPi-One")
+
+    assert [font.to_unichr(code) for code in (97, 98, 109, 50, 56, 57)] == ["α", "β", "μ", "−", "°", "′"]
+
+
+def test_unnamed_code_table_does_not_leak_into_other_fonts():
+    # pdfminer shares one StandardEncoding dict between fonts without
+    # /Differences; filling a Math Pi font's codes must not change it.
+    _type1_font(None, "ABCDEF+MathematicalPi-One")
+
+    assert _type1_font(None, "ABCDEF+TrumpMediaeval-Roman").to_unichr(97) == "a"
+
+
+def test_advtimes_ffi_ligature():
+    assert _type1_font(None, "ABCDEF+AdvTimes").to_unichr(129) == "ffi"
+
+
 def test_normal_prose_is_not_garbled():
     assert not looks_garbled(_PROSE)
     assert not looks_garbled("")
@@ -87,7 +128,7 @@ def pdf_path(tmp_path):
 
 
 def _stub_pages(monkeypatch, text):
-    monkeypatch.setattr(convert_to_txt, "_extract_page_text_column_aware", lambda page: text)
+    monkeypatch.setattr(convert_to_txt, "_extract_page_text", lambda page, layout_page=None: text)
 
 
 def test_garbled_text_layer_is_replaced_by_ocr(monkeypatch, pdf_path, tmp_path):
