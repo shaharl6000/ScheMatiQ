@@ -63,7 +63,7 @@ def test_math_pi_glyph_names_decode_to_greek_and_symbols():
     # IκBε as typeset in a JBC paper, then "±" and an unmapped name.
     font = _type1_font([1, LIT("H9260"), LIT("H9280"), LIT("H9251"), LIT("H11006"), LIT("H17188")])
 
-    assert [font.to_unichr(code) for code in (1, 2, 3, 4)] == ["κ", "ϵ", "α", "±"]
+    assert [font.to_unichr(code) for code in (1, 2, 3, 4)] == ["κ", "ε", "α", "±"]
     with pytest.raises(Exception):
         font.to_unichr(5)
 
@@ -118,11 +118,63 @@ def test_small_c_names_in_other_fonts_stay_unmapped():
             font.to_unichr(code)
 
 
-def test_unnamed_math_pi_codes_decode_like_symbol():
+def test_unnamed_math_pi_codes_decode_in_the_fonts_own_layout():
     # "importin α/β", "100 μg/ml", "−80 °C", "3′": codes with no glyph name.
+    # The letters follow a Greek keyboard, not Symbol: "u" is θ, "c" ψ.
     font = _type1_font(None, "ABCDEF+MathematicalPi-One")
 
     assert [font.to_unichr(code) for code in (97, 98, 109, 50, 56, 57)] == ["α", "β", "μ", "−", "°", "′"]
+    assert [font.to_unichr(code) for code in (117, 99, 120, 106)] == ["θ", "ψ", "χ", "ξ"]
+
+
+def _embedded_type1_font(font_program, to_unicode=None, base_font="ABCDEF+MathematicalPi-One"):
+    from pdfminer.pdffont import PDFType1Font
+    from pdfminer.pdftypes import PDFStream
+    from pdfminer.psparser import LIT
+
+    spec = {
+        "Subtype": LIT("Type1"),
+        "BaseFont": LIT(base_font),
+        "FirstChar": 1,
+        "LastChar": 140,
+        "Widths": [500] * 140,
+        "FontDescriptor": {
+            "FontBBox": [0, 0, 1000, 1000],
+            "FontFile": PDFStream({"Length1": len(font_program)}, font_program),
+        },
+    }
+    if to_unicode is not None:
+        spec["ToUnicode"] = PDFStream({}, to_unicode)
+    return PDFType1Font(None, spec)
+
+
+_MATH_PI_PROGRAM = (
+    b"/Encoding 256 array\n"
+    b"dup 49 /H11001 put\ndup 56 /H11034 put\ndup 97 /H9251 put\ndup 117 /H9258 put\n"
+    b"readonly def\n"
+)
+
+
+def test_font_without_encoding_reads_glyph_names_from_its_font_program():
+    # No /Encoding: pdfminer takes the font program's own, whose H<n> names it
+    # does not know, so "+", "°", "α" came out as (cid:N).
+    font = _embedded_type1_font(_MATH_PI_PROGRAM)
+
+    assert [font.to_unichr(code) for code in (49, 56, 97, 117)] == ["+", "°", "α", "θ"]
+
+
+def test_private_use_to_unicode_entry_is_replaced_by_the_glyph():
+    # Some Math Pi fonts' ToUnicode maps put each code at U+E000 + code.
+    to_unicode = (
+        b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n"
+        b"1 begincodespacerange <00> <FF> endcodespacerange\n"
+        b"2 beginbfchar <61> <E061> <41> <0041> endbfchar\n"
+        b"endcmap CMapName currentdict /CMap defineresource pop end end\n"
+    )
+    font = _embedded_type1_font(_MATH_PI_PROGRAM, to_unicode)
+
+    assert font.to_unichr(97) == "α"
+    assert font.to_unichr(65) == "A"  # a real ToUnicode entry is kept
 
 
 def test_unnamed_code_table_does_not_leak_into_other_fonts():
