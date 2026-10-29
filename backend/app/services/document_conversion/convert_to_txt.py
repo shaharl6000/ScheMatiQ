@@ -1,9 +1,10 @@
 """Multi-format document to plain-text conversion.
 
-Converts DOCX, DOC, RTF, and PDF files to UTF-8 text.
+Converts DOCX, DOC, RTF, XLSX, and PDF files to UTF-8 text.
 
 - DOCX: python-docx first, LibreOffice headless fallback
 - DOC / RTF: LibreOffice headless
+- XLSX: every sheet as CSV under a '## Sheet:' header, capped in size
 - PDF: pdfplumber first (in PyMuPDF's line order), OCR fallback (pdf2image + tesseract)
 
 Vendored from Legal_Schema_Generator; adapted for use as a library inside
@@ -142,6 +143,63 @@ def convert_docx_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
         return True, f"Converted: {output_path}"
     except Exception as e:
         return False, f"DOCX extraction failed: {e}"
+
+
+# ---------------------------------------------------------------------------
+# XLSX
+# ---------------------------------------------------------------------------
+
+# A supplementary workbook can hold whole proteomics datasets (tens of millions
+# of characters), far past what a model reads with a paper. Each sheet keeps its
+# first rows up to XLSX_SHEET_MAX_CHARS, and the workbook stops at XLSX_MAX_CHARS;
+# what is left out is noted in the text.
+XLSX_SHEET_MAX_CHARS = int(os.environ.get("XLSX_SHEET_MAX_CHARS", "30000"))
+XLSX_MAX_CHARS = int(os.environ.get("XLSX_MAX_CHARS", "300000"))
+
+
+def _sheet_to_csv(df, max_chars: int) -> str:
+    """The sheet's rows as CSV, cut after the row that passes max_chars."""
+    import csv
+    import io
+
+    rows = df.values.tolist()
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    for i, row in enumerate(rows):
+        writer.writerow(row)
+        if buf.tell() >= max_chars and i + 1 < len(rows):
+            return buf.getvalue() + f"[... {len(rows) - i - 1} more rows not included]\n"
+    return buf.getvalue()
+
+
+def convert_xlsx_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
+    """Write every sheet of a workbook as CSV under a '## Sheet: name' header."""
+    import pandas as pd  # local import: pandas is heavy and only needed here
+
+    output_path = output_dir / (input_path.stem + ".txt")
+    try:
+        # header=None and dtype=str keep the cells verbatim: supplementary
+        # tables often open with title rows, and ids/years must not become floats.
+        sheets = pd.read_excel(input_path, sheet_name=None, header=None, dtype=str)
+        parts: list[str] = []
+        total = 0
+        for n, (name, df) in enumerate(sheets.items()):
+            df = df.dropna(how="all").dropna(axis=1, how="all").fillna("")
+            if df.empty:
+                continue
+            if total >= XLSX_MAX_CHARS:
+                omitted = [str(rest) for rest in list(sheets)[n:]]
+                parts.append(f"[... {len(omitted)} more sheets not included: {', '.join(omitted)}]")
+                break
+            part = f"## Sheet: {name}\n" + _sheet_to_csv(df, min(XLSX_SHEET_MAX_CHARS, XLSX_MAX_CHARS - total))
+            parts.append(part.rstrip())
+            total += len(part)
+        if not parts:
+            return False, "No cells in workbook"
+        output_path.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
+        return True, f"Converted: {output_path}"
+    except Exception as e:
+        return False, f"XLSX extraction failed: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -821,5 +879,8 @@ def convert_file(
 
     if ext == PDF_EXTENSION:
         return convert_pdf_to_txt(input_path, output_dir)
+
+    if ext == ".xlsx":
+        return convert_xlsx_to_txt(input_path, output_dir)
 
     return False, f"Unsupported file type: {ext}"

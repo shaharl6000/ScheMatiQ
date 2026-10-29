@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Capability: source types we can normalize/convert to plain text.
-# PLAIN = read/normalize in place; CONVERT = needs pymupdf (pdf) or LibreOffice
-# (office). Changing these tracks what the conversion layer can handle.
+# PLAIN = read/normalize in place; CONVERT = needs pymupdf (pdf), pandas (xlsx)
+# or LibreOffice (office). Changing these tracks what the conversion layer can handle.
 PLAIN_EXTENSIONS = {".txt", ".md", ".json"}
-CONVERT_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf"}
+CONVERT_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf", ".xlsx"}
 
 # What read_document_text() returns text for WITHOUT conversion. Includes .json
 # (we read it as text). Note the asymmetry with LIB_READABLE_STORAGE_EXTENSIONS
@@ -308,6 +308,8 @@ def _status_from_message(ext: str, success: bool, message: str) -> tuple[str, st
         return "docx", "extracted from docx"
     if ext in {".doc", ".rtf"}:
         return "libreoffice", "extracted via LibreOffice"
+    if ext == ".xlsx":
+        return "xlsx", "extracted from xlsx"
     return "plain", "extracted from text"
 
 

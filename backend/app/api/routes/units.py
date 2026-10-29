@@ -151,7 +151,7 @@ def _media_type_for(name: str) -> str:
 # "Dep't", "Inc."), which such splitting would truncate and break matching.
 _DOC_MATCH_EXTENSIONS = (
     ".pdf", ".txt", ".md", ".markdown", ".html", ".htm",
-    ".doc", ".docx", ".rtf", ".json", ".csv", ".tsv",
+    ".doc", ".docx", ".rtf", ".json", ".csv", ".tsv", ".xlsx",
 )
 
 

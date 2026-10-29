@@ -8,6 +8,7 @@ websockets>=13.0
 
 # Data processing
 pandas>=2.2.0
+openpyxl>=3.1.0
 numpy>=2.0.0
 
 # PDF processing

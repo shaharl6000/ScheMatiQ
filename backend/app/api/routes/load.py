@@ -997,7 +997,7 @@ async def _add_documents_locked(session_id: str, files: List[UploadFile], bypass
                 continue
 
             # Validate file type (text files, PDFs, docs, etc.)
-            allowed_extensions = {'.txt', '.md', '.pdf', '.doc', '.docx', '.rtf', '.json'}
+            allowed_extensions = {'.txt', '.md', '.pdf', '.doc', '.docx', '.rtf', '.json', '.xlsx'}
             file_ext = Path(file.filename).suffix.lower()
             
             if file_ext not in allowed_extensions:
