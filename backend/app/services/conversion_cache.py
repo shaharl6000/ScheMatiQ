@@ -25,7 +25,9 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Bump when the conversion output changes, so stale entries are not reused.
-_CACHE_VERSION = "2"  # 2: em-relative word gaps, C<n>/H<n> glyph names
+# 2: em-relative word gaps, C<n>/H<n> glyph names
+# 3: PyMuPDF line order, Symbol / Math Pi / cmsy glyphs
+_CACHE_VERSION = "3"
 
 
 def _resolve_cache_dir() -> Optional[Path]:
