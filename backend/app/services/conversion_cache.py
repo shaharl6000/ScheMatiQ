@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 # Bump when the conversion output changes, so stale entries are not reused.
 # 2: em-relative word gaps, C<n>/H<n> glyph names
 # 3: PyMuPDF line order, Symbol / Math Pi / cmsy glyphs
-_CACHE_VERSION = "3"
+# 4: em-relative word gaps per line, not only per page
+_CACHE_VERSION = "4"
 
 
 def _resolve_cache_dir() -> Optional[Path]:
