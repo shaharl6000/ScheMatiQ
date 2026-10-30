@@ -687,10 +687,31 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", line_layout: Tuple
                 out.append(text)
     if leftover:
         # Rotated or unplaced text (a sidebar, a stray label): kept, at the end.
-        text = extract_text(leftover, **tolerance).strip()
+        text = _extract_leftover_text(leftover, tolerance)
         if text:
             out.append(text)
     return "\n".join(out)
+
+
+def _extract_leftover_text(chars: list, tolerance: dict) -> str:
+    """Text of characters no upright line took: stray upright ones, then
+    rotated ones in their own reading direction.
+
+    pdfplumber reads all rotated text top to bottom, so a y-axis label turned
+    90° counterclockwise, read bottom to top, came out backwards ("losotyC"),
+    and doubled where the label is drawn twice in place ("lloossoottyyCC").
+    The text matrix gives the direction: its second entry is positive when
+    the baseline runs up the page."""
+    chars = dedupe_chars(chars, tolerance=0.5)
+    groups = (
+        ([c for c in chars if c.get("upright", True)], {}),
+        ([c for c in chars if not c.get("upright", True) and c.get("matrix", (1, 0))[1] > 0],
+         {"char_dir_rotated": "btt", "line_dir_rotated": "ltr"}),
+        ([c for c in chars if not c.get("upright", True) and c.get("matrix", (1, 0))[1] <= 0],
+         {"char_dir_rotated": "ttb", "line_dir_rotated": "rtl"}),
+    )
+    texts = (extract_text(group, **tolerance, **directions).strip() for group, directions in groups if group)
+    return "\n".join(text for text in texts if text)
 
 
 def _extract_page_text(page: "pdfplumber.page.Page", line_layout: Optional[Tuple[list, list]] = None) -> str:
@@ -735,19 +756,36 @@ _SYMBOL_ENCODING = {
     0xF2: "∫",
 }
 _SYMBOL_FONT = re.compile(r"(?:^|\+)Symbol", re.IGNORECASE)
+_CALIBRI_FONT = re.compile(r"Calibri(?:-\w+)?$")
+# Adobe's Private Use assignments for the Symbol font's sans and serif signs
+# and its horizontal arrow extender, drawn as a dash ("heterodimer — namely").
+_ADOBE_PRIVATE_USE = {
+    "\uf6d9": "©", "\uf6da": "®", "\uf6db": "™",
+    "\uf8e7": "—", "\uf8e8": "®", "\uf8e9": "©", "\uf8ea": "™",
+}
 
 
 def _decode_symbol_font_chars(page: "pdfplumber.page.Page") -> None:
     """Replace Private Use Area characters on *page* in place (pdfplumber
     caches the page's chars, so every later read sees them): a Symbol font's,
     and those of the fonts in _UNNAMED_CODE_GLYPHS, whose ToUnicode maps put
-    each code at U+E000 + code (U+E061 for α in Math Pi One)."""
+    each code at U+E000 + code (U+E061 for α in Math Pi One). Also Adobe's own
+    Private Use characters (the copyright sign in "© The Rockefeller
+    University Press"), the "ti" ligature of CID-keyed Calibri, which its
+    ToUnicode map leaves out, and soft hyphens, which on a page are drawn
+    hyphens ("CRM1­dependent")."""
     for c in page.chars:
         text = c["text"]
+        fontname = c.get("fontname", "")
+        if text == "(cid:415)" and _CALIBRI_FONT.search(fontname):
+            c["text"] = "ti"
         if len(text) != 1:
             continue
-        fontname = c.get("fontname", "")
-        if 0xF020 <= ord(text) <= 0xF0FF and _SYMBOL_FONT.search(fontname):
+        if text in _ADOBE_PRIVATE_USE:
+            c["text"] = _ADOBE_PRIVATE_USE[text]
+        elif text == "\u00ad":
+            c["text"] = "-"
+        elif 0xF020 <= ord(text) <= 0xF0FF and _SYMBOL_FONT.search(fontname):
             c["text"] = _SYMBOL_ENCODING.get(ord(text) - 0xF000, text)
         elif 0xE020 <= ord(text) <= 0xE0FF:
             c["text"] = _unnamed_code_glyphs(_SUBSET_PREFIX.sub("", fontname)).get(ord(text) - 0xE000, text)
@@ -800,16 +838,37 @@ _MATH_PI_GLYPHS = {
     "H11011": "∼", "H11015": "≈", "H11021": "<", "H11022": ">",
     "H11032": "′", "H11033": "″", "H11034": "°", "H11349": "≤", "H11350": "≥",
     "H11541": "′", "H11545": "+", "H11546": "−", "H11569": "*", "H11601": "∼",
-    "H18528": "–", "H20841": "|", "H20862": "/", "H23041": "®",
+    "H17015": "©", "H18528": "–", "H20841": "|", "H20862": "/", "H23041": "®",
 }
+# Math names pdfminer's glyph list does not have (MathTime's MTSY / MTMI, TeX's
+# cmsy): "5′-CTAG", "pΔR8.9", and NES consensus patterns ("Φ1-X2-3-Φ2").
+_MATH_GLYPH_NAMES = {"prime": "′", "Phi1": "Φ", "Psi1": "Ψ", "Delta1": "Δ"}
+
+# Glyph names that mean something else in one font family; they take
+# precedence over every other rule. Read off context in this corpus: MTSY's
+# triangle is the deletion Δ ("α-adducinΔ377-371"); AdvTimes' C128 the ff
+# ligature ("diﬀerent", not a control character); AdvBMa1's dash and plus in
+# "95 (2003) 23–33" and "Tel.: +1-785"; AdvMT_RM's capitals are at their TeX
+# (OT1) positions ("NES consensus Φ-x2–3-Φ"); Calibri's glyph 415 is the "ti"
+# ligature ("β-actin", "ratio").
+_FONT_GLYPH_NAMES = (
+    (re.compile(r"MTSY$"), {"triangle": "Δ"}),
+    (re.compile(r"AdvTimes(?:-\w+)?$"), {"C128": "ff"}),
+    (re.compile(r"AdvBMa1$"), {"C1": "–", "C27": "+"}),
+    (re.compile(r"AdvMT_RM$"), {f"C{i}": letter for i, letter in enumerate("ΓΔΘΛΞΠΣΥΦΨΩ")}),
+    (_CALIBRI_FONT, {"g415": "ti"}),
+)
 
 
 # Elsevier's "Adv" math fonts name their glyphs "C<n>" with n below 32: the
 # position in TeX's math symbol font (cmsy), not a character code. Read off
 # context in this corpus ("−80 °C", "16000 × g", "***P", "n ≥ 3", "∼2 mg").
 # AdvBMa1 also uses small C<n> names but for other glyphs, so it is not matched.
-_CMSY_FONT = re.compile(r"Adv(?:P4C4E\d+|MT_SY|MacMthSy)$")
+# Elsevier's AdvSymbol names its glyphs by their Symbol code ("C97" is α,
+# "C109" μ, "C68" Δ), so StandardEncoding gave "importin a" and "10 mg".
+_CMSY_FONT = re.compile(r"Adv(?:P4C4E\d+|P4C9543|MT_SY|MacMthSy)$")
 _CMSY_GLYPHS = {0: "−", 1: "·", 2: "×", 3: "∗", 6: "±", 14: "°", 20: "≤", 21: "≥", 24: "∼", 25: "≈"}
+_ADV_SYMBOL_FONT = re.compile(r"AdvSymbolb?$")
 
 # Fonts whose codes carry no glyph name at all. The Mathematical Pi One /
 # Universal Greek fonts put Greek at the Latin letter's code in a Greek
@@ -825,14 +884,32 @@ _MATH_PI_ONE_LETTER_NAMES = dict(zip(
     "H9251 H9252 H9274 H9254 H9280 H9278 H9253 H9257 H9259 H9264 H9260 H9261 H9262 "
     "H9263 H9265 H9266 H9277 H9267 H9268 H9270 H9258 H9275 H9272 H9273 H9271 H9256".split(),
 ))
+_GREEK_KEYBOARD_LETTERS = {code: _MATH_PI_GLYPHS[name] for code, name in _MATH_PI_ONE_LETTER_NAMES.items()
+                           if name in _MATH_PI_GLYPHS}
+# The rest of these fonts' codes pdfminer read as StandardEncoding, without a
+# (cid:N) to show for it: "NFkB", "b-catenin", "20 mg/ml" for NF-κB, β-catenin
+# and 20 μg/ml. Mathematical Pi Four and Elsevier's AdvGreek use the Greek
+# keyboard layout too ("nup188-Δ cells"; "14-3-3β, γ/η, ε, ζ and θ" with u
+# for θ); a Symbol font that is not embedded, or embedded without glyph
+# names, has Symbol's ("xxLxΦ").
 _UNNAMED_CODE_GLYPHS = (
     (re.compile(r"MathematicalPi-One(?:Sl)?$|Universal-GreekwithMathPi"), {
-        **{code: _MATH_PI_GLYPHS[name] for code, name in _MATH_PI_ONE_LETTER_NAMES.items()
-           if name in _MATH_PI_GLYPHS},
+        **_GREEK_KEYBOARD_LETTERS,
         46: ">", 49: "+", 50: "−", 51: "×", 53: "=", 54: "±", 56: "°", 57: "′", 59: "∼",
     }),
+    (re.compile(r"MathematicalPi-Four$"), {**_GREEK_KEYBOARD_LETTERS, 50: "−"}),  # "Jak2−/− cells"
+    # PNAS's separators: "Wnt/β-catenin", "PNAS | October 24, 2000 | vol. 97"
+    (re.compile(r"MathematicalPi-Three$"), {117: "|", 121: "/"}),
+    # "NP_003141", "the Ahr·ARNT heterodimer"
+    (re.compile(r"Universal-NewswithCommPi$"), {111: "_", 122: "·"}),
+    (re.compile(r"AdvGreek\w*$"), {**_GREEK_KEYBOARD_LETTERS, 49: "ε"}),
+    (re.compile(r"Symbol(?:MT)?(?:[,-]\w+)?$"), _SYMBOL_ENCODING),
     (re.compile(r"MathematicalPi-Five$"), {122: "∼"}),  # H11601, "∼25% of cells"
     (re.compile(r"AdvTimes(?:-\w+)?$"), {129: "ffi"}),  # "eﬃcient", "traﬃcking"
+    # AdvSymbol with no names at all: the same Symbol codes ("S→A", not "SﬁA").
+    (_ADV_SYMBOL_FONT, _SYMBOL_ENCODING),
+    # Mac Roman ligatures and apostrophe: "speciﬁed", "ﬂow cytometry", "O’Garra"
+    (re.compile(r"Bliss-\w+$"), {213: "’", 222: "fi", 223: "fl"}),
 )
 
 
@@ -857,9 +934,10 @@ def _pdf_name(value) -> str:
 
 def _install_glyph_name_fallbacks() -> None:
     """Make pdfminer read the glyph names it does not know: "C<n>" as
-    StandardEncoding character n (or a cmsy position, in Elsevier's math
-    fonts), the Mathematical Pi "H<n>" names, and the codes of a few fonts
-    that name no glyphs at all.
+    StandardEncoding character n (or a cmsy or Symbol position, in Elsevier's
+    math and Symbol fonts), the Mathematical Pi "H<n>" names and a few other
+    math names, the names some font families use for other glyphs, and the
+    codes of a few fonts that name no glyphs at all.
 
     pdfminer skips a /Differences name it does not know, so the code keeps
     its base-encoding character ("#" for 35) or none at all ((cid:N)); these
@@ -924,29 +1002,36 @@ def _install_glyph_name_fallbacks() -> None:
             code += 1
         return names
 
-    def _glyph_for_name(name: str, cmsy: bool) -> Optional[str]:
-        match = _C_NUMBER_GLYPH.fullmatch(name) or (cmsy and re.fullmatch(r"C(\d)", name))
-        if match and cmsy:
-            # A cmsy position at any n ("C48" is ′, not "0"); only the
-            # positions read off this corpus are mapped.
-            return _CMSY_GLYPHS.get(int(match[1]))
+    def _glyph_for_name(name: str, c_positions: Optional[dict], font_names: dict) -> Optional[str]:
+        if name in font_names:
+            return font_names[name]
+        match = _C_NUMBER_GLYPH.fullmatch(name) or (c_positions is not None and re.fullmatch(r"C(\d)", name))
+        if match and c_positions is not None:
+            # A cmsy or Symbol position at any n ("C48" is ′ in cmsy, not
+            # "0"); only the cmsy positions read off this corpus are mapped.
+            return c_positions.get(int(match[1]))
         # Below 32 the number is not a character code ("C21" decoded to a
-        # control character where the page shows "≈").
-        if match and 32 <= int(match[1]) < 256 and int(match[1]) != 127:
+        # control character where the page shows "≈"), nor are 127 to 159.
+        if match and 32 <= int(match[1]) < 256 and not 127 <= int(match[1]) < 160:
             n = int(match[1])
             return EncodingDB.std2unicode.get(n) or chr(n)
-        return _MATH_PI_GLYPHS.get(name)
+        return _MATH_PI_GLYPHS.get(name) or _MATH_GLYPH_NAMES.get(name)
 
     def _add_glyph_fallbacks(font, spec):
         # Without /Differences pdfminer hands every font the same shared
         # encoding dict; writing to it would change all later fonts.
         font.cid2unicode = dict(font.cid2unicode)
         font_name = _SUBSET_PREFIX.sub("", _pdf_name(resolve1(spec.get("BaseFont"))))
-        cmsy = bool(_CMSY_FONT.match(font_name))
+        c_positions = (_CMSY_GLYPHS if _CMSY_FONT.match(font_name)
+                       else _SYMBOL_ENCODING if _ADV_SYMBOL_FONT.match(font_name) else None)
+        font_names = {}
+        for font_re, names_glyphs in _FONT_GLYPH_NAMES:
+            if font_re.search(font_name):
+                font_names.update(names_glyphs)
         names = _glyph_names(font, spec)
         glyphs = {}
         for code, name in names.items():
-            glyph = _glyph_for_name(name, cmsy)
+            glyph = _glyph_for_name(name, c_positions, font_names)
             if glyph:
                 glyphs[code] = glyph
         # Overrides the base encoding too: these fonts have no Latin letters

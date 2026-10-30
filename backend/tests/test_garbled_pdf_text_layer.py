@@ -189,6 +189,86 @@ def test_advtimes_ffi_ligature():
     assert _type1_font(None, "ABCDEF+AdvTimes").to_unichr(129) == "ffi"
 
 
+def test_advtimes_ff_ligature_is_not_a_control_character():
+    from pdfminer.psparser import LIT
+
+    # "diﬀerent" came out as "di\x80erent".
+    assert _type1_font([128, LIT("C128")], "ABCDEF+AdvTimes").to_unichr(128) == "ff"
+    with pytest.raises(Exception):
+        _type1_font([1, LIT("C128")]).to_unichr(1)
+
+
+def test_elsevier_symbol_font_c_names_are_symbol_codes():
+    from pdfminer.psparser import LIT
+
+    # "importin α", "10 μg", "ΔNLS", "PBXS→A"; StandardEncoding gave "a", "m", "D", "ﬁ".
+    font = _type1_font([1, LIT("C97"), LIT("C109"), LIT("C68"), LIT("C174")], "ABCDEF+AdvSymbol")
+
+    assert [font.to_unichr(code) for code in (1, 2, 3, 4)] == ["α", "μ", "Δ", "→"]
+
+
+def test_unnamed_elsevier_symbol_codes_are_symbol_codes():
+    font = _type1_font(None, "ABCDEF+AdvSymbol")
+
+    assert [font.to_unichr(code) for code in (97, 109, 68, 174, 176)] == ["α", "μ", "Δ", "→", "°"]
+
+
+def test_math_names_pdfminer_does_not_know():
+    from pdfminer.psparser import LIT
+
+    # "5′-CTAG", "α-adducinΔ377-371", "consensus Φ1-X2-3-Φ2", "pΔR8.9"
+    mtsy = _type1_font([1, LIT("prime"), LIT("triangle")], "ABCDEF+MTSY")
+    mtmi = _type1_font([1, LIT("Phi1"), LIT("Delta1"), LIT("Psi1")], "ABCDEF+MTMI")
+
+    assert [mtsy.to_unichr(code) for code in (1, 2)] == ["′", "Δ"]
+    assert [mtmi.to_unichr(code) for code in (1, 2, 3)] == ["Φ", "Δ", "Ψ"]
+    with pytest.raises(Exception):
+        _type1_font([1, LIT("triangle")]).to_unichr(1)  # only MTSY's is the Δ
+
+
+def test_elsevier_fonts_with_their_own_c_names():
+    from pdfminer.psparser import LIT
+
+    # "NES consensus Φ-x2–3-Φ", "also termed Δ1"; "95 (2003) 23–33", "Tel.: +1"; "p ≤ 0.05"
+    roman = _type1_font([1, LIT("C8"), LIT("C1")], "ABCDEF+AdvMT_RM")
+    bma = _type1_font([1, LIT("C1"), LIT("C27")], "ABCDEF+AdvBMa1")
+    p4c = _type1_font([1, LIT("C20")], "ABCDEF+AdvP4C9543")
+
+    assert [roman.to_unichr(code) for code in (1, 2)] == ["Φ", "Δ"]
+    assert [bma.to_unichr(code) for code in (1, 2)] == ["–", "+"]
+    assert p4c.to_unichr(1) == "≤"
+
+
+def test_greek_fonts_without_glyph_names_are_not_read_as_latin():
+    # These came out as Latin letters, with no (cid:N) to flag them:
+    # "b-catenin", "20 mg/ml", "NFkB", "14-3-3u".
+    symbol = _type1_font(None, "Symbol")
+    math_pi_four = _type1_font(None, "ABCDEF+MathematicalPi-Four")
+    adv_greek = _type1_font(None, "ABCDEF+AdvGreekM")
+
+    assert [symbol.to_unichr(code) for code in (98, 109, 70)] == ["β", "μ", "Φ"]
+    assert [math_pi_four.to_unichr(code) for code in (107, 97, 68)] == ["κ", "α", "Δ"]
+    assert [adv_greek.to_unichr(code) for code in (117, 122, 70, 49)] == ["θ", "ζ", "Φ", "ε"]
+
+
+def test_journal_separator_fonts_are_not_read_as_latin():
+    # "Wnt/β-catenin" and "PNAS | October 24, 2000" came out as "Wntyβ-catenin"
+    # and "PNAS u October"; "Ahr·ARNT" and "NP_003141" as "AhrzARNT", "NPo003141".
+    pnas = _type1_font(None, "ABCDEF+MathematicalPi-Three")
+    news = _type1_font(None, "ABCDEF+Universal-NewswithCommPi")
+
+    assert [pnas.to_unichr(code) for code in (121, 117)] == ["/", "|"]
+    assert [news.to_unichr(code) for code in (122, 111)] == ["·", "_"]
+
+
+def test_calibri_ti_ligature_and_bliss_ligatures():
+    from pdfminer.psparser import LIT
+
+    assert _type1_font([16, LIT("g415")], "ABCDEF+Calibri-Bold").to_unichr(16) == "ti"  # "β-actin"
+    bliss = _type1_font(None, "Bliss-Regular")
+    assert [bliss.to_unichr(code) for code in (222, 223, 213)] == ["fi", "fl", "’"]
+
+
 def test_normal_prose_is_not_garbled():
     assert not looks_garbled(_PROSE)
     assert not looks_garbled("")
