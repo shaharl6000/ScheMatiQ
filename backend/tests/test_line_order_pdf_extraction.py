@@ -218,3 +218,58 @@ def test_math_pi_private_use_characters_are_decoded():
     _decode_symbol_font_chars(_FakePage(chars))
 
     assert [c["text"] for c in chars] == ["α", "′", "∼", ""]
+
+
+def test_calibri_ti_ligature_is_decoded():
+    # CID-keyed Calibri's ToUnicode map leaves out glyph 415: "β-ac(cid:415)n".
+    chars = [
+        {"text": "(cid:415)", "fontname": "HBFBJA+Calibri-Bold"},
+        {"text": "(cid:415)", "fontname": "ABCDEF+TimesNewRoman"},
+    ]
+
+    _decode_symbol_font_chars(_FakePage(chars))
+
+    assert [c["text"] for c in chars] == ["ti", "(cid:415)"]
+
+
+def test_rotated_label_is_read_in_its_own_direction(tmp_path):
+    # Cdc6, p. 3: a y-axis label turned 90° counterclockwise and drawn twice
+    # came out as "lloossoottyyCC".
+    from reportlab.pdfgen.canvas import Canvas
+
+    path = tmp_path / "paper.pdf"
+    c = Canvas(str(path))
+    c.setFont("Helvetica", 10)
+    for y in range(750, 400, -14):
+        c.drawString(50, y, "Body text of the paper sits in ordinary single lines here.")
+    for _ in range(2):
+        c.saveState()
+        c.translate(400, 200)
+        c.rotate(90)
+        c.drawString(0, 0, "Cytosol")
+        c.restoreState()
+    c.saveState()
+    c.translate(450, 300)
+    c.rotate(-90)
+    c.drawString(0, 0, "Nuclei")
+    c.restoreState()
+    c.showPage()
+    c.save()
+
+    by_lines, _ = _read(path)
+
+    assert "Cytosol" in by_lines
+    assert "Nuclei" in by_lines
+    assert "CCyy" not in by_lines
+
+
+def test_adobe_private_use_signs_and_soft_hyphens_are_decoded():
+    chars = [
+        {"text": "", "fontname": "ABCDEF+Helvetica"},  # "© The Rockefeller University Press"
+        {"text": "", "fontname": "ABCDEF+Times"},  # "heterodimer — namely"
+        {"text": "­", "fontname": "ABCDEF+Myriad"},  # "CRM1­dependent"
+    ]
+
+    _decode_symbol_font_chars(_FakePage(chars))
+
+    assert [c["text"] for c in chars] == ["©", "—", "-"]
