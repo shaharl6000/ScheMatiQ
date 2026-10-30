@@ -83,6 +83,23 @@ export const getBackendBaseUrl = (): string => {
   return 'http://localhost:8000';
 };
 
+// One cell in a PUT /schematiq/cells batch.
+export type CellBatchItem = {
+  row_name: string;
+  column: string;
+  value: string;
+  row_index?: number;
+  source_document?: string;
+  is_restore?: boolean;
+  restore?: unknown;
+};
+
+// Max cells per batch request. Must stay at or below the backend's
+// MAX_CELL_BATCH (routes/schematiq.py).
+export const CELL_BATCH_SIZE = 500;
+// A batch is one file read/rewrite/upload, but give large data files headroom.
+const CELL_BATCH_TIMEOUT_MS = 120000;
+
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 30000,
@@ -444,6 +461,26 @@ export const schematiqAPI = {
     // keyed under _unit_name), which otherwise failed with "row not found".
     if (rowIndex != null) params.row_index = rowIndex;
     const response = await api.put(`/schematiq/cell/${sessionId}`, null, { params });
+    return response.data;
+  },
+
+  /**
+   * Write many cells in one request (column clear, multi-cell paste, undo of
+   * either). The backend rewrites and persists the data file once for the
+   * whole batch, so a large clear no longer runs past the client timeout the
+   * way one request per cell did. Each entry carries the same identifiers as
+   * updateCell; `is_restore` + `restore` mirror restoreCell's body. The
+   * response has one `{ ok, error }` result per entry, in request order.
+   */
+  updateCells: async (
+    sessionId: string,
+    updates: CellBatchItem[],
+  ): Promise<{ status: string; succeeded: number; failed: number; results: Array<{ ok: boolean; error?: string | null }> }> => {
+    const response = await api.put(
+      `/schematiq/cells/${sessionId}`,
+      { updates },
+      { timeout: CELL_BATCH_TIMEOUT_MS },
+    );
     return response.data;
   },
 
