@@ -345,7 +345,59 @@ class ReferenceFillService:
             # every row sharing the unit's name once we have its looked-up value.
             records: list = [None] * len(rows)
 
+            # Group commit for the cell writes. Each write rewrites and
+            # re-uploads the whole data file behind the session lock, so one
+            # write per row cost one full upload per filled cell. Values queue
+            # here; whoever takes the flush lock writes everything queued so
+            # far in one update_cells call. With slow model calls this stays
+            # one cell per write (no added latency); when answers arrive faster
+            # than a write completes, they ride the next write together.
+            pending: list = []  # (row index, unit, answer)
+            flush_lock = asyncio.Lock()
+
+            async def flush_pending() -> None:
+                async with flush_lock:
+                    if not pending:
+                        return  # an earlier waiter already wrote our value
+                    batch = list(pending)
+                    pending.clear()
+                    # Write every row sharing this unit's name (update_all), not
+                    # just the first match — a reference lookup is a property of
+                    # the unit, so all its rows take the value.
+                    try:
+                        results = await self._data_editor.update_cells(
+                            op.session_id,
+                            [
+                                {
+                                    "row_name": unit,
+                                    "column": op.column,
+                                    "value": answer,
+                                    "reference_source": op.reference_filename,
+                                    "update_all": True,
+                                }
+                                for _index, unit, answer in batch
+                            ],
+                        )
+                    except Exception as exc:  # a failed write must not abort the run
+                        results = [{"ok": False, "error": str(exc)}] * len(batch)
+                    if len(results) != len(batch):
+                        results = [{"ok": False, "error": "result count mismatch"}] * len(batch)
+                    for (index, unit, answer), result in zip(batch, results):
+                        if result.get("ok"):
+                            await self._broadcast_cell(op.session_id, unit, op.column, answer)
+                        else:
+                            logger.warning(
+                                "reference fill write for %r failed: %s", unit, result.get("error"),
+                            )
+                            records[index]["answer"] = None
+
             async def process(index: int, row: dict) -> None:
+                await _process_row(index, row)
+                # Write outside the semaphore so a flush never holds a model slot.
+                if pending:
+                    await flush_pending()
+
+            async def _process_row(index: int, row: dict) -> None:
                 if self._stop.get(op.fill_id):
                     return
                 unit = row.get("unit_name") or row.get("row_name")
@@ -396,25 +448,15 @@ class ReferenceFillService:
                         op.fill_id, index + 1, op.total, unit, answer,
                     )
                     valid = bool(answer) and answer.upper() not in _NO_VALUE_SENTINELS
-                    if valid:
-                        try:
-                            # Write every row sharing this unit's name (update_all), not
-                            # just the first match — a reference lookup is a property of
-                            # the unit, so all its rows take the value.
-                            await self._data_editor.update_cell(
-                                op.session_id, unit, op.column, answer,
-                                reference_source=op.reference_filename,
-                                update_all=True,
-                            )
-                            await self._broadcast_cell(op.session_id, unit, op.column, answer)
-                        except Exception as exc:  # one row's write must not abort the run
-                            logger.warning("reference fill write for %r failed: %s", unit, exc)
-                            valid = False
+                    # The answer counts as filled only once its write succeeds;
+                    # flush_pending clears it back to None on a failed write.
                     records[index] = {
                         "unit": unit,
                         "answer": answer if valid else None,
                         "found_in_context": found,
                     }
+                    if valid:
+                        pending.append((index, unit, answer))
 
             await asyncio.gather(*(process(i, r) for i, r in enumerate(rows)))
 
