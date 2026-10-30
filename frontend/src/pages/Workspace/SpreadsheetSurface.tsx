@@ -17,7 +17,8 @@ import {
 } from '@/components/DataTable/utils/excerptUtils';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { observationUnitAPI, schemaAPI, schematiqAPI } from '@/services/api';
+import { observationUnitAPI, schemaAPI, schematiqAPI, CELL_BATCH_SIZE } from '@/services/api';
+import type { CellBatchItem } from '@/services/api';
 import type { ColumnInfo, DataRow, FigureExcerpt, PaginatedData, SchemaData, TextExcerpt } from '@/types';
 import { formatColumnName } from '@/utils/formatting';
 import type { EditCommand } from './hooks/useEditHistory';
@@ -1156,19 +1157,48 @@ export function SpreadsheetSurface({
 
     const allCleared = updates.every((u) => u.value.trim() === '');
 
-    Promise.allSettled(
-      updates.map((u) =>
-        // `raw` is set only when replaying a bulk rewrite's own prior/new
-        // state (reextraction undo/redo, a deleted column's restore) -- write
-        // it back verbatim via restoreCell so the backend does not stamp
-        // manually_edited on a value the user never actually typed. A genuine
-        // manual edit never carries `raw` and keeps going through updateCell.
-        u.raw !== undefined
-          ? schematiqAPI.restoreCell(sessionId, u.rowName, u.column, u.raw, u.sourceDocument, u.rowIndexId)
-          : schematiqAPI.updateCell(sessionId, u.rowName, u.column, u.value, u.sourceDocument, u.rowIndexId),
-      ),
-    ).then((results) => {
-      const failed = results.filter((r) => r.status === 'rejected').length;
+    // Persist the whole batch through PUT /schematiq/cells in chunks, sent one
+    // after another. One request per cell used to rewrite and re-upload the
+    // data file once per cell behind the backend's session lock; a ~200-cell
+    // column clear then ran past the 30s client timeout and most cells were
+    // reported as "could not be saved" even though nothing was wrong with them.
+    //
+    // `raw` is set only when replaying a bulk rewrite's own prior/new state
+    // (reextraction undo/redo, a deleted column's restore) -- it is sent as a
+    // restore so the backend writes it back verbatim and does not stamp
+    // manually_edited on a value the user never actually typed. A genuine
+    // manual edit never carries `raw` and is sent as a plain value.
+    const items: CellBatchItem[] = updates.map((u) => {
+      const item: CellBatchItem = { row_name: u.rowName, column: u.column, value: u.raw !== undefined ? '' : u.value };
+      if (u.sourceDocument) item.source_document = u.sourceDocument;
+      if (u.rowIndexId != null) item.row_index = u.rowIndexId;
+      if (u.raw !== undefined) {
+        item.is_restore = true;
+        item.restore = u.raw;
+      }
+      return item;
+    });
+
+    (async () => {
+      let failed = 0;
+      for (let start = 0; start < items.length; start += CELL_BATCH_SIZE) {
+        const chunk = items.slice(start, start + CELL_BATCH_SIZE);
+        try {
+          const response = await schematiqAPI.updateCells(sessionId, chunk);
+          const results = Array.isArray(response?.results) ? response.results : [];
+          const chunkFailed = results.length === chunk.length
+            ? results.filter((r) => !r.ok).length
+            : chunk.length;
+          if (chunkFailed > 0) {
+            const firstError = results.find((r) => !r.ok)?.error;
+            if (firstError) console.warn('Cell batch: some updates failed:', firstError);
+          }
+          failed += chunkFailed;
+        } catch (err) {
+          console.warn('Cell batch request failed:', err);
+          failed += chunk.length;
+        }
+      }
       const succeeded = updates.length - failed;
 
       let single: { cleared: boolean; label: string; column: string } | null = null;
@@ -1180,7 +1210,7 @@ export function SpreadsheetSurface({
       queueEditToast({ succeeded, failed, allCleared, single });
 
       onRefreshData();
-    });
+    })();
   }, [onOptimisticCellEdit, onRefreshData, queueEditToast, sessionId]);
 
   // Hand the parent a live reference to applyCellUpdates so a bulk server-side
