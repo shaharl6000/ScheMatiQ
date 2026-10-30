@@ -531,6 +531,73 @@ async def update_cell(session_id: str, column: str, value: str,
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Upper bound on cells per batch request. The frontend chunks below this; the
+# cap keeps one request from holding the session write lock for an unbounded
+# time on an arbitrarily large payload (CWE-770).
+MAX_CELL_BATCH = 2000
+
+
+class CellBatchItem(BaseModel):
+    """One cell write inside a batch. Mirrors update_cell's query params.
+
+    ``is_restore`` replaces the single-cell endpoint's "body present" signal:
+    when true, ``restore`` (possibly null) is written back verbatim.
+    """
+    column: str
+    value: str = ""
+    row_name: str = ""
+    row_index: Optional[int] = None
+    source_document: Optional[str] = None
+    is_restore: bool = False
+    restore: Any = None
+
+
+class CellBatchBody(BaseModel):
+    updates: List[CellBatchItem]
+
+
+@router.put("/cells/{session_id}")
+async def update_cells(session_id: str, body: CellBatchBody):
+    """Update many cells in one request (column clear, multi-cell paste, undo).
+
+    The data file is read, rewritten and persisted once for the whole batch
+    instead of once per cell. A row that cannot be found fails only its own
+    entry; the response lists a result per update, in request order.
+    """
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if len(body.updates) > MAX_CELL_BATCH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Too many cell updates in one request (max {MAX_CELL_BATCH})",
+            )
+
+        results = await data_editor.update_cells(
+            session_id,
+            [item.model_dump() for item in body.updates],
+        )
+        failed = sum(1 for r in results if not r["ok"])
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "succeeded": len(results) - failed,
+            "failed": failed,
+            "results": [
+                {"ok": r["ok"], "error": r.get("error")} for r in results
+            ],
+        }
+
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("Batch cell update failed for session %s", session_id)
+        raise HTTPException(status_code=500, detail="Batch cell update failed")
+
+
 @router.post("/stop/{session_id}")
 async def stop_schematiq(session_id: str):
     """Request ScheMatiQ execution to stop. Returns immediately."""

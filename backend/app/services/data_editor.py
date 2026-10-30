@@ -96,6 +96,52 @@ class DataEditor:
             FileNotFoundError: If no data file exists for the session
             ValueError: If the row is not found
         """
+        [result] = await self.update_cells(session_id, [{
+            "row_name": row_name,
+            "column": column,
+            "value": value,
+            "restore": restore,
+            "is_restore": is_restore,
+            "source_document": source_document,
+            "row_index": row_index,
+            "reference_source": reference_source,
+            "update_all": update_all,
+        }])
+        if not result["ok"]:
+            raise ValueError(result["error"])
+
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "row_name": row_name,
+            "column": column,
+            "value": value,
+            "previous_value": result["previous_value"],
+        }
+
+    async def update_cells(self, session_id: str, updates: list[dict]) -> list[dict]:
+        """Apply many cell updates with one read-modify-write per data file.
+
+        Each update is a dict with the same fields as ``update_cell``'s
+        arguments (``row_name``, ``column``, ``value``, and optionally
+        ``restore``, ``is_restore``, ``source_document``, ``row_index``,
+        ``reference_source``, ``update_all``).
+
+        A column clear or paste used to send one ``update_cell`` request per
+        cell. Each request re-read and atomically rewrote the whole JSONL file
+        and re-uploaded it to storage, serialized behind the session lock. On a
+        ~200-row column that took longer than the client timeout, so most
+        requests were aborted and reported as failed even though the edit was
+        valid. Here the files are read once, every update is applied in memory,
+        and each changed file is written and persisted once.
+
+        Returns one result per update, in order:
+        ``{"ok": True, "previous_value": ...}`` or ``{"ok": False, "error": str}``.
+        A row that cannot be found fails only its own update, not the batch.
+
+        Raises:
+            FileNotFoundError: If no data file exists for the session
+        """
         # Resolve the *same* set of data files the reader (`get_data`) sees, in
         # the same priority order. Historically this method wrote to a single
         # file chosen by its own relative-path candidate list, which could
@@ -116,6 +162,62 @@ class DataEditor:
 
         from app.services.data_utils import _resolve_source_document
 
+        results: list[dict] = []
+
+        # Serialize the read-modify-write so concurrent updates for the same
+        # session cannot clobber each other.
+        async with _get_session_write_lock(session_id):
+            loaded: list[tuple[Path, list]] = []
+            for data_file in data_files:
+                rows = []
+                try:
+                    with open(data_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.strip():
+                                rows.append(json.loads(line))
+                except FileNotFoundError:
+                    continue
+                loaded.append((data_file, rows))
+
+            dirty: set[int] = set()
+            for update in updates:
+                try:
+                    previous_value = self._apply_update_in_memory(
+                        loaded, dirty, update, _resolve_source_document,
+                    )
+                    results.append({"ok": True, "previous_value": previous_value})
+                except ValueError as exc:
+                    results.append({"ok": False, "error": str(exc)})
+
+            persisted_files: list[Path] = []
+            for file_idx in sorted(dirty):
+                data_file, rows = loaded[file_idx]
+                write_jsonl_atomic(data_file, rows, ensure_ascii=False)
+                persisted_files.append(data_file)
+
+            for data_file in persisted_files:
+                await persist_session_data_file(session_id, data_file)
+
+        return results
+
+    def _apply_update_in_memory(
+        self, loaded: list, dirty: set, update: dict, resolve_source_document,
+    ) -> Any:
+        """Apply one update to the already-loaded rows; return the previous value.
+
+        Marks the index of every file it changed in ``dirty``. Raises
+        ``ValueError`` when no row matches.
+        """
+        row_name = update.get("row_name") or ""
+        column = update["column"]
+        value = update.get("value", "")
+        restore = update.get("restore")
+        is_restore = bool(update.get("is_restore", False))
+        source_document = update.get("source_document")
+        row_index = update.get("row_index")
+        reference_source = update.get("reference_source")
+        update_all = bool(update.get("update_all", False))
+
         # Identity resolution runs in two passes. Primary: match by `row_name`
         # (plus `source_document` when given). Fallback: if the name never
         # matched but a stable `_row_index` was supplied, retry by absolute
@@ -128,19 +230,8 @@ class DataEditor:
         def _run_match(match_by_index: bool):
             updated_any = False
             previous_value = None
-            persisted_files: list = []
 
-            for data_file in data_files:
-                # Read all rows for this file
-                rows = []
-                try:
-                    with open(data_file, "r", encoding="utf-8") as f:
-                        for line in f:
-                            if line.strip():
-                                rows.append(json.loads(line))
-                except FileNotFoundError:
-                    continue
-
+            for file_idx, (_data_file, rows) in enumerate(loaded):
                 file_updated = False
                 for idx, row in enumerate(rows):
                     if match_by_index:
@@ -163,7 +254,7 @@ class DataEditor:
                         # of several rows sharing the row_name gets written and
                         # the rest stay blank.
                         if source_document and not update_all:
-                            current_src = _resolve_source_document(row)
+                            current_src = resolve_source_document(row)
                             if current_src and current_src != source_document:
                                 continue
 
@@ -181,48 +272,34 @@ class DataEditor:
                         break
 
                 if file_updated:
-                    write_jsonl_atomic(data_file, rows, ensure_ascii=False)
-                    persisted_files.append(data_file)
+                    dirty.add(file_idx)
 
                 # An index identity is unique to one row; once matched, stop.
                 if match_by_index and file_updated:
                     break
 
-            return updated_any, previous_value, persisted_files
+            return updated_any, previous_value
 
         primary_by_index = (not row_name) and row_index is not None
 
-        # Serialize the read-modify-write so concurrent single-cell updates for
-        # the same session (a multi-cell clear/paste) cannot clobber each other.
-        async with _get_session_write_lock(session_id):
-            updated_any, previous_value, persisted_files = _run_match(primary_by_index)
+        updated_any, previous_value = _run_match(primary_by_index)
 
-            # Name matched nothing but we have a stable index — retry by position.
-            # (Index identity is unique, so update_all's fan-out does not apply.)
-            if not updated_any and not primary_by_index and row_index is not None:
-                updated_any, previous_value, persisted_files = _run_match(True)
+        # Name matched nothing but we have a stable index — retry by position.
+        # (Index identity is unique, so update_all's fan-out does not apply.)
+        if not updated_any and not primary_by_index and row_index is not None:
+            updated_any, previous_value = _run_match(True)
 
-            if not updated_any:
-                if primary_by_index:
-                    raise ValueError(f"Row at index {row_index} not found")
-                if row_index is not None:
-                    raise ValueError(
-                        f"Row with row_name '{row_name}' not found "
-                        f"(also tried index {row_index})"
-                    )
-                raise ValueError(f"Row with row_name '{row_name}' not found")
+        if not updated_any:
+            if primary_by_index:
+                raise ValueError(f"Row at index {row_index} not found")
+            if row_index is not None:
+                raise ValueError(
+                    f"Row with row_name '{row_name}' not found "
+                    f"(also tried index {row_index})"
+                )
+            raise ValueError(f"Row with row_name '{row_name}' not found")
 
-            for data_file in persisted_files:
-                await persist_session_data_file(session_id, data_file)
-
-        return {
-            "status": "success",
-            "session_id": session_id,
-            "row_name": row_name,
-            "column": column,
-            "value": value,
-            "previous_value": previous_value,
-        }
+        return previous_value
 
     def _apply_cell_update(
         self, row: dict, column: str, value: Any,
