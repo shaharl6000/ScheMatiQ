@@ -27,6 +27,7 @@ from typing import Any, Optional
 from app.core.config import LLM_CALL_GLOBAL_LIMIT
 from schematiq.core.llm_call_tracker import QuotaExceededError
 from schematiq.core.model_specs import ModelNames
+from schematiq.value_extraction.config.prompts import CATEGORICAL_ALLOWED_VALUES_RULE
 from schematiq.value_extraction.core.json_parser import is_categorical_allowed_values
 
 logger = logging.getLogger(__name__)
@@ -525,13 +526,7 @@ class ReferenceFillService:
         definition_line = f" (defined as: {column_definition})" if column_definition else ""
         allowed_line = f"\nallowed_values: {allowed_values}" if allowed_values else ""
         if allowed_values and is_categorical_allowed_values(allowed_values):
-            allowed_instruction = (
-                " allowed_values is a list of categories. If the reference means the "
-                "same thing as a listed value (case, abbreviations, or synonyms), "
-                "return that listed value. If the meaning is different, return what "
-                "the reference says. Do not pick a listed value just because it is "
-                "the closest. If it is not stated, return exactly: null."
-            )
+            allowed_instruction = " " + CATEGORICAL_ALLOWED_VALUES_RULE
             closing = (
                 f"Return ONLY the value of '{column}' for {unit}, with no explanation."
                 f"{allowed_instruction}"

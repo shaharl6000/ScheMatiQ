@@ -4,18 +4,13 @@ from __future__ import annotations
 from typing import List, Dict
 from schematiq.core.schema import Column
 
-from ..config.prompts import SYSTEM_PROMPT_VAL, SYSTEM_PROMPT_VAL_STRICT
+from ..config.prompts import (
+    CATEGORICAL_ALLOWED_VALUES_RULE,
+    SYSTEM_PROMPT_VAL,
+    SYSTEM_PROMPT_VAL_STRICT,
+)
 from ..core.json_parser import is_categorical_allowed_values
 from .reference_retrieval import ReferenceRetriever, build_reference_query
-
-# Appended to a categorical allowed_values list in the column block. Per-unit
-# extraction replaces the system prompt, so these rules have to travel with
-# the column that is actually sent.
-_CATEGORICAL_ALLOWED_VALUES_RULES = (
-    "Same meaning (case, abbreviations, synonyms) maps to a listed value. "
-    "A different meaning stays as written. Do not pick the closest listed value. "
-    "If it is not stated, use null."
-)
 
 
 def _allowed_values_clause(values, *, inline: bool) -> str:
@@ -27,7 +22,7 @@ def _allowed_values_clause(values, *, inline: bool) -> str:
     else:
         clause = f"\nallowed_values: {values}"
     if is_categorical_allowed_values(values):
-        clause += f"\n{_CATEGORICAL_ALLOWED_VALUES_RULES}"
+        clause += f"\n{CATEGORICAL_ALLOWED_VALUES_RULE}"
     return clause
 
 

@@ -9,6 +9,7 @@ import pytest
 
 from app.services.reference_fill_service import ReferenceFillService
 from schematiq.core.llm_call_tracker import QuotaExceededError
+from schematiq.value_extraction.config.prompts import CATEGORICAL_ALLOWED_VALUES_RULE
 
 
 class _Col:
@@ -317,8 +318,8 @@ async def test_categorical_fill_prompt_uses_extraction_rules():
     )
     text = captured["contents"]
     assert "copied verbatim" not in text
-    assert "same thing as a listed value" in text
-    assert "return exactly: null" in text
+    assert CATEGORICAL_ALLOWED_VALUES_RULE in text
+    assert "not in the list" in text
 
     await svc._extract_value_for_row(
         _FakeClient(),

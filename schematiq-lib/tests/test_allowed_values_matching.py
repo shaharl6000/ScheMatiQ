@@ -10,6 +10,7 @@ from schematiq.core.prompts import (
 )
 from schematiq.core.schematiq import SCHEMA_DISCOVERY_RESPONSE_SCHEMA
 from schematiq.value_extraction.config.prompts import (
+    CATEGORICAL_ALLOWED_VALUES_RULE,
     SYSTEM_PROMPT_VAL,
     SYSTEM_PROMPT_VAL_REEXTRACT,
     SYSTEM_PROMPT_VAL_STRICT,
@@ -142,8 +143,7 @@ def test_column_block_states_the_categorical_rules():
     )
     user = messages[1]["content"]
     assert "supreme court" in user
-    assert "Do not pick the closest listed value" in user
-    assert "use null" in user
+    assert CATEGORICAL_ALLOWED_VALUES_RULE in user
 
     number_messages = builder.build_val_messages(
         "q",
@@ -153,7 +153,7 @@ def test_column_block_states_the_categorical_rules():
     )
     number_user = number_messages[1]["content"]
     assert "0-100" in number_user
-    assert "closest listed value" not in number_user
+    assert "Court of Appeals" not in number_user
 
 
 def test_prompts_that_are_sent_describe_categorical_rules():
@@ -164,8 +164,8 @@ def test_prompts_that_are_sent_describe_categorical_rules():
         SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name="Method B"),
     ):
         assert "suggested_for_allowed_values" not in prompt
-        assert "closest" in prompt
-        assert "Supreme Court" in prompt
+        assert "@@CATEGORICAL_ALLOWED_VALUES_RULE@@" not in prompt
+        assert CATEGORICAL_ALLOWED_VALUES_RULE in prompt
 
     for prompt in (
         SYSTEM_PROMPT_STANDARD,
