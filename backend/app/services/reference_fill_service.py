@@ -27,6 +27,8 @@ from typing import Any, Optional
 from app.core.config import LLM_CALL_GLOBAL_LIMIT
 from schematiq.core.llm_call_tracker import QuotaExceededError
 from schematiq.core.model_specs import ModelNames
+from schematiq.value_extraction.config.prompts import CATEGORICAL_ALLOWED_VALUES_RULE
+from schematiq.value_extraction.core.json_parser import is_categorical_allowed_values
 
 logger = logging.getLogger(__name__)
 
@@ -564,17 +566,24 @@ class ReferenceFillService:
         from app.core.config import REFERENCE_FILL_MODEL
 
         definition_line = f" (defined as: {column_definition})" if column_definition else ""
-        # Mirror the canonical value-extraction prompt: when the column is categorical
-        # the answer must be snapped to its closed set, not free-form (otherwise the
-        # model returns a near-miss or a paraphrase of a category instead of one of
-        # the exact allowed values, or invents a label).
         allowed_line = f"\nallowed_values: {allowed_values}" if allowed_values else ""
-        allowed_instruction = (
-            " The value MUST be exactly one of allowed_values, copied verbatim — do not "
-            "invent, rephrase, merge, or abbreviate a category."
-            if allowed_values
-            else ""
-        )
+        if allowed_values and is_categorical_allowed_values(allowed_values):
+            allowed_instruction = " " + CATEGORICAL_ALLOWED_VALUES_RULE
+            closing = (
+                f"Return ONLY the value of '{column}' for {unit}, with no explanation."
+                f"{allowed_instruction}"
+            )
+        elif allowed_values:
+            closing = (
+                f"Return ONLY the value of '{column}' for {unit}, with no extra words. "
+                "allowed_values is a type or range constraint. Extract the number or "
+                "date the reference states. If it is not stated, return exactly: null."
+            )
+        else:
+            closing = (
+                f"Return ONLY the value of '{column}' for {unit}, with no extra words or "
+                "punctuation. If the reference does not contain it, return exactly: N/A"
+            )
         prompt = (
             "You are filling a single cell in a table using an external reference "
             "document.\n\n"
@@ -582,9 +591,7 @@ class ReferenceFillService:
             f"Column to fill: {column}{definition_line}{allowed_line}\n\n"
             "Reference excerpts:\n"
             f"{context}\n\n"
-            f"Return ONLY the value of '{column}' for {unit}, with no extra words or "
-            f"punctuation.{allowed_instruction} If the reference does not contain it, "
-            "return exactly: N/A"
+            f"{closing}"
         )
         from google.genai import types
 

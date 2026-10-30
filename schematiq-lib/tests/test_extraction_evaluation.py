@@ -482,8 +482,8 @@ class TestControlledGenerationParsing:
         result = parser.parse_response("{}")
         assert result == {}
 
-    def test_controlled_gen_preserves_suggested_flag(self):
-        """suggested_for_allowed_values is preserved through controlled gen path."""
+    def test_controlled_gen_ignores_suggested_flag(self):
+        """suggested_for_allowed_values is dropped; it does not change the answer."""
         parser = JSONResponseParser()
 
         raw = json.dumps({
@@ -495,7 +495,8 @@ class TestControlledGenerationParsing:
         })
 
         result = parser.parse_response(raw)
-        assert result["model_type"].get("suggested_for_allowed_values") is True
+        assert "suggested_for_allowed_values" not in result["model_type"]
+        assert result["model_type"]["answer"] == "mamba"
 
 
 class TestExcerptGroundingEvaluation:

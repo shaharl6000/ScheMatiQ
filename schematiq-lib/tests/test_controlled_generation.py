@@ -50,11 +50,11 @@ class TestBuildExtractionResponseSchema:
         assert "answer" in col_schema["required"]
         assert "excerpts" in col_schema["required"]
 
-    def test_suggested_for_allowed_values_optional(self):
+    def test_suggested_for_allowed_values_absent(self):
         cols = [FakeColumn(name="y")]
-        schema = build_extraction_response_schema(cols)
+        schema, _key_map = build_extraction_response_schema(cols)
         col_schema = schema["properties"]["y"]
-        assert "suggested_for_allowed_values" in col_schema["properties"]
+        assert "suggested_for_allowed_values" not in col_schema["properties"]
         assert "suggested_for_allowed_values" not in col_schema["required"]
 
 
@@ -88,7 +88,7 @@ class TestJSONParserControlledGeneration:
         result_text = self.parser.parse_response(fenced)
         assert result_controlled == result_text
 
-    def test_suggested_for_allowed_values_preserved(self):
+    def test_suggested_for_allowed_values_is_ignored(self):
         raw = json.dumps({
             "model_type": {
                 "answer": "mamba",
@@ -97,7 +97,8 @@ class TestJSONParserControlledGeneration:
             }
         })
         result = self.parser.parse_response(raw)
-        assert result["model_type"]["suggested_for_allowed_values"] is True
+        assert "suggested_for_allowed_values" not in result["model_type"]
+        assert result["model_type"]["answer"] == "mamba"
 
     def test_multiple_columns(self):
         raw = json.dumps({
