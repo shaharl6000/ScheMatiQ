@@ -47,6 +47,7 @@ def convert_pdf_figures(pdf_path: str, tmp_dir: str, source_document: str) -> Li
         raise RuntimeError("Docling converter unavailable")
     conv_res = converter.convert(pdf_path)
     figures = fes._build_figure_records(
-        conv_res.document, Path(tmp_dir), source_document=source_document
+        conv_res.document, Path(tmp_dir), source_document=source_document,
+        pdf_path=Path(pdf_path),
     )
     return [fig.model_dump(mode="json") for fig in figures]

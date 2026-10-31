@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 # 4: em-relative word gaps per line, not only per page
 # 5: Math Pi glyphs from the font program and private-use ToUnicode maps
 # 6: Symbol / Greek fonts read as Latin, more glyph names, rotated text direction
-_CACHE_VERSION = "6"
+# 7: figures whose caption Docling did not link, embedded images Docling missed
+_CACHE_VERSION = "7"
 
 
 def _resolve_cache_dir() -> Optional[Path]:

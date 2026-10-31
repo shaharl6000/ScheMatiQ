@@ -29,6 +29,7 @@ import logging
 import mimetypes
 import multiprocessing
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -45,7 +46,7 @@ from docling.datamodel.backend_options import ThreadedDoclingParseBackendOptions
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling_core.types.doc import BoundingBox, PictureItem, TableItem
+from docling_core.types.doc import BoundingBox, CoordOrigin, PictureItem, TableItem
 
 from app.core.config import (
     DOCLING_ARTIFACTS_PATH,
@@ -224,6 +225,138 @@ def _merge_adjacent_pictures(candidates: list) -> dict:
     return merge_bbox
 
 
+# Docling's layout model sometimes labels a figure caption as body text or a
+# section header ("Figure 1. AGO1 Is a Nucleo-Cytosolic Shuttling Protein";
+# Genetics' "Figure 3.—Nuclear export of..."), so the picture gets no caption
+# and is dropped, or reads a sequence alignment as a captionless table. A
+# paragraph that opens like a caption is linked to the nearest captionless
+# picture/table on its page; the vision check still verifies the pair.
+_CAPTION_START = re.compile(r"\s*(?:FIG(?:URE)?|Fig(?:ure)?)\.?\s*(\d{1,2})[A-Za-z]?\s*(?:[.:|—–]|-(?!\d))")
+# How far (PDF points) a recovered caption may sit from its picture: Cell
+# Press puts captions in the next column, ~50pt from the figure's edge.
+_CAPTION_MAX_GAP_PT = 150.0
+# Smaller pictures are journal logos and icons, not figures.
+_MIN_RECOVERED_AREA_PT2 = 2500.0
+
+
+def _caption_number(text: Optional[str]) -> Optional[int]:
+    m = _CAPTION_START.match(text or "")
+    return int(m.group(1)) if m else None
+
+
+def _vertical_span(box: BoundingBox) -> Tuple[float, float]:
+    return min(box.t, box.b), max(box.t, box.b)
+
+
+def _box_gap(a: BoundingBox, b: BoundingBox) -> float:
+    """Distance between two boxes in the same coordinate origin (0 if they overlap)."""
+    a_lo, a_hi = _vertical_span(a)
+    b_lo, b_hi = _vertical_span(b)
+    dx = max(0.0, b.l - a.r, a.l - b.r)
+    dy = max(0.0, b_lo - a_hi, a_lo - b_hi)
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _box_area(box: BoundingBox) -> float:
+    lo, hi = _vertical_span(box)
+    return max(0.0, box.r - box.l) * (hi - lo)
+
+
+def _pair_by_distance(captions: list, boxes: list) -> List[Tuple[int, int]]:
+    """Greedy nearest pairing of caption candidates with boxes on the same
+    page, each used once, within _CAPTION_MAX_GAP_PT. Returns index pairs."""
+    options = sorted(
+        (_box_gap(cap["bbox"], box["bbox"]), ci, bi)
+        for ci, cap in enumerate(captions)
+        for bi, box in enumerate(boxes)
+        if cap["page_no"] == box["page_no"]
+    )
+    used_c, used_b, pairs = set(), set(), []
+    for gap, ci, bi in options:
+        if gap > _CAPTION_MAX_GAP_PT:
+            break
+        if ci in used_c or bi in used_b:
+            continue
+        used_c.add(ci)
+        used_b.add(bi)
+        pairs.append((ci, bi))
+    return pairs
+
+
+def _recover_captions(candidates: list, caption_texts: list) -> list:
+    """Give captionless pictures/tables the caption paragraph Docling did not
+    link to them (see _CAPTION_START). Mutates candidates; returns the caption
+    paragraphs still unclaimed."""
+    linked = {_caption_number(c["caption"]) for c in candidates if c["caption"]} - {None}
+    orphans, seen = [], set()
+    for t in caption_texts:
+        n = _caption_number(t["text"])
+        if n not in linked and n not in seen:
+            seen.add(n)
+            orphans.append(t)
+    captionless = [
+        c for c in candidates
+        if not c["caption"] and _box_area(c["bbox"]) >= _MIN_RECOVERED_AREA_PT2
+    ]
+    claimed = set()
+    for ci, bi in _pair_by_distance(orphans, captionless):
+        captionless[bi]["caption"] = orphans[ci]["text"]
+        captionless[bi]["label"] = "Figure"
+        claimed.add(ci)
+    return [t for i, t in enumerate(orphans) if i not in claimed]
+
+
+def _read_pdf_layout(pdf_path: Path, page_heights: Dict[int, float]) -> Tuple[list, list]:
+    """Caption paragraphs and embedded-image boxes on each page, read with
+    PyMuPDF, in Docling's bottom-left coordinates. Docling's layout model
+    sometimes drops a caption paragraph entirely (Genetics' side captions,
+    "Figure 1.—Ribosomal RNA-processing defects..."), and sometimes finds no
+    region for an embedded image (AID's sequence-alignment figure). Both
+    lists are empty if PyMuPDF is unavailable or the PDF can't be read."""
+    from app.services.document_conversion.convert_to_txt import PYMUPDF_LOCK, pymupdf
+
+    if pymupdf is None:
+        return [], []
+    captions, images = [], []
+    try:
+        with PYMUPDF_LOCK:
+            with pymupdf.open(str(pdf_path)) as doc:
+                for page_no, height in page_heights.items():
+                    if not 1 <= page_no <= doc.page_count:
+                        continue
+                    page = doc[page_no - 1]
+                    for x0, y0, x1, y1, text, *_ in page.get_text("blocks"):
+                        if _caption_number(text) is not None:
+                            text = " ".join(text.replace("-\n", "").split())
+                            box = BoundingBox(l=x0, t=y0, r=x1, b=y1, coord_origin=CoordOrigin.TOPLEFT)
+                            captions.append({"text": text, "page_no": page_no,
+                                             "bbox": box.to_bottom_left_origin(page_height=height)})
+                    for info in page.get_image_info():
+                        x0, y0, x1, y1 = info["bbox"]
+                        box = BoundingBox(l=x0, t=y0, r=x1, b=y1, coord_origin=CoordOrigin.TOPLEFT)
+                        images.append({"page_no": page_no,
+                                       "bbox": box.to_bottom_left_origin(page_height=height)})
+    except Exception:
+        return [], []
+    return captions, images
+
+
+def _figures_from_embedded_images(orphans: list, images: list, candidates: list) -> list:
+    """Pair caption paragraphs no Docling region claimed with embedded images
+    Docling found no region for, on the same page."""
+    unclaimed = [
+        img for img in images
+        if _box_area(img["bbox"]) >= _MIN_RECOVERED_AREA_PT2
+        and not any(c["page_no"] == img["page_no"] and _box_gap(c["bbox"], img["bbox"]) == 0
+                    for c in candidates)
+    ]
+    return [
+        {"element": None, "label": "Figure", "page_no": unclaimed[bi]["page_no"],
+         "bbox": unclaimed[bi]["bbox"], "caption": orphans[ci]["text"]}
+        for ci, bi in _pair_by_distance(orphans, unclaimed)
+    ]
+
+
 def _crop_page_region(document, page_no: int, bbox: BoundingBox):
     """Crop an arbitrary bbox from document.pages[page_no]'s full-page image
     (requires PdfPipelineOptions.generate_page_images=True). Mirrors the
@@ -241,7 +374,9 @@ def _crop_page_region(document, page_no: int, bbox: BoundingBox):
     return page_image.crop(crop_bbox.as_tuple())
 
 
-def _build_figure_records(document, tmp_dir: Path, *, source_document: str) -> List[ExtractedFigure]:
+def _build_figure_records(
+    document, tmp_dir: Path, *, source_document: str, pdf_path: Optional[Path] = None
+) -> List[ExtractedFigure]:
     """Walk a converted Docling document, saving one PNG per captioned
     figure/table into tmp_dir and returning their ExtractedFigure records.
 
@@ -257,14 +392,24 @@ def _build_figure_records(document, tmp_dir: Path, *, source_document: str) -> L
     PictureItem on the same page (see _merge_adjacent_pictures) has its crop
     region expanded to cover both — Docling sometimes splits one multi-panel
     figure into separate regions and only associates the caption with one.
+
+    A captionless picture/table first gets a nearby caption paragraph Docling
+    failed to link (_recover_captions); with pdf_path, a caption paragraph no
+    region claims gets an embedded image Docling missed.
     """
     candidates = []
+    caption_texts = []
     for element, _level in document.iterate_items():
         if isinstance(element, PictureItem):
             label: Literal["Figure", "Table"] = "Figure"
         elif isinstance(element, TableItem):
             label = "Table"
         else:
+            text = getattr(element, "text", None)
+            if getattr(element, "prov", None) and _caption_number(text) is not None:
+                caption_texts.append({
+                    "text": text, "page_no": element.prov[0].page_no, "bbox": element.prov[0].bbox,
+                })
             continue
 
         if not element.prov:
@@ -283,7 +428,16 @@ def _build_figure_records(document, tmp_dir: Path, *, source_document: str) -> L
             "caption": caption,
         })
 
+    images = []
+    if pdf_path is not None:
+        page_heights = {n: p.size.height for n, p in document.pages.items() if p.size is not None}
+        pdf_captions, images = _read_pdf_layout(pdf_path, page_heights)
+        # Docling's paragraphs first: _recover_captions keeps the first per number.
+        caption_texts += pdf_captions
+    orphans = _recover_captions(candidates, caption_texts)
     merge_bbox = _merge_adjacent_pictures(candidates)
+    if orphans and images:
+        candidates.extend(_figures_from_embedded_images(orphans, images, candidates))
 
     figures: List[ExtractedFigure] = []
     seq = 0
@@ -293,6 +447,8 @@ def _build_figure_records(document, tmp_dir: Path, *, source_document: str) -> L
 
         element = c["element"]
         merged = merge_bbox.get(id(c))
+        if element is None:
+            merged = c["bbox"]
         try:
             img = _crop_page_region(document, c["page_no"], merged) if merged is not None \
                 else element.get_image(document)
@@ -695,7 +851,9 @@ def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str
             figures = _convert_isolated(pdf_path, tmp_dir, source_document)
         else:
             conv_res = converter.convert(str(pdf_path))
-            figures = _build_figure_records(conv_res.document, tmp_dir, source_document=source_document)
+            figures = _build_figure_records(
+                conv_res.document, tmp_dir, source_document=source_document, pdf_path=pdf_path
+            )
     except Exception as e:
         logger.warning("Figure extraction failed for %s: %s", pdf_path.name, e)
         return _FigureBuildResult([], tmp_dir, status="failed", error=str(e))
