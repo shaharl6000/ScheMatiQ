@@ -36,7 +36,7 @@ CATEGORICAL_ALLOWED_VALUES_RULE = (
     "Null only when the document does not give the information. "
     "If the document gives a value that is not in the list, write it as the document says. "
     "This is expected, not an error. "
-    'Example: the list is ["District Court", "Supreme Court"], the document says the judge sits on the Court of Appeals, the answer is "Court of Appeals".'
+    'Example: the list is ["cnn", "transformer"], the paper proposes a Mamba-based model, the answer is "mamba".'
 )
 _CATEGORICAL_RULE_SLOT = "@@CATEGORICAL_ALLOWED_VALUES_RULE@@"
 

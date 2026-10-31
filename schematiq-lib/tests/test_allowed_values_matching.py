@@ -153,7 +153,7 @@ def test_column_block_states_the_categorical_rules():
     )
     number_user = number_messages[1]["content"]
     assert "0-100" in number_user
-    assert "Court of Appeals" not in number_user
+    assert "mamba" not in number_user
 
 
 def test_prompts_that_are_sent_describe_categorical_rules():
