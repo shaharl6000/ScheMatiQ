@@ -324,6 +324,97 @@ def test_build_figure_records_merges_multi_panel_chain(fake_docling_items, tmp_p
 
 
 # ---------------------------------------------------------------------------
+# Captions Docling did not link: its layout model labels some captions as body
+# text or a section header, drops others, and finds no region for some
+# embedded images, so the figure was dropped for having no caption.
+# ---------------------------------------------------------------------------
+
+class _FakeTextItem:
+    def __init__(self, text, page_no=1, bbox=None):
+        self.text = text
+        self.prov = [_FakeProv(page_no, bbox=bbox)]
+
+
+def test_caption_labeled_as_section_header_is_linked(fake_docling_items, tmp_path):
+    # AGO1, Cell Press: the caption sits in the next column, ~50pt away.
+    picture = _FakePictureItem(caption="", page_no=4, bbox=_bbox(54, 682, 369, 65))
+    caption = _FakeTextItem("Figure 1. AGO1 Is a Nucleo-Cytosolic Shuttling Protein",
+                            page_no=4, bbox=_bbox(420, 682, 560, 660))
+    figures = _build_figure_records(_FakeDocument([picture, caption]), tmp_path, source_document="x.pdf")
+
+    assert [f.caption for f in figures] == ["Figure 1. AGO1 Is a Nucleo-Cytosolic Shuttling Protein"]
+
+
+def test_alignment_read_as_captionless_table_becomes_a_figure(fake_docling_items, tmp_path):
+    table = _FakeTableItem(caption="", page_no=5, bbox=_bbox(366, 737, 510, 617))
+    caption = _FakeTextItem("Figure 4.—Sequence alignment identifies a potential NES in Ltv1.",
+                            page_no=5, bbox=_bbox(319, 600, 558, 520))
+    figures = _build_figure_records(_FakeDocument([table, caption]), tmp_path, source_document="x.pdf")
+
+    assert len(figures) == 1
+    assert figures[0].figure_label == "Figure"
+    assert figures[0].caption.startswith("Figure 4.—Sequence alignment")
+
+
+@pytest.mark.parametrize("text, page_no, bbox", [
+    ("Figure 2 shows that the mutant stays nuclear.", 1, _bbox(50, 480, 300, 460)),  # body text
+    ("Figure 2. Far away.", 1, _bbox(50, 100, 300, 80)),  # beyond the gap
+    ("Figure 2. On another page.", 2, _bbox(50, 480, 300, 460)),
+])
+def test_text_that_is_not_this_pictures_caption_is_not_linked(fake_docling_items, tmp_path, text, page_no, bbox):
+    picture = _FakePictureItem(caption="", page_no=1, bbox=_bbox(50, 700, 300, 500))
+    caption = _FakeTextItem(text, page_no=page_no, bbox=bbox)
+    assert _build_figure_records(_FakeDocument([picture, caption]), tmp_path, source_document="x.pdf") == []
+
+
+def test_caption_number_already_linked_is_not_reused(fake_docling_items, tmp_path):
+    linked = _FakePictureItem(caption="Figure 1. Linked by Docling.", page_no=1, bbox=_bbox(50, 700, 300, 500))
+    logo = _FakePictureItem(caption="", page_no=1, bbox=_bbox(350, 700, 550, 500))
+    repeat = _FakeTextItem("Figure 1. Linked by Docling.", page_no=1, bbox=_bbox(350, 490, 550, 470))
+    figures = _build_figure_records(_FakeDocument([linked, logo, repeat]), tmp_path, source_document="x.pdf")
+
+    assert [f.caption for f in figures] == ["Figure 1. Linked by Docling."]
+
+
+def test_small_logo_does_not_take_a_caption(fake_docling_items, tmp_path):
+    logo = _FakePictureItem(caption="", page_no=1, bbox=_bbox(52, 73, 69, 56))
+    caption = _FakeTextItem("Figure 1. A figure Docling missed.", page_no=1, bbox=_bbox(52, 50, 300, 40))
+    assert _build_figure_records(_FakeDocument([logo, caption]), tmp_path, source_document="x.pdf") == []
+
+
+def test_caption_docling_dropped_is_read_from_the_pdf(fake_docling_items, tmp_path, monkeypatch):
+    # Ltv1, Genetics: the side caption is missing from Docling's output.
+    picture = _FakePictureItem(caption="", page_no=3, bbox=_bbox(58, 738, 354, 461))
+    page, _ = _fake_page_with_image()
+    pdf_caption = {"text": "Figure 1.—Ribosomal RNA-processing defects", "page_no": 3,
+                   "bbox": _bbox(367, 676, 558, 535)}
+    monkeypatch.setattr(svc, "_read_pdf_layout", lambda pdf_path, heights: ([pdf_caption], []))
+
+    figures = _build_figure_records(_FakeDocument([picture], pages={3: page}), tmp_path,
+                                    source_document="x.pdf", pdf_path=Path("x.pdf"))
+
+    assert [f.caption for f in figures] == ["Figure 1.—Ribosomal RNA-processing defects"]
+
+
+def test_embedded_image_docling_found_no_region_for(fake_docling_items, tmp_path, monkeypatch):
+    # AID: a sequence-alignment image the layout model read as nothing.
+    page, pil_image = _fake_page_with_image()
+    caption = _FakeTextItem("FIG. 1. AID sequence alignment in various species.",
+                            page_no=1, bbox=_bbox(308, 660, 555, 600))
+    image = {"page_no": 1, "bbox": _bbox(308, 746, 555, 671)}
+    covered = {"page_no": 1, "bbox": _bbox(50, 700, 300, 500)}  # inside a Docling region
+    picture = _FakePictureItem(caption="FIG. 2. Already found.", page_no=1, bbox=_bbox(50, 700, 300, 500))
+    monkeypatch.setattr(svc, "_read_pdf_layout", lambda pdf_path, heights: ([], [image, covered]))
+
+    figures = _build_figure_records(_FakeDocument([picture, caption], pages={1: page}), tmp_path,
+                                    source_document="x.pdf", pdf_path=Path("x.pdf"))
+
+    assert [f.caption for f in figures] == ["FIG. 2. Already found.",
+                                            "FIG. 1. AID sequence alignment in various species."]
+    assert pil_image.crop_calls == [(308.0, 54.0, 555.0, 129.0)]
+
+
+# ---------------------------------------------------------------------------
 # DocumentConverter singleton: built once per process, cached (incl. failure)
 # ---------------------------------------------------------------------------
 
