@@ -219,7 +219,8 @@ def _apply_price_schedule(pricing: Dict[str, Any], as_of: date) -> Dict[str, Any
     A config entry may carry ``schedule: [{"from": "YYYY-MM-DD", "input": ..,
     "output": ..}, ...]`` for announced price changes (e.g. Gemini 3.6-3.8 Flash
     intro rates that double on 2027-01-01). The latest step whose ``from`` date
-    is on or before *as_of* overrides ``input``/``output``. The ``schedule`` key
+    is on or before *as_of* overrides the rates it lists (``input``, ``output``,
+    ``cached_input``, ``cache_storage_per_hour``). The ``schedule`` key
     itself is not returned, so callers only ever see flat rates.
     """
     resolved = {k: v for k, v in pricing.items() if k != "schedule"}
@@ -233,9 +234,9 @@ def _apply_price_schedule(pricing: Dict[str, Any], as_of: date) -> Dict[str, Any
         if starts <= as_of and (effective is None or starts >= effective[0]):
             effective = (starts, step)
     if effective is not None:
-        for key in ("input", "output"):
-            if key in effective[1]:
-                resolved[key] = effective[1][key]
+        for key, value in effective[1].items():
+            if key != "from":
+                resolved[key] = value
     return resolved
 
 

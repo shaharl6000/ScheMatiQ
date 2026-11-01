@@ -204,6 +204,51 @@ def _extract_wait_time(error: BaseException) -> int:
 # Base class (copied from scaffold for convenience – delete if already there)
 ##############################################################################
 
+def _usage_int(obj, name: str) -> Optional[int]:
+    """Read an integer usage field; None when absent or not a real number."""
+    value = getattr(obj, name, None) if obj is not None else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def _openai_usage(resp) -> Dict[str, Optional[int]]:
+    """Token usage from an OpenAI-compatible response (OpenAI, Together).
+
+    ``completion_tokens`` already includes reasoning tokens there, so no
+    separate thinking count is passed.
+    """
+    usage = getattr(resp, "usage", None)
+    input_tokens = _usage_int(usage, "prompt_tokens")
+    if input_tokens is None:
+        return {}
+    details = getattr(usage, "prompt_tokens_details", None)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": _usage_int(usage, "completion_tokens"),
+        "cached_tokens": _usage_int(details, "cached_tokens"),
+    }
+
+
+def _gemini_usage(response) -> Dict[str, Optional[int]]:
+    """Token usage from a Gemini ``GenerateContentResponse``.
+
+    ``prompt_token_count`` includes cached tokens; ``candidates_token_count``
+    excludes thinking, which ``thoughts_token_count`` reports and Gemini bills
+    at the output rate.
+    """
+    usage = getattr(response, "usage_metadata", None)
+    input_tokens = _usage_int(usage, "prompt_token_count")
+    if input_tokens is None:
+        return {}
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": _usage_int(usage, "candidates_token_count"),
+        "thinking_tokens": _usage_int(usage, "thoughts_token_count"),
+        "cached_tokens": _usage_int(usage, "cached_content_token_count"),
+    }
+
+
 class LLMInterface(ABC):
     """Minimal wrapper so core code is backend-agnostic."""
 
@@ -305,11 +350,12 @@ class TogetherLLM(LLMInterface):
                 resp = self._client.chat.completions.create(**params)
                 content = resp.choices[0].message.content.strip()
                 
-                # Track LLM call after success
+                # Track LLM call after success, with provider-reported usage
                 LLMCallTracker.get_instance().increment(
                     model=self.model, 
                     prompt_length=prompt_len,
-                    completion_length=len(content)
+                    completion_length=len(content),
+                    **_openai_usage(resp),
                 )
                 return content
             except Exception as e:
@@ -416,11 +462,12 @@ class OpenAILLM(LLMInterface):
                 resp = self._client.chat.completions.create(**params)
                 content = resp.choices[0].message.content.strip()
                 
-                # Track LLM call after success
+                # Track LLM call after success, with provider-reported usage
                 LLMCallTracker.get_instance().increment(
                     model=self.model, 
                     prompt_length=prompt_len,
-                    completion_length=len(content)
+                    completion_length=len(content),
+                    **_openai_usage(resp),
                 )
                 return content
             except Exception as e:
@@ -909,6 +956,8 @@ class GeminiLLM(LLMInterface):
                 if not response.candidates:
                     feedback = getattr(response, 'prompt_feedback', None)
                     print(f"Gemini returned no candidates. Feedback: {feedback}")
+                    # Billed even though nothing usable came back; cost only.
+                    self._track_usage(response, prompt_len, 0, count_call=False)
                     self.last_call_diag = {
                         "finish_reason": "NO_CANDIDATES",
                         "empty_reason": f"no candidates (prompt_feedback={feedback})",
@@ -940,6 +989,8 @@ class GeminiLLM(LLMInterface):
                 # Check for empty content
                 if not candidate.content or not candidate.content.parts:
                     print("Gemini returned empty content")
+                    # e.g. MAX_TOKENS spent entirely on thinking: billed, no text.
+                    self._track_usage(response, prompt_len, 0, count_call=False)
                     self.last_call_diag = {
                         "finish_reason": finish_reason_name,
                         "empty_reason": "candidate had no content parts",
@@ -957,12 +1008,8 @@ class GeminiLLM(LLMInterface):
                     "truncated": finish_reason_name == "MAX_TOKENS",
                 }
 
-                # Track LLM call after success
-                LLMCallTracker.get_instance().increment(
-                    model=self.model, 
-                    prompt_length=prompt_len,
-                    completion_length=len(content)
-                )
+                # Track LLM call after success, with provider-reported usage
+                self._track_usage(response, prompt_len, len(content))
                 
                 return content
 
@@ -1032,6 +1079,16 @@ class GeminiLLM(LLMInterface):
 
     # ── Context Caching ──────────────────────────────────────────────
 
+    def _track_usage(self, response, prompt_len: int, completion_len: int, *, count_call: bool = True) -> None:
+        """Record one Gemini response in the call tracker with its billed usage."""
+        LLMCallTracker.get_instance().increment(
+            model=self.model,
+            prompt_length=prompt_len,
+            completion_length=completion_len,
+            count_call=count_call,
+            **_gemini_usage(response),
+        )
+
     def create_context_cache(self, system_instruction: str, document_text: str, ttl_seconds: int = 1800):
         """Create a context cache for system prompt + document.
 
@@ -1051,6 +1108,13 @@ class GeminiLLM(LLMInterface):
                 "Gemini context cache CREATED (model=%s, doc_chars=%d, ttl=%ds, cache=%s)",
                 self.model, len(document_text), ttl_seconds, cache.name,
             )
+            # Remember size and lifetime so storage (billed per token-hour) can
+            # be charged when the cache is deleted.
+            cache_tokens = _usage_int(getattr(cache, "usage_metadata", None), "total_token_count")
+            if cache_tokens:
+                if not hasattr(self, "_cache_meta"):
+                    self._cache_meta = {}
+                self._cache_meta[cache.name] = (time.time(), cache_tokens, ttl_seconds)
             return cache
         except Exception as e:
             logger.warning("Gemini context cache creation FAILED (model=%s, doc_chars=%d): %s", self.model, len(document_text), e)
@@ -1058,12 +1122,22 @@ class GeminiLLM(LLMInterface):
 
     def delete_context_cache(self, cache):
         """Delete a context cache. Best-effort cleanup."""
+        deleted = False
         try:
             if cache:
                 self._client.caches.delete(name=cache.name)
+                deleted = True
                 logger.info("Gemini context cache DELETED (cache=%s)", cache.name)
         except Exception as e:
             logger.debug("Gemini context cache delete failed (cache=%s): %s", cache.name, e)
+        meta = getattr(self, "_cache_meta", {}).pop(getattr(cache, "name", None), None)
+        if meta:
+            created_at, cache_tokens, ttl_seconds = meta
+            # A cache that could not be deleted is billed until its TTL expires.
+            seconds = min(time.time() - created_at, ttl_seconds) if deleted else ttl_seconds
+            LLMCallTracker.get_instance().record_cache_storage(
+                model=self.model, tokens=cache_tokens, seconds=seconds,
+            )
 
     def generate_with_cache(
         self,
@@ -1132,6 +1206,7 @@ class GeminiLLM(LLMInterface):
 
                 if not response.candidates:
                     feedback = getattr(response, 'prompt_feedback', None)
+                    self._track_usage(response, prompt_len, 0, count_call=False)
                     self.last_call_diag = {
                         "finish_reason": "NO_CANDIDATES",
                         "empty_reason": f"no candidates (prompt_feedback={feedback})",
@@ -1159,6 +1234,7 @@ class GeminiLLM(LLMInterface):
                         )
 
                 if not candidate.content or not candidate.content.parts:
+                    self._track_usage(response, prompt_len, 0, count_call=False)
                     self.last_call_diag = {
                         "finish_reason": finish_reason_name,
                         "empty_reason": "candidate had no content parts",
@@ -1176,11 +1252,7 @@ class GeminiLLM(LLMInterface):
                     "truncated": finish_reason_name == "MAX_TOKENS",
                 }
 
-                LLMCallTracker.get_instance().increment(
-                    model=self.model,
-                    prompt_length=prompt_len,
-                    completion_length=len(content)
-                )
+                self._track_usage(response, prompt_len, len(content))
                 return content
 
             except Exception as e:
