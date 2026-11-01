@@ -45,12 +45,15 @@ from .llm_cache import LLMCache
 from .json_parser import JSONResponseParser
 from .unit_parser import UnitIdentificationParser, create_retry_prompt_addition
 from ..utils.text_processing import TextProcessor
-from ..utils.prompt_builder import PromptBuilder
+from ..utils.prompt_builder import PromptBuilder, fold_system_after_document
 from ..config.constants import (
     MIN_DOCUMENT_SIZE_FOR_SNIPPETS,
     SAFETY_MARGIN_ALL_MODE,
     SAFETY_MARGIN_SINGLE_MODE,
     DISABLE_RETRIEVER,
+    USE_EXPLICIT_CONTEXT_CACHE,
+    PROMPT_LAYOUT,
+    PROMPT_LAYOUT_DOCUMENT_FIRST,
 )
 from ..config.prompts import (
     SYSTEM_PROMPT_UNIT_IDENTIFICATION,
@@ -191,6 +194,17 @@ class PaperProcessor:
         self.prompt_builder = PromptBuilder(
             reference_context=reference_context,
             reference_retriever=reference_retriever,
+            # Gemini: document first, so calls on one document share a prefix
+            # that implicit caching can reuse (issue #547). SCHEMATIQ_PROMPT_LAYOUT
+            # =legacy keeps the old layout for A/B comparison.
+            document_first=(
+                self._is_gemini_backend()
+                and PROMPT_LAYOUT == PROMPT_LAYOUT_DOCUMENT_FIRST
+            ),
+        )
+        logger.info(
+            "Value-extraction prompt layout: %s (document_first=%s, explicit_cache=%s)",
+            PROMPT_LAYOUT, self.prompt_builder.document_first, USE_EXPLICIT_CONTEXT_CACHE,
         )
         self.on_value_extracted = on_value_extracted
         self.should_stop = should_stop
@@ -203,6 +217,10 @@ class PaperProcessor:
         self.excerpt_grounder = ExcerptGrounder()
         # Active context cache for current document (Gemini only)
         self._active_context_cache = None
+        # Per-document token usage from Gemini usage_metadata, summed in
+        # _generate() and printed when the document finishes. Lets a run show
+        # how much of the prompt was billed at the cached rate.
+        self._doc_usage = self._empty_doc_usage()
         # Figure images for the current document — loaded once (see
         # _load_document_figures), then attached to every per-unit call by
         # _generate() so images and <REQUESTED_COLUMNS> always travel together.
@@ -279,6 +297,9 @@ class PaperProcessor:
 
     def _create_document_cache(self, system_prompt: str, paper_text: str):
         """Create a Gemini context cache for a document. Returns cache or None."""
+        if not USE_EXPLICIT_CONTEXT_CACHE:
+            logger.debug("Context cache skipped: explicit caching disabled")
+            return None
         if not self._is_gemini_backend():
             logger.debug("Context cache skipped: non-Gemini backend")
             return None
@@ -296,6 +317,36 @@ class PaperProcessor:
             self._active_context_cache = None
         self._active_figure_images = []
         self._active_figures_by_id = {}
+
+    @staticmethod
+    def _empty_doc_usage() -> Dict[str, int]:
+        return {"calls": 0, "prompt_tokens": 0, "cached_tokens": 0}
+
+    def _record_call_usage(self) -> None:
+        """Add the last LLM call's token usage to the per-document totals."""
+        usage = getattr(self.llm, "last_call_usage", None)
+        if not isinstance(usage, dict) or not usage:
+            return
+        totals = getattr(self, "_doc_usage", None)
+        if not isinstance(totals, dict):
+            return
+        totals["calls"] += 1
+        totals["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
+        totals["cached_tokens"] += int(usage.get("cached_tokens") or 0)
+
+    def _log_doc_usage(self, paper_title: str) -> None:
+        """Print the per-document token totals collected by _record_call_usage."""
+        totals = self._doc_usage
+        if not totals["calls"]:
+            return
+        pct = 100.0 * totals["cached_tokens"] / max(totals["prompt_tokens"], 1)
+        msg = (
+            f"Token usage for {paper_title}: {totals['calls']} calls, "
+            f"{totals['prompt_tokens']:,} prompt tokens, "
+            f"{totals['cached_tokens']:,} cached ({pct:.0f}%)"
+        )
+        print(f"  💰 {msg}")
+        logger.info(msg)
 
     def _ground_and_enforce(
         self, cleaned: Dict[str, Any], source_text: str, context_label: str
@@ -503,6 +554,13 @@ class PaperProcessor:
         """
         if self._active_figure_images:
             kwargs.setdefault("images", self._active_figure_images)
+        if isinstance(prompt, list) and self._is_gemini_backend():
+            # Document-first prompts: move the per-call system prompt after the
+            # document so it does not break the shared prefix (issue #547).
+            # Other prompts come back as None and are left unchanged.
+            folded = fold_system_after_document(prompt)
+            if folded is not None:
+                prompt = folded
         if self._active_context_cache and hasattr(self.llm, 'generate_with_cache'):
             if isinstance(prompt, list):
                 system_parts = [m["content"] for m in prompt if m.get("role") == "system"]
@@ -519,8 +577,11 @@ class PaperProcessor:
                         else:
                             new_prompt.append(m)
                     prompt = new_prompt
-            return self.llm.generate_with_cache(prompt, self._active_context_cache, **kwargs)
-        return self.llm.generate(prompt, **kwargs)
+            raw = self.llm.generate_with_cache(prompt, self._active_context_cache, **kwargs)
+        else:
+            raw = self.llm.generate(prompt, **kwargs)
+        self._record_call_usage()
+        return raw
 
     def _track_unmatched_values(
         self, unmatched: Dict[str, list], document_name: str = None
@@ -2298,6 +2359,7 @@ class PaperProcessor:
         # We use a generic observation unit name in the system prompt for the cache
         # to make it reusable across all units in this document.
         cache_system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=observation_unit.name)
+        self._doc_usage = self._empty_doc_usage()
         self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
 
         if self._active_context_cache:
@@ -2390,6 +2452,7 @@ class PaperProcessor:
                         paper_title, unit_name, unit_elapsed,
                     )
         finally:
+            self._log_doc_usage(paper_title)
             self._delete_document_cache()
 
         self.cache.log_stats()

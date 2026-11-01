@@ -619,6 +619,9 @@ class GeminiLLM(LLMInterface):
         # the raw response. Keys: finish_reason, empty_reason, response_chars,
         # truncated (bool). Reset at the start of every call.
         self.last_call_diag: Dict[str, Any] = {}
+        # Token counts from the last successful call's usage_metadata
+        # ({"prompt_tokens", "cached_tokens"}), empty when unavailable.
+        self.last_call_usage: Dict[str, int] = {}
 
         # Auto-detect token limits and capabilities from model specs
         spec = get_model_spec("gemini", model)
@@ -785,6 +788,24 @@ class GeminiLLM(LLMInterface):
                 thinking_budget=thinking_budget
             )
 
+    def _usage_from_response(self, response) -> Dict[str, int]:
+        """Read prompt and cached token counts from a response's usage_metadata.
+
+        cached_tokens counts prompt tokens billed at the cached rate, from
+        either an explicit cache or Gemini implicit caching. Returns {} when
+        the response carries no usage metadata.
+        """
+        meta = getattr(response, "usage_metadata", None)
+        if meta is None:
+            return {}
+        prompt_tokens = getattr(meta, "prompt_token_count", None) or 0
+        cached_tokens = getattr(meta, "cached_content_token_count", None) or 0
+        logger.info(
+            "Gemini usage (model=%s): prompt_tokens=%d cached_tokens=%d",
+            self.model, prompt_tokens, cached_tokens,
+        )
+        return {"prompt_tokens": int(prompt_tokens), "cached_tokens": int(cached_tokens)}
+
     def _build_contents(
         self,
         prompt_text: str,
@@ -866,6 +887,7 @@ class GeminiLLM(LLMInterface):
         print(f"🚀 Starting Gemini API call (model: {self.model}, prompt: ~{len(prompt_text):,} chars)")
         start_time = time.time()
         self.last_call_diag = {}
+        self.last_call_usage = {}
 
         # Build generation config using new SDK types
         config_kwargs = {
@@ -901,6 +923,7 @@ class GeminiLLM(LLMInterface):
                     contents=self._build_contents(prompt_text, images),
                     config=config,
                 )
+                self.last_call_usage = self._usage_from_response(response)
 
                 elapsed = time.time() - start_time
                 print(f"⏱️  Gemini API call completed in {elapsed:.1f}s")
@@ -1102,6 +1125,7 @@ class GeminiLLM(LLMInterface):
         print(f"🚀 Starting Gemini cached API call (model: {self.model}, prompt: ~{len(prompt_text):,} chars)")
         start_time = time.time()
         self.last_call_diag = {}
+        self.last_call_usage = {}
 
         config_kwargs = {
             "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
@@ -1126,6 +1150,7 @@ class GeminiLLM(LLMInterface):
                     contents=self._build_contents(prompt_text, images),
                     config=config,
                 )
+                self.last_call_usage = self._usage_from_response(response)
 
                 elapsed = time.time() - start_time
                 print(f"⏱️  Gemini cached API call completed in {elapsed:.1f}s")

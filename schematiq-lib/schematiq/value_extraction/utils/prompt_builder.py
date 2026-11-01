@@ -8,6 +8,52 @@ from ..config.prompts import SYSTEM_PROMPT_VAL, SYSTEM_PROMPT_VAL_STRICT
 from .reference_retrieval import ReferenceRetriever, build_reference_query
 
 
+PAPER_TEXT_OPEN = "<PAPER_TEXT>"
+PAPER_TEXT_CLOSE = "</PAPER_TEXT>"
+
+
+def fold_system_after_document(
+    messages: List[Dict[str, str]],
+) -> List[Dict[str, str]] | None:
+    """Move system messages into the user message, right after the document.
+
+    Only for prompts built with ``document_first=True``: the first user
+    message must start with the <PAPER_TEXT> block. System prompts differ per
+    call (the unit name is baked into SYSTEM_PROMPT_VAL_WITH_UNIT, and the
+    retry passes use other prompts), and a system instruction sits ahead of
+    the contents in the request. Left there, it would break the shared
+    document prefix that implicit caching relies on. Folding it in after the
+    document keeps the prefix identical across every call on one document.
+
+    Returns the new message list, or ``None`` when the prompt is not
+    document-first (the caller then leaves it unchanged).
+    """
+    system_parts = [m["content"] for m in messages if m.get("role") == "system"]
+    users = [m for m in messages if m.get("role") == "user"]
+    if not system_parts or not users:
+        return None
+    first_user = users[0]["content"]
+    if not first_user.startswith(PAPER_TEXT_OPEN):
+        return None
+    close_at = first_user.find(PAPER_TEXT_CLOSE)
+    if close_at < 0:
+        return None
+    split_at = close_at + len(PAPER_TEXT_CLOSE)
+    system_text = "\n\n".join(system_parts)
+    folded = f"{first_user[:split_at]}\n\n{system_text}{first_user[split_at:]}"
+    out: List[Dict[str, str]] = []
+    injected = False
+    for m in messages:
+        if m.get("role") == "system":
+            continue
+        if not injected and m.get("role") == "user":
+            out.append({**m, "content": folded})
+            injected = True
+        else:
+            out.append(m)
+    return out
+
+
 class PromptBuilder:
     """Builds prompts for value extraction LLM calls."""
 
@@ -16,6 +62,7 @@ class PromptBuilder:
         reference_context: str | None = None,
         reference_retriever: "ReferenceRetriever | None" = None,
         reference_k: int = 5,
+        document_first: bool = False,
     ):
         # Optional external reference injected into every value-extraction prompt
         # as supplementary lookup material (never a source document). When the
@@ -25,6 +72,12 @@ class PromptBuilder:
         self.reference_context = reference_context
         self.reference_retriever = reference_retriever
         self.reference_k = reference_k
+        # When True, the user message starts with the <PAPER_TEXT> block and
+        # every per-call part (title, question, columns, feedback) follows it.
+        # Calls on the same document then share a long identical prefix, which
+        # lets Gemini implicit caching bill it at the cached rate (issue #547).
+        # False keeps the original layout byte-for-byte.
+        self.document_first = document_first
 
     def build_val_messages(
         self,
@@ -161,6 +214,24 @@ class PromptBuilder:
             </PRIOR_ATTEMPT_FEEDBACK>
             """.strip()
             user_prompt = f"{feedback_block}\n\n{user_prompt}"
+
+        if self.document_first:
+            # Rebuild with the document first and everything that varies per
+            # call after it. The title goes after the document because
+            # callers append the unit name to it.
+            tail = "\n\n".join(
+                part for part in (
+                    feedback_block if feedback else "",
+                    f"<PAPER_TITLE>\n{paper_title}\n</PAPER_TITLE>",
+                    f"<QUESTION>\n{query}\n</QUESTION>",
+                    col_block,
+                    extracted_block,
+                    reference_block,
+                ) if part
+            )
+            user_prompt = (
+                f"{PAPER_TEXT_OPEN}\n{paper_text}\n{PAPER_TEXT_CLOSE}\n\n{tail}"
+            )
 
         system = SYSTEM_PROMPT_VAL_STRICT if strict else SYSTEM_PROMPT_VAL
 

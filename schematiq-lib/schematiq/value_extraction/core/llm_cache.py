@@ -6,7 +6,11 @@ import threading
 from collections import OrderedDict
 from typing import Dict, Any, Optional
 
-from ..config.constants import DEFAULT_CACHE_SIZE, CACHE_EVICTION_BATCH
+from ..config.constants import (
+    DEFAULT_CACHE_SIZE,
+    CACHE_EVICTION_BATCH,
+    DISABLE_LLM_RESPONSE_CACHE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +36,8 @@ class LLMCache:
     
     def get(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """Thread-safe cache retrieval."""
+        if DISABLE_LLM_RESPONSE_CACHE:
+            return None
         with self._lock:
             if cache_key in self._cache:
                 value = self._cache.pop(cache_key)
@@ -51,6 +57,8 @@ class LLMCache:
     
     def put(self, cache_key: str, response: Dict[str, Any]) -> None:
         """Thread-safe cache storage with size limit."""
+        if DISABLE_LLM_RESPONSE_CACHE:
+            return
         with self._lock:
             if len(self._cache) >= self._max_size:
                 # Remove oldest entries (FIFO)
