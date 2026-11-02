@@ -37,6 +37,30 @@ _AUTH_STATUS_CODES = frozenset({401, 403})
 _TRANSPORT_RETRY_ERRORS = (httpx.TimeoutException, httpx.ConnectError)
 
 
+# Default decoding seed for Gemini calls. Gemini 3.x ignores temperature, so a
+# fixed seed is the remaining control over sampling randomness between
+# identical requests. Google documents it as best effort: identical output is
+# likely, not guaranteed. SCHEMATIQ_GEMINI_SEED overrides it with another int,
+# or disables it with "off".
+_DEFAULT_GEMINI_SEED = 1234
+
+
+def _gemini_seed_from_env() -> Optional[int]:
+    raw = os.getenv("SCHEMATIQ_GEMINI_SEED", str(_DEFAULT_GEMINI_SEED)).strip()
+    if raw.lower() in ("", "off", "none"):
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid SCHEMATIQ_GEMINI_SEED=%r (not an int)", raw)
+        return None
+
+
+def _is_seed_rejected_error(error: BaseException) -> bool:
+    """True when the provider rejected the request because of the seed field."""
+    return _status_code(error) == 400 and "seed" in str(error).lower()
+
+
 def _status_code(error: BaseException) -> Optional[int]:
     """Return the HTTP status code a provider SDK error carries, if any.
 
@@ -682,6 +706,8 @@ class GeminiLLM(LLMInterface):
         self.supports_sampling_params = spec.supports_sampling_params
         self.allowed_thinking_levels = spec.allowed_thinking_levels
         self.fallback_thinking_level = spec.fallback_thinking_level
+        # Sent as generationConfig.seed on every call (see _apply_seed).
+        self.seed = _gemini_seed_from_env()
 
         # Load single API key
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -774,7 +800,10 @@ class GeminiLLM(LLMInterface):
     # (max_budget_inclusive, level). Anything larger maps to "high". Used only
     # to translate a caller's budget hint; the result is then clamped to the
     # levels the specific model accepts.
+    # A budget of 0 means "no thinking": it maps to minimal where the model
+    # accepts it, and to low (the previous mapping) everywhere else.
     _THINKING_LEVEL_THRESHOLDS = (
+        (0, "minimal"),
         (2048, "low"),
         (8192, "medium"),
     )
@@ -794,6 +823,10 @@ class GeminiLLM(LLMInterface):
                 break
 
         allowed = self.allowed_thinking_levels
+        if level == "minimal" and (not allowed or level not in allowed):
+            # Never send minimal to a model not known to accept it (3.7/3.8
+            # Flash return 400); keep the pre-minimal mapping instead.
+            level = "low"
         if not allowed or level in allowed:
             return level
 
@@ -831,6 +864,32 @@ class GeminiLLM(LLMInterface):
             config_kwargs["thinking_config"] = self.types.ThinkingConfig(
                 thinking_budget=thinking_budget
             )
+
+    def _apply_seed(self, config_kwargs: dict, seed) -> None:
+        """Add generationConfig.seed: the per-call seed if given, else self.seed.
+
+        Mutates ``config_kwargs`` in place. Nothing is added when both are None.
+        """
+        effective = seed if seed is not None else self.seed
+        if effective is not None:
+            config_kwargs["seed"] = effective
+
+    def _drop_rejected_seed(self, config_kwargs: dict, error: BaseException) -> bool:
+        """If the API rejected the seed field, drop it for this and later calls.
+
+        Returns True when the caller should rebuild its config and retry. This
+        keeps extraction working if a future model starts rejecting the seed.
+        """
+        if "seed" not in config_kwargs or not _is_seed_rejected_error(error):
+            return False
+        logger.warning(
+            "Gemini rejected generationConfig.seed (model=%s); retrying without it "
+            "and disabling the seed for this client: %s",
+            self.model, str(error)[:200],
+        )
+        config_kwargs.pop("seed", None)
+        self.seed = None
+        return True
 
     def _build_contents(
         self,
@@ -934,6 +993,7 @@ class GeminiLLM(LLMInterface):
         # reject thinking_config with 400 INVALID_ARGUMENT when combined with
         # response_schema, which is handled inside the helper via supports_thinking.
         self._apply_thinking_config(config_kwargs, kwargs.get("thinking_budget"))
+        self._apply_seed(config_kwargs, kwargs.get("seed"))
         config = self.types.GenerateContentConfig(**config_kwargs)
 
         # Retry logic (3 retries like OpenAI/Together)
@@ -1040,6 +1100,9 @@ class GeminiLLM(LLMInterface):
                 if _is_invalid_api_key_error(e):
                     print(f"Invalid/malformed API key: {error_str[:200]}")
                     raise
+                if self._drop_rejected_seed(config_kwargs, e):
+                    config = self.types.GenerateContentConfig(**config_kwargs)
+                    continue
 
                 # Check if this is a retryable error
                 if _is_rate_limit_error(e):
@@ -1188,6 +1251,7 @@ class GeminiLLM(LLMInterface):
             config_kwargs["response_mime_type"] = "application/json"
             config_kwargs["response_schema"] = kwargs["response_schema"]
         self._apply_thinking_config(config_kwargs, kwargs.get("thinking_budget"))
+        self._apply_seed(config_kwargs, kwargs.get("seed"))
         config = self.types.GenerateContentConfig(**config_kwargs)
 
         max_retries = 3
@@ -1277,6 +1341,9 @@ class GeminiLLM(LLMInterface):
                     return "Response blocked by Gemini safety filters."
                 if _is_invalid_api_key_error(e):
                     raise
+                if self._drop_rejected_seed(config_kwargs, e):
+                    config = self.types.GenerateContentConfig(**config_kwargs)
+                    continue
                 if _is_rate_limit_error(e):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(e)
