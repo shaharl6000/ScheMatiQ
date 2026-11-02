@@ -215,3 +215,38 @@ def test_fabricated_answer_is_still_nulled_when_no_figure_images_attached():
     }
     result = PaperProcessor._ground_and_enforce(s, cleaned, SOURCE_TEXT, "doc")
     assert result["supporting_figure"]["answer"] is None
+
+
+def test_null_log_reports_no_excerpts_reason(caplog):
+    """Issue #556: the null warning must say whether the model gave no
+    excerpt at all, so run-to-run nulls can be attributed."""
+    s = _make_self()
+    cleaned = {"appointing_president": {"answer": "Donald Trump", "excerpts": []}}
+    with caplog.at_level("WARNING"):
+        PaperProcessor._ground_and_enforce(s, cleaned, SOURCE_TEXT, "doc")
+    assert cleaned["appointing_president"]["answer"] is None
+    msg = next(r.getMessage() for r in caplog.records if "Nulling ungrounded" in r.getMessage())
+    assert "reason=no_excerpts" in msg
+    assert "n_excerpts=0" in msg
+
+
+def test_null_log_flags_ellipsis_and_quoted_excerpts(caplog):
+    s = _make_self()
+    cleaned = {
+        "judge_name": {
+            "answer": "Niemeyer",
+            "excerpts": [{"text": "Judge Niemeyer..."}, {"text": "\"Niemeyer wrote\""}],
+        },
+    }
+    with caplog.at_level("DEBUG"):
+        PaperProcessor._ground_and_enforce(s, cleaned, SOURCE_TEXT, "doc")
+    assert cleaned["judge_name"]["answer"] is None
+    messages = [r.getMessage() for r in caplog.records]
+    warn = next(m for m in messages if "Nulling ungrounded" in m)
+    assert "reason=excerpts_not_found" in warn
+    assert "n_excerpts=2" in warn
+    assert "n_ellipsis=1" in warn
+    assert "n_quoted=1" in warn
+    # Excerpt text only at DEBUG, never in the WARNING line.
+    assert "Judge Niemeyer..." not in warn
+    assert any("Ungrounded excerpts" in m and "Judge Niemeyer..." in m for m in messages)
