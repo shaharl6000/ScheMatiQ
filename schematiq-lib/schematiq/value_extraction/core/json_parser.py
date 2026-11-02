@@ -8,6 +8,15 @@ from typing import Dict, Any, List, Tuple, Optional
 
 from dateutil import parser as date_parser
 
+# Numbers inside a value, with digit-group separators kept together
+# ("1,000", "86.4", "3:21").
+_NUMBER_RE = re.compile(r"\d+(?:[.,:/]\d+)*")
+
+
+def _numbers(text: str) -> set:
+    """Return the numbers in *text*, with thousands commas removed."""
+    return {m.group().replace(",", "") for m in _NUMBER_RE.finditer(text)}
+
 
 def _flatten_answer(answer: Any) -> str:
     """Convert a non-string answer (dict/list) to a clean readable string.
@@ -225,7 +234,8 @@ class JSONResponseParser:
         1. Date constraints (single-item "date" / "date:...") -> parse and format
         2. Numeric constraints (single-item "number" or min-max range)
         3. Case-insensitive exact match -> return allowed value
-        4. Fuzzy match above threshold -> return allowed value
+        4. Fuzzy match above threshold -> return allowed value (only among
+           allowed values with the same numbers as the answer)
         5. No match -> keep original answer and flag for schema evolution
         """
         if not allowed_values or not answer:
@@ -281,10 +291,16 @@ class JSONResponseParser:
             if av.lower().strip() == answer_lower:
                 return av, True, None
 
-        # Fuzzy matching using difflib
+        # Fuzzy matching using difflib. Only values with the same numbers are
+        # candidates: character similarity treats "2025 WL 1325305" and
+        # "2025 WL 1825431" (or "phase 2" and "phase 3") as near-duplicates,
+        # but a different number is a different value, not a spelling variant.
+        answer_numbers = _numbers(answer_lower)
         best_match: Optional[str] = None
         best_ratio: float = 0.0
         for av in allowed_values:
+            if _numbers(av.lower()) != answer_numbers:
+                continue
             ratio = difflib.SequenceMatcher(None, answer_lower, av.lower()).ratio()
             if ratio > best_ratio:
                 best_ratio = ratio
