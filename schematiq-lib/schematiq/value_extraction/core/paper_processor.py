@@ -66,6 +66,41 @@ from ..utils.excerpt_grounder import ExcerptGrounder
 OnWarningCallback = Callable[[str, str, str], None]
 
 
+_ELLIPSIS_MARKERS = ("...", "\u2026")
+_QUOTE_CHARS = "\"'\u201c\u201d\u2018\u2019"
+_LOG_EXCERPT_MAX_CHARS = 200
+_LOG_EXCERPT_MAX_COUNT = 5
+
+
+def _describe_ungrounded_excerpts(excerpts: List[Any]) -> Dict[str, Any]:
+    """Summarize why a column's excerpts failed grounding, for the null log.
+
+    reason is "no_excerpts" when the model gave no text excerpt at all, and
+    "excerpts_not_found" when it gave excerpts but none matched the source.
+    The ellipsis / quoted counts flag excerpts the model decorated with
+    "..." or wrapping quotes, which the grounder does not strip.
+    """
+    texts = [
+        str(exc.get("text", "")) if isinstance(exc, dict) else str(exc)
+        for exc in excerpts or []
+        if not (isinstance(exc, dict) and exc.get("type") == "figure")
+    ]
+    texts = [t for t in texts if t.strip()]
+    stripped = [t.strip() for t in texts]
+    return {
+        "reason": "excerpts_not_found" if texts else "no_excerpts",
+        "n_excerpts": len(texts),
+        "n_ellipsis": sum(any(m in t for m in _ELLIPSIS_MARKERS) for t in texts),
+        "n_quoted": sum(
+            len(t) >= 2 and t[0] in _QUOTE_CHARS and t[-1] in _QUOTE_CHARS
+            for t in stripped
+        ),
+        "texts": [
+            t[:_LOG_EXCERPT_MAX_CHARS] for t in texts[:_LOG_EXCERPT_MAX_COUNT]
+        ],
+    }
+
+
 def _chunk_list(lst: List, size: int) -> Iterator[List]:
     """Split list into chunks of given size."""
     for i in range(0, len(lst), size):
@@ -374,10 +409,20 @@ class PaperProcessor:
                     if isinstance(exc, dict) and exc.get("text")
                 )
             if not grounded:
+                diag = _describe_ungrounded_excerpts(excerpts)
                 logger.warning(
                     "[%s] Nulling ungrounded answer for column %r "
-                    "(no excerpt found in source text): %r",
+                    "(no excerpt found in source text): %r "
+                    "[reason=%s n_excerpts=%d n_ellipsis=%d n_quoted=%d]",
                     context_label, col_name, answer,
+                    diag["reason"], diag["n_excerpts"],
+                    diag["n_ellipsis"], diag["n_quoted"],
+                )
+                # Excerpt text is document content, so it stays at DEBUG
+                # (CWE-532). Enable with LOG_LEVEL=DEBUG for run analysis.
+                logger.debug(
+                    "[%s] Ungrounded excerpts for column %r: %r",
+                    context_label, col_name, diag["texts"],
                 )
                 col_data["answer"] = None
                 col_data["excerpts"] = []
