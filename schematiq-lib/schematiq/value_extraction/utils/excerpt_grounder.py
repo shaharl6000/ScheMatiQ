@@ -28,6 +28,16 @@ _QUOTE_CHARS = "\"'\u201c\u201d\u2018\u2019"
 # so "the ... of" cannot ground on common words alone.
 _MIN_ELIDED_SEGMENT_WORDS = 3
 
+# A number, with internal separators kept ("1,000", "3.5", "12/31", "1:30").
+# Same pattern as json_parser._NUMBER_RE, so excerpts and allowed values treat
+# numbers the same way.
+_NUMBER_RE = re.compile(r"\d+(?:[.,:/]\d+)*")
+
+
+def _numbers(text: str) -> set:
+    """Set of numbers in ``text``, as written."""
+    return set(_NUMBER_RE.findall(text))
+
 
 def _strip_decorations(excerpt: str) -> str:
     """Remove decoration the model adds around a quote but which is not in
@@ -189,6 +199,11 @@ class ExcerptGrounder:
 
         # Pre-compute lowercased token set for Jaccard filter
         excerpt_token_set = set(excerpt.lower().split())
+        # Fuzzy tolerance is for wording, not numbers. A window may only match
+        # if it contains every number in the excerpt exactly. Otherwise a
+        # citation like "2025 WL 1825431" grounds on "2025 WL 1325305", and a
+        # wrong page number or date passes as "fuzzy" (issue #557).
+        excerpt_numbers = _numbers(excerpt)
 
         for i in range(len(source_words) - window_size + 1):
             # Jaccard pre-filter: skip windows with low token overlap
@@ -201,6 +216,8 @@ class ExcerptGrounder:
                 continue
 
             window = " ".join(source_words[i : i + window_size])
+            if excerpt_numbers and not excerpt_numbers <= _numbers(window):
+                continue
             ratio = difflib.SequenceMatcher(
                 None, excerpt.lower(), window.lower()
             ).ratio()
