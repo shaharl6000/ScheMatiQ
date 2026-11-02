@@ -36,8 +36,11 @@ class ModelSpec:
     # Thinking levels this pipeline may send to this model. Sending a level the
     # model does not accept returns 400 (gemini-3.1-pro-preview rejects the
     # medium level). This is the *sendable* set, not everything the model
-    # supports: the minimal level is deliberately excluded everywhere because it
-    # requires thought-signature handling that this pipeline does not implement.
+    # supports. Google requires thought signatures for the minimal level only in
+    # multi-turn conversations, and GeminiLLM always sends one single-turn
+    # content, so minimal is sendable wherever the model accepts it. It is
+    # listed only for the Flash-Lite models, where Google documents it as the
+    # default and the recommended level for high-volume extraction.
     # Empty means no constraint is known and the translated level is used as is.
     allowed_thinking_levels: tuple = ()
     # Level substituted when the translated level is not in the sendable set.
@@ -99,7 +102,7 @@ MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
         ModelNames.GEMINI_31_FLASH_LITE: ModelSpec(
             1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
             supports_sampling_params=False,
-            allowed_thinking_levels=("low", "medium", "high"),
+            allowed_thinking_levels=("minimal", "low", "medium", "high"),
             fallback_thinking_level="low",
         ),
         ModelNames.GEMINI_35_FLASH: ModelSpec(
@@ -120,8 +123,8 @@ MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
             allowed_thinking_levels=("low", "medium", "high"),
             fallback_thinking_level="medium",
         ),
-        # Same thinking_level contract as 3.5-3.7 Flash (minimal excluded
-        # everywhere in this pipeline; see class-level note above).
+        # Same thinking_level contract as 3.5-3.7 Flash (minimal not listed;
+        # see class-level note above).
         ModelNames.GEMINI_38_FLASH: ModelSpec(
             1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
             supports_sampling_params=False,
@@ -131,7 +134,7 @@ MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
         ModelNames.GEMINI_35_FLASH_LITE: ModelSpec(
             1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
             supports_sampling_params=False,
-            allowed_thinking_levels=("low", "medium", "high"),
+            allowed_thinking_levels=("minimal", "low", "medium", "high"),
             fallback_thinking_level="low",
         ),
         # Pro rejects "medium" (400 INVALID_ARGUMENT); low/high only.
