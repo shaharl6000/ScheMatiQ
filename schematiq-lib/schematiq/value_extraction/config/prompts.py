@@ -38,6 +38,9 @@ extract answers **strictly from the paper**.
 - If a column's answer is **not in the paper**, set `"answer": null` with empty excerpts.
   This tells the system you looked and confirmed the value is absent.
   Do **not** invent placeholders like "not provided", "unknown", "N/A", etc.
+- Each excerpt must be copied **verbatim** from the text as one contiguous span:
+  no `...`, no added quotation marks, no paraphrase. If the support sits in two
+  places, give two separate excerpts.
 - Output **only JSON**, no prose, no markdown fences.
 - Include a column **only** when the answer is supported by the provided text,
   OR set its answer to `null` to explicitly mark it as empty.
@@ -76,7 +79,7 @@ If you find a value in the paper that doesn't match the provided allowed_values:
   {
     "model_type": {
       "answer": "mamba",
-      "excerpts": ["We propose a novel Mamba-based architecture..."],
+      "excerpts": ["We propose a novel Mamba-based architecture"],
       "suggested_for_allowed_values": true
     }
   }
@@ -105,7 +108,7 @@ If you find a value in the paper that doesn't match the provided allowed_values:
 {
   "dataset_name": {
     "answer": "CIFAR-10",
-    "excerpts": ["We evaluate on CIFAR-10 and ImageNet..."]
+    "excerpts": ["We evaluate on CIFAR-10 and ImageNet"]
   }
 }
 
@@ -113,7 +116,7 @@ If you find a value in the paper that doesn't match the provided allowed_values:
 {
   "model_type": {
     "answer": "transformer",
-    "excerpts": ["Our model uses a standard Transformer architecture..."]
+    "excerpts": ["Our model uses a standard Transformer architecture"]
   }
 }
 """.strip()
@@ -140,6 +143,9 @@ are already filled, think about whether the current column realistically applies
 - If a column's answer is genuinely **not in the paper**, set `"answer": null` with empty excerpts.
   This tells the system you confirmed the value is absent — it will NOT be retried.
 - Do **not** invent placeholders like "not provided", "unknown", "N/A".
+- Each excerpt must be copied **verbatim** from the text as one contiguous span:
+  no `...`, no added quotation marks, no paraphrase. If the support sits in two
+  places, give two separate excerpts.
 - Output **only JSON**, no prose, no markdown fences
 - Include a column **only** when the answer is supported by the provided text,
   OR set its answer to `null` to explicitly mark it as empty.
@@ -166,6 +172,9 @@ You are *ValueLLM*, extracting values **only if directly supported by the text**
   (verbatim or near-verbatim), OR — for an answer read from an attached image
   rather than text — at least one entry in `figure_refs` (see below).
 - If the column genuinely does not apply, set `"answer": null` with empty excerpts.
+- Each excerpt must be copied **verbatim** from the text as one contiguous span:
+  no `...`, no added quotation marks, no paraphrase. If the support sits in two
+  places, give two separate excerpts.
 - Do **not** use placeholders like "not provided", "unknown", "N/A", "cannot be determined".
 - If an `<ALREADY_EXTRACTED_VALUES>` block is provided, use it as context to inform whether
   the current column realistically applies.
@@ -461,7 +470,12 @@ extract answers **strictly from the provided passages** and **only for this unit
 
 ### Rules (MUST follow)
 - Extract values ONLY for the unit named "{unit_name}"
-- If a column's answer is **not in the passages for this unit**, **omit that column**
+- If a column's answer is **not stated in the passages for this unit**, set
+  `"answer": null` with empty excerpts. Do **not** answer from general knowledge,
+  and do **not** invent placeholders like "unknown" or "N/A".
+- Each excerpt must be copied **verbatim** from the text as one contiguous span:
+  no `...`, no added quotation marks, no paraphrase. If the support sits in two
+  places, give two separate excerpts.
 - Do **not** extract values from other units mentioned in the document
 - When several units are described close together in the same sentence or passage,
   attach each attribute to the unit the passage actually states it for. Proximity in
@@ -487,15 +501,23 @@ For unit "GPT-4 on MMLU":
 {{
   "model_name": {{
     "answer": "GPT-4",
-    "excerpts": ["GPT-4 achieves 86.4% on MMLU..."]
+    "excerpts": ["GPT-4 achieves 86.4% on MMLU"]
   }},
   "benchmark": {{
     "answer": "MMLU",
-    "excerpts": ["...evaluated on the MMLU benchmark..."]
+    "excerpts": ["evaluated on the MMLU benchmark"]
   }},
   "accuracy": {{
     "answer": "86.4",
-    "excerpts": ["GPT-4 achieves 86.4% on MMLU..."]
+    "excerpts": ["GPT-4 achieves 86.4% on MMLU"]
+  }}
+}}
+
+### Example (value not stated for this unit)
+{{
+  "training_data_size": {{
+    "answer": null,
+    "excerpts": []
   }}
 }}
 
