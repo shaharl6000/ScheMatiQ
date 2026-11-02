@@ -341,7 +341,9 @@ class TestMatchExcerptToFigureCaption:
         # trivially clears the gate (the excerpt is verbatim embedded in a
         # much longer, mostly-unrelated caption -- an "exact" substring hit)
         # but is a poor overall match; caption_high is a near-verbatim quote
-        # (differs by one digit) with a much higher whole-string similarity.
+        # (differs by one word) with a much higher whole-string similarity.
+        # (A one-digit difference no longer matches at all: fuzzy grounding
+        # requires numbers to match exactly, issue #557.)
         # caption_low is listed first, so the old first-match behavior would
         # have picked it.
         excerpt = "Revenue growth of twenty percent was observed across all regions in 2020."
@@ -351,7 +353,7 @@ class TestMatchExcerptToFigureCaption:
             "discussion of staffing, logistics, and five-year strategic plan "
             "follows in the appendix below for reference."
         )
-        caption_high = "Revenue growth of twenty percent was observed across all regions in 2019."
+        caption_high = "Revenue growth of twenty percent was observed across all region in 2020."
         s = _make_self(figures_by_id={
             "paper1_fig007": {"caption": caption_low},
             "paper1_fig008": {"caption": caption_high},
