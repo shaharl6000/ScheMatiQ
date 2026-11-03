@@ -55,8 +55,8 @@ from ..config.constants import (
 from ..config.prompts import (
     SYSTEM_PROMPT_UNIT_IDENTIFICATION,
     USER_PROMPT_TMPL_UNIT_IDENTIFICATION,
-    SYSTEM_PROMPT_VAL_WITH_UNIT,
     SYSTEM_PROMPT_VAL_REEXTRACT,
+    build_val_with_unit_prompt,
 )
 from ..utils.schema_builder import build_extraction_response_schema
 from ..utils.reference_retrieval import ReferenceRetriever
@@ -1989,7 +1989,7 @@ class PaperProcessor:
                 )
             effective_schema = _dc_replace(schema, columns=columns)
         eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(relevant_passages)
-        system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=unit_name)
+        system_prompt = build_val_with_unit_prompt(unit_name)
 
         should_truncate = not self._should_skip_truncation()
         max_ctx = getattr(self.llm, "context_window_size", None) or 8192
@@ -2248,10 +2248,10 @@ class PaperProcessor:
             f"  📊 Found {len(units)} observation units: {[u['unit_name'] for u in units]}"
         )
 
-        # Create context cache for this document (Gemini only, reused across units)
-        # We use a generic observation unit name in the system prompt for the cache
-        # to make it reusable across all units in this document.
-        cache_system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=observation_unit.name)
+        # Create context cache for this document (Gemini only, reused across units).
+        # The cache is shared by all units, so it keeps the full extraction rules
+        # but names no unit; each call carries the prompt for its own unit.
+        cache_system_prompt = build_val_with_unit_prompt(None)
         self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
 
         if self._active_context_cache:
