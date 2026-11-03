@@ -1,5 +1,7 @@
 """System prompts for value extraction."""
 
+from typing import Optional
+
 from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
 
 # When passage-narrowing is disabled (DISABLE_RETRIEVER=True) the full document is
@@ -462,14 +464,14 @@ The document may contain information about multiple units, but you should ONLY e
 values that pertain to the specified unit.
 
 ### Current Unit Being Extracted
-**Unit Name**: {unit_name}
+**Unit Name**: {unit_header}
 
 ### Task
 Given the relevant passages for this specific unit and the requested columns,
 extract answers **strictly from the provided passages** and **only for this unit**.
 
 ### Rules (MUST follow)
-- Extract values ONLY for the unit named "{unit_name}"
+- Extract values ONLY for the {unit_ref}
 - If a column's answer is **not stated in the passages for this unit**, set
   `"answer": null` with empty excerpts. Do **not** answer from general knowledge,
   and do **not** invent placeholders like "unknown" or "N/A".
@@ -479,7 +481,7 @@ extract answers **strictly from the provided passages** and **only for this unit
 - Do **not** extract values from other units mentioned in the document
 - When several units are described close together in the same sentence or passage,
   attach each attribute to the unit the passage actually states it for. Proximity in
-  the text does not imply the value belongs to "{unit_name}": a number, property, or
+  the text does not imply the value belongs to {unit_obj}: a number, property, or
   outcome mentioned near this unit's name may in fact describe a different unit. Trace
   each value back to the unit it is grammatically predicated of before assigning it.
   If the passage explicitly states that this unit shares a property or outcome with
@@ -538,3 +540,25 @@ The value for "Method B" is 88.5, not 91.2 — 91.2 is stated for Method A even
 though it appears first and nearby. Assign each value to the unit the passage
 predicates it of, regardless of word order or proximity.
 """.strip()
+
+
+def build_val_with_unit_prompt(unit_name: Optional[str]) -> str:
+    """Render SYSTEM_PROMPT_VAL_WITH_UNIT for one unit, or unit-neutral.
+
+    With a unit name, the text is exactly the per-call prompt. With None, it is
+    the version stored in the per-document context cache: the cache is shared
+    by every unit of the document, so it keeps all rules but names no unit.
+    Naming the unit type there (e.g. "A judge") contradicted the specific unit
+    named in each call.
+    """
+    if unit_name is None:
+        return SYSTEM_PROMPT_VAL_WITH_UNIT.format(
+            unit_header="given in each request below",
+            unit_ref="unit named in the current request",
+            unit_obj="the unit named in the current request",
+        )
+    return SYSTEM_PROMPT_VAL_WITH_UNIT.format(
+        unit_header=unit_name,
+        unit_ref=f'unit named "{unit_name}"',
+        unit_obj=f'"{unit_name}"',
+    )
