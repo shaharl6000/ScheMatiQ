@@ -18,6 +18,7 @@ import httpx
 
 from schematiq.core.model_specs import get_model_spec, get_max_output_tokens, ModelNames
 from schematiq.core.llm_call_tracker import LLMCallTracker
+from schematiq.core.thread_local import ThreadLocalAttribute
 
 logger = logging.getLogger(__name__)
 
@@ -663,6 +664,11 @@ class GeminiLLM(LLMInterface):
     # flow downstream as ordinary text and cause a fully-empty extraction row,
     # so callers can compare against this set to tell an empty-signal apart from
     # a genuine (but unparseable) model answer. See ``last_call_diag``.
+    # Diagnostics of the last call, kept per thread: one GeminiLLM can serve
+    # several documents at once, and callers read this right after their own
+    # call.
+    last_call_diag = ThreadLocalAttribute(dict)
+
     EMPTY_SIGNAL_RESPONSES = frozenset({
         "No response generated due to safety filters or other restrictions.",
         "Empty response from Gemini.",

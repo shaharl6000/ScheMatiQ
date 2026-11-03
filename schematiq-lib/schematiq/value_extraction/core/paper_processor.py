@@ -12,6 +12,7 @@ from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
 
 logger = logging.getLogger(__name__)
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
+from schematiq.core.thread_local import ThreadLocalAttribute
 from schematiq.core.results import UnitIdentificationResult, ExtractionResult
 from schematiq.value_extraction.config.messages import (
     NO_UNITS_FOUND, NO_KNOWN_UNITS, KNOWN_UNITS_EMPTY
@@ -201,6 +202,13 @@ class StopRequestedException(Exception):
 class PaperProcessor:
     """Handles value extraction from individual papers."""
 
+    # Per-document state, kept per thread: TableBuilder may process several
+    # documents at once on this one instance, and each must see only its own
+    # context cache and figures.
+    _active_context_cache = ThreadLocalAttribute(lambda: None)
+    _active_figure_images = ThreadLocalAttribute(list)
+    _active_figures_by_id = ThreadLocalAttribute(dict)
+
     def __init__(
         self,
         llm: LLMInterface,
@@ -238,6 +246,8 @@ class PaperProcessor:
         self.excerpt_grounder = ExcerptGrounder()
         # Active context cache for current document (Gemini only)
         self._active_context_cache = None
+        # (system_prompt, document) when a document gets no context cache; see _generate.
+        self._uncached_doc_layout = None
         # Figure images for the current document — loaded once (see
         # _load_document_figures), then attached to every per-unit call by
         # _generate() so images and <REQUESTED_COLUMNS> always travel together.
@@ -329,6 +339,7 @@ class PaperProcessor:
         if self._active_context_cache and hasattr(self.llm, 'delete_context_cache'):
             self.llm.delete_context_cache(self._active_context_cache)
             self._active_context_cache = None
+        self._uncached_doc_layout = None
         self._active_figure_images = []
         self._active_figures_by_id = {}
 
@@ -446,17 +457,11 @@ class PaperProcessor:
         behavior exactly like figure_extraction_service.py degrades to "no
         figures extracted" on its own failures.
 
-        Not thread-safe: self._active_figure_images/_active_figures_by_id are
-        plain instance attributes reset-then-refilled per document on a
-        PaperProcessor instance that TableBuilder reuses across its whole run
-        (see TableBuilder.__init__). This is safe today only because every
-        caller of this method processes documents in a strictly sequential
-        loop (_process_papers_with_observation_units) rather than through the
-        ThreadPoolExecutor TableBuilder already uses for its other per-paper
-        path (process_single_paper). Do not route this method's callers
-        through that executor without first making this state thread-local
-        (or giving each worker its own PaperProcessor) -- concurrent calls
-        would cross-contaminate figures/citations between documents.
+        Thread-safe: _active_figure_images and _active_figures_by_id (and
+        _active_context_cache) are per-thread attributes (ThreadLocalAttribute),
+        so documents processed concurrently on this one PaperProcessor do not
+        see each other's figures or cache. Each document must still be handled
+        from start to end on a single thread.
         """
         self._active_figure_images = []
         self._active_figures_by_id = {}
@@ -550,22 +555,40 @@ class PaperProcessor:
             kwargs.setdefault("images", self._active_figure_images)
         if self._active_context_cache and hasattr(self.llm, 'generate_with_cache'):
             if isinstance(prompt, list):
-                system_parts = [m["content"] for m in prompt if m.get("role") == "system"]
-                if system_parts:
-                    system_text = "\n\n".join(system_parts)
-                    new_prompt = []
-                    injected = False
-                    for m in prompt:
-                        if m.get("role") == "system":
-                            continue
-                        if not injected and m.get("role") == "user":
-                            new_prompt.append({**m, "content": f"{system_text}\n\n{m['content']}"})
-                            injected = True
-                        else:
-                            new_prompt.append(m)
-                    prompt = new_prompt
+                prompt = self._inline_system_into_first_user(prompt)
             return self.llm.generate_with_cache(prompt, self._active_context_cache, **kwargs)
+        layout = getattr(self, "_uncached_doc_layout", None)
+        if layout and isinstance(prompt, list):
+            # A document too small for a context cache gets the same layout a
+            # cached one does: the unit-neutral rules as system instruction,
+            # the document, then the per-call prompt (which repeats the rules
+            # for this unit and the document). #547 found the second copy helps.
+            cache_system_prompt, document_text = layout
+            prompt = (
+                [{"role": "system", "content": cache_system_prompt},
+                 {"role": "user", "content": document_text}]
+                + self._inline_system_into_first_user(prompt)
+            )
         return self.llm.generate(prompt, **kwargs)
+
+    @staticmethod
+    def _inline_system_into_first_user(prompt: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Move system messages into the first user message (cached-path layout)."""
+        system_parts = [m["content"] for m in prompt if m.get("role") == "system"]
+        if not system_parts:
+            return prompt
+        system_text = "\n\n".join(system_parts)
+        new_prompt = []
+        injected = False
+        for m in prompt:
+            if m.get("role") == "system":
+                continue
+            if not injected and m.get("role") == "user":
+                new_prompt.append({**m, "content": f"{system_text}\n\n{m['content']}"})
+                injected = True
+            else:
+                new_prompt.append(m)
+        return new_prompt
 
     def _track_unmatched_values(
         self, unmatched: Dict[str, list], document_name: str = None
@@ -2252,10 +2275,17 @@ class PaperProcessor:
         # The cache is shared by all units, so it keeps the full extraction rules
         # but names no unit; each call carries the prompt for its own unit.
         cache_system_prompt = build_val_with_unit_prompt(None)
+        self._uncached_doc_layout = None
         self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
 
         if self._active_context_cache:
             print(f"  📦 Created context cache for {paper_title}")
+        elif self._is_gemini_backend():
+            self._uncached_doc_layout = (cache_system_prompt, paper_text)
+            logger.info(
+                "[%s] No context cache; sending the cached-path layout inline "
+                "(document twice)", paper_title,
+            )
         if self._active_figure_images:
             print(f"  🖼️ Attached {len(self._active_figure_images)} figure image(s) for {paper_title}")
 
