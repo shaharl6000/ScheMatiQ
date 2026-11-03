@@ -101,6 +101,18 @@ def _describe_ungrounded_excerpts(excerpts: List[Any]) -> Dict[str, Any]:
     }
 
 
+def _unit_neutral_val_prompt() -> str:
+    """SYSTEM_PROMPT_VAL_WITH_UNIT with every unit reference made generic.
+
+    Quoted references ("{unit_name}") become "the unit named in the current
+    request"; the remaining one (the Unit Name header) says where to find it.
+    """
+    template = SYSTEM_PROMPT_VAL_WITH_UNIT.replace(
+        'unit named "{unit_name}"', "unit named in the current request"
+    ).replace('"{unit_name}"', "the unit named in the current request")
+    return template.format(unit_name="given in each request below")
+
+
 def _chunk_list(lst: List, size: int) -> Iterator[List]:
     """Split list into chunks of given size."""
     for i in range(0, len(lst), size):
@@ -2248,10 +2260,11 @@ class PaperProcessor:
             f"  📊 Found {len(units)} observation units: {[u['unit_name'] for u in units]}"
         )
 
-        # Create context cache for this document (Gemini only, reused across units)
-        # We use a generic observation unit name in the system prompt for the cache
-        # to make it reusable across all units in this document.
-        cache_system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=observation_unit.name)
+        # Create context cache for this document (Gemini only, reused across units).
+        # The cache is shared by all units, so it keeps the full extraction rules
+        # but names no unit. Formatting it with the unit *type* (e.g. "A judge")
+        # contradicted the specific unit named in each call.
+        cache_system_prompt = _unit_neutral_val_prompt()
         self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
 
         if self._active_context_cache:
