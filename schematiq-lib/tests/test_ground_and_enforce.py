@@ -19,10 +19,13 @@ from schematiq.value_extraction.core.paper_processor import PaperProcessor
 from schematiq.value_extraction.utils.excerpt_grounder import ExcerptGrounder
 
 
-def _make_self(active_figure_images=None):
+def _make_self(active_figure_images=None, ungrounded_policy="drop"):
+    # Most tests here assert the delete behavior, so they pin policy "drop";
+    # the flag-policy tests at the end pass "flag" (the production default).
     return SimpleNamespace(
         excerpt_grounder=ExcerptGrounder(),
         _active_figure_images=active_figure_images or [],
+        ungrounded_policy=ungrounded_policy,
     )
 
 
@@ -250,3 +253,43 @@ def test_null_log_flags_ellipsis_and_quoted_excerpts(caplog):
     # Excerpt text only at DEBUG, never in the WARNING line.
     assert "Judge Niemeyer..." not in warn
     assert any("Ungrounded excerpts" in m and "Judge Niemeyer..." in m for m in messages)
+
+
+def test_flag_policy_keeps_ungrounded_answer_and_marks_it(caplog):
+    s = _make_self(ungrounded_policy="flag")
+    cleaned = {
+        "appointing_president": {"answer": "Barack Obama", "excerpts": []},
+        "domain": {"answer": "D1", "excerpts": [{"text": "has a D1 domain"}]},
+    }
+    with caplog.at_level("WARNING"):
+        PaperProcessor._ground_and_enforce(s, cleaned, SOURCE_TEXT, "doc")
+    assert cleaned["appointing_president"]["answer"] == "Barack Obama"
+    assert cleaned["appointing_president"]["_ungrounded"] is True
+    assert cleaned["appointing_president"]["excerpts"] == []
+    # A grounded answer gets no marker.
+    assert "_ungrounded" not in cleaned["domain"]
+    assert any("Flagging ungrounded answer" in r.getMessage() for r in caplog.records)
+
+
+def test_flag_policy_drops_fabricated_excerpts():
+    s = _make_self(ungrounded_policy="flag")
+    cleaned = {"x": {"answer": "v", "excerpts": [{"text": "never appears in the source"}]}}
+    PaperProcessor._ground_and_enforce(s, cleaned, SOURCE_TEXT, "doc")
+    assert cleaned["x"] == {"answer": "v", "excerpts": [], "_ungrounded": True}
+
+
+def test_flag_policy_leaves_figure_units_alone():
+    s = _make_self(active_figure_images=[{"id": "f1"}], ungrounded_policy="flag")
+    cleaned = {"x": {"answer": "red", "excerpts": []}}
+    PaperProcessor._ground_and_enforce(s, cleaned, SOURCE_TEXT, "doc")
+    assert cleaned["x"] == {"answer": "red", "excerpts": []}
+
+
+def test_policy_from_env(monkeypatch):
+    from schematiq.value_extraction.core import paper_processor as pp
+    monkeypatch.delenv("SCHEMATIQ_UNGROUNDED_POLICY", raising=False)
+    assert pp._ungrounded_policy_from_env() == "flag"
+    monkeypatch.setenv("SCHEMATIQ_UNGROUNDED_POLICY", "drop")
+    assert pp._ungrounded_policy_from_env() == "drop"
+    monkeypatch.setenv("SCHEMATIQ_UNGROUNDED_POLICY", "bogus")
+    assert pp._ungrounded_policy_from_env() == "flag"

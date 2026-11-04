@@ -4,6 +4,7 @@ from __future__ import annotations
 import difflib
 import json
 import logging
+import os
 import mimetypes
 import re
 import threading
@@ -12,6 +13,23 @@ from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
 
 logger = logging.getLogger(__name__)
+
+# What _ground_and_enforce does with an answer that has no supporting excerpt
+# in the document: "flag" keeps the value and marks the cell
+# ``_ungrounded: True`` so the UI and exports can show it; "drop" deletes the
+# answer (the previous behavior). Override with SCHEMATIQ_UNGROUNDED_POLICY.
+UNGROUNDED_POLICIES = ("flag", "drop")
+DEFAULT_UNGROUNDED_POLICY = "flag"
+
+
+def _ungrounded_policy_from_env() -> str:
+    raw = os.getenv("SCHEMATIQ_UNGROUNDED_POLICY", DEFAULT_UNGROUNDED_POLICY).strip().lower()
+    if raw not in UNGROUNDED_POLICIES:
+        logger.warning(
+            "Ignoring invalid SCHEMATIQ_UNGROUNDED_POLICY=%r (use flag or drop)", raw
+        )
+        return DEFAULT_UNGROUNDED_POLICY
+    return raw
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
 from schematiq.core.thread_local import ThreadLocalAttribute
 from schematiq.core.results import UnitIdentificationResult, ExtractionResult
@@ -223,8 +241,12 @@ class PaperProcessor:
         should_stop: Optional[ShouldStopCallback] = None,
         on_warning: Optional[OnWarningCallback] = None,
         reference_context: Optional[str] = None,
+        ungrounded_policy: Optional[str] = None,
     ):
         self.llm = llm
+        if ungrounded_policy is not None and ungrounded_policy not in UNGROUNDED_POLICIES:
+            raise ValueError(f"ungrounded_policy must be one of {UNGROUNDED_POLICIES}")
+        self.ungrounded_policy = ungrounded_policy or _ungrounded_policy_from_env()
         self.cache = cache or LLMCache()
         self.retriever = retriever
         self.json_parser = JSONResponseParser()
@@ -426,11 +448,12 @@ class PaperProcessor:
                 )
             if not grounded:
                 diag = _describe_ungrounded_excerpts(excerpts)
+                flag = getattr(self, "ungrounded_policy", DEFAULT_UNGROUNDED_POLICY) == "flag"
                 logger.warning(
-                    "[%s] Nulling ungrounded answer for column %r "
+                    "[%s] %s ungrounded answer for column %r "
                     "(no excerpt found in source text): %r "
                     "[reason=%s n_excerpts=%d n_ellipsis=%d n_quoted=%d]",
-                    context_label, col_name, answer,
+                    context_label, "Flagging" if flag else "Nulling", col_name, answer,
                     diag["reason"], diag["n_excerpts"],
                     diag["n_ellipsis"], diag["n_quoted"],
                 )
@@ -440,8 +463,13 @@ class PaperProcessor:
                     "[%s] Ungrounded excerpts for column %r: %r",
                     context_label, col_name, diag["texts"],
                 )
-                col_data["answer"] = None
+                # The excerpts are dropped either way: none of them is in the
+                # source, so there is nothing to highlight.
                 col_data["excerpts"] = []
+                if flag:
+                    col_data["_ungrounded"] = True
+                else:
+                    col_data["answer"] = None
 
         return cleaned
 
