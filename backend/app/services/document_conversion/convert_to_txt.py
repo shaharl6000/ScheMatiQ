@@ -20,7 +20,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from pathlib import Path
 from typing import Optional, Tuple
@@ -423,9 +422,10 @@ except ImportError:
         pymupdf = None
 
 # MuPDF is not thread-safe, not even for separate documents, and conversions
-# run in worker threads (asyncio.to_thread), so every PyMuPDF call -- here and
-# in pdf_utils -- is made under this lock.
-PYMUPDF_LOCK = threading.Lock()
+# run in worker threads (asyncio.to_thread), so every PyMuPDF call is made
+# under the backend's one PyMuPDF lock, shared with figure extraction and
+# pdf_utils.
+from app.services.pymupdf_lock import PYMUPDF_LOCK  # noqa: E402
 
 
 def _open_layout_document(input_path: Path):

@@ -17,7 +17,7 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
     Returns:
         Extracted text content in markdown format
     """
-    from app.services.document_conversion.convert_to_txt import PYMUPDF_LOCK
+    from app.services.pymupdf_lock import PYMUPDF_LOCK
 
     try:
         # MuPDF is not thread-safe; this runs in worker threads, as conversion does.
