@@ -79,6 +79,35 @@ def test_elsevier_math_font_small_c_names_are_cmsy_positions():
         font.to_unichr(5)
 
 
+def test_elsevier_math_font_c_names_are_never_read_as_character_codes():
+    from pdfminer.psparser import LIT
+
+    # In cmsy, C48 is the prime; as a StandardEncoding code it would be "0".
+    font = _type1_font([1, LIT("C48")], "ABCDEF+AdvP4C4E74")
+
+    with pytest.raises(Exception):
+        font.to_unichr(1)
+
+
+def test_font_with_a_non_utf8_name_still_loads():
+    from pdfminer.pdffont import PDFType1Font
+    from pdfminer.psparser import LIT, PSLiteral
+
+    # Seen in a real paper: BaseFont b"ABCDEE+\xcb\xce\xcc\xe5" (GBK); glyph
+    # names can come as bytes the same way.
+    spec = {
+        "Subtype": LIT("Type1"),
+        "BaseFont": PSLiteral(b"ABCDEE+\xcb\xce\xcc\xe5"),
+        "FirstChar": 1,
+        "LastChar": 140,
+        "Widths": [500] * 140,
+        "FontDescriptor": {"FontBBox": [0, 0, 1000, 1000]},
+        "Encoding": {"Type": LIT("Encoding"), "Differences": [1, PSLiteral(b"C86")]},
+    }
+
+    assert PDFType1Font(None, spec).to_unichr(1) == "V"
+
+
 def test_small_c_names_in_other_fonts_stay_unmapped():
     from pdfminer.psparser import LIT
 
