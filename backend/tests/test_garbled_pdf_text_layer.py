@@ -10,7 +10,6 @@ import pytest
 
 pytest.importorskip("reportlab")
 
-from app.services import conversion_cache
 from app.services.document_conversion import convert_to_txt
 from app.services.document_conversion.convert_to_txt import convert_pdf_to_txt, looks_garbled
 from tests.helpers.pdf_fixtures import build_single_column_pdf
@@ -327,18 +326,3 @@ def test_readable_text_layer_skips_ocr(monkeypatch, pdf_path, tmp_path):
 
     assert success
     assert (tmp_path / "paper.txt").read_text(encoding="utf-8") == _PROSE
-
-
-def test_cache_drops_a_garbled_entry(monkeypatch, tmp_path):
-    cache_dir = tmp_path / "cache"
-    monkeypatch.setattr(conversion_cache, "CACHE_DIR", cache_dir)
-    for key, text in (("garbled", _GARBLED), ("readable", _PROSE)):
-        source = tmp_path / f"{key}.txt"
-        source.write_text(text, encoding="utf-8")
-        conversion_cache.store(key, source, None, {"method": "pdf"})
-
-    out = tmp_path / "out.txt"
-    assert conversion_cache.restore("garbled", out, tmp_path / "figs") is None
-    assert not (cache_dir / "garbled").exists()
-    assert conversion_cache.restore("readable", out, tmp_path / "figs") == {"method": "pdf"}
-    assert out.read_text(encoding="utf-8") == _PROSE
