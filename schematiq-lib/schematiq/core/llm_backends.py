@@ -1190,9 +1190,11 @@ class GeminiLLM(LLMInterface):
             # be charged when the cache is deleted.
             cache_tokens = _usage_int(getattr(cache, "usage_metadata", None), "total_token_count")
             if cache_tokens:
-                if not hasattr(self, "_cache_meta"):
-                    self._cache_meta = {}
-                self._cache_meta[cache.name] = (time.time(), cache_tokens, ttl_seconds)
+                # setdefault is atomic, so parallel documents cannot each create
+                # their own dict and drop another document's entry.
+                self.__dict__.setdefault("_cache_meta", {})[cache.name] = (
+                    time.time(), cache_tokens, ttl_seconds,
+                )
             return cache
         except Exception as e:
             logger.warning("Gemini context cache creation FAILED (model=%s, doc_chars=%d): %s", self.model, len(document_text), e)
