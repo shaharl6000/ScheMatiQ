@@ -1113,6 +1113,28 @@
   pointer-events: none;
 }
 
+/* Value kept without a supporting excerpt in the document (_ungrounded).
+   Marked by italics plus a corner symbol, not by color alone; hovering the
+   cell shows the explanation (see INFO_SELECTOR in SpreadsheetSurface). */
+.workspace-hot .handsontable td.cell-ungrounded {
+  position: relative;
+  font-style: italic;
+  color: hsl(var(--muted-foreground));
+}
+
+.workspace-hot .handsontable td.cell-ungrounded::after {
+  content: '?';
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+}
+
 .workspace-hot .handsontable td.workspace-cell-font-inter {
   font-family: Inter, system-ui, sans-serif;
 }

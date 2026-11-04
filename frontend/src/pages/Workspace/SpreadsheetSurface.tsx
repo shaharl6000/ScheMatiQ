@@ -69,6 +69,9 @@ registerAllModules();
 // render would make Handsontable re-apply settings continuously.
 const sanitizeCellHtml = (content: string): string => DOMPurify.sanitize(content);
 
+const UNGROUNDED_CELL_TOOLTIP =
+  'No supporting quote found in the document. This value may come from inference or general knowledge.';
+
 export function SpreadsheetSurface({
   activeSheet,
   data,
@@ -373,7 +376,9 @@ export function SpreadsheetSurface({
   // instantly, and stays inside the viewport for any column. One element plus
   // delegated listeners means no per-render cost and it survives table remounts.
   useEffect(() => {
-    const INFO_SELECTOR = '.workspace-hot .workspace-col-header-info';
+    // Header info icons, plus data cells kept without a supporting excerpt
+    // (td.cell-ungrounded, set in cellsCallback), which explain their marker.
+    const INFO_SELECTOR = '.workspace-hot .workspace-col-header-info, .workspace-hot td.cell-ungrounded';
     const tooltip = document.createElement('div');
     tooltip.className = 'workspace-hot-tooltip';
     tooltip.setAttribute('role', 'tooltip');
@@ -405,7 +410,8 @@ export function SpreadsheetSurface({
     };
 
     const show = (icon: HTMLElement) => {
-      const text = icon.getAttribute('data-tooltip');
+      const text = icon.getAttribute('data-tooltip')
+        ?? (icon.matches('td.cell-ungrounded') ? UNGROUNDED_CELL_TOOLTIP : null);
       if (!text) return;
       activeIcon = icon;
       tooltip.textContent = text;
@@ -536,6 +542,22 @@ export function SpreadsheetSurface({
       for (const key of Object.keys(rowData)) {
         const value = rowData[key] as { _confirmed_empty?: boolean } | undefined;
         if (value && typeof value === 'object' && value._confirmed_empty) {
+          perColumn[key] = true;
+        }
+      }
+      return perColumn;
+    });
+  }, [data.rows]);
+
+  // Per-cell "ungrounded" flags: a value the model gave without any supporting
+  // excerpt in the document. Same lookup shape as dataConfirmedEmpty.
+  const dataUngrounded = useMemo(() => {
+    return data.rows.map((row) => {
+      const perColumn: Record<string, boolean> = {};
+      const rowData = row.data || {};
+      for (const key of Object.keys(rowData)) {
+        const value = rowData[key] as { _ungrounded?: boolean } | undefined;
+        if (value && typeof value === 'object' && value._ungrounded) {
           perColumn[key] = true;
         }
       }
@@ -1013,8 +1035,11 @@ export function SpreadsheetSurface({
     if (activeSheet === 'data' && column && dataConfirmedEmpty[row]?.[column.key]) {
       props.className = [props.className, 'cell-confirmed-empty'].filter(Boolean).join(' ');
     }
+    if (activeSheet === 'data' && column && dataUngrounded[row]?.[column.key]) {
+      props.className = [props.className, 'cell-ungrounded'].filter(Boolean).join(' ');
+    }
     return props;
-  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, sheet]);
+  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataUngrounded, sheet]);
 
   const prevFormatVersionRef = useRef(formatVersion);
 

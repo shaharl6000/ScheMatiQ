@@ -23,6 +23,11 @@ from app.services import session_manager, concurrency_limiter
 from app.core.exceptions import CapacityExceededError
 from app.utils.csv_helpers import format_excerpt_for_csv
 from app.services.file_parser import format_column_header
+from app.services.grounding_flags import (
+    UNGROUNDED_COLUMNS_FIELD,
+    any_ungrounded,
+    ungrounded_columns,
+)
 
 from schematiq.core.cost_estimator import estimate_from_config
 
@@ -791,6 +796,10 @@ async def export_schematiq_data(
             if has_source_document:
                 id_cols.append('_source_document')
             column_names = id_cols + column_names
+            # One extra column, only when some cell was kept without a
+            # supporting excerpt: which of the row's columns those are.
+            if any_ungrounded(row.data for row in data.rows):
+                column_names.append(UNGROUNDED_COLUMNS_FIELD)
 
         # Write CSV with display headers (Title Case, matching UI)
         display_headers = {c: format_column_header(c) for c in column_names}
@@ -815,6 +824,8 @@ async def export_schematiq_data(
                     csv_row[col_name] = str(value)
                 else:
                     csv_row[col_name] = value
+            if UNGROUNDED_COLUMNS_FIELD in column_names:
+                csv_row[UNGROUNDED_COLUMNS_FIELD] = ungrounded_columns(row.data, column_names)
             writer.writerow(csv_row)
         
         # Prepare response
@@ -1138,6 +1149,10 @@ async def export_schematiq_rich_csv(
                 if isinstance(row.data[col_name], dict) and 'excerpts' in row.data[col_name]:
                     base_columns.add(f"{col_name}_excerpt")
         
+        # A "<col>_grounded" column per data column, only when some cell was
+        # kept without a supporting excerpt (see grounding_flags).
+        has_ungrounded = any_ungrounded(row.data for row in data.rows)
+
         # Build enhanced column list with metadata columns
         enhanced_columns = []
         for col_name in sorted(base_columns):
@@ -1148,6 +1163,8 @@ async def export_schematiq_rich_csv(
                 enhanced_columns.append(f"{col_name}_definition")
                 enhanced_columns.append(f"{col_name}_rationale")
                 enhanced_columns.append(f"{col_name}_allowed_values")
+                if has_ungrounded:
+                    enhanced_columns.append(f"{col_name}_grounded")
         
         writer = csv.DictWriter(output, fieldnames=enhanced_columns)
         
@@ -1197,6 +1214,8 @@ async def export_schematiq_rich_csv(
                 if isinstance(value, dict) and 'answer' in value:
                     # ScheMatiQ format: extract answer and excerpts
                     csv_row[col_name] = value['answer']
+                    if has_ungrounded and value['answer'] not in (None, ''):
+                        csv_row[f"{col_name}_grounded"] = 'false' if value.get('_ungrounded') else 'true'
                     if 'excerpts' in value and value['excerpts']:
                         excerpt_col = f"{col_name}_excerpt"
                         if isinstance(value['excerpts'], list):
