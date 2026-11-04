@@ -21,8 +21,11 @@ scored by rules built from the values NESdb and the extraction actually use:
                          by NESdb's accession into uniprot_names.json next to the NESdb cache; --no-uniprot-fetch
                          uses only what is cached). A symbol inside a relation to another protein ("Homologous to
                          SIR2") or another family member (Akt3 for Akt1) does not match.
-  * mutations            v2's notations, plus "LL779/781AA", "LSL289ASA", "368A/370A", "Leu-19/21-Ala" and prose
-                         ("leucines at positions 83, 87 and 91 to alanine"); match on a shared (position, new residue).
+  * mutations            v2's notations, plus "LL779/781AA", "LSL289ASA", "368A/370A", "Leu-19/21-Ala", prose
+                         ("leucines at positions 83, 87 and 91 to alanine") and NESdb's "82 LLM 84 mutated to A";
+                         match on a shared (position, new residue). Deletions match only the same deleted residues,
+                         however written: "Δ336-345", "del377-391", "deletion of residues 85-95", "136-146aaDel",
+                         "336 LHGTMRPLSL 345 by Deletion", "L1035del/K1036del" = "T1035 by Deletion/V1036 by Deletion".
 
   * NES columns          stricter than v2 (which takes any 8 identical residues in a row, or any overlapping range):
                          a peptide is aligned residue by residue on NESdb's NES and every aligned residue must be
@@ -400,6 +403,44 @@ POSITIONS_RE = re.compile(rf"\b(?:{_AA_ANY}s?|residues?|positions?|amino acids?)
                           rf"[\s-]*({_ITEM}(?:\s*(?:,\s*(?:and|or)?|/|\band\b|\bor\b|&)\s*{_ITEM})*)", re.I)
 
 
+# NESdb's "82 LLM 84 mutated to A": every residue of the stretch to that residue (L82A/L83A/M84A)
+STRETCH_TO_RE = re.compile(r"\b(\d{1,4})\s+([A-Z]{2,})\s+(\d{1,4})\s+mutated\s+to\s+([A-Z])\b")
+# Deletions, read only as the residues deleted, so a deletion matches the same deletion written another way:
+# Δ336-345, del377-391, Delta 571-591, deletion of (residues) 85-95, deletion of 406-IPATVTAFVF-415,
+_DEL_WORD = r"(?:Δ|∆|(?i:\bdel(?:etion|eted)?\b|\bdel(?=\d)|\bdelta\b))"
+_TO = r"\s*(?:-|–|—|(?i:to))\s*"
+DEL_RANGE_RE = re.compile(rf"{_DEL_WORD}(?:\s*(?i:of))?(?:\s*(?i:residues|amino acids|aa))?\s*(\d{{1,4}}){_TO}"
+                          rf"(?:[A-Z]{{2,}}\s*-\s*)?(\d{{1,4}})\b")
+# 377-391 deletion, 136-146aaDel, NESdb's "336 LHGTMRPLSL 345 by Deletion" and "148-156/162-171 by Deletion"
+DEL_RANGE_AFTER_RE = re.compile(rf"\b(\d{{1,4}}){_TO}(\d{{1,4}})\s*(?i:aa)?\s*(?i:deletion|deleted|del)\b"
+                                rf"|\b(\d{{1,4}})\s+[A-Z][A-Z ]*[A-Z]\s+(\d{{1,4}})\s+(?i:by deletion)\b")
+DEL_RANGE_LIST_RE = re.compile(r"\b(\d{1,4}-\d{1,4}(?:/\d{1,4}-\d{1,4})+)\s+(?i:by deletion)\b")
+# One residue: L1035del, L1035Δ, NESdb's "T1035 by Deletion"; a list: L1035/K1036 deleted
+DEL_RESIDUE_RE = re.compile(r"\b[A-Z](\d{1,4})(?:del\b|Δ|∆|\s+(?i:by deletion)\b)")
+DEL_RESIDUE_LIST_RE = re.compile(r"\b([A-Z]\d{1,4}(?:\s*/\s*[A-Z]\d{1,4})+)\s+(?i:deleted)\b")
+
+
+def deletions(text: str) -> set[tuple[str, str]]:
+    """Each deletion as ('start-end', 'Δ'); deleted single residues next to each other make one range, so
+    L1035del/K1036del, 'T1035 by Deletion/V1036 by Deletion' and Δ1035-1036 are the same deletion."""
+    spans = {(int(a), int(b)) for a, b in DEL_RANGE_RE.findall(text)}
+    for a, b, c, d in DEL_RANGE_AFTER_RE.findall(text):
+        spans.add((int(a or c), int(b or d)))
+    for ranges in DEL_RANGE_LIST_RE.findall(text):
+        spans |= {tuple(map(int, r.split("-"))) for r in ranges.split("/")}
+    single = {int(p) for p in DEL_RESIDUE_RE.findall(text)}
+    for items in DEL_RESIDUE_LIST_RE.findall(text):
+        single |= {int(p) for p in re.findall(r"\d+", items)}
+    runs = []
+    for p in sorted(single):
+        if runs and runs[-1][1] == p - 1:
+            runs[-1][1] = p
+        else:
+            runs.append([p, p])
+    spans |= {(a, b) for a, b in runs}
+    return {(f"{a}-{b}", "Δ") for a, b in spans if a <= b}
+
+
 def expand(positions: str) -> list[str]:
     """'779/781' -> 779, 781; '104/5' -> 104, 105 (a later number written with only its last digits)."""
     nums = re.findall(r"\d+", positions)
@@ -426,6 +467,10 @@ def prose_mutations(text: str) -> set[tuple[str, str]]:
             found |= {(str(int(start) + i), b) for i, (a, b) in enumerate(zip(old, new)) if a != b}
     for bare in BARE_LIST_RE.findall(text):
         found |= set(BARE_RE.findall(bare))
+    for start, stretch, end, new in STRETCH_TO_RE.findall(text):
+        if int(end) - int(start) + 1 == len(stretch):
+            found |= {(str(int(start) + i), new) for i, a in enumerate(stretch) if a != new}
+    found |= deletions(text)
     for clause in re.split(r";|\.(?:\s|$)", text):
         if re.search(r"\bdelet", clause, re.I):
             continue
