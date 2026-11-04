@@ -258,8 +258,10 @@ _CAPTION_MAX_GAP_PT = 150.0
 # Smaller pictures are journal logos and icons, not figures.
 _MIN_RECOVERED_AREA_PT2 = 2500.0
 # PyMuPDF documents are not safe to use from several threads at once; uploads
-# convert PDFs on worker threads when figure extraction runs in-process.
-_PYMUPDF_LOCK = threading.Lock()
+# convert PDFs on worker threads when figure extraction runs in-process. Text
+# conversion uses PyMuPDF on those threads too, so both hold the backend's one
+# PyMuPDF lock.
+from app.services.pymupdf_lock import PYMUPDF_LOCK as _PYMUPDF_LOCK  # noqa: E402
 
 
 def _caption_number(text: Optional[str]) -> Optional[int]:
