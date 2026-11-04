@@ -89,6 +89,12 @@ def _is_confirmed_empty(value: Any) -> bool:
     return isinstance(value, dict) and bool(value.get("_confirmed_empty"))
 
 
+def _is_ungrounded(value: Any) -> bool:
+    """True when a cell holds a value the model gave without a supporting
+    excerpt in the document (kept and flagged by the ungrounded policy)."""
+    return isinstance(value, dict) and bool(value.get("_ungrounded"))
+
+
 def _is_fillable_gap(value: Any, retry_confirmed_empty: bool = False) -> bool:
     """True when a cell is an unresolved gap worth an extraction attempt.
 
@@ -99,7 +105,13 @@ def _is_fillable_gap(value: Any, retry_confirmed_empty: bool = False) -> bool:
     by ``start_gated_reextraction``'s own one-time rescan when a plain request
     finds nothing but confirmed-empty cells -- or use only_empty=false, which
     bypasses the gap check entirely.
+
+    A flagged ungrounded cell (``_ungrounded``) holds a value, so it is not a
+    gap by default either; like a confirmed-empty cell, it is retried only
+    with ``retry_confirmed_empty=True``.
     """
+    if retry_confirmed_empty and _is_ungrounded(value):
+        return True
     if not _is_empty_cell_value(value):
         return False
     if not retry_confirmed_empty and _is_confirmed_empty(value):
