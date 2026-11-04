@@ -32,10 +32,19 @@ _RATE_LIMIT_STATUS_CODE = 429
 # because it is classified separately and uses the provider's own retry hint.
 _TRANSIENT_STATUS_CODES = frozenset({408, 500, 502, 503, 504})
 _AUTH_STATUS_CODES = frozenset({401, 403})
-# Transport failures carry no HTTP status, so they need their own check. These
-# are the two the google-genai client retries internally, and generation is a
-# read-only call, so replaying it has no side effect beyond the token cost.
-_TRANSPORT_RETRY_ERRORS = (httpx.TimeoutException, httpx.ConnectError)
+# Transport failures carry no HTTP status, so they need their own check.
+# Timeouts and connect errors are the two the google-genai client retries
+# internally. A dropped connection ("Server disconnected without sending a
+# response", httpx.RemoteProtocolError) and a read reset (httpx.ReadError) are
+# just as transient: without them, one dropped connection failed a whole
+# document. Generation is a read-only call, so replaying it has no side effect
+# beyond the token cost.
+_TRANSPORT_RETRY_ERRORS = (
+    httpx.TimeoutException,
+    httpx.ConnectError,
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+)
 
 
 # Default decoding seed for Gemini calls. Gemini 3.x ignores temperature, so a

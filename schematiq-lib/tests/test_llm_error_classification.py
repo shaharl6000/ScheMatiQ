@@ -102,6 +102,14 @@ class TestRetryableServerError:
         assert _is_retryable_server_error(httpx.ReadTimeout("timed out"))
         assert _is_retryable_server_error(httpx.ConnectError("refused"))
 
+    def test_dropped_connection_is_retryable(self):
+        # Seen in production: one dropped connection failed a whole document.
+        httpx = pytest.importorskip("httpx")
+        assert _is_retryable_server_error(
+            httpx.RemoteProtocolError("Server disconnected without sending a response.")
+        )
+        assert _is_retryable_server_error(httpx.ReadError("connection reset"))
+
     def test_client_errors_are_not_retryable(self):
         assert not _is_retryable_server_error(api_error(400, "INVALID_ARGUMENT"))
         assert not _is_retryable_server_error(api_error(429, "RESOURCE_EXHAUSTED"))
