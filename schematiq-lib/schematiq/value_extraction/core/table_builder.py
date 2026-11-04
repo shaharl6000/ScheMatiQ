@@ -1,6 +1,7 @@
 """Table building orchestration for value extraction."""
 from __future__ import annotations
 
+import contextvars
 import json
 import time
 import shutil
@@ -680,7 +681,11 @@ class TableBuilder:
                     except Exception as e:
                         results[idx] = ("error", e)
                         continue
+                    # Run in a copy of this thread's context, so context
+                    # variables (the backend's session id in log lines) reach
+                    # the worker. A plain submit starts from an empty context.
                     future = executor.submit(
+                        contextvars.copy_context().run,
                         self._extract_paper_units, paper, paper_text, doc_to_source,
                         schema, retrieval_k, max_new_tokens, known_units,
                         unit_targets_by_paper, feedback,
@@ -801,6 +806,7 @@ class TableBuilder:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_paper = {
                     executor.submit(
+                        contextvars.copy_context().run,
                         self._extract_values_from_paper_file,
                         paper, schema, retrieval_k, max_new_tokens, row_name
                     ): paper for paper in unprocessed_papers
@@ -983,6 +989,7 @@ class TableBuilder:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_paper = {
                     executor.submit(
+                        contextvars.copy_context().run,
                         self.paper_processor.process_single_paper,
                         doc_path, schema, max_new_tokens, mode, retrieval_k, processed_papers
                     ): doc_path
