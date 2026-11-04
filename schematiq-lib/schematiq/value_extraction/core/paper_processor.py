@@ -209,6 +209,10 @@ class PaperProcessor:
     _active_context_cache = ThreadLocalAttribute(lambda: None)
     _active_figure_images = ThreadLocalAttribute(list)
     _active_figures_by_id = ThreadLocalAttribute(dict)
+    # (system_prompt, document) for a document without a context cache; see
+    # _generate. Per thread like the cache itself, or a concurrent document
+    # would be sent another document's text.
+    _uncached_doc_layout = ThreadLocalAttribute(lambda: None)
 
     def __init__(
         self,
