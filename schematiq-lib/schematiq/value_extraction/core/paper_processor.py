@@ -6,6 +6,7 @@ import json
 import logging
 import mimetypes
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
@@ -593,18 +594,23 @@ class PaperProcessor:
     def _track_unmatched_values(
         self, unmatched: Dict[str, list], document_name: str = None
     ):
-        """Track unmatched values for schema evolution suggestions."""
-        for col_name, values in unmatched.items():
-            if col_name not in self.suggested_values:
-                self.suggested_values[col_name] = {}
-            for value in values:
-                if value not in self.suggested_values[col_name]:
-                    self.suggested_values[col_name][value] = []
-                if (
-                    document_name
-                    and document_name not in self.suggested_values[col_name][value]
-                ):
-                    self.suggested_values[col_name][value].append(document_name)
+        """Track unmatched values for schema evolution suggestions.
+
+        Locked: documents processed in parallel all add to the same dict.
+        """
+        lock = self.__dict__.setdefault("_suggested_values_lock", threading.Lock())
+        with lock:
+            for col_name, values in unmatched.items():
+                if col_name not in self.suggested_values:
+                    self.suggested_values[col_name] = {}
+                for value in values:
+                    if value not in self.suggested_values[col_name]:
+                        self.suggested_values[col_name][value] = []
+                    if (
+                        document_name
+                        and document_name not in self.suggested_values[col_name][value]
+                    ):
+                        self.suggested_values[col_name][value].append(document_name)
 
     def get_suggested_values(self, threshold: int = 2) -> Dict[str, Dict[str, Any]]:
         """
