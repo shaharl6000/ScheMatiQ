@@ -257,6 +257,9 @@ _CAPTION_START = re.compile(r"\s*(?:FIG(?:URE)?|Fig(?:ure)?)\.?\s*(\d{1,2})[A-Za
 _CAPTION_MAX_GAP_PT = 150.0
 # Smaller pictures are journal logos and icons, not figures.
 _MIN_RECOVERED_AREA_PT2 = 2500.0
+# PyMuPDF documents are not safe to use from several threads at once; uploads
+# convert PDFs on worker threads when figure extraction runs in-process.
+_PYMUPDF_LOCK = threading.Lock()
 
 
 def _caption_number(text: Optional[str]) -> Optional[int]:
@@ -333,13 +336,13 @@ def _read_pdf_layout(pdf_path: Path, page_heights: Dict[int, float]) -> Tuple[li
     "Figure 1.—Ribosomal RNA-processing defects..."), and sometimes finds no
     region for an embedded image (AID's sequence-alignment figure). Both
     lists are empty if PyMuPDF is unavailable or the PDF can't be read."""
-    from app.services.document_conversion.convert_to_txt import PYMUPDF_LOCK, pymupdf
-
-    if pymupdf is None:
+    try:
+        import pymupdf
+    except ImportError:
         return [], []
     captions, images = [], []
     try:
-        with PYMUPDF_LOCK:
+        with _PYMUPDF_LOCK:
             with pymupdf.open(str(pdf_path)) as doc:
                 for page_no, height in page_heights.items():
                     if not 1 <= page_no <= doc.page_count:

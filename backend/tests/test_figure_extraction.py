@@ -919,3 +919,33 @@ def test_remove_document_artifacts_clears_pending_and_committed(tmp_path):
     assert (tmp_path / "documents" / "figures" / "other" / "f.png").read_bytes() == b"y"
 
     remove_document_artifacts(tmp_path, "judges")
+
+
+def test_read_pdf_layout_reads_a_real_pdf(tmp_path):
+    # Not monkeypatched: _read_pdf_layout must import and run PyMuPDF on its own
+    # (it once imported a lock that only existed on another branch, so every
+    # real PDF lost its figures while the faked tests still passed).
+    pymupdf = pytest.importorskip("pymupdf")
+    pdf = tmp_path / "paper.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((72, 100), "Figure 3. A caption Docling dropped.")
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 100, 100), False)
+    pix.clear_with(200)
+    page.insert_image(pymupdf.Rect(72, 200, 272, 400), pixmap=pix)
+    doc.save(str(pdf))
+    doc.close()
+
+    captions, images = svc._read_pdf_layout(pdf, {1: 792.0})
+
+    assert [c["text"] for c in captions] == ["Figure 3. A caption Docling dropped."]
+    assert captions[0]["bbox"].coord_origin == CoordOrigin.BOTTOMLEFT
+    assert len(images) == 1
+    box = images[0]["bbox"]
+    assert (round(box.l), round(box.t), round(box.r), round(box.b)) == (72, 592, 272, 392)
+
+
+def test_read_pdf_layout_skips_an_unreadable_pdf(tmp_path):
+    bad = tmp_path / "bad.pdf"
+    bad.write_bytes(b"not a pdf")
+    assert svc._read_pdf_layout(bad, {1: 792.0}) == ([], [])
