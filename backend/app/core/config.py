@@ -84,6 +84,18 @@ DEFAULT_SESSIONS_DIR = "./sessions"
 DEFAULT_DATA_DIR = "./data"
 DEFAULT_SCHEMATIQ_WORK_DIR = "./schematiq_work"
 
+# Documents extracted in parallel within one extraction or re-extraction run.
+# 1 (default) keeps the original one-at-a-time behavior. Raise it to speed up
+# large runs; each worker sends its own Gemini calls, so watch for rate limits.
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except ValueError:
+        return default
+
+
+EXTRACTION_MAX_WORKERS = _int_env("SCHEMATIQ_EXTRACTION_WORKERS", 1)
+
 # Storage Backend Selection
 # Options: "local" (default) or "supabase"
 STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "local")
