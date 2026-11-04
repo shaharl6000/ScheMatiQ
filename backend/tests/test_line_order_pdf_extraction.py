@@ -179,6 +179,45 @@ def test_pymupdf_is_only_called_under_the_lock():
     convert_to_txt._close_layout_document(doc)
 
 
+def test_the_layout_page_is_freed_under_the_lock():
+    # Freeing a PyMuPDF Page calls into MuPDF too.
+    freed_under_lock = []
+
+    class _Page:
+        rotation = 0
+
+        def get_text(self, kind):
+            return {"blocks": []}
+
+        def __del__(self):
+            freed_under_lock.append(convert_to_txt.PYMUPDF_LOCK.locked())
+
+    class _Doc:
+        def __getitem__(self, index):
+            return _Page()
+
+    assert convert_to_txt._page_line_layout(_Doc(), 0) == ([], [])
+    assert freed_under_lock == [True]
+
+
+def test_a_line_box_far_outside_the_page_is_clamped(tmp_path):
+    # A malformed PDF can give a line a huge box; it must not build a row per point.
+    path = tmp_path / "paper.pdf"
+    build_titled_two_column_pdf(path, TITLE, LEFT_SENTENCE, RIGHT_SENTENCE)
+    layout_doc = convert_to_txt._open_layout_document(path)
+    try:
+        lines, layout_chars = convert_to_txt._page_line_layout(layout_doc, 0)
+    finally:
+        convert_to_txt._close_layout_document(layout_doc)
+    x0, _, x1, _ = lines[-1]
+    lines[-1] = (x0, -1e9, x1, 1e9)
+
+    with pdfplumber.open(path) as pdf:
+        text = _extract_page_text_by_lines(pdf.pages[0], (lines, layout_chars))
+
+    assert text is None or TITLE in text
+
+
 def test_a_page_pymupdf_cannot_lay_out_is_read_the_old_way(tmp_path):
     class _BrokenDoc:
         def __getitem__(self, index):

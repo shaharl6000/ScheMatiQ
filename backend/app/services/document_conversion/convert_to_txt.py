@@ -416,8 +416,11 @@ _MIN_CHARS_FOR_LINE_GAP_ANALYSIS = 15
 
 try:
     import pymupdf
-except ImportError:  # optional: without it, every page is read the old way
-    pymupdf = None
+except ImportError:
+    try:  # PyMuPDF releases before the "pymupdf" module name (requirements allow >=1.24.0)
+        import fitz as pymupdf
+    except ImportError:  # optional: without it, every page is read the old way
+        pymupdf = None
 
 # MuPDF is not thread-safe, not even for separate documents, and conversions
 # run in worker threads (asyncio.to_thread), so every PyMuPDF call -- here and
@@ -463,9 +466,14 @@ def _page_line_layout(layout_doc, index: int) -> Optional[Tuple[list, list]]:
     try:
         with PYMUPDF_LOCK:
             layout_page = layout_doc[index]
-            if layout_page.rotation:
-                return None
-            blocks = layout_page.get_text("rawdict")["blocks"]
+            try:
+                if layout_page.rotation:
+                    return None
+                blocks = layout_page.get_text("rawdict")["blocks"]
+            finally:
+                # Freeing a Page calls into MuPDF; let that happen under the lock,
+                # not whenever the garbage collector gets to it on some thread.
+                del layout_page
     except Exception:
         logger.debug("PyMuPDF could not lay out page %d", index + 1, exc_info=True)
         return None
@@ -556,9 +564,14 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", line_layout: Tuple
     dx, dy = offset
     lines = [(x0 + dx, y0 + dy, x1 + dx, y1 + dy) for x0, y0, x1, y1 in lines]
 
+    # Rows are clamped to the page: a malformed PDF can give a line a box
+    # millions of points tall, which would otherwise build millions of rows.
+    page_top, page_bottom = int(page.bbox[1]) - 2, int(page.bbox[3]) + 2
     by_row: dict = {}
     for k, (_, y0, _, y1) in enumerate(lines):
-        for row in range(int(y0 - _LINE_SLACK_PT), int(y1 + _LINE_SLACK_PT) + 1):
+        first = max(int(y0 - _LINE_SLACK_PT), page_top)
+        last = min(int(y1 + _LINE_SLACK_PT), page_bottom)
+        for row in range(first, last + 1):
             by_row.setdefault(row, []).append(k)
     placed: list[list] = [[] for _ in lines]
     leftover = [c for c in page.chars if not c.get("upright", True)]
@@ -947,7 +960,7 @@ def _install_glyph_name_fallbacks() -> None:
             to_unicode = dict(unicode_map.cid2unichr)
             for code, glyph in glyphs.items():
                 text = to_unicode.get(code)
-                if text and len(text) == 1 and "" <= text <= "":
+                if text and len(text) == 1 and "\ue000" <= text <= "\uf8ff":
                     to_unicode[code] = glyph
             unicode_map.cid2unichr = to_unicode
 
