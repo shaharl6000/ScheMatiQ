@@ -70,3 +70,13 @@ def test_new_thread_starts_from_default():
     t.join()
     assert h.value == [1]
     assert out == [[]]
+
+
+def test_uncached_doc_layout_is_per_thread():
+    # A short document (no context cache) is sent as (rules, document); a
+    # concurrent document must never be sent that other document's text.
+    pp = object.__new__(PaperProcessor)
+    assert pp._uncached_doc_layout is None
+    a, b = ("rules", "text of doc A"), ("rules", "text of doc B")
+    seen = _run_in_threads(pp, "_uncached_doc_layout", [a, b])
+    assert seen == {a: a, b: b}
