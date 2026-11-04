@@ -5,6 +5,7 @@ fired on the calling thread, in the original document order, so the output
 matches the sequential path.
 """
 
+import contextvars
 import json
 import random
 import threading
@@ -159,3 +160,23 @@ def test_error_in_one_document_does_not_stop_others(tmp_path):
     assert [r for r in _read(out) if r.startswith("doc01")] == []
     assert Path(tmp_path / "doc01.txt") not in processed
     assert len(_read(out)) == 6
+
+
+SESSION = contextvars.ContextVar("session", default="no-session")
+
+
+def test_worker_threads_see_the_callers_context(tmp_path):
+    docs, schema, rows, d2s = _setup(tmp_path, 4)
+    seen = []
+
+    class Recording(FakeProcessor):
+        def extract_values_for_paper_with_units(self, paper_title, paper_text, **kwargs):
+            seen.append(SESSION.get())
+            return super().extract_values_for_paper_with_units(paper_title, paper_text, **kwargs)
+
+    token = SESSION.set("abc12345")
+    try:
+        _run_parallel(_builder(Recording()), rows, schema, d2s, tmp_path / "out.jsonl")
+    finally:
+        SESSION.reset(token)
+    assert seen == ["abc12345"] * 4
