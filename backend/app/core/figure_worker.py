@@ -37,11 +37,12 @@ def init_worker(crash_log_path: str | None = None) -> None:
         init_worker._crash_file = crash_file
 
 
-def warm_up() -> None:
-    """Load Docling's models in this worker ahead of the first PDF."""
+def warm_up() -> bool:
+    """Load Docling's models in this worker ahead of the first PDF. Returns
+    whether they loaded."""
     from app.services import figure_extraction_service as fes
 
-    fes.load_converter_models()
+    return fes.load_converter_models()
 
 
 def convert_pdf_figures(pdf_path: str, tmp_dir: str, source_document: str) -> List[dict]:

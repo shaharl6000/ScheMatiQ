@@ -73,6 +73,14 @@ def _warm_up_docling() -> None:
     warm_up_converter()
 
 
+def _shutdown_docling_worker() -> None:
+    # Only if the module was imported: importing it just to shut down would
+    # load Docling for nothing.
+    fes = sys.modules.get("app.services.figure_extraction_service")
+    if fes is not None:
+        fes.shutdown_worker()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load Docling's models in the background as soon as the server starts, so
@@ -81,6 +89,9 @@ async def lifespan(app: FastAPI):
     warm_up = asyncio.create_task(asyncio.to_thread(_warm_up_docling))
     yield
     warm_up.cancel()
+    # Cancelling the task does not stop its thread; killing the worker does
+    # (a warm-up blocked on it fails at once), so shutdown doesn't wait on it.
+    _shutdown_docling_worker()
 
 
 app = FastAPI(

@@ -166,19 +166,20 @@ def warm_up_converter() -> None:
         load_converter_models()
 
 
-def load_converter_models() -> None:
+def load_converter_models() -> bool:
     """Build the converter and initialize its PDF pipeline in this process.
-    Never raises."""
+    Returns whether the models loaded. Never raises."""
     started = time.monotonic()
     converter = _get_doc_converter()
     if converter is None:
-        return
+        return False
     try:
         converter.initialize_pipeline(InputFormat.PDF)
     except Exception as e:
         logger.warning("Docling warm-up failed; models will load on first upload: %s", e)
-        return
+        return False
     logger.info("Docling models loaded in %.1fs", time.monotonic() - started)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -768,11 +769,23 @@ def _sweep_stale_staging_dirs(staging_root: Path) -> None:
 # Crash-isolated worker process
 # ---------------------------------------------------------------------------
 
+# _pool_lock serializes conversions (held for a whole PDF). _pool_state_lock
+# only guards creating/dropping _pool and _shutting_down, so shutdown can kill
+# the worker while a conversion or warm-up holds _pool_lock.
 _pool_lock = threading.Lock()
+_pool_state_lock = threading.Lock()
 _pool: Optional[ProcessPoolExecutor] = None
+_shutting_down = False
 
 
 def _get_pool() -> ProcessPoolExecutor:
+    with _pool_state_lock:
+        if _shutting_down:
+            raise RuntimeError("figure extraction worker is shut down")
+        return _create_pool_locked()
+
+
+def _create_pool_locked() -> ProcessPoolExecutor:
     global _pool
     if _pool is None:
         from app.core.figure_worker import init_worker
@@ -801,19 +814,37 @@ def _warm_up_worker() -> None:
 
     started = time.monotonic()
     with _pool_lock:
+        if _shutting_down:
+            return
         try:
-            _get_pool().submit(warm_up).result(timeout=_WORKER_TIMEOUT_SECONDS)
+            loaded = _get_pool().submit(warm_up).result(timeout=_WORKER_TIMEOUT_SECONDS)
         except Exception as e:
-            logger.warning("Docling worker warm-up failed; models will load on first upload: %s", e)
+            if not _shutting_down:  # killed by shutdown_worker: expected
+                logger.warning("Docling worker warm-up failed; models will load on first upload: %s", e)
             _discard_pool()
             return
-    logger.info("Docling worker ready in %.1fs", time.monotonic() - started)
+    if loaded:
+        logger.info("Docling worker ready in %.1fs", time.monotonic() - started)
+    else:
+        logger.warning("Docling worker started but its models did not load; see the worker's log")
+
+
+def shutdown_worker() -> None:
+    """Kill the worker process at app shutdown. Also unblocks a warm-up still
+    waiting on it, whose thread would otherwise hold up interpreter exit, and
+    stops a warm-up that has not started yet from spawning a new worker.
+    Never raises."""
+    global _shutting_down
+    with _pool_state_lock:
+        _shutting_down = True
+    _discard_pool()
 
 
 def _discard_pool() -> None:
     """Kill the worker (crashed or hung) so the next call starts a fresh one."""
     global _pool
-    pool, _pool = _pool, None
+    with _pool_state_lock:
+        pool, _pool = _pool, None
     if pool is None:
         return
     for proc in list((getattr(pool, "_processes", None) or {}).values()):

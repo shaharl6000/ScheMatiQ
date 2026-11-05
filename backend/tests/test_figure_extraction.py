@@ -1004,3 +1004,50 @@ def test_warm_up_in_process_loads_models_in_parent(monkeypatch):
     monkeypatch.setattr(svc, "load_converter_models", lambda: calls.append("parent"))
     svc.warm_up_converter()
     assert calls == ["parent"]
+
+
+class _FakeFuture:
+    def __init__(self, outcome):
+        self._outcome = outcome
+
+    def result(self, timeout=None):
+        if isinstance(self._outcome, BaseException):
+            raise self._outcome
+        return self._outcome
+
+
+class _FakePool:
+    def __init__(self, outcome):
+        self._outcome = outcome
+
+    def submit(self, fn, *args):
+        return _FakeFuture(self._outcome)
+
+
+def test_warm_up_worker_failure_discards_pool_and_does_not_raise(monkeypatch, caplog):
+    from concurrent.futures.process import BrokenProcessPool
+
+    monkeypatch.setattr(svc, "_shutting_down", False)
+    monkeypatch.setattr(svc, "_get_pool", lambda: _FakePool(BrokenProcessPool("died")))
+    discarded = []
+    monkeypatch.setattr(svc, "_discard_pool", lambda: discarded.append(True))
+    svc._warm_up_worker()
+    assert discarded == [True]
+    assert "warm-up failed" in caplog.text
+
+
+def test_warm_up_worker_reports_models_that_did_not_load(monkeypatch, caplog):
+    monkeypatch.setattr(svc, "_shutting_down", False)
+    monkeypatch.setattr(svc, "_get_pool", lambda: _FakePool(False))
+    svc._warm_up_worker()
+    assert "did not load" in caplog.text
+    assert "ready" not in caplog.text
+
+
+def test_shutdown_worker_blocks_new_pool(monkeypatch):
+    monkeypatch.setattr(svc, "_shutting_down", False)
+    monkeypatch.setattr(svc, "_pool", None)
+    svc.shutdown_worker()
+    with pytest.raises(RuntimeError):
+        svc._get_pool()
+    assert svc._pool is None
