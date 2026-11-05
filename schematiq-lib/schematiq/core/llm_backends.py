@@ -853,10 +853,13 @@ class GeminiLLM(LLMInterface):
     # (max_budget_inclusive, level). Anything larger maps to "high". Used only
     # to translate a caller's budget hint; the result is then clamped to the
     # levels the specific model accepts.
-    # A budget of 0 means "no thinking": it maps to minimal where the model
-    # accepts it, and to low (the previous mapping) everywhere else.
+    # A budget of 0 maps to low. Minimal (#561) lowered extraction quality: in
+    # same-day runs on one project, grounded coverage was 66.7% with minimal and
+    # 69.0% with low, with about the same run time. Set
+    # SCHEMATIQ_GEMINI_ZERO_BUDGET_LEVEL=minimal to use minimal where the model
+    # accepts it.
     _THINKING_LEVEL_THRESHOLDS = (
-        (0, "minimal"),
+        (0, "low"),
         (2048, "low"),
         (8192, "medium"),
     )
@@ -874,6 +877,10 @@ class GeminiLLM(LLMInterface):
             if budget <= max_budget:
                 level = candidate
                 break
+        if budget <= 0:
+            override = os.getenv("SCHEMATIQ_GEMINI_ZERO_BUDGET_LEVEL", "").strip().lower()
+            if override in ("minimal", "low"):
+                level = override
 
         allowed = self.allowed_thinking_levels
         if level == "minimal" and (not allowed or level not in allowed):
