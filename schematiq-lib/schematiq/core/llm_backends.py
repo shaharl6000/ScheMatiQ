@@ -208,13 +208,26 @@ def _is_retryable_server_error(error: BaseException) -> bool:
     ])
 
 
+def _is_missing_cache_error(error: BaseException) -> bool:
+    """Check if error says the context cache a call named is gone (expired or deleted).
+
+    Gemini answers such a call with 403 PERMISSION_DENIED (or 404) "CachedContent
+    not found", which says nothing about the API key: the same call succeeds
+    without the cache.
+    """
+    return _status_code(error) in (403, 404) and "cachedcontent" in str(error).lower()
+
+
 def _is_invalid_api_key_error(error: BaseException) -> bool:
     """Check if error indicates a malformed, invalid, or rejected API key.
 
     These errors occur when the API key has invalid characters, is corrupted,
     or is otherwise malformed. The key should be permanently marked as invalid.
-    A 401/403 is treated the same way: the request will never succeed on retry.
+    A 401/403 is treated the same way: the request will never succeed on retry,
+    unless the 403 is about a missing context cache.
     """
+    if _is_missing_cache_error(error):
+        return False
     if _status_code(error) in _AUTH_STATUS_CODES:
         return True
     error_lower = str(error).lower()
@@ -249,7 +262,12 @@ def _caused_by_invalid_api_key(error: BaseException) -> bool:
     and some steps wrap the provider error (e.g. ObservationUnitDiscoveryError
     raised from the APIError), hiding its status code from a direct check.
     """
-    return any(_is_invalid_api_key_error(e) for e in _error_chain(error))
+    chain = list(_error_chain(error))
+    # A wrapper of a missing-cache 403 repeats its "(or permission denied)"
+    # text, which the text check alone would read as a bad key.
+    if any(_is_missing_cache_error(e) for e in chain):
+        return False
+    return any(_is_invalid_api_key_error(e) for e in chain)
 
 
 _MIN_RETRY_WAIT_SECONDS = 10
