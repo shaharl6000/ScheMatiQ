@@ -1051,3 +1051,42 @@ def test_shutdown_worker_blocks_new_pool(monkeypatch):
     with pytest.raises(RuntimeError):
         svc._get_pool()
     assert svc._pool is None
+
+
+def _captionless(page_no):
+    return {"element": None, "label": "Figure", "page_no": page_no,
+            "bbox": _bbox(100, 500, 400, 300), "caption": None}
+
+
+def _caption_para(text, page_no):
+    return {"text": text, "page_no": page_no, "bbox": _bbox(100, 290, 400, 270)}
+
+
+def test_recover_captions_continued_figure_on_next_page():
+    """Docling linked Figure 3 on page 5; the continuation on page 6 must
+    still get its own caption instead of being dropped as captionless."""
+    linked = {"element": None, "label": "Figure", "page_no": 5,
+              "bbox": _bbox(100, 500, 400, 300), "caption": "Figure 3. Export assay."}
+    continued = _captionless(6)
+    svc._recover_captions([linked, continued], [_caption_para("Figure 3. (continued)", 6)])
+    assert continued["caption"] == "Figure 3. (continued)"
+
+
+def test_recover_captions_supplement_restarts_numbering():
+    main = {"element": None, "label": "Figure", "page_no": 2,
+            "bbox": _bbox(100, 500, 400, 300), "caption": "Figure 1. Main result."}
+    supp = _captionless(20)
+    svc._recover_captions([main, supp], [_caption_para("Figure 1. Supplementary blot.", 20)])
+    assert supp["caption"] == "Figure 1. Supplementary blot."
+
+
+def test_recover_captions_skips_copy_of_caption_linked_on_same_page():
+    """PyMuPDF re-reads a caption Docling already linked: it must not be
+    attached to a second picture on that page."""
+    linked = {"element": None, "label": "Figure", "page_no": 4,
+              "bbox": _bbox(100, 500, 400, 300), "caption": "Figure 2. Localization."}
+    other = {"element": None, "label": "Figure", "page_no": 4,
+             "bbox": _bbox(100, 250, 400, 100), "caption": None}
+    leftover = svc._recover_captions([linked, other], [_caption_para("Figure 2. Localization.", 4)])
+    assert other["caption"] is None
+    assert leftover == []

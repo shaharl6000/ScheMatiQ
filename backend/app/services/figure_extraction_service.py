@@ -325,14 +325,18 @@ def _recover_captions(candidates: list, caption_texts: list) -> list:
     """Give captionless pictures/tables the caption paragraph Docling did not
     link to them (see _CAPTION_START). Mutates candidates; returns the caption
     paragraphs still unclaimed."""
-    linked = {_caption_number(c["caption"]) for c in candidates if c["caption"]} - {None}
-    # Dedup per page, not per document: a List of Figures line ("Figure 1.
-    # ..... 12") would otherwise win over the real caption on the figure's page.
+    # Keyed by (page, number), not number alone: the same figure number on
+    # another page is a different caption (a List of Figures line, "Figure 3
+    # (continued)", a supplement that restarts numbering), and a captionless
+    # picture is dropped, so filtering it out document-wide loses the figure.
+    linked = {
+        (c["page_no"], n) for c in candidates
+        if c["caption"] and (n := _caption_number(c["caption"])) is not None
+    }
     orphans, seen = [], set()
     for t in caption_texts:
-        n = _caption_number(t["text"])
-        key = (t["page_no"], n)
-        if n not in linked and key not in seen:
+        key = (t["page_no"], _caption_number(t["text"]))
+        if key not in linked and key not in seen:
             seen.add(key)
             orphans.append(t)
     captionless = [
