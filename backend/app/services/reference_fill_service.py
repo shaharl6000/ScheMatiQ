@@ -548,8 +548,9 @@ class ReferenceFillService:
         if self._client is None:
             from google import genai
             from app.services.chat.deps import get_gemini_api_key
+            from schematiq.core.llm_backends import gemini_http_options
 
-            self._client = genai.Client(api_key=get_gemini_api_key())
+            self._client = genai.Client(api_key=get_gemini_api_key(), http_options=gemini_http_options())
         return self._client
 
     async def _extract_value_for_row(

@@ -2933,8 +2933,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
         """Lazily build a genai client for the recap call (mirrors reference-fill)."""
         from google import genai
         from app.services.chat.deps import get_gemini_api_key
+        from schematiq.core.llm_backends import gemini_http_options
 
-        return genai.Client(api_key=get_gemini_api_key())
+        return genai.Client(api_key=get_gemini_api_key(), http_options=gemini_http_options())
 
     async def _summarize_reextraction(
         self, columns: List[str], coverage: List[Dict[str, Any]], total_rows: int
