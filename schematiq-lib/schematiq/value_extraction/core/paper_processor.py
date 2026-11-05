@@ -36,7 +36,7 @@ from schematiq.core.results import UnitIdentificationResult, ExtractionResult
 from schematiq.value_extraction.config.messages import (
     NO_UNITS_FOUND, NO_KNOWN_UNITS, KNOWN_UNITS_EMPTY
 )
-from schematiq.core.llm_backends import LLMInterface
+from schematiq.core.llm_backends import LLMInterface, _caused_by_invalid_api_key, _is_missing_cache_error
 from sentence_transformers import util as st_util
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.core import utils
@@ -227,9 +227,9 @@ class PaperProcessor:
     _active_context_cache = ThreadLocalAttribute(lambda: None)
     _active_figure_images = ThreadLocalAttribute(list)
     _active_figures_by_id = ThreadLocalAttribute(dict)
-    # (system_prompt, document) for a document without a context cache; see
-    # _generate. Per thread like the cache itself, or a concurrent document
-    # would be sent another document's text.
+    # (system_prompt, document) for a document without a context cache, or
+    # whose cache expired; see _generate. Per thread like the cache itself, or
+    # a concurrent document would be sent another document's text.
     _uncached_doc_layout = ThreadLocalAttribute(lambda: None)
 
     def __init__(
@@ -359,7 +359,11 @@ class PaperProcessor:
             return None
         if not hasattr(self.llm, 'create_context_cache'):
             return None
-        return self.llm.create_context_cache(system_prompt, paper_text, ttl_seconds=300)
+        # The cache is deleted when the document is done; the TTL only has to outlast
+        # its units. 300s did not: a stalled call runs until the request timeout
+        # (SCHEMATIQ_GEMINI_TIMEOUT_S, 180s by default) before it is retried, and a
+        # document can have 15 units.
+        return self.llm.create_context_cache(system_prompt, paper_text, ttl_seconds=1800)
 
     def _delete_document_cache(self):
         """Clear per-document state: the active context cache and any loaded figure images."""
@@ -587,9 +591,27 @@ class PaperProcessor:
         if self._active_figure_images:
             kwargs.setdefault("images", self._active_figure_images)
         if self._active_context_cache and hasattr(self.llm, 'generate_with_cache'):
-            if isinstance(prompt, list):
-                prompt = self._inline_system_into_first_user(prompt)
-            return self.llm.generate_with_cache(prompt, self._active_context_cache, **kwargs)
+            cache = self._active_context_cache
+            cached_prompt = self._inline_system_into_first_user(prompt) if isinstance(prompt, list) else prompt
+            try:
+                return self.llm.generate_with_cache(cached_prompt, cache, **kwargs)
+            except Exception as e:
+                if not _is_missing_cache_error(e):
+                    raise
+                # The cache expired, e.g. while a slow call was retried. Go on
+                # without it for the rest of this document, through the uncached
+                # path below (the document is in _uncached_doc_layout), instead
+                # of losing the document's units.
+                logger.warning(
+                    "Context cache %s is gone; continuing this document without it",
+                    getattr(cache, "name", "?"),
+                )
+                self._active_context_cache = None
+                # Best-effort cleanup still runs, so the cache's bookkeeping is
+                # released and its storage counted, as _delete_document_cache
+                # would have done.
+                if hasattr(self.llm, 'delete_context_cache'):
+                    self.llm.delete_context_cache(cache)
         layout = getattr(self, "_uncached_doc_layout", None)
         if layout and isinstance(prompt, list):
             # A document too small for a context cache gets the same layout a
@@ -2316,10 +2338,13 @@ class PaperProcessor:
         self._uncached_doc_layout = None
         self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
 
+        if self._is_gemini_backend():
+            # Used when there is no cache, and as the fallback if the cache
+            # expires mid-document (see _generate).
+            self._uncached_doc_layout = (cache_system_prompt, paper_text)
         if self._active_context_cache:
             print(f"  📦 Created context cache for {paper_title}")
         elif self._is_gemini_backend():
-            self._uncached_doc_layout = (cache_system_prompt, paper_text)
             logger.info(
                 "[%s] No context cache; sending the cached-path layout inline "
                 "(document twice)", paper_title,
@@ -2363,18 +2388,29 @@ class PaperProcessor:
                 unit_target_columns = unit_plan.get("targets") if unit_plan else None
                 unit_already_extracted = unit_plan.get("filled") if unit_plan else None
 
-                # Extract values for this specific unit
-                unit_values = self.extract_values_for_unit(
-                    unit_name=unit_name,
-                    relevant_passages=relevant_passages,
-                    schema=schema,
-                    max_new_tokens=max_new_tokens,
-                    paper_title=paper_title,
-                    paper_text=paper_text,
-                    target_columns=unit_target_columns,
-                    already_extracted=unit_already_extracted,
-                    feedback=feedback,
-                )
+                # Extract values for this specific unit. An LLM failure that
+                # survived the backend's retries (timeout, outage) skips only
+                # this unit, so the document's other units are still written.
+                try:
+                    unit_values = self.extract_values_for_unit(
+                        unit_name=unit_name,
+                        relevant_passages=relevant_passages,
+                        schema=schema,
+                        max_new_tokens=max_new_tokens,
+                        paper_title=paper_title,
+                        paper_text=paper_text,
+                        target_columns=unit_target_columns,
+                        already_extracted=unit_already_extracted,
+                        feedback=feedback,
+                    )
+                except Exception as e:
+                    if _caused_by_invalid_api_key(e):
+                        raise
+                    logger.exception(
+                        "[%s] Extraction failed for unit %s, skipping it", paper_title, unit_name
+                    )
+                    print(f"  ⚠️ Extraction failed for unit {unit_name}, skipping it: {e}")
+                    continue
 
                 unit_elapsed = time_module.time() - unit_start
 
