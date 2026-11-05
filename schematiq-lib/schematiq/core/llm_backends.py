@@ -54,6 +54,44 @@ _TRANSPORT_RETRY_ERRORS = (
 # or disables it with "off".
 _DEFAULT_GEMINI_SEED = 1234
 
+# Per-request timeout for Gemini calls, in seconds. google-genai sends requests
+# with no timeout by default, so a connection that dies silently (Wi-Fi drop,
+# VPN switch, laptop sleep) blocks the call, and the whole extraction, forever.
+# With a timeout the call raises httpx.ReadTimeout, which is retried like any
+# other transport error. Typical calls take 3 to 7 seconds. Override with
+# SCHEMATIQ_GEMINI_TIMEOUT_S; "off" restores no timeout.
+_DEFAULT_GEMINI_TIMEOUT_S = 180.0
+
+
+def gemini_timeout_seconds() -> Optional[float]:
+    """Request timeout from SCHEMATIQ_GEMINI_TIMEOUT_S, or None for no timeout."""
+    raw = os.getenv("SCHEMATIQ_GEMINI_TIMEOUT_S", str(_DEFAULT_GEMINI_TIMEOUT_S)).strip()
+    if raw.lower() in ("", "off", "none", "0"):
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid SCHEMATIQ_GEMINI_TIMEOUT_S=%r; using %ss",
+            raw, _DEFAULT_GEMINI_TIMEOUT_S,
+        )
+        return _DEFAULT_GEMINI_TIMEOUT_S
+    return value if value > 0 else None
+
+
+def gemini_http_options():
+    """HttpOptions with the request timeout for genai.Client, or None.
+
+    Use for every genai.Client so no Gemini call can hang without limit.
+    """
+    timeout = gemini_timeout_seconds()
+    if timeout is None:
+        return None
+    from google.genai import types
+
+    # HttpOptions.timeout is in milliseconds.
+    return types.HttpOptions(timeout=int(timeout * 1000))
+
 
 def _gemini_seed_from_env() -> Optional[int]:
     raw = os.getenv("SCHEMATIQ_GEMINI_SEED", str(_DEFAULT_GEMINI_SEED)).strip()
@@ -752,7 +790,7 @@ class GeminiLLM(LLMInterface):
                 "(https://pypi.org/project/google-genai/)") from e
 
         # Create client with API key (new SDK uses client-based architecture)
-        self._client = genai.Client(api_key=self.api_key)
+        self._client = genai.Client(api_key=self.api_key, http_options=gemini_http_options())
 
         # Configure safety settings to be less restrictive for scientific content
         self.safety_settings = [
