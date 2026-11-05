@@ -590,7 +590,7 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", line_layout: Tuple
         return None
 
     tolerance = _word_tolerance(page)
-    out = []
+    built = []  # (box of the line's characters, text), in reading order
     for line_chars in placed:
         if line_chars:
             # Figure labels are often drawn twice in place; one line built from
@@ -600,13 +600,112 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", line_layout: Tuple
             line_chars = dedupe_chars(line_chars, tolerance=0.5)
             text = extract_text(line_chars, **_line_word_tolerance(line_chars, tolerance)).replace("\n", " ").strip()
             if text:
-                out.append(text)
+                box = (min(c["x0"] for c in line_chars), min(c["top"] for c in line_chars),
+                       max(c["x1"] for c in line_chars), max(c["bottom"] for c in line_chars))
+                built.append((box, text))
+    out = _join_rows(built)
     if leftover:
         # Rotated or unplaced text (a sidebar, a stray label): kept, at the end.
         text = _extract_leftover_text(leftover, tolerance)
         if text:
             out.append(text)
     return "\n".join(out)
+
+
+# PyMuPDF makes every table cell its own line, so a table came out one value
+# per line and its rows could not be told apart (Attention: 10 of main's 45
+# table rows intact). Lines drawn one after another side by side at the same
+# height are one row of the page and are joined left to right. Two-column
+# body text is not joined: a column's lines are drawn one after another, so
+# the left and right lines at one height are never consecutive.
+_MIN_ROW_OVERLAP = 0.5  # vertical overlap, as a share of the shorter line's height
+# A label spanning several rows ("(C)" in Attention's Table 3) is drawn alone,
+# before or after its rows, and comes out on a line of its own. It joins the
+# row nearest its height of the table drawn right next to it: a run of at
+# least _MIN_LABELED_RUN rows of short cells, all on one side of the label
+# and none in its column.
+# Body text split at wide gaps also forms rows; its cells are longer, and on
+# 40 NES papers the looser rule (any rows, label beside its row only) pulled
+# a reference's page range from the other column into a body line.
+_MAX_ROW_LABEL_CHARS = 12
+_MAX_CELL_CHARS = 50
+_MIN_LABELED_RUN = 2
+
+
+def _same_row(a: tuple, b: tuple) -> bool:
+    """Two line boxes side by side at one height (not stacked, not overlapping)."""
+    overlap = min(a[3], b[3]) - max(a[1], b[1])
+    if overlap < _MIN_ROW_OVERLAP * min(a[3] - a[1], b[3] - b[1]):
+        return False
+    return a[2] <= b[0] + _LINE_SLACK_PT or b[2] <= a[0] + _LINE_SLACK_PT
+
+
+def _across_gutter(a: tuple, b: tuple) -> bool:
+    """Two (box, text) lines a column gutter apart: a gap of at least a line
+    height, with body text (a line longer than any table cell) on one side.
+
+    A column's last line and the next column's caption can be drawn one
+    after another at one height; on 417 NES papers they were joined
+    ("FIG. 1. Biochemical characterization of GST-An3 ATPase ac- mutant in
+    which 2 leucine residues", a 12pt gutter). Table cells are short, and
+    a body line split at a wide word gap has a gap under a line height."""
+    (ab, at), (bb, bt) = a, b
+    gap = max(bb[0] - ab[2], ab[0] - bb[2])
+    height = min(ab[3] - ab[1], bb[3] - bb[1])
+    return gap >= height and max(len(at), len(bt)) > _MAX_CELL_CHARS
+
+
+def _join_rows(built: list) -> list:
+    """The page's lines of text, one per row of a table.
+
+    *built* is [(box, text)] in reading order. Consecutive lines side by side
+    at one height form a row, read left to right; a short line alone that
+    labels several rows of a table joins the one nearest its height."""
+    rows: list[list[int]] = []
+    for k, (box, _) in enumerate(built):
+        if rows and all(_same_row(built[j][0], box) and not _across_gutter(built[j], built[k]) for j in rows[-1]):
+            rows[-1].append(k)
+        else:
+            rows.append([k])
+
+    def center(k):
+        return (built[k][0][1] + built[k][0][3]) / 2
+
+    is_table_row = [len(row) > 1 and all(len(built[k][1]) <= _MAX_CELL_CHARS for k in row) for row in rows]
+    target = {}  # index of a label's row -> index of the table row it joins
+    for i, row in enumerate(rows):
+        if len(row) > 1 or len(built[row[0]][1]) > _MAX_ROW_LABEL_CHARS:
+            continue
+        label = row[0]
+        lx0, _, lx1, _ = built[label][0]
+        best = None
+        for step in (1, -1):  # the table drawn right after the label, then right before
+            # The rows a label spans have nothing in its column; a row that
+            # does ("(E) positional embedding ...") starts the next block.
+            run, j = [], i + step
+            while 0 <= j < len(rows) and is_table_row[j] and all(
+                    lx1 <= built[k][0][0] + _LINE_SLACK_PT or built[k][0][2] <= lx0 + _LINE_SLACK_PT for k in rows[j]):
+                run.append(j)
+                j += step
+            cells = [built[k][0] for r in run for k in rows[r]]
+            if len(run) < _MIN_LABELED_RUN:
+                continue
+            if not min(c[1] for c in cells) <= center(label) <= max(c[3] for c in cells):
+                continue
+            if not (all(lx1 <= c[0] + _LINE_SLACK_PT for c in cells)
+                    or all(c[2] <= lx0 + _LINE_SLACK_PT for c in cells)):
+                continue
+            for r in run:
+                distance = abs(sum(center(k) for k in rows[r]) / len(rows[r]) - center(label))
+                if best is None or distance < best[0]:
+                    best = (distance, r)
+        if best is not None:
+            target[i] = best[1]
+
+    for i, r in target.items():
+        rows[r].append(rows[i][0])
+    return [" ".join(built[k][1] for k in sorted(row, key=lambda k: built[k][0][0]))
+            for i, row in enumerate(rows) if i not in target]
 
 
 def _extract_leftover_text(chars: list, tolerance: dict) -> str:
