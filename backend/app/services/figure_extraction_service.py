@@ -154,9 +154,21 @@ def warm_up_converter() -> None:
     pipeline is first initialized, which otherwise happens inside the first
     upload's request. Called once from the app's startup hook (in a background
     thread) so that cost is paid before any user is waiting. Never raises.
+
+    With ISOLATE_FIGURE_EXTRACTION the models are loaded in the worker process,
+    which is where conversion runs; the parent never loads them.
     """
     if not ENABLE_FIGURE_EXTRACTION:
         return
+    if ISOLATE_FIGURE_EXTRACTION:
+        _warm_up_worker()
+    else:
+        load_converter_models()
+
+
+def load_converter_models() -> None:
+    """Build the converter and initialize its PDF pipeline in this process.
+    Never raises."""
     started = time.monotonic()
     converter = _get_doc_converter()
     if converter is None:
@@ -313,11 +325,14 @@ def _recover_captions(candidates: list, caption_texts: list) -> list:
     link to them (see _CAPTION_START). Mutates candidates; returns the caption
     paragraphs still unclaimed."""
     linked = {_caption_number(c["caption"]) for c in candidates if c["caption"]} - {None}
+    # Dedup per page, not per document: a List of Figures line ("Figure 1.
+    # ..... 12") would otherwise win over the real caption on the figure's page.
     orphans, seen = [], set()
     for t in caption_texts:
         n = _caption_number(t["text"])
-        if n not in linked and n not in seen:
-            seen.add(n)
+        key = (t["page_no"], n)
+        if n not in linked and key not in seen:
+            seen.add(key)
             orphans.append(t)
     captionless = [
         c for c in candidates
@@ -457,7 +472,7 @@ def _build_figure_records(
     if pdf_path is not None:
         page_heights = {n: p.size.height for n, p in document.pages.items() if p.size is not None}
         pdf_captions, images = _read_pdf_layout(pdf_path, page_heights)
-        # Docling's paragraphs first: _recover_captions keeps the first per number.
+        # Docling's paragraphs first: _recover_captions keeps the first per page and number.
         caption_texts += pdf_captions
     orphans = _recover_captions(candidates, caption_texts)
     merge_bbox = _merge_adjacent_pictures(candidates)
@@ -776,6 +791,23 @@ def _get_pool() -> ProcessPoolExecutor:
             initargs=(crash_log,),
         )
     return _pool
+
+
+def _warm_up_worker() -> None:
+    """Start the worker process and load Docling's models in it. Holds
+    _pool_lock so a first upload waits for the warm-up instead of its timeout
+    counting the model load. Never raises."""
+    from app.core.figure_worker import warm_up
+
+    started = time.monotonic()
+    with _pool_lock:
+        try:
+            _get_pool().submit(warm_up).result(timeout=_WORKER_TIMEOUT_SECONDS)
+        except Exception as e:
+            logger.warning("Docling worker warm-up failed; models will load on first upload: %s", e)
+            _discard_pool()
+            return
+    logger.info("Docling worker ready in %.1fs", time.monotonic() - started)
 
 
 def _discard_pool() -> None:

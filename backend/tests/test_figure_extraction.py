@@ -949,3 +949,58 @@ def test_read_pdf_layout_skips_an_unreadable_pdf(tmp_path):
     bad = tmp_path / "bad.pdf"
     bad.write_bytes(b"not a pdf")
     assert svc._read_pdf_layout(bad, {1: 792.0}) == ([], [])
+
+
+# ---------------------------------------------------------------------------
+# _recover_captions(): orphan caption dedup
+# ---------------------------------------------------------------------------
+
+
+def test_recover_captions_ignores_list_of_figures_entry():
+    """A List of Figures line for Figure 1 comes first in the document, but
+    the real caption on the figure's page must still be recovered."""
+    figure = {"element": None, "label": "Table", "page_no": 12,
+              "bbox": _bbox(100, 500, 400, 300), "caption": None}
+    captions = [
+        {"text": "Figure 1. Overview ..... 12", "page_no": 2, "bbox": _bbox(72, 700, 500, 690)},
+        {"text": "Figure 1. Overview of the pipeline.", "page_no": 12, "bbox": _bbox(100, 290, 400, 270)},
+    ]
+    leftover = svc._recover_captions([figure], captions)
+    assert figure["caption"] == "Figure 1. Overview of the pipeline."
+    assert figure["label"] == "Figure"
+    assert [t["page_no"] for t in leftover] == [2]
+
+
+def test_recover_captions_dedups_same_number_on_same_page():
+    figure = {"element": None, "label": "Figure", "page_no": 3,
+              "bbox": _bbox(100, 500, 400, 300), "caption": None}
+    captions = [
+        {"text": "Figure 2. From Docling.", "page_no": 3, "bbox": _bbox(100, 290, 400, 270)},
+        {"text": "Figure 2. From PyMuPDF.", "page_no": 3, "bbox": _bbox(100, 290, 400, 270)},
+    ]
+    assert svc._recover_captions([figure], captions) == []
+    assert figure["caption"] == "Figure 2. From Docling."
+
+
+# ---------------------------------------------------------------------------
+# warm_up_converter(): where the models load
+# ---------------------------------------------------------------------------
+
+
+def test_warm_up_isolated_loads_models_in_worker_only(monkeypatch):
+    monkeypatch.setattr(svc, "ENABLE_FIGURE_EXTRACTION", True)
+    monkeypatch.setattr(svc, "ISOLATE_FIGURE_EXTRACTION", True)
+    calls = []
+    monkeypatch.setattr(svc, "_warm_up_worker", lambda: calls.append("worker"))
+    monkeypatch.setattr(svc, "load_converter_models", lambda: calls.append("parent"))
+    svc.warm_up_converter()
+    assert calls == ["worker"]
+
+
+def test_warm_up_in_process_loads_models_in_parent(monkeypatch):
+    monkeypatch.setattr(svc, "ENABLE_FIGURE_EXTRACTION", True)
+    calls = []
+    monkeypatch.setattr(svc, "_warm_up_worker", lambda: calls.append("worker"))
+    monkeypatch.setattr(svc, "load_converter_models", lambda: calls.append("parent"))
+    svc.warm_up_converter()
+    assert calls == ["parent"]
