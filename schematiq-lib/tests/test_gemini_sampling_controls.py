@@ -1,8 +1,8 @@
 """Sampling controls for Gemini 3.x (issue #556).
 
 Gemini 3.x ignores temperature, so value extraction ran with sampling on.
-These tests cover the two remaining controls: thinking_budget=0 maps to the
-minimal level where the model accepts it, and a fixed seed is sent (and
+These tests cover the two remaining controls: thinking_budget=0 maps to low
+(minimal is opt-in, where the model accepts it), and a fixed seed is sent (and
 dropped if the API ever rejects it). Methods are tested unbound against a
 minimal stand-in, so no API key or network is needed.
 """
@@ -34,7 +34,16 @@ def _level(model, budget):
 @pytest.mark.parametrize(
     "model", [ModelNames.GEMINI_35_FLASH_LITE, ModelNames.GEMINI_31_FLASH_LITE]
 )
-def test_zero_budget_maps_to_minimal_on_flash_lite(model):
+def test_zero_budget_maps_to_low_on_flash_lite(model, monkeypatch):
+    monkeypatch.delenv("SCHEMATIQ_GEMINI_ZERO_BUDGET_LEVEL", raising=False)
+    assert _level(model, 0) == "low"
+
+
+@pytest.mark.parametrize(
+    "model", [ModelNames.GEMINI_35_FLASH_LITE, ModelNames.GEMINI_31_FLASH_LITE]
+)
+def test_minimal_is_opt_in_on_flash_lite(model, monkeypatch):
+    monkeypatch.setenv("SCHEMATIQ_GEMINI_ZERO_BUDGET_LEVEL", "minimal")
     assert _level(model, 0) == "minimal"
 
 
@@ -48,8 +57,9 @@ def test_zero_budget_maps_to_minimal_on_flash_lite(model):
         ModelNames.GEMINI_31_PRO_PREVIEW,
     ],
 )
-def test_zero_budget_never_sends_minimal_elsewhere(model):
-    # Same result as before this change: minimal falls back to low.
+def test_zero_budget_never_sends_minimal_elsewhere(model, monkeypatch):
+    # Even when opted in, minimal falls back to low on models that reject it.
+    monkeypatch.setenv("SCHEMATIQ_GEMINI_ZERO_BUDGET_LEVEL", "minimal")
     assert _level(model, 0) == "low"
 
 
