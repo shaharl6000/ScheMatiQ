@@ -36,7 +36,7 @@ from schematiq.core.results import UnitIdentificationResult, ExtractionResult
 from schematiq.value_extraction.config.messages import (
     NO_UNITS_FOUND, NO_KNOWN_UNITS, KNOWN_UNITS_EMPTY
 )
-from schematiq.core.llm_backends import LLMInterface
+from schematiq.core.llm_backends import LLMInterface, _caused_by_invalid_api_key
 from sentence_transformers import util as st_util
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.core import utils
@@ -2363,18 +2363,29 @@ class PaperProcessor:
                 unit_target_columns = unit_plan.get("targets") if unit_plan else None
                 unit_already_extracted = unit_plan.get("filled") if unit_plan else None
 
-                # Extract values for this specific unit
-                unit_values = self.extract_values_for_unit(
-                    unit_name=unit_name,
-                    relevant_passages=relevant_passages,
-                    schema=schema,
-                    max_new_tokens=max_new_tokens,
-                    paper_title=paper_title,
-                    paper_text=paper_text,
-                    target_columns=unit_target_columns,
-                    already_extracted=unit_already_extracted,
-                    feedback=feedback,
-                )
+                # Extract values for this specific unit. An LLM failure that
+                # survived the backend's retries (timeout, outage) skips only
+                # this unit, so the document's other units are still written.
+                try:
+                    unit_values = self.extract_values_for_unit(
+                        unit_name=unit_name,
+                        relevant_passages=relevant_passages,
+                        schema=schema,
+                        max_new_tokens=max_new_tokens,
+                        paper_title=paper_title,
+                        paper_text=paper_text,
+                        target_columns=unit_target_columns,
+                        already_extracted=unit_already_extracted,
+                        feedback=feedback,
+                    )
+                except Exception as e:
+                    if _caused_by_invalid_api_key(e):
+                        raise
+                    logger.exception(
+                        "[%s] Extraction failed for unit %s, skipping it", paper_title, unit_name
+                    )
+                    print(f"  ⚠️ Extraction failed for unit {unit_name}, skipping it: {e}")
+                    continue
 
                 unit_elapsed = time_module.time() - unit_start
 

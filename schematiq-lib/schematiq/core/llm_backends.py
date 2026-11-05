@@ -27,6 +27,31 @@ logger = logging.getLogger(__name__)
 # Rate limit retry utilities                                                 #
 ##############################################################################
 
+def _env_number(name: str, default, cast, minimum):
+    """Read a numeric setting from the environment; a bad value logs a warning
+    and falls back to the default instead of failing the import."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = cast(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r; using %s", name, raw, default)
+        return default
+    if value < minimum:
+        logger.warning("Ignoring %s=%r below %s; using %s", name, raw, minimum, default)
+        return default
+    return value
+
+
+# Long unattended runs (hundreds of documents) must ride out rate-limit windows
+# and transient outages instead of failing a document after a few attempts.
+LLM_MAX_RETRIES = _env_number("SCHEMATIQ_LLM_MAX_RETRIES", 6, int, 0)
+# Per-request bound for OpenAI calls (Gemini has its own, gemini_http_options).
+# A stalled request raises openai.APITimeoutError, which
+# _is_retryable_server_error retries.
+LLM_REQUEST_TIMEOUT_SECONDS = _env_number("SCHEMATIQ_LLM_TIMEOUT_SECONDS", 300.0, float, 1.0)
+
 _RATE_LIMIT_STATUS_CODE = 429
 # Transient failures worth retrying with a fixed backoff. 429 is excluded
 # because it is classified separately and uses the provider's own retry hint.
@@ -145,6 +170,19 @@ def _is_rate_limit_error(error: BaseException) -> bool:
         return True
     return False
 
+def _is_openai_connection_error(error: BaseException) -> bool:
+    """True for the OpenAI SDK's timeout and connection errors.
+
+    The SDK wraps httpx transport failures in openai.APIConnectionError (and
+    its subclass APITimeoutError), which carry no status code, so the httpx
+    check misses them. Matched by class name so openai stays optional.
+    """
+    return any(
+        cls.__name__ == "APIConnectionError" and cls.__module__.startswith("openai")
+        for cls in type(error).__mro__
+    )
+
+
 def _is_retryable_server_error(error: BaseException) -> bool:
     """Check if error is a transient server-side failure worth retrying.
 
@@ -157,6 +195,8 @@ def _is_retryable_server_error(error: BaseException) -> bool:
     if _status_code(error) in _TRANSIENT_STATUS_CODES:
         return True
     if isinstance(error, _TRANSPORT_RETRY_ERRORS):
+        return True
+    if _is_openai_connection_error(error):
         return True
     error_str = str(error)
     if "503" not in error_str:
@@ -191,6 +231,26 @@ def _is_invalid_api_key_error(error: BaseException) -> bool:
     ]
 
     return any(indicator in error_lower for indicator in invalid_key_indicators)
+
+
+def _error_chain(error: BaseException):
+    """The error and the errors it was raised from (__cause__/__context__)."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        yield error
+        error = error.__cause__ or error.__context__
+
+
+def _caused_by_invalid_api_key(error: BaseException) -> bool:
+    """True when the error, or one it wraps, is an invalid API key error.
+
+    Callers that skip a failed step and go on must still stop on a bad key,
+    and some steps wrap the provider error (e.g. ObservationUnitDiscoveryError
+    raised from the APIError), hiding its status code from a direct check.
+    """
+    return any(_is_invalid_api_key_error(e) for e in _error_chain(error))
+
 
 _MIN_RETRY_WAIT_SECONDS = 10
 _MAX_RETRY_WAIT_SECONDS = 120
@@ -414,7 +474,7 @@ class TogetherLLM(LLMInterface):
             params["messages"] = [{"role": "user", "content": prompt}]
 
         # Retry logic for rate limits
-        max_retries = 3
+        max_retries = LLM_MAX_RETRIES
         last_exception = None
         
         for attempt in range(max_retries + 1):
@@ -497,7 +557,7 @@ class OpenAILLM(LLMInterface):
             raise ImportError(
                 "pip install openai>=1.0.0  (https://pypi.org/project/openai/)") from e
 
-        self._client = OpenAI(api_key=self.api_key)
+        self._client = OpenAI(api_key=self.api_key, timeout=LLM_REQUEST_TIMEOUT_SECONDS)
         self._default_args: Dict[str, Any] = dict(
             model=self.model,
             max_tokens=self.max_output_tokens,  # OpenAI API uses max_tokens
@@ -526,7 +586,7 @@ class OpenAILLM(LLMInterface):
             params["messages"] = [{"role": "user", "content": prompt}]
 
         # Retry logic for rate limits and server overload
-        max_retries = 3
+        max_retries = LLM_MAX_RETRIES
         last_exception = None
         
         for attempt in range(max_retries + 1):
@@ -1057,7 +1117,7 @@ class GeminiLLM(LLMInterface):
         config = self.types.GenerateContentConfig(**config_kwargs)
 
         # Retry logic (3 retries like OpenAI/Together)
-        max_retries = 3
+        max_retries = LLM_MAX_RETRIES
         last_exception = None
 
         for attempt in range(max_retries + 1):
@@ -1316,7 +1376,7 @@ class GeminiLLM(LLMInterface):
         self._apply_seed(config_kwargs, kwargs.get("seed"))
         config = self.types.GenerateContentConfig(**config_kwargs)
 
-        max_retries = 3
+        max_retries = LLM_MAX_RETRIES
         last_exception = None
 
         for attempt in range(max_retries + 1):
