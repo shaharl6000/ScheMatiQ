@@ -478,13 +478,7 @@ class TableBuilder:
                     output_path, processed_papers,
                 )
             except Exception as e:
-                # One bad document must not end a long run: record it as
-                # skipped (so it shows up in the skip report) and move on.
-                traceback.print_exc()
-                print(f"⚠️  Error processing {paper.name} for observation units, skipping it: {e}")
-                self._skipped_documents.append(
-                    SkippedDocument(document=paper_title, reason=f"Extraction failed: {e}")
-                )
+                self._record_failed_document(paper, e)
 
         # Mark original row_name as written if any units were written
         if total_units_written > 0:
@@ -496,6 +490,16 @@ class TableBuilder:
     # that stay on the coordinating thread (reading the file, progress
     # callbacks, writing rows), so callbacks and output writes never run
     # concurrently.
+
+    def _record_failed_document(self, paper: Path, error: BaseException) -> None:
+        """One bad document must not end a long run: report it as skipped (so it
+        shows up in the skip report) and move on. Called on the coordinating
+        thread only, in both the sequential and the parallel path."""
+        traceback.print_exception(type(error), error, error.__traceback__)
+        print(f"⚠️  Error processing {paper.name} for observation units, skipping it: {error}")
+        self._skipped_documents.append(
+            SkippedDocument(document=paper.stem, reason=f"Extraction failed: {error}")
+        )
 
     def _skip_out_of_scope_paper(self, paper: Path, known_units, processed_papers: set) -> bool:
         """Skip a document that scoped re-extraction marked with known_units=[]."""
@@ -710,9 +714,9 @@ class TableBuilder:
                                 output_path, processed_papers,
                             )
                         except Exception as e:
-                            print(f"⚠️  Error processing {paper.name} for observation units: {e}")
+                            self._record_failed_document(paper, e)
                     elif kind == "error":
-                        print(f"⚠️  Error processing {paper.name} for observation units: {value}")
+                        self._record_failed_document(paper, value)
                     papers_left[row_name] -= 1
                     if papers_left[row_name] == 0 and units_by_row.get(row_name, 0) > 0:
                         written_rows.add(row_name)
