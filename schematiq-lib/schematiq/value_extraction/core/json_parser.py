@@ -370,7 +370,8 @@ class JSONResponseParser:
             # Apply allowed_values normalization (soft enforcement)
             normalized = False
             unmatched_original = None
-            if col in column_allowed_values and column_allowed_values[col]:
+            has_allowed_values = bool(column_allowed_values.get(col))
+            if has_allowed_values:
                 ans, normalized, unmatched_original = self._normalize_to_allowed_values(ans, column_allowed_values[col])
 
             out[col] = {"answer": ans, "excerpts": exs}
@@ -379,8 +380,12 @@ class JSONResponseParser:
             if normalized:
                 out[col]["normalized_to_allowed"] = True
 
-            # Track unmatched values for schema evolution
-            if unmatched_original is not None or suggested_for_allowed:
+            # Track unmatched values for schema evolution. Only for a column
+            # that already has allowed_values: a suggestion can extend a closed
+            # set, never turn an open column (names, citations, ids) into one.
+            # The model may set suggested_for_allowed_values on any column,
+            # because the response schema offers it for every column.
+            if has_allowed_values and (unmatched_original is not None or suggested_for_allowed):
                 value_to_track = unmatched_original or ans
                 if col not in unmatched_values:
                     unmatched_values[col] = []
