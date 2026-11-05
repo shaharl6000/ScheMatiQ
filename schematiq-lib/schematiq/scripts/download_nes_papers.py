@@ -191,14 +191,21 @@ def fetch_pubmed_metadata(pubmed_ids: list[str]) -> dict[str, dict]:
                 pmid = pmid_el.text
 
                 # DOI — first from ELocationID, then from ArticleIdList
+                # The article's own IDs only — ReferenceList also holds
+                # ArticleIdLists, for the papers it cites.
+                id_list = article.find("PubmedData")
+                id_list = id_list.find("ArticleIdList", recursive=False) if id_list else None
+                own_ids = id_list.find_all("ArticleId", recursive=False) if id_list else []
+
                 doi = None
                 doi_el = article.find("ELocationID", EIdType="doi")
                 if doi_el:
                     doi = doi_el.text
                 if not doi:
-                    for aid in article.find_all("ArticleId", IdType="doi"):
-                        doi = aid.text
-                        break
+                    for aid in own_ids:
+                        if aid.get("IdType") == "doi":
+                            doi = aid.text
+                            break
 
                 # Abstract
                 abstract_parts = article.find_all("AbstractText")
@@ -206,9 +213,10 @@ def fetch_pubmed_metadata(pubmed_ids: list[str]) -> dict[str, dict]:
 
                 # PMC ID (gives us a free full-text source)
                 pmc_id = None
-                for aid in article.find_all("ArticleId", IdType="pmc"):
-                    pmc_id = aid.text
-                    break
+                for aid in own_ids:
+                    if aid.get("IdType") == "pmc":
+                        pmc_id = aid.text
+                        break
 
                 results[pmid] = {
                     "doi": doi,
