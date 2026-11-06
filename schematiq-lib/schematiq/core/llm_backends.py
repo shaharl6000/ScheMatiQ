@@ -8,6 +8,7 @@ The API keys are pulled from standard environment variables by default:
 
 import logging
 import os
+import threading
 import time
 import random
 from abc import ABC, abstractmethod
@@ -270,6 +271,101 @@ def _caused_by_invalid_api_key(error: BaseException) -> bool:
     return any(_is_invalid_api_key_error(e) for e in chain)
 
 
+def _is_quota_exhausted_error(error: BaseException) -> bool:
+    """A 429 that a short wait will not fix.
+
+    A per-day quota (Gemini names it in the quotaId, e.g.
+    GenerateRequestsPerDayPerProjectPerModel) or an exhausted OpenAI balance
+    (insufficient_quota) stays exhausted for hours. Retrying it only delays
+    the failure, so it is not retried.
+    """
+    if not _is_rate_limit_error(error):
+        return False
+    text = str(error).lower()
+    return "perday" in text or "insufficient_quota" in text
+
+
+class LLMRunAborted(RuntimeError):
+    """Ends a run early: going on would only fail the same way for every document."""
+
+
+def should_abort_run(error: BaseException) -> bool:
+    """True when a failed step must end the whole run instead of being skipped.
+
+    That is an invalid API key, an exhausted quota, or a run the
+    consecutive-failure breaker already stopped, anywhere in the cause chain
+    (some steps wrap the provider error).
+    """
+    chain = list(_error_chain(error))
+    if any(isinstance(e, LLMRunAborted) for e in chain):
+        return True
+    if any(_is_quota_exhausted_error(e) for e in chain):
+        return True
+    return _caused_by_invalid_api_key(error)
+
+
+def is_outage_error(error: BaseException) -> bool:
+    """True for a failure that says the provider is unreachable or overloaded.
+
+    These are the errors the backends retry (timeouts, dropped connections,
+    408/5xx, 429). A call that still fails with one after its retries counts
+    toward the consecutive-failure breaker. Other errors (a 400 for one bad
+    document, say) mean the provider answered, so they do not.
+    """
+    return any(
+        _is_retryable_server_error(e) or _is_rate_limit_error(e)
+        for e in _error_chain(error)
+    )
+
+
+# A run whose LLM calls fail this many times in a row with an outage error
+# (after each call's own retries) is stopped: the provider is down, and going
+# on would spend every remaining call's retries and end with an empty table.
+LLM_MAX_CONSECUTIVE_FAILURES = _env_number("SCHEMATIQ_LLM_MAX_CONSECUTIVE_FAILURES", 5, int, 1)
+
+
+class ConsecutiveFailureBreaker:
+    """Counts LLM calls that failed in a row with an outage error, across
+    threads, and trips at a limit.
+
+    Once tripped it stays tripped, so the remaining calls of the run fail at
+    once instead of each waiting through its retries. Use one per run.
+    """
+
+    def __init__(self, limit: Optional[int] = None):
+        self.limit = limit if limit is not None else LLM_MAX_CONSECUTIVE_FAILURES
+        self._lock = threading.Lock()
+        self._failures = 0
+        self._tripped: Optional[BaseException] = None
+
+    def check(self) -> None:
+        """Raise LLMRunAborted if the breaker has tripped."""
+        if self._tripped is not None:
+            raise LLMRunAborted(self._message(self._tripped)) from self._tripped
+
+    def record_success(self) -> None:
+        with self._lock:
+            self._failures = 0
+
+    def record_failure(self, error: BaseException) -> None:
+        """Count a failed call; raise LLMRunAborted once the limit is reached."""
+        with self._lock:
+            self._failures += 1
+            if self._tripped is None and self._failures >= self.limit:
+                self._tripped = error
+                logger.error(
+                    "Stopping the run: %d LLM calls failed in a row. Last error: %s",
+                    self._failures, error,
+                )
+        self.check()
+
+    def _message(self, error: BaseException) -> str:
+        return (
+            f"Stopped the run after {self.limit} LLM calls failed in a row "
+            f"(provider down or quota exhausted). Last error: {error}"
+        )
+
+
 _MIN_RETRY_WAIT_SECONDS = 10
 _MAX_RETRY_WAIT_SECONDS = 120
 # google.rpc.RetryInfo in JSON form; snake_case appears in gRPC-style payloads.
@@ -513,7 +609,7 @@ class TogetherLLM(LLMInterface):
                 last_exception = e
                 
                 # Check if this is a retryable error
-                if _is_rate_limit_error(e):
+                if _is_rate_limit_error(e) and not _is_quota_exhausted_error(e):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(e)
                         print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
@@ -625,7 +721,7 @@ class OpenAILLM(LLMInterface):
                 last_exception = e
                 
                 # Check if this is a retryable error
-                if _is_rate_limit_error(e):
+                if _is_rate_limit_error(e) and not _is_quota_exhausted_error(e):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(e)
                         print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
@@ -1243,7 +1339,7 @@ class GeminiLLM(LLMInterface):
                     continue
 
                 # Check if this is a retryable error
-                if _is_rate_limit_error(e):
+                if _is_rate_limit_error(e) and not _is_quota_exhausted_error(e):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(e)
                         snippet = error_str.replace("\n", " ")[:280]
@@ -1484,7 +1580,7 @@ class GeminiLLM(LLMInterface):
                 if self._drop_rejected_seed(config_kwargs, e):
                     config = self.types.GenerateContentConfig(**config_kwargs)
                     continue
-                if _is_rate_limit_error(e):
+                if _is_rate_limit_error(e) and not _is_quota_exhausted_error(e):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(e)
                         snippet = error_str.replace("\n", " ")[:280]

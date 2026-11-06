@@ -30,7 +30,7 @@ import random
 from pathlib import Path
 from schematiq.core.schema import Schema, Column, SchemaEvolution, ObservationUnit
 from schematiq.core.llm_call_tracker import LLMCallTracker
-from schematiq.core.llm_backends import _caused_by_invalid_api_key
+from schematiq.core.llm_backends import LLMRunAborted, is_outage_error, should_abort_run
 from schematiq.core.prompts import (
     get_prompts, get_observation_unit_prompts, SchemaMode, DRAFT_SCHEMA_TMPL,
     OBSERVATION_UNIT_CONTEXT_TMPL,
@@ -649,6 +649,11 @@ def load_initial_schema(initial_schema_path: Path, query: str, max_keys_schema: 
         return Schema(query=query, max_keys=max_keys_schema)
 
 
+# Discovery stops when this many batches in a row fail with an outage error
+# (after each call's own retries), instead of grinding through the corpus.
+_MAX_CONSECUTIVE_FAILED_BATCHES = 3
+
+
 def discover_schema(
     query: str | None,
     documents: List[str],
@@ -807,6 +812,7 @@ def discover_schema(
     # discovery; only if every attempted batch failed is the error re-raised.
     attempted_batches = 0
     failed_batches = 0
+    consecutive_failed_batches = 0
     last_batch_error: Exception | None = None
 
     for it, batch_docs_with_names in enumerate(batches[:max_iters], start=1):
@@ -872,9 +878,12 @@ def discover_schema(
                 observation_unit=observation_unit
             )
         except Exception as exc:
-            if _caused_by_invalid_api_key(exc):
+            if should_abort_run(exc):
                 raise
             failed_batches += 1
+            # Only an outage counts toward stopping; any other failure means
+            # the provider answered.
+            consecutive_failed_batches = consecutive_failed_batches + 1 if is_outage_error(exc) else 0
             last_batch_error = exc
             logging.exception("Iteration %d — LLM call failed, skipping batch %s", it, batch_filenames)
             non_contributing_files.extend(batch_filenames)
@@ -885,7 +894,15 @@ def discover_schema(
                 new_columns=[],
                 cumulative_documents=cumulative_docs
             )
+            if consecutive_failed_batches >= _MAX_CONSECUTIVE_FAILED_BATCHES:
+                # Each failed batch already spent its calls' retries; more
+                # batches in a row failing means the provider is down.
+                raise LLMRunAborted(
+                    f"Schema discovery stopped after {consecutive_failed_batches} "
+                    f"batches failed in a row. Last error: {exc}"
+                ) from exc
             continue
+        consecutive_failed_batches = 0
 
         # Apply suggested value additions to existing schema columns
         if suggested_value_additions:
