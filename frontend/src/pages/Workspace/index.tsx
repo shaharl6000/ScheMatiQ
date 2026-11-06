@@ -47,6 +47,7 @@ import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsS
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
 import api, { configAPI, loadAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
 import { rememberProject } from '@/utils/recentProjects';
+import { saveBlobAs } from '@/utils/saveFile';
 import type {
   CostEstimate,
   DataRow,
@@ -128,15 +129,13 @@ type RefreshDataOptions = {
   onCommitted?: (data: PaginatedData) => void;
 };
 
-async function downloadAs(path: string, filename: string): Promise<void> {
-  const response = await api.get(path, { responseType: 'blob' });
-  const blob = new Blob([response.data]);
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  window.URL.revokeObjectURL(url);
+// Opens a "Save as" dialog (folder + name) where the browser supports it, and
+// falls back to a plain download elsewhere. Returns false if the user cancelled.
+async function downloadAs(path: string, filename: string): Promise<boolean> {
+  return saveBlobAs(filename, async () => {
+    const response = await api.get(path, { responseType: 'blob' });
+    return new Blob([response.data]);
+  });
 }
 
 function Workspace() {

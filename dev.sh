@@ -21,6 +21,14 @@ set -euo pipefail
 #    that when running several instances at once so they don't share state.
 #    ./dev.sh --local     -> instance 0, forced local storage
 #    ./dev.sh 1 --local   -> instance 1, forced local storage
+#
+#  Backend log file:
+#    BACKEND_LOG=path writes backend output to that file instead of the shared
+#    terminal (follow it with `tail -f path`). Use it for any run whose logs you
+#    need complete. Piping `./dev.sh | tee` shares one pipe with npm, which can
+#    switch it to non-blocking mode; Python writes then fail with
+#    BlockingIOError (Errno 35) and log lines are lost.
+#    BACKEND_LOG=~/run.log ./dev.sh 1
 # ============================================================
 
 # Parse args: an optional instance number (positional) and an optional --local
@@ -83,6 +91,9 @@ echo "=================================================="
 echo " instance $N   (branch: $BRANCH)"
 echo "   backend  -> http://localhost:$BACK_PORT"
 echo "   frontend -> http://localhost:$FRONT_PORT"
+if [[ -n "${BACKEND_LOG:-}" ]]; then
+  echo "   backend log -> $BACKEND_LOG (tail -f it)"
+fi
 if [[ "$FORCE_LOCAL" == "1" ]]; then
   echo "   storage  -> local (isolated, forced): $DATA_DIR"
 else
@@ -103,6 +114,12 @@ echo "=================================================="
   cd "$DATA_DIR"
   if [[ "$FORCE_LOCAL" == "1" ]]; then
     export STORAGE_BACKEND="local"
+  fi
+  if [[ -n "${BACKEND_LOG:-}" ]]; then
+    # A regular file never blocks, so no log line is dropped. Unbuffered so
+    # print() output stays in order with logging output.
+    export PYTHONUNBUFFERED=1
+    exec >>"$BACKEND_LOG" 2>&1
   fi
   PATH="$VENV/bin:$PATH" \
   PYTHONPATH="$ROOT/backend" \

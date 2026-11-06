@@ -21,6 +21,11 @@ from app.models.upload import (
     ColumnMappingRequest, CompatibilityCheck
 )
 from app.services.file_parser import FileParser, format_column_header, is_system_file
+from app.services.grounding_flags import (
+    UNGROUNDED_COLUMNS_FIELD,
+    any_ungrounded,
+    ungrounded_columns,
+)
 from app.services.pipeline.data_query import session_data_read_failed
 from app.services.data_utils import (
     ensure_session_data_file_local,
@@ -684,6 +689,13 @@ async def export_upload_data(
                         if row_data.get('_source_document'):
                             has_source_document = True
 
+        # One extra column, only when some cell was kept without a supporting
+        # excerpt: which of the row's columns those are.
+        has_ungrounded = any_ungrounded(
+            row_data.get('data', {}) for row_data in raw_rows if isinstance(row_data.get('data'), dict)
+        )
+        schema_col_order = [col.name for col in session.columns if col.name]
+
         rows = []
         for row_data in raw_rows:
             flat_row = {}
@@ -691,6 +703,10 @@ async def export_upload_data(
                 for key, value in row_data['data'].items():
                     if key in schema_col_names:
                         flat_row[key] = flatten_cell_value(value)
+                if has_ungrounded:
+                    flat_row[UNGROUNDED_COLUMNS_FIELD] = ungrounded_columns(
+                        row_data['data'], schema_col_order
+                    )
                 if has_row_name:
                     flat_row['_row_name'] = row_data.get('row_name', '')
                 if has_unit_name:
@@ -732,6 +748,8 @@ async def export_upload_data(
             for col in session.columns:
                 if col.name in available_columns and col.name not in column_names:
                     column_names.append(col.name)
+            if UNGROUNDED_COLUMNS_FIELD in available_columns:
+                column_names.append(UNGROUNDED_COLUMNS_FIELD)
 
         # Write CSV with display headers (Title Case, matching UI)
         display_headers = {c: format_column_header(c) for c in column_names}

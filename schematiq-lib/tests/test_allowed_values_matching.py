@@ -14,7 +14,7 @@ from schematiq.value_extraction.config.prompts import (
     SYSTEM_PROMPT_VAL,
     SYSTEM_PROMPT_VAL_REEXTRACT,
     SYSTEM_PROMPT_VAL_STRICT,
-    SYSTEM_PROMPT_VAL_WITH_UNIT,
+    build_val_with_unit_prompt,
 )
 from schematiq.value_extraction.core.json_parser import JSONResponseParser
 from schematiq.value_extraction.utils.prompt_builder import PromptBuilder
@@ -161,7 +161,8 @@ def test_prompts_that_are_sent_describe_categorical_rules():
         SYSTEM_PROMPT_VAL,
         SYSTEM_PROMPT_VAL_STRICT,
         SYSTEM_PROMPT_VAL_REEXTRACT,
-        SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name="Method B"),
+        build_val_with_unit_prompt("Method B"),
+        build_val_with_unit_prompt(None),
     ):
         assert "suggested_for_allowed_values" not in prompt
         assert "@@CATEGORICAL_ALLOWED_VALUES_RULE@@" not in prompt

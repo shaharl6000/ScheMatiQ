@@ -366,8 +366,9 @@ def _get_genai_client():
     their best-effort contract."""
     from google import genai
     from app.services.chat.deps import get_gemini_api_key
+    from schematiq.core.llm_backends import gemini_http_options
 
-    return genai.Client(api_key=get_gemini_api_key())
+    return genai.Client(api_key=get_gemini_api_key(), http_options=gemini_http_options())
 
 
 def _verify_figure_caption(

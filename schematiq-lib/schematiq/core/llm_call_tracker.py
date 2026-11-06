@@ -37,10 +37,22 @@ try:
     from schematiq.core.cost_estimator import get_model_pricing, calculate_cost
 except ImportError:
     # Fallback if cost_estimator not available (e.g. during tests)
-    def get_model_pricing(provider, model): return {"input": 0.0, "output": 0.0}
+    def get_model_pricing(provider, model, as_of=None): return {"input": 0.0, "output": 0.0}
     def calculate_cost(input_tokens, output_tokens, pricing): return 0.0
 
 logger = logging.getLogger(__name__)
+
+
+def _provider_for_model(model: str) -> str:
+    """Best-effort provider name for pricing lookup."""
+    name = (model or "").lower()
+    if "gemini" in name:
+        return "gemini"
+    if "gpt" in name:
+        return "openai"
+    if "llama" in name or "mistral" in name:
+        return "together"
+    return "unknown"
 
 
 class LLMCallTracker:
@@ -80,27 +92,71 @@ class LLMCallTracker:
         with self._lock:
             return self._current_stage
 
-    def increment(self, *, model: str = "", prompt_length: int = 0, completion_length: int = 0) -> None:
+    def increment(
+        self,
+        *,
+        model: str = "",
+        prompt_length: int = 0,
+        completion_length: int = 0,
+        input_tokens: Optional[int] = None,
+        output_tokens: Optional[int] = None,
+        thinking_tokens: Optional[int] = None,
+        cached_tokens: Optional[int] = None,
+        count_call: bool = True,
+    ) -> None:
         """Record one LLM API call under the current stage.
 
         Parameters
         ----------
         model : str, optional
             Model identifier (e.g. ``"gemini-2.5-flash-lite"``).
-        prompt_length : int, optional
-            Approximate character length (or token count) of the prompt sent to the LLM.
-        completion_length : int, optional
-            Approximate character length (or token count) of the completion received.
+        prompt_length, completion_length : int, optional
+            Character lengths of the prompt and the returned text. Used only
+            to estimate cost when the provider reported no token usage.
+        input_tokens : int, optional
+            Billed prompt tokens as reported by the provider (Gemini
+            ``prompt_token_count``, which already includes cached tokens).
+        output_tokens : int, optional
+            Billed response tokens, excluding thinking tokens.
+        thinking_tokens : int, optional
+            Thinking/reasoning tokens. Gemini bills these at the output rate
+            but reports them separately from ``candidates_token_count``.
+        cached_tokens : int, optional
+            Part of ``input_tokens`` served from a context cache (billed at
+            the cheaper cached-input rate).
+        count_call : bool, optional
+            ``False`` records the usage for cost only, without counting a call
+            toward the per-stage counts (and so the quota). Used for responses
+            that were billed but returned no usable text (empty / blocked).
         """
         with self._lock:
             stage = self._current_stage
-            self._counts[stage] = self._counts.get(stage, 0) + 1
+            if count_call:
+                self._counts[stage] = self._counts.get(stage, 0) + 1
             self._log.append({
                 "timestamp": time.time(),
                 "stage": stage,
                 "model": model,
                 "prompt_length": prompt_length,
                 "completion_length": completion_length,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "thinking_tokens": thinking_tokens,
+                "cached_tokens": cached_tokens,
+                "counted": count_call,
+            })
+
+    def record_cache_storage(self, *, model: str, tokens: int, seconds: float) -> None:
+        """Record context-cache storage (billed per token per hour, not a call)."""
+        with self._lock:
+            self._log.append({
+                "timestamp": time.time(),
+                "stage": self._current_stage,
+                "model": model,
+                "kind": "cache_storage",
+                "cache_tokens": int(tokens or 0),
+                "cache_seconds": float(seconds or 0.0),
+                "counted": False,
             })
 
     def get_counts(self) -> Dict[str, int]:
@@ -128,51 +184,79 @@ class LLMCallTracker:
             }
             
     def calculate_current_cost(self) -> Dict[str, Any]:
-        """Calculate current cost based on tracked calls.
-        
+        """Calculate the cost of the calls tracked so far.
+
+        Uses the provider-reported token usage when present: input tokens at
+        the input rate (cached part at the cached-input rate), output plus
+        thinking tokens at the output rate. Entries without usage (older
+        callers, providers that report none) fall back to ``chars // 4`` and
+        are counted in ``estimated_calls`` so the result says how much of it
+        is a guess. Context-cache storage entries are priced per token-hour.
+
         Returns:
-            Dict with total cost and breakdown.
+            Dict with total cost and token breakdown.
         """
         with self._lock:
             logs = list(self._log)
-            
+
         total_cost = 0.0
         total_input_tokens = 0
         total_output_tokens = 0
-        
+        total_thinking_tokens = 0
+        total_cached_tokens = 0
+        cache_storage_cost = 0.0
+        estimated_calls = 0
+
         for entry in logs:
-            model = entry.get("model", "")
-            # Assume lengths are roughly tokens if not specified otherwise
-            # If lengths are chars, we divide by 4. 
-            # The backends are passing lengths. Let's assume they are chars for now as per docstring "Approximate character length".
-            # But cost estimator expects tokens.
-            # I will standardize on passing TOKENS to increment if possible, or convert here.
-            # The backends currently pass `len(prompt_text)` which is chars.
-            # So I should divide by 4 here.
-            
-            input_tokens = entry.get("prompt_length", 0) // 4
-            output_tokens = entry.get("completion_length", 0) // 4
-            
+            model = entry.get("model", "") or ""
+            pricing = get_model_pricing(_provider_for_model(model), model)
+            input_rate = pricing.get("input", 1.0)
+            output_rate = pricing.get("output", 3.0)
+
+            if entry.get("kind") == "cache_storage":
+                hourly = pricing.get("cache_storage_per_hour", 0.0)
+                cost = (
+                    entry.get("cache_tokens", 0) / 1_000_000
+                    * hourly
+                    * entry.get("cache_seconds", 0.0) / 3600
+                )
+                cache_storage_cost += cost
+                total_cost += cost
+                continue
+
+            if entry.get("input_tokens") is not None:
+                input_tokens = int(entry.get("input_tokens") or 0)
+                output_tokens = int(entry.get("output_tokens") or 0)
+                thinking_tokens = int(entry.get("thinking_tokens") or 0)
+                cached_tokens = min(int(entry.get("cached_tokens") or 0), input_tokens)
+            else:
+                # No provider usage: the backends pass character lengths.
+                input_tokens = entry.get("prompt_length", 0) // 4
+                output_tokens = entry.get("completion_length", 0) // 4
+                thinking_tokens = 0
+                cached_tokens = 0
+                estimated_calls += 1
+
+            cached_rate = pricing.get("cached_input", input_rate)
+            total_cost += (
+                (input_tokens - cached_tokens) / 1_000_000 * input_rate
+                + cached_tokens / 1_000_000 * cached_rate
+                + (output_tokens + thinking_tokens) / 1_000_000 * output_rate
+            )
             total_input_tokens += input_tokens
-            total_output_tokens += output_tokens
-            
-            # Determine provider from model name or default
-            provider = "unknown"
-            if "gemini" in model.lower():
-                provider = "gemini"
-            elif "gpt" in model.lower():
-                provider = "openai"
-            elif "llama" in model.lower() or "mistral" in model.lower():
-                provider = "together" # or hf
-                
-            pricing = get_model_pricing(provider, model)
-            cost = calculate_cost(input_tokens, output_tokens, pricing)
-            total_cost += cost
-            
+            total_output_tokens += output_tokens + thinking_tokens
+            total_thinking_tokens += thinking_tokens
+            total_cached_tokens += cached_tokens
+
         return {
             "total_cost_usd": round(total_cost, 6),
             "total_input_tokens": total_input_tokens,
-            "total_output_tokens": total_output_tokens
+            # Includes thinking tokens: they are billed as output.
+            "total_output_tokens": total_output_tokens,
+            "total_thinking_tokens": total_thinking_tokens,
+            "total_cached_tokens": total_cached_tokens,
+            "cache_storage_cost_usd": round(cache_storage_cost, 6),
+            "estimated_calls": estimated_calls,
         }
 
     def reset(self, stage: Optional[str] = None) -> None:

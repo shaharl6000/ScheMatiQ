@@ -8,7 +8,6 @@ from typing import Dict, Any, List, Tuple, Optional
 
 from dateutil import parser as date_parser
 
-
 def _flatten_answer(answer: Any) -> str:
     """Convert a non-string answer (dict/list) to a clean readable string.
 
@@ -309,14 +308,15 @@ class JSONResponseParser:
                 except ValueError:
                     return answer, False, answer  # Can't parse, flag for review
 
-        # Categorical matching: case, extra whitespace, and punctuation at the
-        # ends. Abbreviations and synonyms are the model's job. A different
+        # Categorical matching: case, whitespace (also inside the value, so
+        # "766 F. Supp. 3d 266" matches "766 F.Supp.3d 266"), and punctuation at
+        # the ends. Abbreviations and synonyms are the model's job. A different
         # string stays as written and is not recorded as a suggestion.
         # ``threshold`` stays in the signature for existing callers.
-        answer_key = categorical_match_key(answer)
+        answer_key = categorical_match_key(answer).replace(" ", "")
         if answer_key:
             for av in allowed_values:
-                av_key = categorical_match_key(av)
+                av_key = categorical_match_key(av).replace(" ", "")
                 if av_key and av_key == answer_key:
                     return av, True, None
 

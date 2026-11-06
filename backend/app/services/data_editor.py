@@ -333,6 +333,8 @@ class DataEditor:
                     cell_value["answer"] = value
                     cell_value["excerpts"] = []
                     cell_value["manually_edited"] = True
+                    # A user-entered value is no longer a model guess.
+                    cell_value.pop("_ungrounded", None)
                 else:
                     row["data"][column] = {
                         "answer": value,
@@ -356,6 +358,7 @@ class DataEditor:
                 row[column]["answer"] = value
                 row[column]["excerpts"] = []
                 row[column]["manually_edited"] = True
+                row[column].pop("_ungrounded", None)
             else:
                 row[column] = {
                     "answer": value,

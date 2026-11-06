@@ -1,12 +1,13 @@
 """Table building orchestration for value extraction."""
 from __future__ import annotations
 
+import contextvars
 import json
 import time
 import shutil
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from tqdm import tqdm
 
 from schematiq.core.schema import Schema
@@ -329,7 +330,20 @@ class TableBuilder:
         written_rows = set()
         total_rows = len(papers_by_row)
 
-        for row_idx, (row_name, papers) in enumerate(papers_by_row.items(), 1):
+        if max_workers > 1 and schema.observation_unit:
+            self._process_rows_with_units_parallel(
+                list(papers_by_row.items()), doc_to_source, schema, retrieval_k,
+                max_new_tokens, max_workers, processed_papers, written_rows,
+                completed_rows, output_path,
+                known_units=known_units,
+                unit_targets_by_paper=unit_targets_by_paper,
+                feedback=feedback,
+            )
+            papers_by_row_sequential = {}
+        else:
+            papers_by_row_sequential = papers_by_row
+
+        for row_idx, (row_name, papers) in enumerate(papers_by_row_sequential.items(), 1):
             # Check for stop request before processing each row
             if self.should_stop and self.should_stop():
                 print(f"\n🛑 Stop requested - exiting after {row_idx-1}/{total_rows} rows")
@@ -434,6 +448,7 @@ class TableBuilder:
         total_units_written = 0
 
         for paper in papers:
+            # Check for stop request before each paper
             if self.should_stop and self.should_stop():
                 print("🛑 Stop requested during observation unit processing")
                 self._stopped = True
@@ -442,108 +457,25 @@ class TableBuilder:
             if paper in processed_papers:
                 continue
 
-            paper_title = paper.stem
-            source_dir = doc_to_source.get(paper, paper.parent)
-
-            # Scoped re-extraction marks a document with known_units=[] when none
-            # of its observation units are in scope for this run. Skip it here,
-            # before touching the file or firing progress callbacks -- reading
-            # the full text and reporting "processing" for a document we are
-            # about to discard wastes I/O and misleads progress/log output.
-            if known_units is not None and paper_title in known_units and not known_units[paper_title]:
-                self._skipped_documents.append(
-                    SkippedDocument(document=paper_title, reason=NO_KNOWN_UNITS)
-                )
-                print(f"⏭️  Skipping {paper_title}: not in scope for this run")
-                processed_papers.add(paper)
+            if self._skip_out_of_scope_paper(paper, known_units, processed_papers):
                 continue
 
             try:
-                paper_text = paper.read_text(encoding="utf-8", errors="ignore")
-                paper_known_units = known_units.get(paper_title) if known_units else None
-
-                if self.on_document_started:
-                    try:
-                        # Advance the progress counter by the number of observation
-                        # units this document actually contributes, not by 1 file --
-                        # a document can hold more than one known unit, and the
-                        # caller expresses total_documents in units once known_units
-                        # is in play (see reextraction_service._run_reextraction).
-                        unit_count_hint = len(paper_known_units) if paper_known_units else 1
-                        self.on_document_started(paper_title, unit_count_hint)
-                    except Exception:
-                        pass
-
-                print(f"🔍 Processing {paper_title} for observation units ({observation_unit.name})...")
-
-                # Extract values with observation units (may return multiple rows)
-                paper_unit_targets = unit_targets_by_paper.get(paper_title) if unit_targets_by_paper else None
-                extraction_result = self.paper_processor.extract_values_for_paper_with_units(
-                    paper_title=paper_title,
-                    paper_text=paper_text,
-                    schema=schema,
-                    max_new_tokens=max_new_tokens,
-                    mode="all",
-                    retrieval_k=retrieval_k,
-                    known_units=paper_known_units,
-                    unit_targets=paper_unit_targets,
-                    figures_dir=source_dir / "figures" / paper.stem,
-                    feedback=feedback,
+                paper_text = self._start_paper(paper, schema, known_units)
+                extraction_result = self._extract_paper_units(
+                    paper, paper_text, doc_to_source, schema, retrieval_k,
+                    max_new_tokens, known_units, unit_targets_by_paper, feedback,
                 )
-                unit_rows = extraction_result.rows
-                skip_reason = extraction_result.skip_reason
 
+                # Check for stop after extraction (in case it took a while)
                 if self.should_stop and self.should_stop():
                     self._stopped = True
                     return
 
-                # Track documents with no observation units found (distinct from "units found but no cells extracted")
-                if not unit_rows and skip_reason:
-                    self._skipped_documents.append(
-                        SkippedDocument(
-                            document=paper_title,
-                            reason=skip_reason.strip() or DEFAULT_SKIP_REASON,
-                        )
-                    )
-
-                # Write each unit row
-                for unit_row in unit_rows:
-                    # Add metadata
-                    unit_name = unit_row.get("_unit_name", paper_title)
-                    unit_row["_row_name"] = unit_name  # Use unit name as row name
-                    unit_row["_papers"] = [paper.name]
-                    unit_row["document_directory"] = str(source_dir)
-                    unit_row["_metadata"] = {
-                        "query": schema.query,
-                        "source_directories": [str(source_dir)],
-                        "observation_unit": observation_unit.name,
-                        "base_row_name": row_name,
-                    }
-
-                    # Write row if it has actual data columns
-                    if any(key for key in unit_row.keys() if not key.startswith('_') and key != "document_directory"):
-                        try:
-                            with output_path.open('a', encoding="utf-8") as f_out:
-                                f_out.write(json.dumps(unit_row, ensure_ascii=False) + "\n")
-                            total_units_written += 1
-                            print(f"  ✅ Wrote unit row: {unit_name}")
-
-                            # Notify callbacks
-                            if self.on_unit_row_written:
-                                try:
-                                    self.on_unit_row_written(dict(unit_row))
-                                except Exception as cb_err:
-                                    print(f"  ⚠️ on_unit_row_written callback error: {cb_err}")
-                            if self.on_value_extracted:
-                                for col_name, col_value in unit_row.items():
-                                    if not col_name.startswith('_') and col_name != "document_directory":
-                                        self.on_value_extracted(unit_name, col_name, col_value)
-
-                        except Exception as e:
-                            print(f"  ❌ Failed to write unit row {unit_name}: {e}")
-
-                processed_papers.add(paper)
-
+                total_units_written += self._commit_paper_units(
+                    row_name, paper, extraction_result, doc_to_source, schema,
+                    output_path, processed_papers,
+                )
             except Exception as e:
                 print(f"⚠️  Error processing {paper.name} for observation units: {e}")
 
@@ -551,7 +483,250 @@ class TableBuilder:
         if total_units_written > 0:
             written_rows.add(row_name)
             print(f"✅ Completed {row_name}: {total_units_written} observation unit rows written")
-    
+
+    # The four helpers below split one document's work into the part that may
+    # run on a worker thread (_extract_paper_units: LLM calls only) and the parts
+    # that stay on the coordinating thread (reading the file, progress
+    # callbacks, writing rows), so callbacks and output writes never run
+    # concurrently.
+
+    def _skip_out_of_scope_paper(self, paper: Path, known_units, processed_papers: set) -> bool:
+        """Skip a document that scoped re-extraction marked with known_units=[]."""
+        paper_title = paper.stem
+        # Scoped re-extraction marks a document with known_units=[] when none
+        # of its observation units are in scope for this run. Skip it here,
+        # before touching the file or firing progress callbacks -- reading
+        # the full text and reporting "processing" for a document we are
+        # about to discard wastes I/O and misleads progress/log output.
+        if known_units is not None and paper_title in known_units and not known_units[paper_title]:
+            self._skipped_documents.append(
+                SkippedDocument(document=paper_title, reason=NO_KNOWN_UNITS)
+            )
+            print(f"⏭️  Skipping {paper_title}: not in scope for this run")
+            processed_papers.add(paper)
+            return True
+
+        return False
+
+    def _start_paper(self, paper: Path, schema: Schema, known_units) -> str:
+        """Read a document and report it as started. Coordinating thread only."""
+        paper_title = paper.stem
+        paper_text = paper.read_text(encoding="utf-8", errors="ignore")
+        paper_known_units = known_units.get(paper_title) if known_units else None
+        if self.on_document_started:
+            try:
+                # Advance the progress counter by the number of observation
+                # units this document actually contributes, not by 1 file --
+                # a document can hold more than one known unit, and the
+                # caller expresses total_documents in units once known_units
+                # is in play (see reextraction_service._run_reextraction).
+                unit_count_hint = len(paper_known_units) if paper_known_units else 1
+                self.on_document_started(paper_title, unit_count_hint)
+            except Exception:
+                pass
+        print(f"🔍 Processing {paper_title} for observation units ({schema.observation_unit.name})...")
+        return paper_text
+
+    def _extract_paper_units(
+        self, paper: Path, paper_text: str, doc_to_source: dict, schema: Schema,
+        retrieval_k: int, max_new_tokens: int, known_units, unit_targets_by_paper, feedback,
+    ):
+        """Run the LLM extraction for one document.
+
+        Safe on a worker thread: it writes nothing and fires no TableBuilder
+        callbacks. PaperProcessor keeps per-document state per thread.
+        """
+        paper_title = paper.stem
+        source_dir = doc_to_source.get(paper, paper.parent)
+        paper_known_units = known_units.get(paper_title) if known_units else None
+        paper_unit_targets = unit_targets_by_paper.get(paper_title) if unit_targets_by_paper else None
+        return self.paper_processor.extract_values_for_paper_with_units(
+            paper_title=paper_title,
+            paper_text=paper_text,
+            schema=schema,
+            max_new_tokens=max_new_tokens,
+            mode="all",
+            retrieval_k=retrieval_k,
+            known_units=paper_known_units,
+            unit_targets=paper_unit_targets,
+            figures_dir=source_dir / "figures" / paper.stem,
+            feedback=feedback,
+        )
+
+    def _commit_paper_units(
+        self, row_name: str, paper: Path, extraction_result, doc_to_source: dict,
+        schema: Schema, output_path: Path, processed_papers: set,
+    ) -> int:
+        """Write one document's unit rows and fire callbacks. Coordinating thread only.
+
+        Returns the number of unit rows written.
+        """
+        observation_unit = schema.observation_unit
+        paper_title = paper.stem
+        source_dir = doc_to_source.get(paper, paper.parent)
+        total_units_written = 0
+        unit_rows = extraction_result.rows
+        skip_reason = extraction_result.skip_reason
+
+        if not unit_rows and skip_reason:
+            self._skipped_documents.append(
+                SkippedDocument(
+                    document=paper_title,
+                    reason=skip_reason.strip() or DEFAULT_SKIP_REASON,
+                )
+            )
+
+        # Write each unit row
+        for unit_row in unit_rows:
+            # Add metadata
+            unit_name = unit_row.get("_unit_name", paper_title)
+            unit_row["_row_name"] = unit_name  # Use unit name as row name
+            unit_row["_papers"] = [paper.name]
+            unit_row["document_directory"] = str(source_dir)
+            unit_row["_metadata"] = {
+                "query": schema.query,
+                "source_directories": [str(source_dir)],
+                "observation_unit": observation_unit.name,
+                "base_row_name": row_name,
+            }
+
+            # Write row if it has actual data columns
+            if any(key for key in unit_row.keys() if not key.startswith('_') and key != "document_directory"):
+                try:
+                    with output_path.open('a', encoding="utf-8") as f_out:
+                        f_out.write(json.dumps(unit_row, ensure_ascii=False) + "\n")
+                    total_units_written += 1
+                    print(f"  ✅ Wrote unit row: {unit_name}")
+
+                    # Notify callbacks
+                    if self.on_unit_row_written:
+                        try:
+                            self.on_unit_row_written(dict(unit_row))
+                        except Exception as cb_err:
+                            print(f"  ⚠️ on_unit_row_written callback error: {cb_err}")
+                    if self.on_value_extracted:
+                        for col_name, col_value in unit_row.items():
+                            if not col_name.startswith('_') and col_name != "document_directory":
+                                self.on_value_extracted(unit_name, col_name, col_value)
+
+                except Exception as e:
+                    print(f"  ❌ Failed to write unit row {unit_name}: {e}")
+
+        processed_papers.add(paper)
+        return total_units_written
+
+    def _process_rows_with_units_parallel(
+        self,
+        rows: list,
+        doc_to_source: dict,
+        schema: Schema,
+        retrieval_k: int,
+        max_new_tokens: int,
+        max_workers: int,
+        processed_papers: set,
+        written_rows: set,
+        completed_rows: set,
+        output_path: Path,
+        known_units: Optional[Dict[str, List[str]]] = None,
+        unit_targets_by_paper: Optional[Dict[str, Dict[str, Any]]] = None,
+        feedback: Optional[str] = None,
+    ) -> None:
+        """Process documents of several rows in parallel, writing in the original order.
+
+        Up to ``max_workers`` documents are extracted at once. Reading files,
+        progress callbacks and writing rows stay on this thread, and results are
+        committed strictly in document order, so the output and the callback
+        sequence match the sequential path.
+        """
+        jobs = []  # (row_name, paper), in the original order
+        for row_name, papers in rows:
+            if row_name in completed_rows:
+                print(f"⏭️  Row {row_name} already completed, skipping...")
+                written_rows.add(row_name)
+                continue
+            for paper in papers:
+                jobs.append((row_name, paper))
+
+        papers_left = {}
+        for row_name, _ in jobs:
+            papers_left[row_name] = papers_left.get(row_name, 0) + 1
+        units_by_row = {}
+
+        print(f"🚀 Processing {len(jobs)} documents with {max_workers} parallel workers")
+        results = {}   # job index -> ("ok", result) | ("error", exc) | ("done", None)
+        inflight = {}  # future -> job index
+        next_submit = 0
+        next_commit = 0
+        executor = ThreadPoolExecutor(max_workers=max_workers)
+        try:
+            while next_commit < len(jobs):
+                stop = bool(self.should_stop and self.should_stop())
+                if stop:
+                    print("🛑 Stop requested during observation unit processing")
+                    self._stopped = True
+                    return
+
+                # Keep up to max_workers documents in flight.
+                while len(inflight) < max_workers and next_submit < len(jobs):
+                    idx = next_submit
+                    next_submit += 1
+                    _, paper = jobs[idx]
+                    if paper in processed_papers or self._skip_out_of_scope_paper(
+                        paper, known_units, processed_papers
+                    ):
+                        results[idx] = ("done", None)
+                        continue
+                    try:
+                        paper_text = self._start_paper(paper, schema, known_units)
+                    except Exception as e:
+                        results[idx] = ("error", e)
+                        continue
+                    # Run in a copy of this thread's context, so context
+                    # variables (the backend's session id in log lines) reach
+                    # the worker. A plain submit starts from an empty context.
+                    future = executor.submit(
+                        contextvars.copy_context().run,
+                        self._extract_paper_units, paper, paper_text, doc_to_source,
+                        schema, retrieval_k, max_new_tokens, known_units,
+                        unit_targets_by_paper, feedback,
+                    )
+                    inflight[future] = idx
+
+                # Commit every finished document that is next in order.
+                while next_commit in results:
+                    kind, value = results.pop(next_commit)
+                    row_name, paper = jobs[next_commit]
+                    if kind == "ok":
+                        try:
+                            units_by_row[row_name] = units_by_row.get(row_name, 0) + self._commit_paper_units(
+                                row_name, paper, value, doc_to_source, schema,
+                                output_path, processed_papers,
+                            )
+                        except Exception as e:
+                            print(f"⚠️  Error processing {paper.name} for observation units: {e}")
+                    elif kind == "error":
+                        print(f"⚠️  Error processing {paper.name} for observation units: {value}")
+                    papers_left[row_name] -= 1
+                    if papers_left[row_name] == 0 and units_by_row.get(row_name, 0) > 0:
+                        written_rows.add(row_name)
+                        print(f"✅ Completed {row_name}: {units_by_row[row_name]} observation unit rows written")
+                    next_commit += 1
+
+                if next_commit >= len(jobs) or not inflight:
+                    continue
+
+                done, _ = wait(list(inflight), return_when=FIRST_COMPLETED)
+                for future in done:
+                    idx = inflight.pop(future)
+                    try:
+                        results[idx] = ("ok", future.result())
+                    except Exception as e:
+                        results[idx] = ("error", e)
+        finally:
+            # On stop or error, drop documents that have not started; let the
+            # running ones finish their current call.
+            executor.shutdown(wait=True, cancel_futures=True)
+
     def _process_row_one_by_one_multi_dirs(self, current_row: dict, papers: list[Path],
                                           doc_to_source: dict, schema: Schema,
                                           retrieval_k: int, max_new_tokens: int,
@@ -631,6 +806,7 @@ class TableBuilder:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_paper = {
                     executor.submit(
+                        contextvars.copy_context().run,
                         self._extract_values_from_paper_file,
                         paper, schema, retrieval_k, max_new_tokens, row_name
                     ): paper for paper in unprocessed_papers
@@ -813,6 +989,7 @@ class TableBuilder:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_paper = {
                     executor.submit(
+                        contextvars.copy_context().run,
                         self.paper_processor.process_single_paper,
                         doc_path, schema, max_new_tokens, mode, retrieval_k, processed_papers
                     ): doc_path

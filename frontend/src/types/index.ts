@@ -466,6 +466,10 @@ export interface ScheMatiQAnswerWithExcerpts {
   // cell that was never extracted). Displays blank identically either way, so
   // this is the only signal that distinguishes the two in the Data sheet.
   _confirmed_empty?: boolean;
+  // Set when the model gave a value but no excerpt from the document supports
+  // it (an inference, an absence value, or outside knowledge). The value is
+  // kept and shown with a marker instead of being deleted.
+  _ungrounded?: boolean;
 }
 
 export type CellValue = string | number | boolean | null | undefined | ScheMatiQAnswerWithExcerpts | unknown[] | Record<string, unknown>;
