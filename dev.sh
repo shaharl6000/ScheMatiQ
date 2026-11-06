@@ -29,6 +29,13 @@ set -euo pipefail
 #    switch it to non-blocking mode; Python writes then fail with
 #    BlockingIOError (Errno 35) and log lines are lost.
 #    BACKEND_LOG=~/run.log ./dev.sh 1
+#
+#  Parallel extraction:
+#    Local runs extract 4 documents at once (SCHEMATIQ_EXTRACTION_WORKERS).
+#    Production keeps the backend default of 1. To change it locally, set
+#    SCHEMATIQ_EXTRACTION_WORKERS in the shell or in backend/.env (both win
+#    over this default). Lower it if Gemini returns 429 (rate limit), e.g.
+#    when running several instances at once.
 # ============================================================
 
 # Parse args: an optional instance number (positional) and an optional --local
@@ -86,6 +93,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Parallel extraction by default for local runs only; an explicit value in the
+# shell or in backend/.env wins (load_dotenv does not override the environment,
+# so we must not export a value when .env sets one).
+if [[ -z "${SCHEMATIQ_EXTRACTION_WORKERS:-}" ]] \
+   && ! grep -q '^SCHEMATIQ_EXTRACTION_WORKERS=' "$ROOT/backend/.env" 2>/dev/null; then
+  export SCHEMATIQ_EXTRACTION_WORKERS=4
+fi
+
 BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
 echo "=================================================="
 echo " instance $N   (branch: $BRANCH)"
@@ -94,6 +109,7 @@ echo "   frontend -> http://localhost:$FRONT_PORT"
 if [[ -n "${BACKEND_LOG:-}" ]]; then
   echo "   backend log -> $BACKEND_LOG (tail -f it)"
 fi
+echo "   extraction workers -> ${SCHEMATIQ_EXTRACTION_WORKERS:-from backend/.env}"
 if [[ "$FORCE_LOCAL" == "1" ]]; then
   echo "   storage  -> local (isolated, forced): $DATA_DIR"
 else
