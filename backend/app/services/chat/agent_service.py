@@ -575,8 +575,11 @@ class ChatAgentService:
             with self._client_lock:
                 if self._genai_client is None:
                     from google import genai
+                    from schematiq.core.llm_backends import gemini_http_options
 
-                    self._genai_client = genai.Client(api_key=get_gemini_api_key())
+                    self._genai_client = genai.Client(
+                        api_key=get_gemini_api_key(), http_options=gemini_http_options()
+                    )
         return self._genai_client
 
     def _create_gemini_chat(
