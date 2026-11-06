@@ -403,3 +403,34 @@ def test_body_line_and_caption_across_the_gutter_are_not_joined():
              _box(59, 634.5, 296, "FIG. 1. Biochemical characterization of GST-An3 ATPase ac-", height=7.5)]
 
     assert convert_to_txt._join_rows(built) == [text for _, text in built]
+
+
+def test_glyph_just_past_its_line_edge_stays_on_its_line(tmp_path):
+    # PyMuPDF can measure a glyph narrower than pdfplumber does (a bracket in
+    # a Hebrew court decision's footnote marker), so the char sits just past
+    # its line's box and used to be dumped at the end of the page.
+    from reportlab.pdfgen.canvas import Canvas
+
+    path = tmp_path / "paper.pdf"
+    c = Canvas(str(path))
+    c.setFont("Helvetica", 10)
+    for y in range(750, 400, -14):
+        c.drawString(50, y, "Body text of the paper sits in ordinary single lines here.")
+    c.drawString(300, 380, "[19]")
+    c.showPage()
+    c.save()
+
+    layout_doc = convert_to_txt._open_layout_document(path)
+    try:
+        lines, layout_chars = convert_to_txt._page_line_layout(layout_doc, 0)
+    finally:
+        convert_to_txt._close_layout_document(layout_doc)
+    # Narrow the marker's line box so "[" falls just outside it.
+    k = min(range(len(lines)), key=lambda i: abs(lines[i][0] - 300))
+    x0, y0, x1, y1 = lines[k]
+    lines[k] = (x0 + 3.5, y0, x1, y1)
+    with pdfplumber.open(path) as pdf:
+        by_lines = _extract_page_text_by_lines(pdf.pages[0], (lines, layout_chars))
+
+    assert "[19]" in by_lines.split("\n")
+    assert "[" not in by_lines.replace("[19]", "")

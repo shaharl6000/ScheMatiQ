@@ -581,6 +581,14 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", line_layout: Tuple
         candidates = [k for k in by_row.get(int(cy), ())
                       if lines[k][0] - _LINE_SLACK_PT <= cx <= lines[k][2] + _LINE_SLACK_PT
                       and lines[k][1] - _LINE_SLACK_PT <= cy <= lines[k][3] + _LINE_SLACK_PT]
+        if not candidates:
+            # A glyph the two libraries measure differently (a bracket in a
+            # right-to-left line) can sit just past its line's edge: take the
+            # line at its height within one character width.
+            reach = max(c["x1"] - c["x0"], _LINE_SLACK_PT)
+            candidates = [k for k in by_row.get(int(cy), ())
+                          if lines[k][0] - reach <= c["x1"] and c["x0"] <= lines[k][2] + reach
+                          and lines[k][1] - _LINE_SLACK_PT <= cy <= lines[k][3] + _LINE_SLACK_PT]
         if candidates:
             placed[min(candidates, key=lambda k: abs((lines[k][1] + lines[k][3]) / 2 - cy))].append(c)
         elif not c["text"].isspace():
