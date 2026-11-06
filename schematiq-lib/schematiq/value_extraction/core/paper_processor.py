@@ -36,7 +36,10 @@ from schematiq.core.results import UnitIdentificationResult, ExtractionResult
 from schematiq.value_extraction.config.messages import (
     NO_UNITS_FOUND, NO_KNOWN_UNITS, KNOWN_UNITS_EMPTY
 )
-from schematiq.core.llm_backends import LLMInterface, _caused_by_invalid_api_key, _is_missing_cache_error
+from schematiq.core.llm_backends import (
+    ConsecutiveFailureBreaker, LLMInterface, _is_missing_cache_error, is_outage_error,
+    should_abort_run,
+)
 from sentence_transformers import util as st_util
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.core import utils
@@ -218,6 +221,33 @@ class StopRequestedException(Exception):
     pass
 
 
+def _counted_llm_call(breaker, call, *args, **kwargs):
+    """Make one LLM call and report its outcome to the run's failure breaker.
+
+    A call that still fails with an outage error (timeout, 5xx, 429) after the
+    backend's own retries counts toward the breaker, which raises
+    LLMRunAborted once too many fail in a row; after that every call fails at
+    once. Any other error means the provider answered, so it resets the count
+    like a success. Errors that end the run anyway (bad key, exhausted quota)
+    pass through untouched.
+    """
+    if breaker is None:
+        return call(*args, **kwargs)
+    breaker.check()
+    try:
+        result = call(*args, **kwargs)
+    except Exception as e:
+        if should_abort_run(e):
+            raise
+        if is_outage_error(e) and not _is_missing_cache_error(e):
+            breaker.record_failure(e)
+        else:
+            breaker.record_success()
+        raise
+    breaker.record_success()
+    return result
+
+
 class PaperProcessor:
     """Handles value extraction from individual papers."""
 
@@ -271,6 +301,9 @@ class PaperProcessor:
         self._cached_fallback_retriever = None
         # Excerpt grounding for hallucination detection
         self.excerpt_grounder = ExcerptGrounder()
+        # Stops the run when LLM calls keep failing (see _counted_llm_call).
+        # One per PaperProcessor, i.e. per run, shared by its worker threads.
+        self._llm_breaker = ConsecutiveFailureBreaker()
         # Active context cache for current document (Gemini only)
         self._active_context_cache = None
         # (system_prompt, document) when a document gets no context cache; see _generate.
@@ -594,7 +627,10 @@ class PaperProcessor:
             cache = self._active_context_cache
             cached_prompt = self._inline_system_into_first_user(prompt) if isinstance(prompt, list) else prompt
             try:
-                return self.llm.generate_with_cache(cached_prompt, cache, **kwargs)
+                return _counted_llm_call(
+                    getattr(self, "_llm_breaker", None),
+                    self.llm.generate_with_cache, cached_prompt, cache, **kwargs,
+                )
             except Exception as e:
                 if not _is_missing_cache_error(e):
                     raise
@@ -624,7 +660,9 @@ class PaperProcessor:
                  {"role": "user", "content": document_text}]
                 + self._inline_system_into_first_user(prompt)
             )
-        return self.llm.generate(prompt, **kwargs)
+        return _counted_llm_call(
+            getattr(self, "_llm_breaker", None), self.llm.generate, prompt, **kwargs,
+        )
 
     @staticmethod
     def _inline_system_into_first_user(prompt: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1986,6 +2024,8 @@ class PaperProcessor:
                     )
 
             except Exception as e:
+                if should_abort_run(e):
+                    raise
                 last_error = str(e)
                 last_format = "exception"
                 logger.warning(
@@ -2404,7 +2444,7 @@ class PaperProcessor:
                         feedback=feedback,
                     )
                 except Exception as e:
-                    if _caused_by_invalid_api_key(e):
+                    if should_abort_run(e):
                         raise
                     logger.exception(
                         "[%s] Extraction failed for unit %s, skipping it", paper_title, unit_name
