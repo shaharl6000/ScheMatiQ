@@ -1,22 +1,12 @@
 """JSON response parsing and validation for LLM outputs."""
 
-import difflib
 import json
 import re
+import string
 from datetime import datetime
 from typing import Dict, Any, List, Tuple, Optional
 
 from dateutil import parser as date_parser
-
-# Numbers inside a value, with digit-group separators kept together
-# ("1,000", "86.4", "3:21").
-_NUMBER_RE = re.compile(r"\d+(?:[.,:/]\d+)*")
-
-
-def _numbers(text: str) -> set:
-    """Return the numbers in *text*, with thousands commas removed."""
-    return {m.group().replace(",", "") for m in _NUMBER_RE.finditer(text)}
-
 
 def _flatten_answer(answer: Any) -> str:
     """Convert a non-string answer (dict/list) to a clean readable string.
@@ -49,6 +39,40 @@ def _flatten_answer(answer: Any) -> str:
             return '; '.join(parts)
         return ', '.join(str(v) for v in answer)
     return str(answer)
+
+
+def is_categorical_allowed_values(allowed_values: Optional[List[str]]) -> bool:
+    """True when allowed_values is a list of labels, not a type or range constraint.
+
+    A single item that is ``number``, ``date`` / ``date:...``, or a numeric
+    range such as ``0-100`` is a constraint. Every other non-empty list is
+    categorical, including a one-label list such as ``["yes"]``.
+    """
+    if not allowed_values:
+        return False
+    if len(allowed_values) != 1:
+        return True
+    token = str(allowed_values[0]).strip().lower()
+    if token == "number" or token == "date" or token.startswith("date:"):
+        return False
+    if re.fullmatch(r"-?\d+(?:\.\d+)?--?\d+(?:\.\d+)?", token.replace(" ", "")):
+        return False
+    return True
+
+
+def categorical_match_key(value: str) -> str:
+    """Fold case, extra whitespace, and punctuation at the ends.
+
+    ``"Yes."`` and ``"  yes "`` both become ``"yes"``. Punctuation inside the
+    value stays, so ``"Type 1"`` and ``"Type 2"`` stay distinct.
+    """
+    text = re.sub(r"\s+", " ", value.strip().lower())
+    while text:
+        stripped = text.strip(string.punctuation).strip()
+        if stripped == text:
+            break
+        text = re.sub(r"\s+", " ", stripped)
+    return text
 
 
 class JSONResponseParser:
@@ -137,8 +161,8 @@ class JSONResponseParser:
                 entry: Dict[str, Any] = {
                     "answer": answer, "excerpts": excerpts, "figure_refs": figure_refs,
                 }
-                if val.get("suggested_for_allowed_values"):
-                    entry["suggested_for_allowed_values"] = True
+                # suggested_for_allowed_values is ignored. A stored flag on an
+                # old cell, or one the model still emits, does not change the answer.
                 norm[col] = entry
             else:
                 norm[col] = {"answer": str(val), "excerpts": [], "figure_refs": []}
@@ -225,18 +249,17 @@ class JSONResponseParser:
         threshold: float = 0.8
     ) -> Tuple[str, bool, Optional[str]]:
         """
-        Normalize extracted answer to closest allowed value using soft matching.
+        Normalize an extracted answer against allowed_values.
         Returns (normalized_answer, was_matched, unmatched_original).
 
-        - unmatched_original: Set to the original answer when it didn't match (for schema evolution tracking)
+        ``unmatched_original`` is set for a date, number, or range value that
+        could not be parsed. A categorical value that does not match is kept
+        as written and ``unmatched_original`` stays None.
 
-        Soft enforcement strategy:
         1. Date constraints (single-item "date" / "date:...") -> parse and format
         2. Numeric constraints (single-item "number" or min-max range)
-        3. Case-insensitive exact match -> return allowed value
-        4. Fuzzy match above threshold -> return allowed value (only among
-           allowed values with the same numbers as the answer)
-        5. No match -> keep original answer and flag for schema evolution
+        3. Categorical: match ignoring case, extra whitespace, and punctuation
+           at the ends. Otherwise keep the original answer.
         """
         if not allowed_values or not answer:
             return answer, False, None
@@ -285,32 +308,19 @@ class JSONResponseParser:
                 except ValueError:
                     return answer, False, answer  # Can't parse, flag for review
 
-        # Categorical matching: case-insensitive exact match
-        answer_lower = answer.lower().strip()
-        for av in allowed_values:
-            if av.lower().strip() == answer_lower:
-                return av, True, None
+        # Categorical matching: case, whitespace (also inside the value, so
+        # "766 F. Supp. 3d 266" matches "766 F.Supp.3d 266"), and punctuation at
+        # the ends. Abbreviations and synonyms are the model's job. A different
+        # string stays as written and is not recorded as a suggestion.
+        # ``threshold`` stays in the signature for existing callers.
+        answer_key = categorical_match_key(answer).replace(" ", "")
+        if answer_key:
+            for av in allowed_values:
+                av_key = categorical_match_key(av).replace(" ", "")
+                if av_key and av_key == answer_key:
+                    return av, True, None
 
-        # Fuzzy matching using difflib. Only values with the same numbers are
-        # candidates: character similarity treats "2025 WL 1325305" and
-        # "2025 WL 1825431" (or "phase 2" and "phase 3") as near-duplicates,
-        # but a different number is a different value, not a spelling variant.
-        answer_numbers = _numbers(answer_lower)
-        best_match: Optional[str] = None
-        best_ratio: float = 0.0
-        for av in allowed_values:
-            if _numbers(av.lower()) != answer_numbers:
-                continue
-            ratio = difflib.SequenceMatcher(None, answer_lower, av.lower()).ratio()
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_match = av
-
-        if best_ratio >= threshold and best_match is not None:
-            return best_match, True, None
-
-        # No match - keep original (soft enforcement) and flag for schema evolution
-        return answer, False, answer
+        return answer, False, None
 
     def postprocess(
         self,
@@ -350,9 +360,6 @@ class JSONResponseParser:
                 out[col] = {"answer": "", "excerpts": [], "_confirmed_empty": True}
                 continue
 
-            # Check if LLM flagged this as a suggested new value
-            suggested_for_allowed = entry.get("suggested_for_allowed_values", False)
-
             # A figure_refs citation counts as "they gave evidence" the same
             # way a text excerpt does — an image-backed answer legitimately
             # has no text excerpt, and shouldn't be treated as an unsupported
@@ -379,13 +386,14 @@ class JSONResponseParser:
             if normalized:
                 out[col]["normalized_to_allowed"] = True
 
-            # Track unmatched values for schema evolution
-            if unmatched_original is not None or suggested_for_allowed:
-                value_to_track = unmatched_original or ans
+            # Date/number/range failures still report the original text.
+            # A categorical value that is not in the list stays in the cell
+            # and is not recorded as a suggestion.
+            if unmatched_original is not None:
                 if col not in unmatched_values:
                     unmatched_values[col] = []
-                if value_to_track not in unmatched_values[col]:
-                    unmatched_values[col].append(value_to_track)
-                out[col]["unmatched_value"] = value_to_track
+                if unmatched_original not in unmatched_values[col]:
+                    unmatched_values[col].append(unmatched_original)
+                out[col]["unmatched_value"] = unmatched_original
 
         return out, unmatched_values

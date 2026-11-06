@@ -332,9 +332,6 @@ class Schema:
             }
             if col.allowed_values is not None:
                 col_dict["allowed_values"] = col.allowed_values
-            # Include auto_expand_threshold for LLM awareness
-            if col.auto_expand_threshold is not None:
-                col_dict["auto_expand_threshold"] = col.auto_expand_threshold
             if col.locked:
                 col_dict["locked"] = True
             result.append(col_dict)
