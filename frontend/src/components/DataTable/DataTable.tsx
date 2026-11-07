@@ -39,7 +39,7 @@ import {
 import { PaginatedData, CellValue, CellStatus, DataRow, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
 import { sessionAPI, schematiqAPI, observationUnitAPI } from '../../services/api';
 import { DocumentSummary } from '../../types/unit';
-import EditableCell, { getEditableValue } from './EditableCell';
+import EditableCell from './EditableCell';
 import { ToastAction } from '@/components/ui/toast';
 import {
   formatColumnName,
@@ -76,7 +76,6 @@ import FilterDialog from './FilterDialog';
 import TableOptionsMenu from './TableOptionsMenu';
 import BulkActionToolbar from './BulkActionToolbar';
 import { useRowSelection } from './hooks/useRowSelection';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -340,7 +339,7 @@ const DataTable: React.FC<DataTableProps> = ({
   };
 
   // Row selection state
-  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [, setHoveredRowId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
@@ -655,10 +654,6 @@ const DataTable: React.FC<DataTableProps> = ({
 
   const {
     selectedRows,
-    isAllPageSelected,
-    isIndeterminate,
-    toggleRow,
-    toggleAllPage,
     clearSelection,
     isSelected,
     selectedCount,
@@ -1399,7 +1394,6 @@ const DataTable: React.FC<DataTableProps> = ({
                   const isNewlyAdded = newlyAddedRows?.has(actualRowIndex) || false;
                   const isStreaming = row.row_name ? streamingCells?.has(row.row_name) : false;
                   const rowSelected = isSelected(rowId);
-                  const showCheckbox = hoveredRowId === rowId || selectedCount > 0;
                   // Add thicker border between doc groups when observation units present
                   const isFirstRowOfGroup = hasObservationUnits && shouldRenderDocNameCell(rowIndex);
                   const isGroupBoundary = isFirstRowOfGroup && rowIndex > 0;

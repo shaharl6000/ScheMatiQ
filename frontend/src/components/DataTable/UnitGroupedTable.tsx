@@ -29,7 +29,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -64,7 +63,6 @@ import { DataRow, CellValue, CellStatus, ModalContent, ScheMatiQAnswerWithExcerp
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { ToastAction } from '@/components/ui/toast';
-import { getEditableValue } from './EditableCell';
 import { formatColumnName } from '../../utils/formatting';
 import {
   buildColumnMetadata,
@@ -285,7 +283,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   const [modalContent, setModalContent] = useState<ModalContent>({ title: '', content: null });
 
   // Row selection state
-  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [, setHoveredRowId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
@@ -465,11 +463,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   }, [processedRows]);
 
   const {
-    isAllPageSelected,
-    isIndeterminate,
     selectedRows,
-    toggleRow,
-    toggleAllPage,
     clearSelection,
     isSelected,
     selectedCount,
@@ -944,7 +938,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               {processedRows.map((row, rowIndex) => {
                 const rowId = row._unit_name || row.row_name || '';
                 const rowSelected = isSelected(rowId);
-                const showCheckbox = hoveredRowId === rowId || selectedCount > 0;
                 const isFirstOfGroup = shouldRenderUnitCell(rowIndex);
                 const isGroupBoundary = isFirstOfGroup && rowIndex > 0;
                 const groupIndex = getUnitGroupIndex(rowIndex);
