@@ -74,6 +74,26 @@ if [[ -d "$ROOT/research" ]] && [[ ! -e "$ROOT/.dev-data/research" ]]; then
   ln -sfn "$ROOT/research" "$ROOT/.dev-data/research"
 fi
 
+# PIDs listening on a TCP port (empty if free).
+port_pids() {
+  lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true
+}
+
+# Refuse to start when a port is taken (usually a leftover instance that did not
+# shut down). Otherwise uvicorn fails with "Address already in use" while the
+# frontend starts anyway and talks to the old, possibly hung, backend.
+for port in "$BACK_PORT" "$FRONT_PORT"; do
+  busy="$(port_pids "$port")"
+  if [[ -n "$busy" ]]; then
+    echo "error: port $port is already in use (instance $N not started):" >&2
+    for pid in $busy; do
+      echo "  $(ps -p "$pid" -o pid=,lstart=,command= 2>/dev/null | cut -c1-160)" >&2
+    done
+    echo "Stop it first, e.g.: kill $(echo $busy)   (if it does not exit: kill -9 $(echo $busy))" >&2
+    exit 1
+  fi
+done
+
 cleanup() {
   echo
   echo "shutting down instance $N..."
@@ -87,7 +107,20 @@ cleanup() {
   for port in "$BACK_PORT" "$FRONT_PORT"; do
     while read -r pid; do
       [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
-    done < <(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+    done < <(port_pids "$port")
+  done
+  # A backend stuck in a long LLM call or a worker thread can ignore SIGTERM and
+  # keep the port, which breaks the next start of this instance. Give processes
+  # a few seconds to exit, then force-stop whatever still holds our ports.
+  local _
+  for _ in 1 2 3 4 5; do
+    [[ -z "$(port_pids "$BACK_PORT")$(port_pids "$FRONT_PORT")" ]] && break
+    sleep 1
+  done
+  for port in "$BACK_PORT" "$FRONT_PORT"; do
+    while read -r pid; do
+      [[ -n "$pid" ]] && kill -9 "$pid" 2>/dev/null || true
+    done < <(port_pids "$port")
   done
   wait 2>/dev/null || true
 }

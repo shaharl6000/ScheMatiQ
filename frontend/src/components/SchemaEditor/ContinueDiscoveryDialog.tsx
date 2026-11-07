@@ -30,7 +30,6 @@ import {
 
 import {
   ContinueDiscoveryDocuments,
-  ContinueDiscoveryStatus,
   NewColumnInfo,
   ColumnInfo,
   DocumentAvailabilityResponse,
