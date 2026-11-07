@@ -51,7 +51,6 @@ import { saveBlobAs } from '@/utils/saveFile';
 import type {
   CostEstimate,
   DataRow,
-  DocumentAvailabilityResponse,
   FigureExcerpt,
   PaginatedData,
   ScheMatiQConfig,
