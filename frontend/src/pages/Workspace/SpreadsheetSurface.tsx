@@ -21,6 +21,7 @@ import { observationUnitAPI, schemaAPI, schematiqAPI, CELL_BATCH_SIZE } from '@/
 import type { CellBatchItem } from '@/services/api';
 import type { ColumnInfo, DataRow, FigureExcerpt, PaginatedData, SchemaData, TextExcerpt } from '@/types';
 import { formatColumnName } from '@/utils/formatting';
+import { createFilterValueCountLabeler } from './filterValueCounts';
 import type { EditCommand } from './hooks/useEditHistory';
 
 import {
@@ -1888,6 +1889,14 @@ export function SpreadsheetSurface({
   // so the header dropdown also needs the custom items. The predefined
   // `filter_*` keys are re-included so the "Filter by condition/value" UI is
   // preserved.
+  // Adds an occurrence count to each "Filter by value" item ("district (12)").
+  // Stable identity, so the wrapper's per-render updateSettings re-push is a
+  // no-op for this hook.
+  const filterValueCountLabeler = useMemo(
+    () => createFilterValueCountLabeler(() => hotTableRef.current?.hotInstance),
+    [hotTableRef],
+  );
+
   const dropdownMenuConfig = useMemo(() => {
     if (activeSheet !== 'data') return true;
     return {
@@ -1982,6 +1991,7 @@ export function SpreadsheetSurface({
         contextMenu={contextMenuConfig}
         filters
         dropdownMenu={dropdownMenuConfig}
+        modifyFiltersMultiSelectValue={filterValueCountLabeler}
         columnSorting={!hasMultiRowGroup}
         copyPaste
         sanitizer={sanitizeCellHtml}
