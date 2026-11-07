@@ -24,7 +24,6 @@ import { Separator } from '@/components/ui/separator';
 import { LLMConfig } from '../../types';
 import {
   getConfiguredProviders,
-  LLMProvider,
 } from '@/utils/apiKeyStorage';
 import {
   LLMProviderKey,

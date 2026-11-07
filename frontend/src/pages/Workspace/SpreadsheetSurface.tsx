@@ -21,6 +21,7 @@ import { observationUnitAPI, schemaAPI, schematiqAPI, CELL_BATCH_SIZE } from '@/
 import type { CellBatchItem } from '@/services/api';
 import type { ColumnInfo, DataRow, FigureExcerpt, PaginatedData, SchemaData, TextExcerpt } from '@/types';
 import { formatColumnName } from '@/utils/formatting';
+import { createFilterValueCountLabeler } from './filterValueCounts';
 import type { EditCommand } from './hooks/useEditHistory';
 
 import {
@@ -326,6 +327,26 @@ export function SpreadsheetSurface({
     }
   }, [hotTableRef]);
 
+  // Re-align after every commit, not just after Handsontable's own hooks.
+  //
+  // @handsontable/react pushes every prop through hot.updateSettings() in
+  // componentDidUpdate (inline callback props change identity on each render,
+  // so any re-render of this component counts: selecting a cell, clicking a
+  // column's dropdown button, opening its filter-by-value list). updateSettings
+  // calls render() -- which fires afterViewRender, so the sync above runs --
+  // and THEN calls wtOverlays.adjustElementsSize() (core.mjs, end of
+  // updateSettings). That second step resets the header overlay's hider to the
+  // master hider's width, the browser clamps the overlay's scrollLeft to the
+  // shorter range, and no hook fires afterwards. Scrolled fully right, the
+  // headers slide ~15px right of their columns again.
+  //
+  // The child's componentDidUpdate runs before this parent layout effect in
+  // the same commit, so this lands on Handsontable's final sizes and before
+  // paint (no visible jump). The sync is a no-op when already aligned.
+  useLayoutEffect(() => {
+    syncHeaderOverlayScroll();
+  });
+
   useLayoutEffect(() => {
     const element = gridContainerEl;
     if (!element) return undefined;
@@ -363,7 +384,10 @@ export function SpreadsheetSurface({
 
   useEffect(() => {
     syncHotTableDimensions();
-  }, [gridSize, syncHotTableDimensions]);
+    // updateSettings({ width, height }) ends with the same overlay re-size
+    // that undoes the header alignment (see the layout effect above).
+    syncHeaderOverlayScroll();
+  }, [gridSize, syncHotTableDimensions, syncHeaderOverlayScroll]);
 
   // Hover/focus help for Handsontable column-header info icons.
   //
@@ -1888,6 +1912,14 @@ export function SpreadsheetSurface({
   // so the header dropdown also needs the custom items. The predefined
   // `filter_*` keys are re-included so the "Filter by condition/value" UI is
   // preserved.
+  // Adds an occurrence count to each "Filter by value" item ("district (12)").
+  // Stable identity, so the wrapper's per-render updateSettings re-push is a
+  // no-op for this hook.
+  const filterValueCountLabeler = useMemo(
+    () => createFilterValueCountLabeler(() => hotTableRef.current?.hotInstance),
+    [hotTableRef],
+  );
+
   const dropdownMenuConfig = useMemo(() => {
     if (activeSheet !== 'data') return true;
     return {
@@ -1982,6 +2014,7 @@ export function SpreadsheetSurface({
         contextMenu={contextMenuConfig}
         filters
         dropdownMenu={dropdownMenuConfig}
+        modifyFiltersMultiSelectValue={filterValueCountLabeler}
         columnSorting={!hasMultiRowGroup}
         copyPaste
         sanitizer={sanitizeCellHtml}

@@ -146,8 +146,8 @@ const ExampleSchemaPopover: React.FC = () => {
 const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChange }) => {
   const [source, setSource] = useState<SchemaSource>('none');
   const [schemaFiles, setSchemaFiles] = useState<SchemaFile[]>([]);
-  const [loadingFiles, setLoadingFiles] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<string>('');
+  const [, setLoadingFiles] = useState(false);
+  const [, setSelectedFile] = useState<string>('');
   const [columns, setColumns] = useState<InitialSchemaColumn[]>([]);
 
   // File mode tab state
@@ -335,10 +335,6 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
     if (value !== 'manual') {
       setColumns([]);
     }
-  };
-
-  const handleFileSelect = (filePath: string) => {
-    setSelectedFile(filePath);
   };
 
   const openAddDialog = () => {
