@@ -16,7 +16,7 @@ import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { TrendingUp, FileText, Info, Plus, Edit, Trash2, Brain, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Search } from 'lucide-react';
 
-import { DataStatistics, SchemaEvolution, CreationMetadata, ModificationAction, VisualizationSession, SkippedDocument } from '../../types';
+import { DataStatistics, SchemaEvolution, CreationMetadata, ModificationAction, VisualizationSession } from '../../types';
 import { CollapsibleSection, InfoCard } from '../shared';
 import LLMConfigDisplay from '../LLMConfigDisplay';
 import { Input } from '@/components/ui/input';

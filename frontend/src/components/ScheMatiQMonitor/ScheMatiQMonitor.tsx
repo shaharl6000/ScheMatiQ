@@ -119,7 +119,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   const cachedStatus = queryClient.getQueryData<ScheMatiQStatus>(['schematiq-status', sessionId]);
   const cachedLlmStats = queryClient.getQueryData<LlmStats>(llmStatsCacheKey);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting');
+  const [, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting');
   const [logsOpen, setLogsOpen] = useState(false);
 
   // Main processing state - changes IMMEDIATELY on Start click
