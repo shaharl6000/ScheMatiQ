@@ -317,10 +317,11 @@ async def run_schema_discovery(
             )
         except Exception as e:
             logger.error("ERROR in generate_schema: %s", e, exc_info=True)
-            # A bad key or a lasting outage would fail every batch: stop the run
-            # (the checkpoint lets a rerun continue from this batch). Any other
-            # failure only costs this batch's contribution to the schema.
-            if _is_invalid_api_key_error(e) or is_transient_error(e):
+            # A lasting outage would fail every batch: stop the run (the checkpoint
+            # lets a rerun continue from this batch). A bad key does not stop the
+            # run, and any other failure only costs this batch's contribution to
+            # the schema. If every batch fails, the run still ends in an error below.
+            if is_transient_error(e):
                 raise
             failed_batches += 1
             if ws_manager:
@@ -328,7 +329,10 @@ async def run_schema_discovery(
                     "level": "warning",
                     "message": f"Schema discovery batch {iteration + 1}/{len(batches)} failed and was skipped: {str(e)[:200]}",
                 })
-            _save_checkpoint(iteration + 1)
+            # With a bad key, keep the checkpoint here so a rerun with a working
+            # key does this batch instead of skipping it.
+            if not _is_invalid_api_key_error(e):
+                _save_checkpoint(iteration + 1)
             continue
 
         if new_schema is None:

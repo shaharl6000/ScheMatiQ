@@ -30,7 +30,6 @@ import random
 from pathlib import Path
 from schematiq.core.schema import Schema, Column, SchemaEvolution, ObservationUnit
 from schematiq.core.llm_call_tracker import LLMCallTracker
-from schematiq.core.llm_backends import _is_invalid_api_key_error
 from schematiq.core.prompts import (
     get_prompts, get_observation_unit_prompts, SchemaMode, DRAFT_SCHEMA_TMPL,
     OBSERVATION_UNIT_CONTEXT_TMPL,
@@ -872,8 +871,8 @@ def discover_schema(
                 observation_unit=observation_unit
             )
         except Exception as exc:
-            if _is_invalid_api_key_error(exc):
-                raise
+            # Any failure, a bad API key included, costs only this batch. If every
+            # batch fails, the last error is raised once the loop is done.
             failed_batches += 1
             last_batch_error = exc
             logging.exception("Iteration %d — LLM call failed, skipping batch %s", it, batch_filenames)
