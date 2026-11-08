@@ -4,7 +4,7 @@ Converts DOCX, DOC, RTF, and PDF files to UTF-8 text.
 
 - DOCX: python-docx first, LibreOffice headless fallback
 - DOC / RTF: LibreOffice headless
-- PDF: pdfplumber first, OCR fallback (pdf2image + tesseract)
+- PDF: pdfplumber first (in PyMuPDF's line order), OCR fallback (pdf2image + tesseract)
 
 Vendored from Legal_Schema_Generator; adapted for use as a library inside
 the ScheMatiQ backend (no CLI entry point, no process-wide signal handlers,
@@ -15,19 +15,20 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import pdfplumber
 import pytesseract
 from docx import Document
 from pdf2image import convert_from_path
-from pdfplumber.utils import DEFAULT_X_TOLERANCE, cluster_objects
+from pdfplumber.utils import DEFAULT_X_TOLERANCE, cluster_objects, dedupe_chars, extract_text
 
 logger = logging.getLogger(__name__)
 
@@ -186,43 +187,35 @@ _MIN_AVG_WORDS_PER_LINE_PER_SIDE = 2
 # ---------------------------------------------------------------------------
 # Missing-literal-space-glyph word tolerance
 # ---------------------------------------------------------------------------
-# Some PDF producers (observed on certain Cell Press/Elsevier exports) place
-# words via pure glyph positioning with no literal space character in the
-# content stream at all. pdfplumber then decides word boundaries purely from
-# the geometric gap between adjacent characters vs. x_tolerance (default 3pt,
-# used everywhere in this file); when such a PDF's true inter-word gap is
-# smaller than that, words are silently glued together
+# Many PDF producers place words via pure glyph positioning with no literal
+# space character in the content stream at all. pdfplumber then decides word
+# boundaries purely from the geometric gap between adjacent characters vs.
+# x_tolerance (default 3pt, absolute); when such a PDF's true inter-word gap
+# is smaller than that, words are silently glued together
 # ("wordsgluedlikethis"), which breaks anything downstream that needs the
-# real source text (e.g. matching an excerpt back to its source for
-# citation grounding).
+# real source text (e.g. matching an excerpt back to its source for citation
+# grounding).
 #
-# _derive_word_gap_threshold below detects this -- via two independent,
-# confident, measured gates, exactly the same philosophy as
-# _detect_column_gutter -- and derives a page-specific x_tolerance from that
-# page's own character-gap distribution, instead of guessing a single global
-# constant. Every gate is calibrated against the one confirmed real repro
-# (kerning gaps ~0.0pt, real inter-word gap 1.2pt); treat as a starting point
-# pending a larger corpus of real "glued" PDFs.
+# Measured on 80 real papers (268 such pages), gaps scale with the font, so
+# they are measured in em (gap / font size): within a word the gap is at most
+# ~0.04 em, between words at least ~0.16 em, and almost nothing falls in
+# between, whatever the font size. Word gaps of 1.6-2.8pt (a 6-10pt font)
+# are below the absolute 3pt default, which glued 317 of 448 papers. So a
+# page with no space glyphs splits words at 0.10 em; a page that has them
+# keeps pdfplumber's default unchanged.
 _MIN_CHARS_FOR_GAP_ANALYSIS = 200  # mirror _CHARS_PER_PAGE_THRESHOLD -- too little text, no reliable signal
 # Real glued pages aren't uniformly glued -- parenthetical citations,
 # accession-number lists, etc. keep literal spaces even on an otherwise-glued
-# page. Measured directly against the real repro document's glued
-# "Experimental Procedures" section: space characters are ~1.4-1.7% of text
-# there, not 0%. Calibrated with margin above that (still ~3x) while staying
-# far below normal English prose's ~15-17% space ratio, so
-# _MIN_AVG_WORD_LEN_FOR_GLUING_SIGNAL remains the gate that protects normal
-# pages from a false trigger.
-_MAX_SPACE_CHAR_FRACTION = 0.05  # pages already using real space glyphs throughout must be left untouched
-_MIN_AVG_WORD_LEN_FOR_GLUING_SIGNAL = 15  # default-tolerance "words" averaging longer than this look glued (English mean word length ~4.7 chars)
-_MIN_GAP_SAMPLES = 60  # need enough adjacent-char gaps for the distribution to mean anything
-_MIN_GAP_CLUSTER_FRACTION = 0.05  # each side of a candidate split must hold a real share of the gaps, not a lone outlier
-_MAX_UPPER_GAP_CLUSTER_FRACTION = 0.5  # word-boundary gaps should be a minority of all adjacent-char gaps in real prose
-_MIN_GAP_JUMP_PT = 0.4  # the jump between the two populations must be non-trivial in absolute terms
-_MIN_GAP_JUMP_TO_SPREAD_RATIO = 3.0  # the jump must dwarf the lower (kerning) cluster's own spread, or it's not a real bimodal split
+# page (~1.4-1.7% of characters measured on one), while normal English prose
+# is ~15-17% spaces.
+_MAX_SPACE_CHAR_FRACTION = 0.05
+_WORD_GAP_EM = 0.10
 
 
 def _detect_column_gutter(
-    page: "pdfplumber.page.Page", x_tolerance: float = DEFAULT_X_TOLERANCE
+    page: "pdfplumber.page.Page",
+    x_tolerance: float = DEFAULT_X_TOLERANCE,
+    x_tolerance_ratio: Optional[float] = None,
 ) -> Optional[Tuple[float, float]]:
     """Return (gutter_x0, gutter_x1) if *page* has a confident two-column
     layout, else None. A pure function of page geometry -- no I/O.
@@ -232,7 +225,8 @@ def _detect_column_gutter(
     if not page.width or not page.height:
         return None  # degenerate/malformed page geometry -- nothing safe to measure
 
-    words = [w for w in page.extract_words(x_tolerance=x_tolerance) if w.get("upright", True)]
+    words = [w for w in page.extract_words(x_tolerance=x_tolerance, x_tolerance_ratio=x_tolerance_ratio)
+             if w.get("upright", True)]
     if len(words) < _MIN_WORDS_FOR_COLUMN_DETECTION:
         return None
 
@@ -322,113 +316,27 @@ def _detect_column_gutter(
     return best["x0"], best["x1"]
 
 
-def _page_needs_gap_derived_tolerance(page: "pdfplumber.page.Page") -> bool:
-    """True only when *page* independently shows both: (a) essentially no
-    literal space glyphs despite substantial text, and (b) today's
-    default-tolerance extraction already produces suspiciously long "words"
-    (i.e. words are actually glued runs). Both must hold so a page that's
-    merely low on spaces for a legitimate reason (e.g. a dense table of
-    identifiers) doesn't get an unnecessary override --
-    _find_bimodal_gap_threshold is a further, independent gate on top.
-    """
+def _page_lacks_space_glyphs(page: "pdfplumber.page.Page") -> bool:
+    """True when *page* has substantial text but essentially no literal
+    space glyphs, so its word boundaries come from geometry alone."""
     if getattr(page, "rotation", 0) not in (0, None):
         return False  # rotated pages: same axis-reliability caveat as _detect_column_gutter
-    chars = getattr(page, "chars", None)
-    if not chars:
-        return False
-    text_chars = [c for c in chars if c.get("upright", True)]
+    text_chars = [c for c in (getattr(page, "chars", None) or []) if c.get("upright", True)]
     if len(text_chars) < _MIN_CHARS_FOR_GAP_ANALYSIS:
         return False
     space_count = sum(1 for c in text_chars if c["text"].isspace())
-    if space_count / len(text_chars) > _MAX_SPACE_CHAR_FRACTION:
-        return False
-    words = page.extract_words()
-    if not words:
-        return False
-    avg_word_len = sum(len(w["text"]) for w in words) / len(words)
-    return avg_word_len >= _MIN_AVG_WORD_LEN_FOR_GLUING_SIGNAL
+    return space_count / len(text_chars) <= _MAX_SPACE_CHAR_FRACTION
 
 
-def _collect_adjacent_char_gaps(page: "pdfplumber.page.Page") -> List[float]:
-    """Adjacent same-line, non-space character x-gaps on *page*. Pure
-    function of page.chars -- no I/O.
-    """
-    chars = [c for c in page.chars if c.get("upright", True) and not c["text"].isspace()]
-    if len(chars) < 2:
-        return []
-    lines = cluster_objects(chars, "top", _LINE_CLUSTER_TOLERANCE_PT)
-    gaps: list[float] = []
-    for line in lines:
-        line_sorted = sorted(line, key=lambda c: c["x0"])
-        for a, b in zip(line_sorted, line_sorted[1:]):
-            gaps.append(max(b["x0"] - a["x1"], 0.0))
-    return gaps
-
-
-def _find_bimodal_gap_threshold(gaps: List[float]) -> Optional[float]:
-    """Look for a genuine two-population split in *gaps* -- a tight
-    "kerning" population near 0 and a separate, larger "word-boundary"
-    population -- and return a threshold between them, biased toward the
-    lower cluster. Returns None when no confident split exists (e.g. a
-    continuous/unimodal spread, as on normally-kerned or letter-spaced
-    text).
-
-    Scans candidate split indices in increasing order and returns the
-    FIRST one that clears both confidence checks, rather than the single
-    largest jump anywhere in the valid range. Taking the largest jump is
-    wrong whenever a third population of legitimately wider (but still
-    non-word-boundary) gaps -- e.g. around superscripts/subscripts or
-    numbering runs -- reaches _MIN_GAP_CLUSTER_FRACTION of samples: the
-    biggest jump then sits between the real word-gap cluster and that third
-    population, not between kerning and real word-gaps, which silently
-    picks a much-too-large threshold. Scanning left-to-right instead always
-    finds the boundary of the tight low kerning cluster first.
-    """
-    if len(gaps) < _MIN_GAP_SAMPLES:
-        return None
-    s = sorted(gaps)
-    n = len(s)
-    min_side = max(1, int(n * _MIN_GAP_CLUSTER_FRACTION))
-    max_upper = int(n * _MAX_UPPER_GAP_CLUSTER_FRACTION)
-
-    for i in range(min_side, n - min_side + 1):
-        if (n - i) > max_upper:
-            continue
-        jump = s[i] - s[i - 1]
-        if jump < _MIN_GAP_JUMP_PT:
-            continue
-        lower_spread = s[i - 1] - s[0]
-        if jump < _MIN_GAP_JUMP_TO_SPREAD_RATIO * max(lower_spread, 0.05):
-            continue
-        return s[i - 1] + jump / 2
-
-    return None
-
-
-def _derive_word_gap_threshold(page: "pdfplumber.page.Page") -> Optional[float]:
-    """Page-specific x_tolerance derived from *page*'s own char-gap
-    distribution, or None when pdfplumber's DEFAULT_X_TOLERANCE should be
-    used unchanged (the case for the overwhelming majority of pages).
-    """
+def _word_tolerance(page: "pdfplumber.page.Page") -> dict:
+    """pdfplumber word-splitting arguments for *page*: 0.10 em on a page
+    with no space glyphs, pdfplumber's default otherwise."""
     try:
-        if not _page_needs_gap_derived_tolerance(page):
-            return None
-        threshold = _find_bimodal_gap_threshold(_collect_adjacent_char_gaps(page))
-        if threshold is None:
-            return None
-        # Only ever tighten, never loosen, relative to pdfplumber's default --
-        # this fix must never merge words on a page that wasn't glued.
-        threshold = min(threshold, DEFAULT_X_TOLERANCE)
-        logger.debug("Derived x_tolerance=%.2f for page with no literal space glyphs", threshold)
-        return threshold
+        if _page_lacks_space_glyphs(page):
+            return {"x_tolerance": DEFAULT_X_TOLERANCE, "x_tolerance_ratio": _WORD_GAP_EM}
     except Exception:
-        logger.debug("Word-gap tolerance derivation failed, using pdfplumber's default", exc_info=True)
-        return None
-
-
-def _effective_x_tolerance(page: "pdfplumber.page.Page") -> float:
-    threshold = _derive_word_gap_threshold(page)
-    return threshold if threshold is not None else DEFAULT_X_TOLERANCE
+        logger.debug("Space-glyph check failed, using pdfplumber's default", exc_info=True)
+    return {"x_tolerance": DEFAULT_X_TOLERANCE, "x_tolerance_ratio": None}
 
 
 def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
@@ -444,18 +352,22 @@ def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
     failing the whole document's conversion.
     """
     try:
-        x_tolerance = _effective_x_tolerance(page)
-        gutter = _detect_column_gutter(page, x_tolerance=x_tolerance)
+        tolerance = _word_tolerance(page)
+        gutter = _detect_column_gutter(page, **tolerance)
         if gutter is None:
-            return page.extract_text(x_tolerance=x_tolerance) or ""
+            return page.extract_text(**tolerance) or ""
 
         mid = (gutter[0] + gutter[1]) / 2
-        left = page.within_bbox((0, 0, mid, page.height)).extract_text(x_tolerance=x_tolerance) or ""
-        right = page.within_bbox((mid, 0, page.width, page.height)).extract_text(x_tolerance=x_tolerance) or ""
+        # The page box need not start at (0, 0) (seen: (9, -9, 603, 774));
+        # a crop reaching outside it raises, which used to silently drop the
+        # page to the plain fallback below.
+        x0, top, x1, bottom = page.bbox
+        left = page.within_bbox((x0, top, mid, bottom)).extract_text(**tolerance) or ""
+        right = page.within_bbox((mid, top, x1, bottom)).extract_text(**tolerance) or ""
 
         # Cheap RTL accommodation: if most words on the page are RTL-directed,
         # the visually-first column is the right one.
-        words = page.extract_words(x_tolerance=x_tolerance)
+        words = page.extract_words(**tolerance)
         if words and sum(1 for w in words if w.get("direction") == "rtl") / len(words) > 0.5:
             left, right = right, left
 
@@ -467,26 +379,718 @@ def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
         # run at effectively 100% failure rate, forever, with no signal
         # that the column-aware path is even being exercised.
         logger.debug("Column-aware extraction failed, falling back to plain extract_text()", exc_info=True)
-        return page.extract_text() or ""
+        try:
+            return page.extract_text(**_word_tolerance(page)) or ""
+        except Exception:
+            return page.extract_text() or ""
 
 
-def convert_pdf_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
-    """Convert a PDF to text via pdfplumber; fall back to OCR for scanned pages."""
-    output_path = output_dir / (input_path.stem + ".txt")
+# ---------------------------------------------------------------------------
+# Reading order from the PDF's own text lines
+# ---------------------------------------------------------------------------
+# The gutter search above needs one vertical gap through most of the page, so
+# it misses the columns of any page with a full-width title, figure or table:
+# of 4,636 pages in a 415-paper corpus, 71% were read straight across both
+# columns ("Php4 acts as a neg- oxidative DNA damage"). PyMuPDF groups a
+# page's text into blocks and lines in the order the PDF draws them, which
+# for typeset papers is column by column. Its characters are not used,
+# though: it decodes fonts without a Unicode map silently wrong ("importin
+# a/b" for α/β, control characters for Greek), where pdfminer with the
+# glyph-name fallbacks below reads them right. So PyMuPDF supplies only the
+# lines and their order, and each line's text is built from the pdfplumber
+# characters inside it. Building text line by line also keeps apart two
+# lines that overlap vertically, which pdfplumber's own line grouping merges
+# letter by letter ("phosphthorey lUatnediveNrrsfi2tyY").
 
-    with pdfplumber.open(input_path) as pdf:
-        page_count = max(1, len(pdf.pages))
-        text_parts = [_extract_page_text_column_aware(p) for p in pdf.pages]
+_ALIGN_WINDOW = 12  # characters per run used to align the two libraries' coordinates
+_MIN_ALIGNED_RUNS = 3
+_MAX_ALIGN_SPREAD_PT = 1.5
+# Upright characters no PyMuPDF line covers. Above this share the lines do not
+# describe the page, and the page is read the old way.
+_MAX_UNPLACED_FRACTION = 0.02
+_LINE_SLACK_PT = 1.0
+# A line this long with no space glyph is split at 0.10 em (_WORD_GAP_EM);
+# a shorter one ("p-S74-Cdc6", "N1") may well be a single word.
+_MIN_CHARS_FOR_LINE_GAP_ANALYSIS = 15
 
-    total_chars = sum(len(t) for t in text_parts)
+try:
+    import pymupdf
+except ImportError:
+    try:  # PyMuPDF releases before the "pymupdf" module name (requirements allow >=1.24.0)
+        import fitz as pymupdf
+    except ImportError:  # optional: without it, every page is read the old way
+        pymupdf = None
 
-    if total_chars / page_count >= _CHARS_PER_PAGE_THRESHOLD:
-        output_path.write_text(
-            "\n\n".join(t for t in text_parts if t), encoding="utf-8",
-        )
-        return True, f"Converted: {output_path}"
+# MuPDF is not thread-safe, not even for separate documents, and conversions
+# run in worker threads (asyncio.to_thread), so every PyMuPDF call is made
+# under the backend's one PyMuPDF lock, shared with figure extraction and
+# pdf_utils.
+from app.services.pymupdf_lock import PYMUPDF_LOCK  # noqa: E402
 
-    # Scanned PDF — OCR page-by-page to avoid loading all images into RAM.
+
+def _open_layout_document(input_path: Path):
+    """The PDF opened with PyMuPDF for its line layout, or None."""
+    if pymupdf is None:
+        return None
+    try:
+        with PYMUPDF_LOCK:
+            return pymupdf.open(input_path)
+    except Exception:
+        logger.debug("PyMuPDF could not open %s; using the gutter search only", input_path.name, exc_info=True)
+        return None
+
+
+def _layout_page_count(layout_doc) -> Optional[int]:
+    try:
+        with PYMUPDF_LOCK:
+            return layout_doc.page_count
+    except Exception:
+        return None
+
+
+def _close_layout_document(layout_doc) -> None:
+    """Close the PyMuPDF document; never raises (it runs in a finally, where an
+    error would hide the conversion's own result or exception)."""
+    if layout_doc is None:
+        return
+    try:
+        with PYMUPDF_LOCK:
+            layout_doc.close()
+    except Exception:
+        logger.debug("PyMuPDF could not close a document", exc_info=True)
+
+
+def _page_line_layout(layout_doc, index: int) -> Optional[Tuple[list, list]]:
+    """PyMuPDF's upright text lines on page *index* -- (line bboxes in reading
+    order, their non-space characters) as plain data -- or None."""
+    try:
+        with PYMUPDF_LOCK:
+            layout_page = layout_doc[index]
+            try:
+                if layout_page.rotation:
+                    return None
+                blocks = layout_page.get_text("rawdict")["blocks"]
+            finally:
+                # Freeing a Page calls into MuPDF; let that happen under the lock,
+                # not whenever the garbage collector gets to it on some thread.
+                del layout_page
+    except Exception:
+        logger.debug("PyMuPDF could not lay out page %d", index + 1, exc_info=True)
+        return None
+    lines, layout_chars = [], []
+    for block in blocks:
+        if block.get("type") != 0:
+            continue
+        for line in block["lines"]:
+            cos, sin = line["dir"]
+            if cos <= 0 or abs(sin) > 1e-3:
+                continue  # rotated text: left to the leftover pass of _extract_page_text_by_lines
+            lines.append(line["bbox"])
+            layout_chars.extend(ch for span in line["spans"] for ch in span["chars"] if not ch["c"].isspace())
+    return lines, layout_chars
+
+
+def _coordinate_offset(chars: list, layout_chars: list) -> Optional[Tuple[float, float]]:
+    """(dx, dy) that turns a PyMuPDF position into pdfplumber's, or None.
+
+    The two measure from different page boxes (seen: 9pt apart, either way
+    vertically), so the offset is read off character runs both libraries
+    decode the same, rather than derived from the boxes. A run that occurs
+    more than once (repeated text) votes for each occurrence; only the true
+    offset collects a vote from most runs.
+    """
+    def joined(items, key):
+        # A character's text can be longer than one letter ("ﬃ", "(cid:12)").
+        owner = [k for k, item in enumerate(items) for _ in item[key]]
+        return "".join(item[key] for item in items), owner
+
+    text, text_owner = joined(chars, "text")
+    layout_text, layout_owner = joined(layout_chars, "c")
+    step = max(_ALIGN_WINDOW, len(layout_text) // 30)
+    candidates = []  # one list of (dx, dy) per run
+    for i in range(0, len(layout_text) - _ALIGN_WINDOW, step):
+        run = layout_text[i:i + _ALIGN_WINDOW]
+        b = layout_chars[layout_owner[i]]
+        found = []
+        j = text.find(run)
+        while j >= 0 and len(found) < 50:
+            a = chars[text_owner[j]]
+            found.append((a["x0"] - b["bbox"][0], (a["top"] + a["bottom"]) / 2 - (b["bbox"][1] + b["bbox"][3]) / 2))
+            j = text.find(run, j + 1)
+        if found:
+            candidates.append(found)
+    best, best_votes = None, 0
+    for found in candidates:
+        for dx, dy in found:
+            votes = sum(any(abs(dx - x) <= _MAX_ALIGN_SPREAD_PT and abs(dy - y) <= _MAX_ALIGN_SPREAD_PT for x, y in other)
+                        for other in candidates)
+            if votes > best_votes:
+                best, best_votes = (dx, dy), votes
+    if best is None or best_votes < max(_MIN_ALIGNED_RUNS, len(candidates) // 2):
+        return None
+    return best
+
+
+def _line_word_tolerance(line_chars: list, page_tolerance: dict) -> dict:
+    """Word-splitting arguments for one line: 0.10 em when the line has no
+    space glyphs, else the page's.
+
+    The page-level check misses a page whose body text has no space glyphs
+    but whose figure labels are full of them (Cdc6, p. 8: 16% spaces on the
+    page, 0% in every body and caption line), so its 6-8pt text, with word
+    gaps of ~0.25 em but under the 3pt default, came out glued
+    ("thecytoplasm.Cytoplasmiclocation"). On 415 papers this rule split 367
+    lines and cut no word in two.
+    """
+    if len(line_chars) >= _MIN_CHARS_FOR_LINE_GAP_ANALYSIS and not any(c["text"].isspace() for c in line_chars):
+        return {**page_tolerance, "x_tolerance_ratio": _WORD_GAP_EM}
+    return page_tolerance
+
+
+def _extract_page_text_by_lines(page: "pdfplumber.page.Page", line_layout: Tuple[list, list]) -> Optional[str]:
+    """The page's text in PyMuPDF's line order (from _page_line_layout), built
+    from pdfplumber's characters; None when the lines cannot be trusted to
+    cover the page."""
+    if getattr(page, "rotation", 0) not in (0, None):
+        return None
+    lines, layout_chars = line_layout
+    upright = [c for c in page.chars if c.get("upright", True)]
+    visible = [c for c in upright if not c["text"].isspace()]
+    if not visible:
+        return None
+    offset = _coordinate_offset(visible, layout_chars)
+    if offset is None:
+        return None
+    dx, dy = offset
+    lines = [(x0 + dx, y0 + dy, x1 + dx, y1 + dy) for x0, y0, x1, y1 in lines]
+
+    # Rows are clamped to the page: a malformed PDF can give a line a box
+    # millions of points tall, which would otherwise build millions of rows.
+    page_top, page_bottom = int(page.bbox[1]) - 2, int(page.bbox[3]) + 2
+    by_row: dict = {}
+    for k, (_, y0, _, y1) in enumerate(lines):
+        first = max(int(y0 - _LINE_SLACK_PT), page_top)
+        last = min(int(y1 + _LINE_SLACK_PT), page_bottom)
+        for row in range(first, last + 1):
+            by_row.setdefault(row, []).append(k)
+    placed: list[list] = [[] for _ in lines]
+    leftover = [c for c in page.chars if not c.get("upright", True)]
+    unplaced = 0
+    for c in upright:
+        cx, cy = (c["x0"] + c["x1"]) / 2, (c["top"] + c["bottom"]) / 2
+        candidates = [k for k in by_row.get(int(cy), ())
+                      if lines[k][0] - _LINE_SLACK_PT <= cx <= lines[k][2] + _LINE_SLACK_PT
+                      and lines[k][1] - _LINE_SLACK_PT <= cy <= lines[k][3] + _LINE_SLACK_PT]
+        if not candidates:
+            # A glyph the two libraries measure differently (a bracket in a
+            # right-to-left line) can sit just past its line's edge: take the
+            # line at its height within one character width.
+            reach = max(c["x1"] - c["x0"], _LINE_SLACK_PT)
+            candidates = [k for k in by_row.get(int(cy), ())
+                          if lines[k][0] - reach <= c["x1"] and c["x0"] <= lines[k][2] + reach
+                          and lines[k][1] - _LINE_SLACK_PT <= cy <= lines[k][3] + _LINE_SLACK_PT]
+        if candidates:
+            placed[min(candidates, key=lambda k: abs((lines[k][1] + lines[k][3]) / 2 - cy))].append(c)
+        elif not c["text"].isspace():
+            leftover.append(c)
+            unplaced += 1
+    if unplaced / len(visible) > _MAX_UNPLACED_FRACTION:
+        return None
+
+    tolerance = _word_tolerance(page)
+    built = []  # (box of the line's characters, text), in reading order
+    for line_chars in placed:
+        if line_chars:
+            # Figure labels are often drawn twice in place; one line built from
+            # both copies interleaves them ("pp--SS7744--CCddcc66"). The
+            # tolerance stays under a narrow letter's width ("ll" at 5pt is
+            # ~1.1pt apart), so real double letters are kept.
+            line_chars = dedupe_chars(line_chars, tolerance=0.5)
+            text = extract_text(line_chars, **_line_word_tolerance(line_chars, tolerance)).replace("\n", " ").strip()
+            if text:
+                box = (min(c["x0"] for c in line_chars), min(c["top"] for c in line_chars),
+                       max(c["x1"] for c in line_chars), max(c["bottom"] for c in line_chars))
+                built.append((box, text))
+    out = _join_rows(built)
+    if leftover:
+        # Rotated or unplaced text (a sidebar, a stray label): kept, at the end.
+        text = _extract_leftover_text(leftover, tolerance)
+        if text:
+            out.append(text)
+    return "\n".join(out)
+
+
+# PyMuPDF makes every table cell its own line, so a table came out one value
+# per line and its rows could not be told apart (Attention: 10 of main's 45
+# table rows intact). Lines drawn one after another side by side at the same
+# height are one row of the page and are joined left to right. Two-column
+# body text is not joined: a column's lines are drawn one after another, so
+# the left and right lines at one height are never consecutive.
+_MIN_ROW_OVERLAP = 0.5  # vertical overlap, as a share of the shorter line's height
+# A label spanning several rows ("(C)" in Attention's Table 3) is drawn alone,
+# before or after its rows, and comes out on a line of its own. It joins the
+# row nearest its height of the table drawn right next to it: a run of at
+# least _MIN_LABELED_RUN rows of short cells, all on one side of the label
+# and none in its column.
+# Body text split at wide gaps also forms rows; its cells are longer, and on
+# 40 NES papers the looser rule (any rows, label beside its row only) pulled
+# a reference's page range from the other column into a body line.
+_MAX_ROW_LABEL_CHARS = 12
+_MAX_CELL_CHARS = 50
+_MIN_LABELED_RUN = 2
+
+
+def _same_row(a: tuple, b: tuple) -> bool:
+    """Two line boxes side by side at one height (not stacked, not overlapping)."""
+    overlap = min(a[3], b[3]) - max(a[1], b[1])
+    if overlap < _MIN_ROW_OVERLAP * min(a[3] - a[1], b[3] - b[1]):
+        return False
+    return a[2] <= b[0] + _LINE_SLACK_PT or b[2] <= a[0] + _LINE_SLACK_PT
+
+
+def _across_gutter(a: tuple, b: tuple) -> bool:
+    """Two (box, text) lines a column gutter apart: a gap of at least a line
+    height, with body text (a line longer than any table cell) on one side.
+
+    A column's last line and the next column's caption can be drawn one
+    after another at one height; on 417 NES papers they were joined
+    ("FIG. 1. Biochemical characterization of GST-An3 ATPase ac- mutant in
+    which 2 leucine residues", a 12pt gutter). Table cells are short, and
+    a body line split at a wide word gap has a gap under a line height."""
+    (ab, at), (bb, bt) = a, b
+    gap = max(bb[0] - ab[2], ab[0] - bb[2])
+    height = min(ab[3] - ab[1], bb[3] - bb[1])
+    return gap >= height and max(len(at), len(bt)) > _MAX_CELL_CHARS
+
+
+def _join_rows(built: list) -> list:
+    """The page's lines of text, one per row of a table.
+
+    *built* is [(box, text)] in reading order. Consecutive lines side by side
+    at one height form a row, read left to right; a short line alone that
+    labels several rows of a table joins the one nearest its height."""
+    rows: list[list[int]] = []
+    for k, (box, _) in enumerate(built):
+        if rows and all(_same_row(built[j][0], box) and not _across_gutter(built[j], built[k]) for j in rows[-1]):
+            rows[-1].append(k)
+        else:
+            rows.append([k])
+
+    def center(k):
+        return (built[k][0][1] + built[k][0][3]) / 2
+
+    is_table_row = [len(row) > 1 and all(len(built[k][1]) <= _MAX_CELL_CHARS for k in row) for row in rows]
+    target = {}  # index of a label's row -> index of the table row it joins
+    for i, row in enumerate(rows):
+        if len(row) > 1 or len(built[row[0]][1]) > _MAX_ROW_LABEL_CHARS:
+            continue
+        label = row[0]
+        lx0, _, lx1, _ = built[label][0]
+        best = None
+        for step in (1, -1):  # the table drawn right after the label, then right before
+            # The rows a label spans have nothing in its column; a row that
+            # does ("(E) positional embedding ...") starts the next block.
+            run, j = [], i + step
+            while 0 <= j < len(rows) and is_table_row[j] and all(
+                    lx1 <= built[k][0][0] + _LINE_SLACK_PT or built[k][0][2] <= lx0 + _LINE_SLACK_PT for k in rows[j]):
+                run.append(j)
+                j += step
+            cells = [built[k][0] for r in run for k in rows[r]]
+            if len(run) < _MIN_LABELED_RUN:
+                continue
+            if not min(c[1] for c in cells) <= center(label) <= max(c[3] for c in cells):
+                continue
+            if not (all(lx1 <= c[0] + _LINE_SLACK_PT for c in cells)
+                    or all(c[2] <= lx0 + _LINE_SLACK_PT for c in cells)):
+                continue
+            for r in run:
+                distance = abs(sum(center(k) for k in rows[r]) / len(rows[r]) - center(label))
+                if best is None or distance < best[0]:
+                    best = (distance, r)
+        if best is not None:
+            target[i] = best[1]
+
+    for i, r in target.items():
+        rows[r].append(rows[i][0])
+    return [" ".join(built[k][1] for k in sorted(row, key=lambda k: built[k][0][0]))
+            for i, row in enumerate(rows) if i not in target]
+
+
+def _extract_leftover_text(chars: list, tolerance: dict) -> str:
+    """Text of characters no upright line took: stray upright ones, then
+    rotated ones in their own reading direction.
+
+    pdfplumber reads all rotated text top to bottom, so a y-axis label turned
+    90° counterclockwise, read bottom to top, came out backwards ("losotyC"),
+    and doubled where the label is drawn twice in place ("lloossoottyyCC").
+    The text matrix gives the direction: its second entry is positive when
+    the baseline runs up the page."""
+    chars = dedupe_chars(chars, tolerance=0.5)
+    groups = (
+        ([c for c in chars if c.get("upright", True)], {}),
+        ([c for c in chars if not c.get("upright", True) and c.get("matrix", (1, 0))[1] > 0],
+         {"char_dir_rotated": "btt", "line_dir_rotated": "ltr"}),
+        ([c for c in chars if not c.get("upright", True) and c.get("matrix", (1, 0))[1] <= 0],
+         {"char_dir_rotated": "ttb", "line_dir_rotated": "rtl"}),
+    )
+    texts = (extract_text(group, **tolerance, **directions).strip() for group, directions in groups if group)
+    return "\n".join(text for text in texts if text)
+
+
+def _extract_page_text(page: "pdfplumber.page.Page", line_layout: Optional[Tuple[list, list]] = None) -> str:
+    """A page's text: in the PDF's own line order when PyMuPDF's layout covers
+    the page, otherwise through the gutter search."""
+    try:
+        _decode_symbol_font_chars(page)
+    except Exception:
+        logger.debug("Symbol font decoding failed", exc_info=True)
+    if line_layout is not None:
+        try:
+            text = _extract_page_text_by_lines(page, line_layout)
+            if text is not None:
+                return text
+        except Exception:
+            logger.debug("Line-order extraction failed, using the gutter search", exc_info=True)
+    return _extract_page_text_column_aware(page)
+
+
+# ---------------------------------------------------------------------------
+# Symbol font characters
+# ---------------------------------------------------------------------------
+# A Symbol / SymbolGreek font with a ToUnicode map often maps its codes into
+# the Private Use Area at U+F000 + code (Microsoft's convention), so "10 μm"
+# came out as "10 U+F06Dm" and "α-actinin" as "U+F061-Actinin". Read such a
+# character by Adobe's Symbol encoding instead. Codes for bracket and arrow
+# pieces are left out.
+_SYMBOL_ENCODING = {
+    **{code: chr(code) for code in range(0x20, 0x7F)},
+    0x22: "∀", 0x24: "∃", 0x27: "∋", 0x2A: "∗", 0x2D: "−", 0x40: "≅",
+    **dict(zip(range(0x41, 0x5B), "ΑΒΧΔΕΦΓΗΙϑΚΛΜΝΟΠΘΡΣΤΥςΩΞΨΖ")),
+    0x5C: "∴", 0x5E: "⊥",
+    **dict(zip(range(0x61, 0x7B), "αβχδεφγηιϕκλμνοπθρστυϖωξψζ")),
+    0x7E: "∼",
+    0xA1: "ϒ", 0xA2: "′", 0xA3: "≤", 0xA4: "⁄", 0xA5: "∞", 0xA6: "ƒ", 0xA7: "♣", 0xA8: "♦", 0xA9: "♥",
+    0xAA: "♠", 0xAB: "↔", 0xAC: "←", 0xAD: "↑", 0xAE: "→", 0xAF: "↓", 0xB0: "°", 0xB1: "±", 0xB2: "″",
+    0xB3: "≥", 0xB4: "×", 0xB5: "∝", 0xB6: "∂", 0xB7: "•", 0xB8: "÷", 0xB9: "≠", 0xBA: "≡", 0xBB: "≈",
+    0xBC: "…", 0xC0: "ℵ", 0xC4: "⊗", 0xC5: "⊕", 0xC6: "∅", 0xC7: "∩", 0xC8: "∪", 0xC9: "⊃", 0xCA: "⊇",
+    0xCC: "⊂", 0xCD: "⊆", 0xCE: "∈", 0xCF: "∉", 0xD0: "∠", 0xD1: "∇", 0xD2: "®", 0xD3: "©", 0xD4: "™",
+    0xD5: "∏", 0xD6: "√", 0xD7: "⋅", 0xD8: "¬", 0xD9: "∧", 0xDA: "∨", 0xDB: "⇔", 0xDC: "⇐", 0xDD: "⇑",
+    0xDE: "⇒", 0xDF: "⇓", 0xE0: "◊", 0xE1: "〈", 0xE2: "®", 0xE3: "©", 0xE4: "™", 0xE5: "∑", 0xF1: "〉",
+    0xF2: "∫",
+}
+_SYMBOL_FONT = re.compile(r"(?:^|\+)Symbol", re.IGNORECASE)
+_CALIBRI_FONT = re.compile(r"Calibri(?:-\w+)?$")
+# Adobe's Private Use assignments for the Symbol font's sans and serif signs
+# and its horizontal arrow extender, drawn as a dash ("heterodimer — namely").
+_ADOBE_PRIVATE_USE = {
+    "\uf6d9": "©", "\uf6da": "®", "\uf6db": "™",
+    "\uf8e7": "—", "\uf8e8": "®", "\uf8e9": "©", "\uf8ea": "™",
+}
+
+
+def _decode_symbol_font_chars(page: "pdfplumber.page.Page") -> None:
+    """Replace Private Use Area characters on *page* in place (pdfplumber
+    caches the page's chars, so every later read sees them): a Symbol font's,
+    and those of the fonts in _UNNAMED_CODE_GLYPHS, whose ToUnicode maps put
+    each code at U+E000 + code (U+E061 for α in Math Pi One). Also Adobe's own
+    Private Use characters (the copyright sign in "© The Rockefeller
+    University Press"), the "ti" ligature of CID-keyed Calibri, which its
+    ToUnicode map leaves out, and soft hyphens, which on a page are drawn
+    hyphens ("CRM1­dependent")."""
+    for c in page.chars:
+        text = c["text"]
+        fontname = c.get("fontname", "")
+        if text == "(cid:415)" and _CALIBRI_FONT.search(fontname):
+            c["text"] = "ti"
+        if len(text) != 1:
+            continue
+        if text in _ADOBE_PRIVATE_USE:
+            c["text"] = _ADOBE_PRIVATE_USE[text]
+        elif text == "\u00ad":
+            c["text"] = "-"
+        elif 0xF020 <= ord(text) <= 0xF0FF and _SYMBOL_FONT.search(fontname):
+            c["text"] = _SYMBOL_ENCODING.get(ord(text) - 0xF000, text)
+        elif 0xE020 <= ord(text) <= 0xE0FF:
+            c["text"] = _unnamed_code_glyphs(_SUBSET_PREFIX.sub("", fontname)).get(ord(text) - 0xE000, text)
+
+
+# ---------------------------------------------------------------------------
+# Unreadable text layer
+# ---------------------------------------------------------------------------
+# Some PDFs (typically older papers, e.g. made by Acrobat Distiller 4) embed
+# subset fonts with a private encoding and no ToUnicode map. The page renders
+# fine, but its text layer has no recoverable characters: pdfplumber returns
+# "(cid:N)" placeholders, mixed with arbitrary punctuation where letters
+# should be. Such a page looks full of text to the chars-per-page check, so it
+# never reached OCR and the garbage was passed on as the paper's text.
+# A normal paper has at most a handful of (cid:N) glyphs (an odd symbol), far
+# below this fraction; an unmapped-font paper is mostly (cid:N).
+#
+# The common case is recoverable without OCR: such fonts name each glyph
+# "C<n>" in their /Differences encoding, where n is the character's code in
+# Adobe StandardEncoding ("C86" is "V", "C174" the "fi" ligature). pdfminer
+# does not know these names and gives up; _install_glyph_name_fallbacks
+# teaches it to read them. Whatever stays unreadable goes to OCR.
+#
+# The same gap loses Greek letters and math symbols in many otherwise
+# readable papers: the Linotype Mathematical Pi / Universal Greek fonts used
+# by several journals (JBC, MCB, PNAS) name their glyphs "H<n>", so "IκB"
+# came out as "I(cid:1)B". _MATH_PI_GLYPHS maps the names seen in this
+# corpus. Each entry was read off its context in real papers (H9253 in
+# "[γ-32P]ATP", H11006 in "mean ± SD"); the Greek letters run in order from
+# H9251 (α), with H9269 the final sigma, and the capitals from H9001 (Α).
+# Names whose meaning was not clear from context are left out and stay
+# (cid:N). Fonts with no /Encoding carry these names in their embedded font
+# program instead, and some map them to Private Use Area characters in their
+# ToUnicode map (U+E061 for α); both are read the same way.
+
+_CID_GLYPH = re.compile(r"\(cid:\d+\)")
+_MAX_CID_GLYPH_FRACTION = 0.2
+_C_NUMBER_GLYPH = re.compile(r"C(\d{2,3})")
+
+_MATH_PI_GLYPHS = {
+    # Greek capitals, alphabetical from H9001
+    **{f"H{9001 + i}": letter for i, letter in enumerate("ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ")},
+    # Greek lowercase, alphabetical from H9251
+    **{f"H{9251 + i}": letter for i, letter in enumerate("αβγδεζηθικλμνξοπρσςτυφχψω")},
+    # The variant phi and epsilon, as the plain letters so that searches for
+    # "14-3-3ε" or "φ-x-x-φ" find them.
+    "H9278": "φ", "H9280": "ε",
+    # Math and typographic symbols
+    "H11001": "+", "H11002": "−", "H11003": "×", "H11005": "=", "H11006": "±",
+    "H11011": "∼", "H11015": "≈", "H11021": "<", "H11022": ">",
+    "H11032": "′", "H11033": "″", "H11034": "°", "H11349": "≤", "H11350": "≥",
+    "H11541": "′", "H11545": "+", "H11546": "−", "H11569": "*", "H11601": "∼",
+    "H17015": "©", "H18528": "–", "H20841": "|", "H20862": "/", "H23041": "®",
+}
+# Math names pdfminer's glyph list does not have (MathTime's MTSY / MTMI, TeX's
+# cmsy): "5′-CTAG", "pΔR8.9", and NES consensus patterns ("Φ1-X2-3-Φ2").
+_MATH_GLYPH_NAMES = {"prime": "′", "Phi1": "Φ", "Psi1": "Ψ", "Delta1": "Δ"}
+
+# Glyph names that mean something else in one font family; they take
+# precedence over every other rule. Read off context in this corpus: MTSY's
+# triangle is the deletion Δ ("α-adducinΔ377-371"); AdvTimes' C128 the ff
+# ligature ("diﬀerent", not a control character); AdvBMa1's dash and plus in
+# "95 (2003) 23–33" and "Tel.: +1-785"; AdvMT_RM's capitals are at their TeX
+# (OT1) positions ("NES consensus Φ-x2–3-Φ"); Calibri's glyph 415 is the "ti"
+# ligature ("β-actin", "ratio").
+_FONT_GLYPH_NAMES = (
+    (re.compile(r"MTSY$"), {"triangle": "Δ"}),
+    (re.compile(r"AdvTimes(?:-\w+)?$"), {"C128": "ff"}),
+    (re.compile(r"AdvBMa1$"), {"C1": "–", "C27": "+"}),
+    (re.compile(r"AdvMT_RM$"), {f"C{i}": letter for i, letter in enumerate("ΓΔΘΛΞΠΣΥΦΨΩ")}),
+    (_CALIBRI_FONT, {"g415": "ti"}),
+)
+
+
+# Elsevier's "Adv" math fonts name their glyphs "C<n>" with n below 32: the
+# position in TeX's math symbol font (cmsy), not a character code. Read off
+# context in this corpus ("−80 °C", "16000 × g", "***P", "n ≥ 3", "∼2 mg").
+# AdvBMa1 also uses small C<n> names but for other glyphs, so it is not matched.
+# Elsevier's AdvSymbol names its glyphs by their Symbol code ("C97" is α,
+# "C109" μ, "C68" Δ), so StandardEncoding gave "importin a" and "10 mg".
+_CMSY_FONT = re.compile(r"Adv(?:P4C4E\d+|P4C9543|MT_SY|MacMthSy)$")
+_CMSY_GLYPHS = {0: "−", 1: "·", 2: "×", 3: "∗", 6: "±", 14: "°", 20: "≤", 21: "≥", 24: "∼", 25: "≈"}
+_ADV_SYMBOL_FONT = re.compile(r"AdvSymbolb?$")
+
+# Fonts whose codes carry no glyph name at all. The Mathematical Pi One /
+# Universal Greek fonts put Greek at the Latin letter's code in a Greek
+# keyboard layout, not Symbol's (97 "a" is α, but 117 "u" is θ and 99 "c"
+# ψ), and the math signs from 46 up. The layout is these fonts' own: the
+# glyph names their embedded copies give each code (117 is H9258, θ). Codes
+# were also checked against context ("importin α/β", "100 μg/ml", "−80 °C",
+# "3′ portion", "Scale bar = 10 mm", ">90% pure").
+_MATH_PI_ONE_LETTER_NAMES = dict(zip(
+    (*range(0x41, 0x5B), *range(0x61, 0x7B)),
+    "H9001 H9002 H9023 H9004 H9005 H9021 H9003 H9007 H9009 H9014 H9010 H9011 H9012 "
+    "H9013 H9015 H9016 H9008 H9017 H9018 H9019 H9052 H9024 H9281 H9022 H9020 H9006 "
+    "H9251 H9252 H9274 H9254 H9280 H9278 H9253 H9257 H9259 H9264 H9260 H9261 H9262 "
+    "H9263 H9265 H9266 H9277 H9267 H9268 H9270 H9258 H9275 H9272 H9273 H9271 H9256".split(),
+))
+_GREEK_KEYBOARD_LETTERS = {code: _MATH_PI_GLYPHS[name] for code, name in _MATH_PI_ONE_LETTER_NAMES.items()
+                           if name in _MATH_PI_GLYPHS}
+# The rest of these fonts' codes pdfminer read as StandardEncoding, without a
+# (cid:N) to show for it: "NFkB", "b-catenin", "20 mg/ml" for NF-κB, β-catenin
+# and 20 μg/ml. Mathematical Pi Four and Elsevier's AdvGreek use the Greek
+# keyboard layout too ("nup188-Δ cells"; "14-3-3β, γ/η, ε, ζ and θ" with u
+# for θ); a Symbol font that is not embedded, or embedded without glyph
+# names, has Symbol's ("xxLxΦ").
+_UNNAMED_CODE_GLYPHS = (
+    (re.compile(r"MathematicalPi-One(?:Sl)?$|Universal-GreekwithMathPi"), {
+        **_GREEK_KEYBOARD_LETTERS,
+        46: ">", 49: "+", 50: "−", 51: "×", 53: "=", 54: "±", 56: "°", 57: "′", 59: "∼",
+    }),
+    (re.compile(r"MathematicalPi-Four$"), {**_GREEK_KEYBOARD_LETTERS, 50: "−"}),  # "Jak2−/− cells"
+    # PNAS's separators: "Wnt/β-catenin", "PNAS | October 24, 2000 | vol. 97"
+    (re.compile(r"MathematicalPi-Three$"), {117: "|", 121: "/"}),
+    # "NP_003141", "the Ahr·ARNT heterodimer"
+    (re.compile(r"Universal-NewswithCommPi$"), {111: "_", 122: "·"}),
+    (re.compile(r"AdvGreek\w*$"), {**_GREEK_KEYBOARD_LETTERS, 49: "ε"}),
+    (re.compile(r"Symbol(?:MT)?(?:[,-]\w+)?$"), _SYMBOL_ENCODING),
+    (re.compile(r"MathematicalPi-Five$"), {122: "∼"}),  # H11601, "∼25% of cells"
+    (re.compile(r"AdvTimes(?:-\w+)?$"), {129: "ffi"}),  # "eﬃcient", "traﬃcking"
+    # AdvSymbol with no names at all: the same Symbol codes ("S→A", not "SﬁA").
+    (_ADV_SYMBOL_FONT, _SYMBOL_ENCODING),
+    # Mac Roman ligatures and apostrophe: "speciﬁed", "ﬂow cytometry", "O’Garra"
+    (re.compile(r"Bliss-\w+$"), {213: "’", 222: "fi", 223: "fl"}),
+)
+
+
+def _unnamed_code_glyphs(font_name: str) -> dict:
+    """The _UNNAMED_CODE_GLYPHS entries for a font name (subset prefix removed)."""
+    glyphs = {}
+    for font_re, code_glyphs in _UNNAMED_CODE_GLYPHS:
+        if font_re.match(font_name):
+            glyphs.update(code_glyphs)
+    return glyphs
+_SUBSET_PREFIX = re.compile(r"^[A-Z]{6}\+")
+
+
+def _pdf_name(value) -> str:
+    """A PDF name object's text; names that are not UTF-8 come as bytes
+    (seen: a BaseFont of b"ABCDEE+\\xcb\\xce\\xcc\\xe5")."""
+    name = getattr(value, "name", value)
+    if isinstance(name, bytes):
+        return name.decode("latin-1")
+    return name if isinstance(name, str) else ""
+
+
+def _install_glyph_name_fallbacks() -> None:
+    """Make pdfminer read the glyph names it does not know: "C<n>" as
+    StandardEncoding character n (or a cmsy or Symbol position, in Elsevier's
+    math and Symbol fonts), the Mathematical Pi "H<n>" names and a few other
+    math names, the names some font families use for other glyphs, and the
+    codes of a few fonts that name no glyphs at all.
+
+    pdfminer skips a /Differences name it does not know, so the code keeps
+    its base-encoding character ("#" for 35) or none at all ((cid:N)); these
+    names override either. A font with no /Encoding takes the names from its
+    embedded font program, as pdfminer does. A font's ToUnicode map stays
+    authoritative, except where it maps one of these codes to a Private Use
+    Area character, which no reader can display.
+    """
+    from io import BytesIO
+
+    from pdfminer.encodingdb import EncodingDB
+    from pdfminer.pdffont import PDFSimpleFont, PDFType1Font, Type1FontHeaderParser
+    from pdfminer.psparser import PSEOF
+    from pdfminer.pdftypes import resolve1
+
+    original_init = PDFSimpleFont.__init__
+    if getattr(original_init, "_reads_glyph_name_fallbacks", False):
+        return
+    original_type1_init = PDFType1Font.__init__
+
+    def __init__(self, descriptor, widths, spec):
+        original_init(self, descriptor, widths, spec)
+        if not (isinstance(self, PDFType1Font) and "Encoding" not in spec and "FontFile" in descriptor):
+            # Otherwise type1_init adds them, once the font program is read.
+            _add_glyph_fallbacks_safely(self, spec)
+
+    def type1_init(self, rsrcmgr, spec):
+        original_type1_init(self, rsrcmgr, spec)
+        if "Encoding" not in spec and getattr(self, "fontfile", None) is not None:
+            # pdfminer has just replaced the encoding with the font program's.
+            _add_glyph_fallbacks_safely(self, spec)
+
+    def _add_glyph_fallbacks_safely(font, spec):
+        try:
+            _add_glyph_fallbacks(font, spec)
+        except Exception:
+            # A malformed font is read as pdfminer reads it, never not at all.
+            logger.debug("Glyph-name fallbacks skipped for a font", exc_info=True)
+
+    def _font_program_names(fontfile) -> dict:
+        data = fontfile.get_data()[: int(resolve1(fontfile["Length1"]))]
+        parser = Type1FontHeaderParser(BytesIO(data))
+        names = {}
+        while True:
+            try:
+                code, name = parser.nextobject()
+            except PSEOF:
+                return names
+            names[code] = _pdf_name(name)
+
+    def _glyph_names(font, spec) -> dict:
+        names = {}
+        if "Encoding" not in spec and getattr(font, "fontfile", None) is not None:
+            names.update(_font_program_names(font.fontfile))
+        encoding = resolve1(spec.get("Encoding"))
+        code = 0
+        for item in (resolve1(encoding.get("Differences", [])) or []) if isinstance(encoding, dict) else []:
+            if isinstance(item, int):
+                code = item
+                continue
+            names[code] = _pdf_name(item)
+            code += 1
+        return names
+
+    def _glyph_for_name(name: str, c_positions: Optional[dict], font_names: dict) -> Optional[str]:
+        if name in font_names:
+            return font_names[name]
+        match = _C_NUMBER_GLYPH.fullmatch(name) or (c_positions is not None and re.fullmatch(r"C(\d)", name))
+        if match and c_positions is not None:
+            # A cmsy or Symbol position at any n ("C48" is ′ in cmsy, not
+            # "0"); only the cmsy positions read off this corpus are mapped.
+            return c_positions.get(int(match[1]))
+        # Below 32 the number is not a character code ("C21" decoded to a
+        # control character where the page shows "≈"), nor are 127 to 159.
+        if match and 32 <= int(match[1]) < 256 and not 127 <= int(match[1]) < 160:
+            n = int(match[1])
+            return EncodingDB.std2unicode.get(n) or chr(n)
+        return _MATH_PI_GLYPHS.get(name) or _MATH_GLYPH_NAMES.get(name)
+
+    def _add_glyph_fallbacks(font, spec):
+        # Without /Differences pdfminer hands every font the same shared
+        # encoding dict; writing to it would change all later fonts.
+        font.cid2unicode = dict(font.cid2unicode)
+        font_name = _SUBSET_PREFIX.sub("", _pdf_name(resolve1(spec.get("BaseFont"))))
+        c_positions = (_CMSY_GLYPHS if _CMSY_FONT.match(font_name)
+                       else _SYMBOL_ENCODING if _ADV_SYMBOL_FONT.match(font_name) else None)
+        font_names = {}
+        for font_re, names_glyphs in _FONT_GLYPH_NAMES:
+            if font_re.search(font_name):
+                font_names.update(names_glyphs)
+        names = _glyph_names(font, spec)
+        glyphs = {}
+        for code, name in names.items():
+            glyph = _glyph_for_name(name, c_positions, font_names)
+            if glyph:
+                glyphs[code] = glyph
+        # Overrides the base encoding too: these fonts have no Latin letters
+        # or digits, so StandardEncoding's "a" at 97 is wrong.
+        glyphs.update({c: g for c, g in _unnamed_code_glyphs(font_name).items() if c not in names})
+        font.cid2unicode.update(glyphs)
+
+        unicode_map = getattr(font, "unicode_map", None)
+        if unicode_map is not None and glyphs:
+            to_unicode = dict(unicode_map.cid2unichr)
+            for code, glyph in glyphs.items():
+                text = to_unicode.get(code)
+                if text and len(text) == 1 and "\ue000" <= text <= "\uf8ff":
+                    to_unicode[code] = glyph
+            unicode_map.cid2unichr = to_unicode
+
+    __init__._reads_glyph_name_fallbacks = True
+    PDFSimpleFont.__init__ = __init__
+    PDFType1Font.__init__ = type1_init
+
+
+_install_glyph_name_fallbacks()
+
+
+def looks_garbled(text: str) -> bool:
+    """True when much of the extracted text is unmapped (cid:N) glyphs."""
+    cid_count = len(_CID_GLYPH.findall(text))
+    if not cid_count:
+        return False
+    other_glyphs = sum(1 for c in _CID_GLYPH.sub("", text) if not c.isspace())
+    return cid_count / (cid_count + other_glyphs) >= _MAX_CID_GLYPH_FRACTION
+
+
+def _ocr_pdf(input_path: Path) -> Tuple[Optional[str], str]:
+    """OCR every page. Returns (text, "") or (None, why it failed)."""
+    # Page-by-page to avoid loading all images into RAM.
     with tempfile.TemporaryDirectory(prefix="ocr_pages_") as tmpdir:
         try:
             page_images = convert_from_path(
@@ -496,20 +1100,65 @@ def convert_pdf_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
                 fmt="png",
             )
         except Exception as e:
-            return False, f"pdf2image failed: {e}"
+            return None, f"pdf2image failed: {e}"
 
         ocr_parts: list[str] = []
-        for img in page_images:
-            text = pytesseract.image_to_string(img)
-            if text.strip():
-                ocr_parts.append(text)
-            # Let each PIL image be freed before the next page is processed.
-            img.close()
+        try:
+            for img in page_images:
+                try:
+                    text = pytesseract.image_to_string(img)
+                finally:
+                    # Let each PIL image be freed before the next page is processed.
+                    img.close()
+                if text.strip():
+                    ocr_parts.append(text)
+        except Exception as e:
+            return None, f"OCR failed: {e}"
 
     if not ocr_parts:
-        return False, "No text extracted from PDF (tried pdfplumber and OCR)"
+        return None, "No text extracted from PDF (tried pdfplumber and OCR)"
+    return "\n\n".join(ocr_parts), ""
 
-    output_path.write_text("\n\n".join(ocr_parts), encoding="utf-8")
+
+def convert_pdf_to_txt(input_path: Path, output_dir: Path) -> Tuple[bool, str]:
+    """Convert a PDF to text via pdfplumber; fall back to OCR for scanned
+    pages or an unreadable text layer."""
+    output_path = output_dir / (input_path.stem + ".txt")
+
+    layout_doc = _open_layout_document(input_path)
+    try:
+        with pdfplumber.open(input_path) as pdf:
+            page_count = max(1, len(pdf.pages))
+            same_pages = layout_doc is not None and _layout_page_count(layout_doc) == len(pdf.pages)
+            text_parts = [
+                _extract_page_text(p, _page_line_layout(layout_doc, i) if same_pages else None)
+                for i, p in enumerate(pdf.pages)
+            ]
+    finally:
+        _close_layout_document(layout_doc)
+
+    total_chars = sum(len(t) for t in text_parts)
+    text = "\n\n".join(t for t in text_parts if t)
+    garbled = looks_garbled(text)
+
+    if total_chars / page_count >= _CHARS_PER_PAGE_THRESHOLD and not garbled:
+        output_path.write_text(text, encoding="utf-8")
+        return True, f"Converted: {output_path}"
+
+    ocr_text, error = _ocr_pdf(input_path)
+    if ocr_text is None:
+        if not garbled:
+            return False, error
+        # Keep the document (its figures are still usable) rather than
+        # rejecting a paper that was accepted before OCR was tried.
+        logger.warning(
+            "%s: text layer is unreadable (fonts without a Unicode map) and "
+            "OCR failed, keeping the garbled text: %s", input_path.name, error,
+        )
+        output_path.write_text(text, encoding="utf-8")
+        return True, f"Converted: {output_path}"
+
+    output_path.write_text(ocr_text, encoding="utf-8")
     return True, f"Converted (OCR): {output_path}"
 
 
