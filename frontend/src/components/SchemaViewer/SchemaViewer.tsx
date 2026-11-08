@@ -147,7 +147,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [reprocessingStatus, setReprocessingStatus] = useState<ReprocessingStatus | null>(null);
   const [validationResult, setValidationResult] = useState<SchemaValidationResultType | null>(null);
   const [loading, setLoading] = useState(false);
-  const [revertingColumn, setRevertingColumn] = useState<string | null>(null);
+  const [, setRevertingColumn] = useState<string | null>(null);
   const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
   const [reextractionDialogOpen, setReextractionDialogOpen] = useState(false);
   const [continueDiscoveryDialogOpen, setContinueDiscoveryDialogOpen] = useState(false);
@@ -889,46 +889,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     toast({ title: 'Continue Discovery Error', description: message, variant: 'destructive' });
   };
 
-
-  const handleBackup = async () => {
-    setLoading(true);
-    try {
-      const result = await schemaAPI.backupSchema(sessionId);
-      toast({
-        title: 'Backup Created',
-        description: `Schema backup created: ${result.backup_id}`,
-      });
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: extractErrorMessage(error, 'Failed to create backup'),
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleValidate = async () => {
-    setLoading(true);
-    try {
-      const result = await schemaAPI.validateSchema(sessionId);
-      setValidationResult(result);
-      toast({ title: 'Validation Complete', description: 'Schema validation completed' });
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: extractErrorMessage(error, 'Failed to validate schema'),
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleReprocessClick = () => {
-    setReprocessDialogOpen(true);
-  };
 
   const confirmReprocess = async () => {
     setReprocessDialogOpen(false);

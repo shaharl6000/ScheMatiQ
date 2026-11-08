@@ -38,6 +38,14 @@ def _bbox(l, t, r, b):
     return BoundingBox(l=l, t=t, r=r, b=b, coord_origin=CoordOrigin.BOTTOMLEFT)
 
 LEGAL_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "legal_corpus"
+
+
+@pytest.fixture(autouse=True)
+def _in_process_conversion(monkeypatch):
+    """These tests inject a fake converter into this process, so bypass the
+    crash-isolated worker (covered by the real-PDF integration run)."""
+    monkeypatch.setattr(svc, "ISOLATE_FIGURE_EXTRACTION", False)
+
 FIGURE_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "figures"
 
 
@@ -313,6 +321,97 @@ def test_build_figure_records_merges_multi_panel_chain(fake_docling_items, tmp_p
     # new_t = 800-700=100, new_b = 800-100=700 (page/image are the same size
     # here, so no additional scaling).
     assert merged_box == (50.0, 100.0, 300.0, 700.0)
+
+
+# ---------------------------------------------------------------------------
+# Captions Docling did not link: its layout model labels some captions as body
+# text or a section header, drops others, and finds no region for some
+# embedded images, so the figure was dropped for having no caption.
+# ---------------------------------------------------------------------------
+
+class _FakeTextItem:
+    def __init__(self, text, page_no=1, bbox=None):
+        self.text = text
+        self.prov = [_FakeProv(page_no, bbox=bbox)]
+
+
+def test_caption_labeled_as_section_header_is_linked(fake_docling_items, tmp_path):
+    # AGO1, Cell Press: the caption sits in the next column, ~50pt away.
+    picture = _FakePictureItem(caption="", page_no=4, bbox=_bbox(54, 682, 369, 65))
+    caption = _FakeTextItem("Figure 1. AGO1 Is a Nucleo-Cytosolic Shuttling Protein",
+                            page_no=4, bbox=_bbox(420, 682, 560, 660))
+    figures = _build_figure_records(_FakeDocument([picture, caption]), tmp_path, source_document="x.pdf")
+
+    assert [f.caption for f in figures] == ["Figure 1. AGO1 Is a Nucleo-Cytosolic Shuttling Protein"]
+
+
+def test_alignment_read_as_captionless_table_becomes_a_figure(fake_docling_items, tmp_path):
+    table = _FakeTableItem(caption="", page_no=5, bbox=_bbox(366, 737, 510, 617))
+    caption = _FakeTextItem("Figure 4.—Sequence alignment identifies a potential NES in Ltv1.",
+                            page_no=5, bbox=_bbox(319, 600, 558, 520))
+    figures = _build_figure_records(_FakeDocument([table, caption]), tmp_path, source_document="x.pdf")
+
+    assert len(figures) == 1
+    assert figures[0].figure_label == "Figure"
+    assert figures[0].caption.startswith("Figure 4.—Sequence alignment")
+
+
+@pytest.mark.parametrize("text, page_no, bbox", [
+    ("Figure 2 shows that the mutant stays nuclear.", 1, _bbox(50, 480, 300, 460)),  # body text
+    ("Figure 2. Far away.", 1, _bbox(50, 100, 300, 80)),  # beyond the gap
+    ("Figure 2. On another page.", 2, _bbox(50, 480, 300, 460)),
+])
+def test_text_that_is_not_this_pictures_caption_is_not_linked(fake_docling_items, tmp_path, text, page_no, bbox):
+    picture = _FakePictureItem(caption="", page_no=1, bbox=_bbox(50, 700, 300, 500))
+    caption = _FakeTextItem(text, page_no=page_no, bbox=bbox)
+    assert _build_figure_records(_FakeDocument([picture, caption]), tmp_path, source_document="x.pdf") == []
+
+
+def test_caption_number_already_linked_is_not_reused(fake_docling_items, tmp_path):
+    linked = _FakePictureItem(caption="Figure 1. Linked by Docling.", page_no=1, bbox=_bbox(50, 700, 300, 500))
+    logo = _FakePictureItem(caption="", page_no=1, bbox=_bbox(350, 700, 550, 500))
+    repeat = _FakeTextItem("Figure 1. Linked by Docling.", page_no=1, bbox=_bbox(350, 490, 550, 470))
+    figures = _build_figure_records(_FakeDocument([linked, logo, repeat]), tmp_path, source_document="x.pdf")
+
+    assert [f.caption for f in figures] == ["Figure 1. Linked by Docling."]
+
+
+def test_small_logo_does_not_take_a_caption(fake_docling_items, tmp_path):
+    logo = _FakePictureItem(caption="", page_no=1, bbox=_bbox(52, 73, 69, 56))
+    caption = _FakeTextItem("Figure 1. A figure Docling missed.", page_no=1, bbox=_bbox(52, 50, 300, 40))
+    assert _build_figure_records(_FakeDocument([logo, caption]), tmp_path, source_document="x.pdf") == []
+
+
+def test_caption_docling_dropped_is_read_from_the_pdf(fake_docling_items, tmp_path, monkeypatch):
+    # Ltv1, Genetics: the side caption is missing from Docling's output.
+    picture = _FakePictureItem(caption="", page_no=3, bbox=_bbox(58, 738, 354, 461))
+    page, _ = _fake_page_with_image()
+    pdf_caption = {"text": "Figure 1.—Ribosomal RNA-processing defects", "page_no": 3,
+                   "bbox": _bbox(367, 676, 558, 535)}
+    monkeypatch.setattr(svc, "_read_pdf_layout", lambda pdf_path, heights: ([pdf_caption], []))
+
+    figures = _build_figure_records(_FakeDocument([picture], pages={3: page}), tmp_path,
+                                    source_document="x.pdf", pdf_path=Path("x.pdf"))
+
+    assert [f.caption for f in figures] == ["Figure 1.—Ribosomal RNA-processing defects"]
+
+
+def test_embedded_image_docling_found_no_region_for(fake_docling_items, tmp_path, monkeypatch):
+    # AID: a sequence-alignment image the layout model read as nothing.
+    page, pil_image = _fake_page_with_image()
+    caption = _FakeTextItem("FIG. 1. AID sequence alignment in various species.",
+                            page_no=1, bbox=_bbox(308, 660, 555, 600))
+    image = {"page_no": 1, "bbox": _bbox(308, 746, 555, 671)}
+    covered = {"page_no": 1, "bbox": _bbox(50, 700, 300, 500)}  # inside a Docling region
+    picture = _FakePictureItem(caption="FIG. 2. Already found.", page_no=1, bbox=_bbox(50, 700, 300, 500))
+    monkeypatch.setattr(svc, "_read_pdf_layout", lambda pdf_path, heights: ([], [image, covered]))
+
+    figures = _build_figure_records(_FakeDocument([picture, caption], pages={1: page}), tmp_path,
+                                    source_document="x.pdf", pdf_path=Path("x.pdf"))
+
+    assert [f.caption for f in figures] == ["FIG. 2. Already found.",
+                                            "FIG. 1. AID sequence alignment in various species."]
+    assert pil_image.crop_calls == [(308.0, 54.0, 555.0, 129.0)]
 
 
 # ---------------------------------------------------------------------------
@@ -820,3 +919,174 @@ def test_remove_document_artifacts_clears_pending_and_committed(tmp_path):
     assert (tmp_path / "documents" / "figures" / "other" / "f.png").read_bytes() == b"y"
 
     remove_document_artifacts(tmp_path, "judges")
+
+
+def test_read_pdf_layout_reads_a_real_pdf(tmp_path):
+    # Not monkeypatched: _read_pdf_layout must import and run PyMuPDF on its own
+    # (it once imported a lock that only existed on another branch, so every
+    # real PDF lost its figures while the faked tests still passed).
+    pymupdf = pytest.importorskip("pymupdf")
+    pdf = tmp_path / "paper.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((72, 100), "Figure 3. A caption Docling dropped.")
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 100, 100), False)
+    pix.clear_with(200)
+    page.insert_image(pymupdf.Rect(72, 200, 272, 400), pixmap=pix)
+    doc.save(str(pdf))
+    doc.close()
+
+    captions, images = svc._read_pdf_layout(pdf, {1: 792.0})
+
+    assert [c["text"] for c in captions] == ["Figure 3. A caption Docling dropped."]
+    assert captions[0]["bbox"].coord_origin == CoordOrigin.BOTTOMLEFT
+    assert len(images) == 1
+    box = images[0]["bbox"]
+    assert (round(box.l), round(box.t), round(box.r), round(box.b)) == (72, 592, 272, 392)
+
+
+def test_read_pdf_layout_skips_an_unreadable_pdf(tmp_path):
+    bad = tmp_path / "bad.pdf"
+    bad.write_bytes(b"not a pdf")
+    assert svc._read_pdf_layout(bad, {1: 792.0}) == ([], [])
+
+
+# ---------------------------------------------------------------------------
+# _recover_captions(): orphan caption dedup
+# ---------------------------------------------------------------------------
+
+
+def test_recover_captions_ignores_list_of_figures_entry():
+    """A List of Figures line for Figure 1 comes first in the document, but
+    the real caption on the figure's page must still be recovered."""
+    figure = {"element": None, "label": "Table", "page_no": 12,
+              "bbox": _bbox(100, 500, 400, 300), "caption": None}
+    captions = [
+        {"text": "Figure 1. Overview ..... 12", "page_no": 2, "bbox": _bbox(72, 700, 500, 690)},
+        {"text": "Figure 1. Overview of the pipeline.", "page_no": 12, "bbox": _bbox(100, 290, 400, 270)},
+    ]
+    leftover = svc._recover_captions([figure], captions)
+    assert figure["caption"] == "Figure 1. Overview of the pipeline."
+    assert figure["label"] == "Figure"
+    assert [t["page_no"] for t in leftover] == [2]
+
+
+def test_recover_captions_dedups_same_number_on_same_page():
+    figure = {"element": None, "label": "Figure", "page_no": 3,
+              "bbox": _bbox(100, 500, 400, 300), "caption": None}
+    captions = [
+        {"text": "Figure 2. From Docling.", "page_no": 3, "bbox": _bbox(100, 290, 400, 270)},
+        {"text": "Figure 2. From PyMuPDF.", "page_no": 3, "bbox": _bbox(100, 290, 400, 270)},
+    ]
+    assert svc._recover_captions([figure], captions) == []
+    assert figure["caption"] == "Figure 2. From Docling."
+
+
+# ---------------------------------------------------------------------------
+# warm_up_converter(): where the models load
+# ---------------------------------------------------------------------------
+
+
+def test_warm_up_isolated_loads_models_in_worker_only(monkeypatch):
+    monkeypatch.setattr(svc, "ENABLE_FIGURE_EXTRACTION", True)
+    monkeypatch.setattr(svc, "ISOLATE_FIGURE_EXTRACTION", True)
+    calls = []
+    monkeypatch.setattr(svc, "_warm_up_worker", lambda: calls.append("worker"))
+    monkeypatch.setattr(svc, "load_converter_models", lambda: calls.append("parent"))
+    svc.warm_up_converter()
+    assert calls == ["worker"]
+
+
+def test_warm_up_in_process_loads_models_in_parent(monkeypatch):
+    monkeypatch.setattr(svc, "ENABLE_FIGURE_EXTRACTION", True)
+    calls = []
+    monkeypatch.setattr(svc, "_warm_up_worker", lambda: calls.append("worker"))
+    monkeypatch.setattr(svc, "load_converter_models", lambda: calls.append("parent"))
+    svc.warm_up_converter()
+    assert calls == ["parent"]
+
+
+class _FakeFuture:
+    def __init__(self, outcome):
+        self._outcome = outcome
+
+    def result(self, timeout=None):
+        if isinstance(self._outcome, BaseException):
+            raise self._outcome
+        return self._outcome
+
+
+class _FakePool:
+    def __init__(self, outcome):
+        self._outcome = outcome
+
+    def submit(self, fn, *args):
+        return _FakeFuture(self._outcome)
+
+
+def test_warm_up_worker_failure_discards_pool_and_does_not_raise(monkeypatch, caplog):
+    from concurrent.futures.process import BrokenProcessPool
+
+    monkeypatch.setattr(svc, "_shutting_down", False)
+    monkeypatch.setattr(svc, "_get_pool", lambda: _FakePool(BrokenProcessPool("died")))
+    discarded = []
+    monkeypatch.setattr(svc, "_discard_pool", lambda: discarded.append(True))
+    svc._warm_up_worker()
+    assert discarded == [True]
+    assert "warm-up failed" in caplog.text
+
+
+def test_warm_up_worker_reports_models_that_did_not_load(monkeypatch, caplog):
+    monkeypatch.setattr(svc, "_shutting_down", False)
+    monkeypatch.setattr(svc, "_get_pool", lambda: _FakePool(False))
+    svc._warm_up_worker()
+    assert "did not load" in caplog.text
+    assert "ready" not in caplog.text
+
+
+def test_shutdown_worker_blocks_new_pool(monkeypatch):
+    monkeypatch.setattr(svc, "_shutting_down", False)
+    monkeypatch.setattr(svc, "_pool", None)
+    svc.shutdown_worker()
+    with pytest.raises(RuntimeError):
+        svc._get_pool()
+    assert svc._pool is None
+
+
+def _captionless(page_no):
+    return {"element": None, "label": "Figure", "page_no": page_no,
+            "bbox": _bbox(100, 500, 400, 300), "caption": None}
+
+
+def _caption_para(text, page_no):
+    return {"text": text, "page_no": page_no, "bbox": _bbox(100, 290, 400, 270)}
+
+
+def test_recover_captions_continued_figure_on_next_page():
+    """Docling linked Figure 3 on page 5; the continuation on page 6 must
+    still get its own caption instead of being dropped as captionless."""
+    linked = {"element": None, "label": "Figure", "page_no": 5,
+              "bbox": _bbox(100, 500, 400, 300), "caption": "Figure 3. Export assay."}
+    continued = _captionless(6)
+    svc._recover_captions([linked, continued], [_caption_para("Figure 3. (continued)", 6)])
+    assert continued["caption"] == "Figure 3. (continued)"
+
+
+def test_recover_captions_supplement_restarts_numbering():
+    main = {"element": None, "label": "Figure", "page_no": 2,
+            "bbox": _bbox(100, 500, 400, 300), "caption": "Figure 1. Main result."}
+    supp = _captionless(20)
+    svc._recover_captions([main, supp], [_caption_para("Figure 1. Supplementary blot.", 20)])
+    assert supp["caption"] == "Figure 1. Supplementary blot."
+
+
+def test_recover_captions_skips_copy_of_caption_linked_on_same_page():
+    """PyMuPDF re-reads a caption Docling already linked: it must not be
+    attached to a second picture on that page."""
+    linked = {"element": None, "label": "Figure", "page_no": 4,
+              "bbox": _bbox(100, 500, 400, 300), "caption": "Figure 2. Localization."}
+    other = {"element": None, "label": "Figure", "page_no": 4,
+             "bbox": _bbox(100, 250, 400, 100), "caption": None}
+    leftover = svc._recover_captions([linked, other], [_caption_para("Figure 2. Localization.", 4)])
+    assert other["caption"] is None
+    assert leftover == []
