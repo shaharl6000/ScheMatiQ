@@ -8,13 +8,13 @@ only those with a resolvable caption, matching the old PDFFigures2 behavior
 (a captionless embedded image, e.g. a signature block, legitimately yields
 zero results, which is not a failure).
 
-There is deliberately no hard wall-clock timeout here. The old subprocess
-call got one for free from `subprocess.run(timeout=...)`, which also gave
-OS-level crash isolation (a JVM hang only killed that subprocess). Docling
-runs on this process directly, so replicating both properties would require
-a persistent worker process; that complexity isn't taken on for this pass
-since Docling doesn't have PDFFigures2's known hang history. If it proves
-necessary, `extract_figures()` is the place to add it.
+Conversion runs in a separate worker process (see app/core/figure_worker.py).
+Docling's native PDF parser can hit an access violation on some PDFs, which
+silently killed the whole backend mid-run. In the worker, a crash only loses
+that one attempt: the worker is replaced and the PDF retried once, then the
+PDF degrades to "no figures". A hung conversion is killed after
+FIGURE_EXTRACTION_TIMEOUT_SECONDS. The worker stays alive between PDFs so the
+Docling models load once, not per document.
 
 Called from document_preprocessor.preprocess_uploaded_file() for every
 uploaded PDF. Never raises: a missing/broken model install, a crashed
@@ -27,20 +27,26 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import multiprocessing
 import os
+import re
 import shutil
 import tempfile
 import threading
 import time
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 
+from docling.datamodel.backend_options import ThreadedDoclingParseBackendOptions
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling_core.types.doc import BoundingBox, PictureItem, TableItem
+from docling_core.types.doc import BoundingBox, CoordOrigin, PictureItem, TableItem
 
 from app.core.config import (
     DOCLING_ARTIFACTS_PATH,
@@ -51,6 +57,13 @@ from app.core.config import (
 from app.models.figures import ExtractedFigure, FigureExtractionManifest
 
 logger = logging.getLogger(__name__)
+
+# Run Docling in a crash-isolated worker process. Off only for tests that
+# inject a fake in-process converter.
+ISOLATE_FIGURE_EXTRACTION = os.environ.get("ISOLATE_FIGURE_EXTRACTION", "1") != "0"
+_WORKER_TIMEOUT_SECONDS = float(os.environ.get("FIGURE_EXTRACTION_TIMEOUT_SECONDS", "600"))
+# A native crash is intermittent on the same PDF, so one retry often succeeds.
+_WORKER_ATTEMPTS = 2
 
 # scale=1 ~ 72 DPI; the old PDFFigures2 pipeline rendered at 150 DPI (~2.08x).
 _IMAGES_SCALE = 2.0
@@ -92,8 +105,23 @@ def _build_converter() -> DocumentConverter:
     pipeline_options.do_ocr = False
     if DOCLING_ARTIFACTS_PATH:
         pipeline_options.artifacts_path = DOCLING_ARTIFACTS_PATH
+    # docling_parse 7.x decodes pages on several native threads by default, and
+    # that path intermittently hits an access violation (a race: the same PDF
+    # crashed in ~3 of 6 runs, killing the process). One parser thread gave 0
+    # crashes in 10 runs with identical figures/text and no slowdown, since the
+    # layout model, not parsing, dominates conversion time.
+    backend_options = ThreadedDoclingParseBackendOptions(
+        parser_threads=1,
+        include_bitmap_images=pipeline_options.generate_picture_images,
+        render_pages=pipeline_options.generate_page_images,
+        render_scale=pipeline_options.images_scale,
+    )
     return DocumentConverter(
-        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=pipeline_options, backend_options=backend_options
+            )
+        }
     )
 
 
@@ -126,19 +154,32 @@ def warm_up_converter() -> None:
     pipeline is first initialized, which otherwise happens inside the first
     upload's request. Called once from the app's startup hook (in a background
     thread) so that cost is paid before any user is waiting. Never raises.
+
+    With ISOLATE_FIGURE_EXTRACTION the models are loaded in the worker process,
+    which is where conversion runs; the parent never loads them.
     """
     if not ENABLE_FIGURE_EXTRACTION:
         return
+    if ISOLATE_FIGURE_EXTRACTION:
+        _warm_up_worker()
+    else:
+        load_converter_models()
+
+
+def load_converter_models() -> bool:
+    """Build the converter and initialize its PDF pipeline in this process.
+    Returns whether the models loaded. Never raises."""
     started = time.monotonic()
     converter = _get_doc_converter()
     if converter is None:
-        return
+        return False
     try:
         converter.initialize_pipeline(InputFormat.PDF)
     except Exception as e:
         logger.warning("Docling warm-up failed; models will load on first upload: %s", e)
-        return
+        return False
     logger.info("Docling models loaded in %.1fs", time.monotonic() - started)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +258,150 @@ def _merge_adjacent_pictures(candidates: list) -> dict:
     return merge_bbox
 
 
+# Docling's layout model sometimes labels a figure caption as body text or a
+# section header ("Figure 1. AGO1 Is a Nucleo-Cytosolic Shuttling Protein";
+# Genetics' "Figure 3.—Nuclear export of..."), so the picture gets no caption
+# and is dropped, or reads a sequence alignment as a captionless table. A
+# paragraph that opens like a caption is linked to the nearest captionless
+# picture/table on its page; the vision check still verifies the pair.
+_CAPTION_START = re.compile(r"\s*(?:FIG(?:URE)?|Fig(?:ure)?)\.?\s*(\d{1,2})[A-Za-z]?\s*(?:[.:|—–]|-(?!\d))")
+# How far (PDF points) a recovered caption may sit from its picture: Cell
+# Press puts captions in the next column, ~50pt from the figure's edge.
+_CAPTION_MAX_GAP_PT = 150.0
+# Smaller pictures are journal logos and icons, not figures.
+_MIN_RECOVERED_AREA_PT2 = 2500.0
+# PyMuPDF documents are not safe to use from several threads at once; uploads
+# convert PDFs on worker threads when figure extraction runs in-process. Text
+# conversion uses PyMuPDF on those threads too, so both hold the backend's one
+# PyMuPDF lock.
+from app.services.pymupdf_lock import PYMUPDF_LOCK as _PYMUPDF_LOCK  # noqa: E402
+
+
+def _caption_number(text: Optional[str]) -> Optional[int]:
+    m = _CAPTION_START.match(text or "")
+    return int(m.group(1)) if m else None
+
+
+def _vertical_span(box: BoundingBox) -> Tuple[float, float]:
+    return min(box.t, box.b), max(box.t, box.b)
+
+
+def _box_gap(a: BoundingBox, b: BoundingBox) -> float:
+    """Distance between two boxes in the same coordinate origin (0 if they overlap)."""
+    a_lo, a_hi = _vertical_span(a)
+    b_lo, b_hi = _vertical_span(b)
+    dx = max(0.0, b.l - a.r, a.l - b.r)
+    dy = max(0.0, b_lo - a_hi, a_lo - b_hi)
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _box_area(box: BoundingBox) -> float:
+    lo, hi = _vertical_span(box)
+    return max(0.0, box.r - box.l) * (hi - lo)
+
+
+def _pair_by_distance(captions: list, boxes: list) -> List[Tuple[int, int]]:
+    """Greedy nearest pairing of caption candidates with boxes on the same
+    page, each used once, within _CAPTION_MAX_GAP_PT. Returns index pairs."""
+    options = sorted(
+        (_box_gap(cap["bbox"], box["bbox"]), ci, bi)
+        for ci, cap in enumerate(captions)
+        for bi, box in enumerate(boxes)
+        if cap["page_no"] == box["page_no"]
+    )
+    used_c, used_b, pairs = set(), set(), []
+    for gap, ci, bi in options:
+        if gap > _CAPTION_MAX_GAP_PT:
+            break
+        if ci in used_c or bi in used_b:
+            continue
+        used_c.add(ci)
+        used_b.add(bi)
+        pairs.append((ci, bi))
+    return pairs
+
+
+def _recover_captions(candidates: list, caption_texts: list) -> list:
+    """Give captionless pictures/tables the caption paragraph Docling did not
+    link to them (see _CAPTION_START). Mutates candidates; returns the caption
+    paragraphs still unclaimed."""
+    # Keyed by (page, number), not number alone: the same figure number on
+    # another page is a different caption (a List of Figures line, "Figure 3
+    # (continued)", a supplement that restarts numbering), and a captionless
+    # picture is dropped, so filtering it out document-wide loses the figure.
+    linked = {
+        (c["page_no"], n) for c in candidates
+        if c["caption"] and (n := _caption_number(c["caption"])) is not None
+    }
+    orphans, seen = [], set()
+    for t in caption_texts:
+        key = (t["page_no"], _caption_number(t["text"]))
+        if key not in linked and key not in seen:
+            seen.add(key)
+            orphans.append(t)
+    captionless = [
+        c for c in candidates
+        if not c["caption"] and _box_area(c["bbox"]) >= _MIN_RECOVERED_AREA_PT2
+    ]
+    claimed = set()
+    for ci, bi in _pair_by_distance(orphans, captionless):
+        captionless[bi]["caption"] = orphans[ci]["text"]
+        captionless[bi]["label"] = "Figure"
+        claimed.add(ci)
+    return [t for i, t in enumerate(orphans) if i not in claimed]
+
+
+def _read_pdf_layout(pdf_path: Path, page_heights: Dict[int, float]) -> Tuple[list, list]:
+    """Caption paragraphs and embedded-image boxes on each page, read with
+    PyMuPDF, in Docling's bottom-left coordinates. Docling's layout model
+    sometimes drops a caption paragraph entirely (Genetics' side captions,
+    "Figure 1.—Ribosomal RNA-processing defects..."), and sometimes finds no
+    region for an embedded image (AID's sequence-alignment figure). Both
+    lists are empty if PyMuPDF is unavailable or the PDF can't be read."""
+    try:
+        import pymupdf
+    except ImportError:
+        return [], []
+    captions, images = [], []
+    try:
+        with _PYMUPDF_LOCK:
+            with pymupdf.open(str(pdf_path)) as doc:
+                for page_no, height in page_heights.items():
+                    if not 1 <= page_no <= doc.page_count:
+                        continue
+                    page = doc[page_no - 1]
+                    for x0, y0, x1, y1, text, *_ in page.get_text("blocks"):
+                        if _caption_number(text) is not None:
+                            text = " ".join(text.replace("-\n", "").split())
+                            box = BoundingBox(l=x0, t=y0, r=x1, b=y1, coord_origin=CoordOrigin.TOPLEFT)
+                            captions.append({"text": text, "page_no": page_no,
+                                             "bbox": box.to_bottom_left_origin(page_height=height)})
+                    for info in page.get_image_info():
+                        x0, y0, x1, y1 = info["bbox"]
+                        box = BoundingBox(l=x0, t=y0, r=x1, b=y1, coord_origin=CoordOrigin.TOPLEFT)
+                        images.append({"page_no": page_no,
+                                       "bbox": box.to_bottom_left_origin(page_height=height)})
+    except Exception:
+        return [], []
+    return captions, images
+
+
+def _figures_from_embedded_images(orphans: list, images: list, candidates: list) -> list:
+    """Pair caption paragraphs no Docling region claimed with embedded images
+    Docling found no region for, on the same page."""
+    unclaimed = [
+        img for img in images
+        if _box_area(img["bbox"]) >= _MIN_RECOVERED_AREA_PT2
+        and not any(c["page_no"] == img["page_no"] and _box_gap(c["bbox"], img["bbox"]) == 0
+                    for c in candidates)
+    ]
+    return [
+        {"element": None, "label": "Figure", "page_no": unclaimed[bi]["page_no"],
+         "bbox": unclaimed[bi]["bbox"], "caption": orphans[ci]["text"]}
+        for ci, bi in _pair_by_distance(orphans, unclaimed)
+    ]
+
+
 def _crop_page_region(document, page_no: int, bbox: BoundingBox):
     """Crop an arbitrary bbox from document.pages[page_no]'s full-page image
     (requires PdfPipelineOptions.generate_page_images=True). Mirrors the
@@ -234,7 +419,9 @@ def _crop_page_region(document, page_no: int, bbox: BoundingBox):
     return page_image.crop(crop_bbox.as_tuple())
 
 
-def _build_figure_records(document, tmp_dir: Path, *, source_document: str) -> List[ExtractedFigure]:
+def _build_figure_records(
+    document, tmp_dir: Path, *, source_document: str, pdf_path: Optional[Path] = None
+) -> List[ExtractedFigure]:
     """Walk a converted Docling document, saving one PNG per captioned
     figure/table into tmp_dir and returning their ExtractedFigure records.
 
@@ -250,14 +437,24 @@ def _build_figure_records(document, tmp_dir: Path, *, source_document: str) -> L
     PictureItem on the same page (see _merge_adjacent_pictures) has its crop
     region expanded to cover both — Docling sometimes splits one multi-panel
     figure into separate regions and only associates the caption with one.
+
+    A captionless picture/table first gets a nearby caption paragraph Docling
+    failed to link (_recover_captions); with pdf_path, a caption paragraph no
+    region claims gets an embedded image Docling missed.
     """
     candidates = []
+    caption_texts = []
     for element, _level in document.iterate_items():
         if isinstance(element, PictureItem):
             label: Literal["Figure", "Table"] = "Figure"
         elif isinstance(element, TableItem):
             label = "Table"
         else:
+            text = getattr(element, "text", None)
+            if getattr(element, "prov", None) and _caption_number(text) is not None:
+                caption_texts.append({
+                    "text": text, "page_no": element.prov[0].page_no, "bbox": element.prov[0].bbox,
+                })
             continue
 
         if not element.prov:
@@ -276,7 +473,16 @@ def _build_figure_records(document, tmp_dir: Path, *, source_document: str) -> L
             "caption": caption,
         })
 
+    images = []
+    if pdf_path is not None:
+        page_heights = {n: p.size.height for n, p in document.pages.items() if p.size is not None}
+        pdf_captions, images = _read_pdf_layout(pdf_path, page_heights)
+        # Docling's paragraphs first: _recover_captions keeps the first per page and number.
+        caption_texts += pdf_captions
+    orphans = _recover_captions(candidates, caption_texts)
     merge_bbox = _merge_adjacent_pictures(candidates)
+    if orphans and images:
+        candidates.extend(_figures_from_embedded_images(orphans, images, candidates))
 
     figures: List[ExtractedFigure] = []
     seq = 0
@@ -286,6 +492,8 @@ def _build_figure_records(document, tmp_dir: Path, *, source_document: str) -> L
 
         element = c["element"]
         merged = merge_bbox.get(id(c))
+        if element is None:
+            merged = c["bbox"]
         try:
             img = _crop_page_region(document, c["page_no"], merged) if merged is not None \
                 else element.get_image(document)
@@ -562,6 +770,137 @@ def _sweep_stale_staging_dirs(staging_root: Path) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# Crash-isolated worker process
+# ---------------------------------------------------------------------------
+
+# _pool_lock serializes conversions (held for a whole PDF). _pool_state_lock
+# only guards creating/dropping _pool and _shutting_down, so shutdown can kill
+# the worker while a conversion or warm-up holds _pool_lock.
+_pool_lock = threading.Lock()
+_pool_state_lock = threading.Lock()
+_pool: Optional[ProcessPoolExecutor] = None
+_shutting_down = False
+
+
+def _get_pool() -> ProcessPoolExecutor:
+    with _pool_state_lock:
+        if _shutting_down:
+            raise RuntimeError("figure extraction worker is shut down")
+        return _create_pool_locked()
+
+
+def _create_pool_locked() -> ProcessPoolExecutor:
+    global _pool
+    if _pool is None:
+        from app.core.figure_worker import init_worker
+
+        crash_log = None
+        log_dir = os.environ.get("BACKEND_LOG_DIR")
+        if log_dir is None and not os.environ.get("RAILWAY_ENVIRONMENT"):
+            log_dir = str(Path(__file__).resolve().parents[2] / "logs")
+        if log_dir:
+            Path(log_dir).mkdir(parents=True, exist_ok=True)
+            crash_log = str(Path(log_dir) / "figure_worker_crash.log")
+        _pool = ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=multiprocessing.get_context("spawn"),
+            initializer=init_worker,
+            initargs=(crash_log,),
+        )
+    return _pool
+
+
+def _warm_up_worker() -> None:
+    """Start the worker process and load Docling's models in it. Holds
+    _pool_lock so a first upload waits for the warm-up instead of its timeout
+    counting the model load. Never raises."""
+    from app.core.figure_worker import warm_up
+
+    started = time.monotonic()
+    with _pool_lock:
+        if _shutting_down:
+            return
+        try:
+            loaded = _get_pool().submit(warm_up).result(timeout=_WORKER_TIMEOUT_SECONDS)
+        except Exception as e:
+            if not _shutting_down:  # killed by shutdown_worker: expected
+                logger.warning("Docling worker warm-up failed; models will load on first upload: %s", e)
+            _discard_pool()
+            return
+    if loaded:
+        logger.info("Docling worker ready in %.1fs", time.monotonic() - started)
+    else:
+        logger.warning("Docling worker started but its models did not load; see the worker's log")
+
+
+def shutdown_worker() -> None:
+    """Kill the worker process at app shutdown. Also unblocks a warm-up still
+    waiting on it, whose thread would otherwise hold up interpreter exit, and
+    stops a warm-up that has not started yet from spawning a new worker.
+    Never raises."""
+    global _shutting_down
+    with _pool_state_lock:
+        _shutting_down = True
+    _discard_pool()
+
+
+def _discard_pool() -> None:
+    """Kill the worker (crashed or hung) so the next call starts a fresh one."""
+    global _pool
+    with _pool_state_lock:
+        pool, _pool = _pool, None
+    if pool is None:
+        return
+    for proc in list((getattr(pool, "_processes", None) or {}).values()):
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        pool.shutdown(wait=False, cancel_futures=True)
+    except Exception:
+        pass
+
+
+def _convert_isolated(pdf_path: Path, tmp_dir: Path, source_document: str) -> List[ExtractedFigure]:
+    """Run Docling for one PDF in the worker process. Raises on failure.
+
+    Serialized by _pool_lock so the timeout measures this PDF only, and so
+    at most one Docling instance (~1.5GB) is resident at a time.
+    """
+    from app.core.figure_worker import convert_pdf_figures
+
+    last_error: Optional[BaseException] = None
+    with _pool_lock:
+        for attempt in range(1, _WORKER_ATTEMPTS + 1):
+            future = _get_pool().submit(
+                convert_pdf_figures, str(pdf_path), str(tmp_dir), source_document
+            )
+            try:
+                records = future.result(timeout=_WORKER_TIMEOUT_SECONDS)
+                return [ExtractedFigure.model_validate(r) for r in records]
+            except BrokenProcessPool as e:
+                logger.warning(
+                    "Docling worker crashed on %s (attempt %d/%d); restarting worker",
+                    pdf_path.name, attempt, _WORKER_ATTEMPTS,
+                )
+                _discard_pool()
+                last_error = e
+            except FutureTimeoutError as e:
+                logger.warning(
+                    "Docling timed out after %.0fs on %s; killing worker, skipping figures",
+                    _WORKER_TIMEOUT_SECONDS, pdf_path.name,
+                )
+                _discard_pool()
+                raise RuntimeError(
+                    f"figure extraction timed out after {_WORKER_TIMEOUT_SECONDS:.0f}s"
+                ) from e
+    raise RuntimeError(
+        f"Docling worker crashed {_WORKER_ATTEMPTS} times on this PDF"
+    ) from last_error
+
+
 def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str) -> Optional[_FigureBuildResult]:
     """Run Docling on pdf_path (still on disk) into a staging dir under
     documents_dir/figures/.
@@ -579,9 +918,12 @@ def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str
     """
     if not ENABLE_FIGURE_EXTRACTION:
         return None
-    converter = _get_doc_converter()
-    if converter is None:
-        return None
+    if ISOLATE_FIGURE_EXTRACTION:
+        converter = None  # built inside the worker process
+    else:
+        converter = _get_doc_converter()
+        if converter is None:
+            return None
 
     staging_root = documents_dir / "figures"
     staging_root.mkdir(parents=True, exist_ok=True)
@@ -589,9 +931,15 @@ def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str
     tmp_dir = Path(tempfile.mkdtemp(prefix=".extract_", dir=str(staging_root)))
 
     try:
-        conv_res = converter.convert(str(pdf_path))
-        figures = _build_figure_records(conv_res.document, tmp_dir, source_document=source_document)
+        if ISOLATE_FIGURE_EXTRACTION:
+            figures = _convert_isolated(pdf_path, tmp_dir, source_document)
+        else:
+            conv_res = converter.convert(str(pdf_path))
+            figures = _build_figure_records(
+                conv_res.document, tmp_dir, source_document=source_document, pdf_path=pdf_path
+            )
     except Exception as e:
+        logger.warning("Figure extraction failed for %s: %s", pdf_path.name, e)
         return _FigureBuildResult([], tmp_dir, status="failed", error=str(e))
 
     try:
