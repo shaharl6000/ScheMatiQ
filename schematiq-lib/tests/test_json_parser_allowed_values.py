@@ -1,5 +1,5 @@
-"""Tests for JSONResponseParser.postprocess's allowed_values normalization
-and its interaction with excerpts.
+"""Tests for JSONResponseParser allowed_values normalization: its interaction
+with excerpts, and that fuzzy matching never changes a value's numbers (#557).
 """
 
 import pytest
@@ -90,3 +90,53 @@ def test_excerpts_preserved_when_answer_unmatched(parser: JSONResponseParser) ->
     assert out["key_finding"]["excerpts"] == [{"text": "supporting quote", "source": "paper1"}]
     assert "normalized_to_allowed" not in out["key_finding"]
     assert unmatched == {"key_finding": ["a completely unrelated real finding from this document"]}
+
+
+CITATIONS = [
+    "2025 WL 1825431",
+    "404 F. Supp. 3d 109",
+    "766 F.Supp.3d 266",
+    "2025 WL 1233674",
+    "2025 WL 1145250",
+]
+
+
+def _norm(answer, allowed):
+    return JSONResponseParser()._normalize_to_allowed_values(answer, allowed)
+
+
+def test_citation_is_not_mapped_to_a_different_citation():
+    out, matched, unmatched = _norm("2025 WL 1325305", CITATIONS)
+    assert out == "2025 WL 1325305"
+    assert matched is False
+    assert unmatched == "2025 WL 1325305"
+
+
+def test_close_citation_number_is_not_mapped():
+    out, matched, _ = _norm("2025 WL 1234567", CITATIONS)
+    assert out == "2025 WL 1234567"
+    assert matched is False
+
+
+def test_same_citation_with_different_spacing_still_maps():
+    out, matched, _ = _norm("766 F. Supp. 3d 266", CITATIONS)
+    assert out == "766 F.Supp.3d 266"
+    assert matched is True
+
+
+def test_categorical_number_mismatch_is_not_mapped():
+    out, matched, _ = _norm("phase 2", ["phase 3", "phase 4"])
+    assert out == "phase 2"
+    assert matched is False
+
+
+def test_text_only_fuzzy_match_still_works():
+    out, matched, _ = _norm("transformers", ["transformer", "cnn", "rnn"])
+    assert out == "transformer"
+    assert matched is True
+
+
+def test_exact_case_insensitive_match_unchanged():
+    out, matched, _ = _norm("2025 wl 1825431", CITATIONS)
+    assert out == "2025 WL 1825431"
+    assert matched is True

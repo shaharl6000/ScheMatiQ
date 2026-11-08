@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Callable
 from pathlib import Path
 from datetime import datetime
 
+from app.core.config import EXTRACTION_MAX_WORKERS
 from app.services import schematiq_thread_pool
 from app.services.pipeline.callbacks import create_value_extracted_callback, create_warning_callback
 from app.services.reference_context import build_reference_context
@@ -103,7 +104,7 @@ async def run_value_extraction(
             resume=resume,
             mode="all",
             retrieval_k=8,
-            max_workers=1,
+            max_workers=EXTRACTION_MAX_WORKERS,
             on_value_extracted=on_value_extracted,
             should_stop=should_stop,
             on_warning=on_warning,
@@ -250,6 +251,12 @@ async def process_suggested_values(
     For each column with allowed_values:
     - Auto-add values that meet the column's auto_expand_threshold
     - Store remaining values as pending_values for user review
+
+    A column without allowed_values is open (names, citations, ids) and is
+    skipped: schema evolution may extend a closed set, but never creates one.
+    Otherwise a value repeated in two documents (e.g. a judge on two panels)
+    would start a list, and the list shown in the prompt makes the model pick
+    from it for other rows.
     """
     from app.models.session import PendingValue
 
@@ -268,6 +275,12 @@ async def process_suggested_values(
         col_suggestions = suggested_values[col.name]
         if not col_suggestions:
             continue
+        if not col.allowed_values:
+            logger.debug(
+                "Skipping %d suggested values for open column %s (no allowed_values)",
+                len(col_suggestions), col.name,
+            )
+            continue
 
         threshold = col.auto_expand_threshold if col.auto_expand_threshold is not None else 2
 
@@ -280,12 +293,10 @@ async def process_suggested_values(
             doc_count = details.get("count", 0)
             documents = details.get("documents", [])
 
-            if col.allowed_values and value in col.allowed_values:
+            if value in col.allowed_values:
                 continue
 
             if threshold > 0 and doc_count >= threshold:
-                if col.allowed_values is None:
-                    col.allowed_values = []
                 col.allowed_values.append(value)
                 auto_added.append(value)
                 # If this value was pending from an earlier run, it is now

@@ -143,10 +143,46 @@ def _get_doc_converter() -> Optional[DocumentConverter]:
             return _doc_converter
         try:
             _doc_converter = _build_converter()
-        except Exception:
+        except Exception as e:
+            logger.warning("Docling converter unavailable; figure extraction disabled: %s", e)
             _doc_converter = None
         _converter_resolved = True
         return _doc_converter
+
+
+def warm_up_converter() -> None:
+    """Load Docling's layout/table models ahead of the first upload.
+
+    DocumentConverter() itself is cheap; the model weights load when the PDF
+    pipeline is first initialized, which otherwise happens inside the first
+    upload's request. Called once from the app's startup hook (in a background
+    thread) so that cost is paid before any user is waiting. Never raises.
+
+    With ISOLATE_FIGURE_EXTRACTION the models are loaded in the worker process,
+    which is where conversion runs; the parent never loads them.
+    """
+    if not ENABLE_FIGURE_EXTRACTION:
+        return
+    if ISOLATE_FIGURE_EXTRACTION:
+        _warm_up_worker()
+    else:
+        load_converter_models()
+
+
+def load_converter_models() -> bool:
+    """Build the converter and initialize its PDF pipeline in this process.
+    Returns whether the models loaded. Never raises."""
+    started = time.monotonic()
+    converter = _get_doc_converter()
+    if converter is None:
+        return False
+    try:
+        converter.initialize_pipeline(InputFormat.PDF)
+    except Exception as e:
+        logger.warning("Docling warm-up failed; models will load on first upload: %s", e)
+        return False
+    logger.info("Docling models loaded in %.1fs", time.monotonic() - started)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +273,11 @@ _CAPTION_START = re.compile(r"\s*(?:FIG(?:URE)?|Fig(?:ure)?)\.?\s*(\d{1,2})[A-Za
 _CAPTION_MAX_GAP_PT = 150.0
 # Smaller pictures are journal logos and icons, not figures.
 _MIN_RECOVERED_AREA_PT2 = 2500.0
+# PyMuPDF documents are not safe to use from several threads at once; uploads
+# convert PDFs on worker threads when figure extraction runs in-process. Text
+# conversion uses PyMuPDF on those threads too, so both hold the backend's one
+# PyMuPDF lock.
+from app.services.pymupdf_lock import PYMUPDF_LOCK as _PYMUPDF_LOCK  # noqa: E402
 
 
 def _caption_number(text: Optional[str]) -> Optional[int]:
@@ -287,12 +328,19 @@ def _recover_captions(candidates: list, caption_texts: list) -> list:
     """Give captionless pictures/tables the caption paragraph Docling did not
     link to them (see _CAPTION_START). Mutates candidates; returns the caption
     paragraphs still unclaimed."""
-    linked = {_caption_number(c["caption"]) for c in candidates if c["caption"]} - {None}
+    # Keyed by (page, number), not number alone: the same figure number on
+    # another page is a different caption (a List of Figures line, "Figure 3
+    # (continued)", a supplement that restarts numbering), and a captionless
+    # picture is dropped, so filtering it out document-wide loses the figure.
+    linked = {
+        (c["page_no"], n) for c in candidates
+        if c["caption"] and (n := _caption_number(c["caption"])) is not None
+    }
     orphans, seen = [], set()
     for t in caption_texts:
-        n = _caption_number(t["text"])
-        if n not in linked and n not in seen:
-            seen.add(n)
+        key = (t["page_no"], _caption_number(t["text"]))
+        if key not in linked and key not in seen:
+            seen.add(key)
             orphans.append(t)
     captionless = [
         c for c in candidates
@@ -313,13 +361,13 @@ def _read_pdf_layout(pdf_path: Path, page_heights: Dict[int, float]) -> Tuple[li
     "Figure 1.—Ribosomal RNA-processing defects..."), and sometimes finds no
     region for an embedded image (AID's sequence-alignment figure). Both
     lists are empty if PyMuPDF is unavailable or the PDF can't be read."""
-    from app.services.document_conversion.convert_to_txt import PYMUPDF_LOCK, pymupdf
-
-    if pymupdf is None:
+    try:
+        import pymupdf
+    except ImportError:
         return [], []
     captions, images = [], []
     try:
-        with PYMUPDF_LOCK:
+        with _PYMUPDF_LOCK:
             with pymupdf.open(str(pdf_path)) as doc:
                 for page_no, height in page_heights.items():
                     if not 1 <= page_no <= doc.page_count:
@@ -432,7 +480,7 @@ def _build_figure_records(
     if pdf_path is not None:
         page_heights = {n: p.size.height for n, p in document.pages.items() if p.size is not None}
         pdf_captions, images = _read_pdf_layout(pdf_path, page_heights)
-        # Docling's paragraphs first: _recover_captions keeps the first per number.
+        # Docling's paragraphs first: _recover_captions keeps the first per page and number.
         caption_texts += pdf_captions
     orphans = _recover_captions(candidates, caption_texts)
     merge_bbox = _merge_adjacent_pictures(candidates)
@@ -529,8 +577,9 @@ def _get_genai_client():
     their best-effort contract."""
     from google import genai
     from app.services.chat.deps import get_gemini_api_key
+    from schematiq.core.llm_backends import gemini_http_options
 
-    return genai.Client(api_key=get_gemini_api_key())
+    return genai.Client(api_key=get_gemini_api_key(), http_options=gemini_http_options())
 
 
 # Counts verification calls that failed on the current thread, so
@@ -577,7 +626,8 @@ def _verify_figure_caption(
         )
         data = json.loads(response.text)
         return bool(data.get("matches")), (data.get("description") or None)
-    except Exception:
+    except Exception as e:
+        logger.warning("Figure caption verification failed; keeping Docling's caption: %s", e)
         _note_verification_failure()
         return True, None
 
@@ -651,7 +701,8 @@ def _rematch_orphaned_figures(
                 result[fig.figure_id] = caption_text_by_label[chosen_label]
                 used_labels.add(chosen_label)
         return result
-    except Exception:
+    except Exception as e:
+        logger.warning("Figure caption re-matching failed; dropping rejected captions: %s", e)
         _note_verification_failure()
         return fallback
 
@@ -737,11 +788,23 @@ def _sweep_stale_staging_dirs(staging_root: Path) -> None:
 # Crash-isolated worker process
 # ---------------------------------------------------------------------------
 
+# _pool_lock serializes conversions (held for a whole PDF). _pool_state_lock
+# only guards creating/dropping _pool and _shutting_down, so shutdown can kill
+# the worker while a conversion or warm-up holds _pool_lock.
 _pool_lock = threading.Lock()
+_pool_state_lock = threading.Lock()
 _pool: Optional[ProcessPoolExecutor] = None
+_shutting_down = False
 
 
 def _get_pool() -> ProcessPoolExecutor:
+    with _pool_state_lock:
+        if _shutting_down:
+            raise RuntimeError("figure extraction worker is shut down")
+        return _create_pool_locked()
+
+
+def _create_pool_locked() -> ProcessPoolExecutor:
     global _pool
     if _pool is None:
         from app.core.figure_worker import init_worker
@@ -762,10 +825,45 @@ def _get_pool() -> ProcessPoolExecutor:
     return _pool
 
 
+def _warm_up_worker() -> None:
+    """Start the worker process and load Docling's models in it. Holds
+    _pool_lock so a first upload waits for the warm-up instead of its timeout
+    counting the model load. Never raises."""
+    from app.core.figure_worker import warm_up
+
+    started = time.monotonic()
+    with _pool_lock:
+        if _shutting_down:
+            return
+        try:
+            loaded = _get_pool().submit(warm_up).result(timeout=_WORKER_TIMEOUT_SECONDS)
+        except Exception as e:
+            if not _shutting_down:  # killed by shutdown_worker: expected
+                logger.warning("Docling worker warm-up failed; models will load on first upload: %s", e)
+            _discard_pool()
+            return
+    if loaded:
+        logger.info("Docling worker ready in %.1fs", time.monotonic() - started)
+    else:
+        logger.warning("Docling worker started but its models did not load; see the worker's log")
+
+
+def shutdown_worker() -> None:
+    """Kill the worker process at app shutdown. Also unblocks a warm-up still
+    waiting on it, whose thread would otherwise hold up interpreter exit, and
+    stops a warm-up that has not started yet from spawning a new worker.
+    Never raises."""
+    global _shutting_down
+    with _pool_state_lock:
+        _shutting_down = True
+    _discard_pool()
+
+
 def _discard_pool() -> None:
     """Kill the worker (crashed or hung) so the next call starts a fresh one."""
     global _pool
-    pool, _pool = _pool, None
+    with _pool_state_lock:
+        pool, _pool = _pool, None
     if pool is None:
         return
     for proc in list((getattr(pool, "_processes", None) or {}).values()):

@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useNavigationGuard } from '../hooks/useNavigationGuard';
 import { useNavigationGuardContext } from '../contexts/NavigationGuardContext';
 import { NavigationConfirmDialog } from '@/components/ui/NavigationConfirmDialog';
-import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, Upload, Trash2, FileText, DollarSign, AlertTriangle, HelpCircle, RotateCcw, FileUp, Table } from 'lucide-react';
+import { Sparkles, Settings, Loader2, ChevronDown, Upload, Trash2, FileText, DollarSign, AlertTriangle, HelpCircle, RotateCcw, FileUp, Table } from 'lucide-react';
 import {
   getConfiguredProviders,
   getApiKeyForProvider,
@@ -88,7 +88,7 @@ const ScheMatiQConfigPage = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Cost estimate expand state
-  const [costExpanded, setCostExpanded] = useState(false);
+  const [, setCostExpanded] = useState(false);
 
   // Configured providers state
   const [configuredProviders, setConfiguredProviders] = useState<LLMProvider[]>([]);

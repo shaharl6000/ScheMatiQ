@@ -47,10 +47,10 @@ import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsS
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
 import api, { configAPI, loadAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
 import { rememberProject } from '@/utils/recentProjects';
+import { saveBlobAs } from '@/utils/saveFile';
 import type {
   CostEstimate,
   DataRow,
-  DocumentAvailabilityResponse,
   FigureExcerpt,
   PaginatedData,
   ScheMatiQConfig,
@@ -128,15 +128,13 @@ type RefreshDataOptions = {
   onCommitted?: (data: PaginatedData) => void;
 };
 
-async function downloadAs(path: string, filename: string): Promise<void> {
-  const response = await api.get(path, { responseType: 'blob' });
-  const blob = new Blob([response.data]);
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  window.URL.revokeObjectURL(url);
+// Opens a "Save as" dialog (folder + name) where the browser supports it, and
+// falls back to a plain download elsewhere. Returns false if the user cancelled.
+async function downloadAs(path: string, filename: string): Promise<boolean> {
+  return saveBlobAs(filename, async () => {
+    const response = await api.get(path, { responseType: 'blob' });
+    return new Blob([response.data]);
+  });
 }
 
 function Workspace() {
@@ -563,7 +561,11 @@ function Workspace() {
           return;
         }
         setSessionMissing(false);
-        setSessionMode('load');
+        // Only demote to load mode when the backend says this really is an
+        // imported (UPLOAD) session. A SCHEMATIQ session whose status call
+        // failed (a transient 500/timeout) keeps its mode; demoting it made
+        // refresh promote it back on the next pass, ping-ponging between modes.
+        if (loadSession.type !== 'schematiq') setSessionMode('load');
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
         setSession(loadSession);
@@ -647,6 +649,19 @@ function Workspace() {
   // state; the actual file availability the pipeline needs is confirmed by the
   // precheck in startSchemaRediscovery (and, authoritatively, by the backend).
   const hasSourceDocuments = (documents?.totalDocuments ?? 0) > 0;
+
+  // Whether the Monitor may start/resume a pipeline run. The backend type is
+  // authoritative (only SCHEMATIQ sessions pass has_live_pipeline); until the
+  // session record arrives, fall back to the URL-derived sessionMode.
+  const canRunPipeline = session ? session.type === 'schematiq' : sessionMode === 'schematiq';
+
+  // Summary the Monitor shows for an imported project instead of pipeline
+  // phases. Excerpt companion columns are not schema columns of their own.
+  const importedSummary = useMemo(() => ({
+    columns: (schema?.schema ?? []).filter((c) => !c.name.toLowerCase().endsWith('_excerpt')).length,
+    rows: data.total_count ?? 0,
+    documents: documents?.totalDocuments ?? 0,
+  }), [schema, data.total_count, documents?.totalDocuments]);
 
   const {
     canRediscoverSchema,
@@ -894,12 +909,6 @@ function Workspace() {
     );
     return { ...data, rows: orderedRows };
   }, [data]);
-
-  useEffect(() => {
-    if (activeSheet === 'monitor' && sessionMode !== 'schematiq') {
-      setActiveSheet('data');
-    }
-  }, [activeSheet, sessionMode]);
 
   useEffect(() => {
     setSheetSelection(null);
@@ -1620,10 +1629,12 @@ function Workspace() {
 
           {/*
             ScheMatiQ Monitor stays mounted (hidden, not unmounted) while another
-            sheet is active, so its log history survives tab switches. It is only
-            rendered in schematiq mode (the monitor tab is hidden otherwise).
+            sheet is active, so its log history survives tab switches. It shows
+            for every open project; imported projects get a read-only monitor
+            (canRunPipeline=false) that tracks re-extraction runs but cannot
+            start or resume a pipeline.
           */}
-          {sessionMode === 'schematiq' && sessionId && (
+          {sessionId && (
             <div
               className="workspace-dashboard-wrap"
               style={{
@@ -1635,6 +1646,8 @@ function Workspace() {
             >
               <ScheMatiQMonitor
                 sessionId={sessionId}
+                canRunPipeline={canRunPipeline}
+                importedSummary={canRunPipeline ? undefined : importedSummary}
                 onResumeStarted={refreshSilent}
                 onExtractionStarted={(columns, operationId) => {
                   // Optimistically surface the bottom-bar re-extraction banner
@@ -1696,7 +1709,7 @@ function Workspace() {
 
       <div className="workspace-bottombar">
         <div className="workspace-bottombar-tabs">
-          {SHEETS.filter((sheet) => sheet.id !== 'monitor' || sessionMode === 'schematiq').map((sheet, index, sheets) => (
+          {SHEETS.map((sheet, index, sheets) => (
             <Fragment key={sheet.id}>
               {index > 0 && sheets[index - 1].group !== sheet.group && (
                 <span className="workspace-sheet-tab-divider" aria-hidden="true" />

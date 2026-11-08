@@ -8,6 +8,15 @@ from typing import Callable, Dict, Any, List, Tuple, Optional
 
 from dateutil import parser as date_parser
 
+# Numbers inside a value, with digit-group separators kept together
+# ("1,000", "86.4", "3:21").
+_NUMBER_RE = re.compile(r"\d+(?:[.,:/]\d+)*")
+
+
+def _numbers(text: str) -> set:
+    """Return the numbers in *text*, with thousands commas removed."""
+    return {m.group().replace(",", "") for m in _NUMBER_RE.finditer(text)}
+
 
 def _flatten_answer(answer: Any) -> str:
     """Convert a non-string answer (dict/list) to a clean readable string.
@@ -231,9 +240,9 @@ class JSONResponseParser:
         4. semantic_matcher(answer, allowed_values), if provided -> return its match
            (an LLM-backed meaning check, since a fixed string-similarity ratio is a
            weak proxy for meaning and fails free-form, sentence-length answers)
-        5. Otherwise, fuzzy string match above threshold -> return allowed value
-           (kept as a dependency-free fallback for callers with no LLM access,
-           e.g. isolated tests)
+        5. Otherwise, fuzzy match above threshold -> return allowed value (only among
+           allowed values with the same numbers as the answer; kept as a
+           dependency-free fallback for callers with no LLM access, e.g. isolated tests)
         6. No match -> keep original answer and flag for schema evolution
         """
         if not allowed_values or not answer:
@@ -296,10 +305,17 @@ class JSONResponseParser:
                 return matched, True, None
             return answer, False, answer
 
-        # Fuzzy matching using difflib (fallback when no semantic_matcher given)
+        # Fuzzy matching using difflib (fallback when no semantic_matcher given).
+        # Only values with the same numbers are candidates: character similarity
+        # treats "2025 WL 1325305" and "2025 WL 1825431" (or "phase 2" and
+        # "phase 3") as near-duplicates, but a different number is a different
+        # value, not a spelling variant.
+        answer_numbers = _numbers(answer_lower)
         best_match: Optional[str] = None
         best_ratio: float = 0.0
         for av in allowed_values:
+            if _numbers(av.lower()) != answer_numbers:
+                continue
             ratio = difflib.SequenceMatcher(None, answer_lower, av.lower()).ratio()
             if ratio > best_ratio:
                 best_ratio = ratio
@@ -417,19 +433,13 @@ class JSONResponseParser:
             # Apply allowed_values normalization (soft enforcement)
             normalized = False
             unmatched_original = None
-            if col in column_allowed_values and column_allowed_values[col]:
-                # Deliberately does NOT clear/replace exs when normalization
-                # changes ans's content, even though exs was written to
-                # support the pre-normalization answer: exs is verified for
-                # real downstream, in _ground_and_enforce (paper_processor.py),
-                # which nulls the WHOLE answer if excerpts end up empty and
-                # this context isn't vision-derived -- so clearing a real,
-                # source-grounded excerpt here (tried once; see git history)
-                # doesn't trade "answer paired with an imperfect citation" for
-                # "answer paired with no citation," it trades it for "answer
-                # gone entirely," which is worse. Leaving exs as the model's
-                # own real excerpt lets _ground_and_enforce's actual
-                # source-text verification decide its fate instead.
+            has_allowed_values = bool(column_allowed_values.get(col))
+            if has_allowed_values:
+                # Deliberately keeps exs even when normalization changes ans's
+                # content: _ground_and_enforce (paper_processor.py) verifies
+                # excerpts against the source and treats an answer with no
+                # excerpts as ungrounded, so clearing a real excerpt here would
+                # make a supported answer look unsupported.
                 ans, normalized, unmatched_original = self._normalize_to_allowed_values(
                     ans, column_allowed_values[col], semantic_matcher=semantic_matcher
                 )
@@ -440,8 +450,12 @@ class JSONResponseParser:
             if normalized:
                 out[col]["normalized_to_allowed"] = True
 
-            # Track unmatched values for schema evolution
-            if unmatched_original is not None or suggested_for_allowed:
+            # Track unmatched values for schema evolution. Only for a column
+            # that already has allowed_values: a suggestion can extend a closed
+            # set, never turn an open column (names, citations, ids) into one.
+            # The model may set suggested_for_allowed_values on any column,
+            # because the response schema offers it for every column.
+            if has_allowed_values and (unmatched_original is not None or suggested_for_allowed):
                 value_to_track = unmatched_original or ans
                 if col not in unmatched_values:
                     unmatched_values[col] = []

@@ -48,9 +48,17 @@ class _DataEditor:
     def __init__(self):
         self.updates = []
 
+        self.batches = []
+
     async def update_cell(self, session_id, row_name, column, value, **kw):
         self.updates.append((row_name, column, value, kw.get("reference_source")))
         return {"status": "success"}
+
+    async def update_cells(self, session_id, updates):
+        self.batches.append(len(updates))
+        for u in updates:
+            self.updates.append((u["row_name"], u["column"], u["value"], u.get("reference_source")))
+        return [{"ok": True, "previous_value": None} for _ in updates]
 
 
 class _Runner:
@@ -252,14 +260,19 @@ async def test_write_failure_skips_row_not_aborts(monkeypatch):
     values = {"A": "x", "B": "y"}
     svc, ws, editor, runner = _build(monkeypatch, rows, values)
 
-    good_update = editor.update_cell
+    good_update = editor.update_cells
 
-    async def failing_update(session_id, row_name, column, value, **kw):
-        if row_name == "A":
-            raise RuntimeError("boom")
-        return await good_update(session_id, row_name, column, value, **kw)
+    async def failing_update(session_id, updates):
+        # Row "A" fails inside the batch (as DataEditor reports a per-entry
+        # failure); every other entry is written normally.
+        ok = [u for u in updates if u["row_name"] != "A"]
+        await good_update(session_id, ok)
+        return [
+            {"ok": u["row_name"] != "A", "error": None if u["row_name"] != "A" else "boom"}
+            for u in updates
+        ]
 
-    monkeypatch.setattr(editor, "update_cell", failing_update)
+    monkeypatch.setattr(editor, "update_cells", failing_update)
 
     result = await svc.start_fill("sess-1", "appointee", "ref-1")
     op = await _run_to_completion(svc, result)
@@ -323,3 +336,32 @@ def test_get_client_import_path_resolves(monkeypatch):
     svc = ReferenceFillService(None, None, None, None)
     client = svc._get_client()  # imports get_gemini_api_key from chat.deps for real
     assert client is not None
+
+
+@pytest.mark.asyncio
+async def test_writes_are_grouped_while_a_write_is_in_flight(monkeypatch):
+    """Answers that arrive while a write is running ride the next write
+    together, instead of one full-file rewrite + upload per cell."""
+    import asyncio
+
+    rows = [{"unit_name": f"U{i}", "source_document": "d"} for i in range(12)]
+    values = {f"U{i}": f"v{i}" for i in range(12)}
+    svc, ws, editor, runner = _build(monkeypatch, rows, values)
+
+    good_update = editor.update_cells
+
+    async def slow_update(session_id, updates):
+        await asyncio.sleep(0.01)  # a write is slower than the stubbed model
+        return await good_update(session_id, updates)
+
+    monkeypatch.setattr(editor, "update_cells", slow_update)
+
+    result = await svc.start_fill("sess-1", "appointee", "ref-1")
+    op = await _run_to_completion(svc, result)
+
+    assert op.status == "completed" and op.filled == 12
+    assert sorted(u[0] for u in editor.updates) == sorted(values)
+    assert sum(editor.batches) == 12
+    assert len(editor.batches) < 12  # grouped, not one write per cell
+    cell_events = [m for m in ws.messages if m["type"] == "cell_extracted"]
+    assert len(cell_events) == 12

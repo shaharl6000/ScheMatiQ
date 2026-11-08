@@ -25,7 +25,7 @@ from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tr
 from app.services.data_utils import row_name_of
 from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
 from app.storage.factory import get_storage
-from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, EXTRACTION_MAX_WORKERS
 from app.core.logging_utils import set_session_context
 
 # ScheMatiQ library imports
@@ -89,6 +89,12 @@ def _is_confirmed_empty(value: Any) -> bool:
     return isinstance(value, dict) and bool(value.get("_confirmed_empty"))
 
 
+def _is_ungrounded(value: Any) -> bool:
+    """True when a cell holds a value the model gave without a supporting
+    excerpt in the document (kept and flagged by the ungrounded policy)."""
+    return isinstance(value, dict) and bool(value.get("_ungrounded"))
+
+
 def _is_fillable_gap(value: Any, retry_confirmed_empty: bool = False) -> bool:
     """True when a cell is an unresolved gap worth an extraction attempt.
 
@@ -99,7 +105,13 @@ def _is_fillable_gap(value: Any, retry_confirmed_empty: bool = False) -> bool:
     by ``start_gated_reextraction``'s own one-time rescan when a plain request
     finds nothing but confirmed-empty cells -- or use only_empty=false, which
     bypasses the gap check entirely.
+
+    A flagged ungrounded cell (``_ungrounded``) holds a value, so it is not a
+    gap by default either; like a confirmed-empty cell, it is retried only
+    with ``retry_confirmed_empty=True``.
     """
+    if retry_confirmed_empty and _is_ungrounded(value):
+        return True
     if not _is_empty_cell_value(value):
         return False
     if not retry_confirmed_empty and _is_confirmed_empty(value):
@@ -2057,7 +2069,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         resume=False,
                         mode="one_by_one",
                         retrieval_k=10,
-                        max_workers=1,
+                        max_workers=EXTRACTION_MAX_WORKERS,
                         on_value_extracted=on_value_extracted,
                         on_unit_row_written=on_unit_row_written,
                         on_document_started=on_document_started,
@@ -2921,8 +2933,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
         """Lazily build a genai client for the recap call (mirrors reference-fill)."""
         from google import genai
         from app.services.chat.deps import get_gemini_api_key
+        from schematiq.core.llm_backends import gemini_http_options
 
-        return genai.Client(api_key=get_gemini_api_key())
+        return genai.Client(api_key=get_gemini_api_key(), http_options=gemini_http_options())
 
     async def _summarize_reextraction(
         self, columns: List[str], coverage: List[Dict[str, Any]], total_rows: int

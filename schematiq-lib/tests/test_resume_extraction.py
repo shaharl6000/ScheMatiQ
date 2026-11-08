@@ -10,6 +10,7 @@ import pytest
 
 from schematiq.core import network_resilience
 from schematiq.core.schema import Column, ObservationUnit, Schema
+from schematiq.value_extraction.core.paper_processor import PaperProcessor
 from schematiq.value_extraction.core.table_builder import TableBuilder
 
 
@@ -170,3 +171,121 @@ def test_transient_cause_chain_is_detected():
             raise RuntimeError("wrapped") from inner
     except RuntimeError as outer:
         assert network_resilience.is_transient_error(outer)
+
+
+# ---------------------------------------------------------------------------
+# The parallel path keeps the same guarantees as the sequential one
+# ---------------------------------------------------------------------------
+
+BAD_KEY = "API key not valid. Please pass a valid API key."
+
+
+def _run_parallel(builder, docs, schema_path, out, resume):
+    builder.build_table_jsonl_multi_dirs(schema_path, [docs], out, resume=resume, max_workers=2)
+
+
+def test_parallel_resume_redoes_only_failed_documents(setup):
+    docs, schema_path, out = setup
+
+    def b_fails(paper_title, **kw):
+        if paper_title == "b":
+            raise ValueError("boom")
+        return _rows_for(paper_title)
+
+    _run_parallel(_builder(b_fails), docs, schema_path, out, resume=False)
+    calls = []
+    _run_parallel(
+        _builder(lambda paper_title, **kw: calls.append(paper_title) or _rows_for(paper_title)),
+        docs, schema_path, out, resume=True,
+    )
+    assert calls == ["b"]
+    assert sorted(r["value"] for r in _out_rows(out)) == ["a", "b", "c"]
+
+
+def test_parallel_network_outage_retries_document(setup, instant_recovery):
+    docs, schema_path, out = setup
+    attempts = {"b": 0}
+
+    def outage_once(paper_title, **kw):
+        if paper_title == "b":
+            attempts["b"] += 1
+            if attempts["b"] == 1:
+                raise httpx.ConnectError("getaddrinfo failed")
+        return _rows_for(paper_title)
+
+    builder = _builder(outage_once)
+    _run_parallel(builder, docs, schema_path, out, resume=False)
+    assert attempts["b"] == 2
+    assert sorted(r["value"] for r in _out_rows(out)) == ["a", "b", "c"]
+    assert builder.get_skipped_documents_with_reasons() == []
+
+
+def test_parallel_skip_records_survive_resume(setup):
+    docs, schema_path, out = setup
+
+    def none_in_a(paper_title, **kw):
+        if paper_title == "a":
+            return SimpleNamespace(rows=[], skip_reason="no units here")
+        return _rows_for(paper_title)
+
+    _run_parallel(_builder(none_in_a), docs, schema_path, out, resume=False)
+    builder = _builder(lambda paper_title, **kw: _rows_for(paper_title))
+    _run_parallel(builder, docs, schema_path, out, resume=True)
+    assert builder.get_skipped_documents_with_reasons() == [
+        {"document": "a", "reason": "no units here"}
+    ]
+
+
+# ---------------------------------------------------------------------------
+# A bad API key does not stop the run
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("runner", [_run, _run_parallel])
+def test_invalid_api_key_fails_the_document_and_the_run_goes_on(setup, instant_recovery, runner):
+    docs, schema_path, out = setup
+
+    def bad_key_for_a(paper_title, **kw):
+        if paper_title == "a":
+            raise Exception(BAD_KEY)
+        return _rows_for(paper_title)
+
+    builder = _builder(bad_key_for_a)
+    runner(builder, docs, schema_path, out, resume=False)
+
+    assert sorted(r["value"] for r in _out_rows(out)) == ["b", "c"]
+    skipped = builder.get_skipped_documents_with_reasons()
+    assert [d["document"] for d in skipped] == ["a"]
+    assert BAD_KEY in skipped[0]["reason"]
+
+    # With the key fixed, a resumed run does the failed document and only it.
+    calls = []
+    runner(
+        _builder(lambda paper_title, **kw: calls.append(paper_title) or _rows_for(paper_title)),
+        docs, schema_path, out, resume=True,
+    )
+    assert calls == ["a"]
+
+
+@pytest.mark.parametrize(
+    "error", [Exception(BAD_KEY), httpx.ConnectError("getaddrinfo failed")], ids=["bad_key", "outage"],
+)
+def test_identification_passes_up_errors_that_say_nothing_about_the_document(error):
+    # A skip_reason would mark the document done, so resume would never retry it.
+    s = MagicMock()
+    s._check_stop_requested.return_value = False
+    s._attempt_unit_identification.side_effect = error
+
+    with pytest.raises(type(error)):
+        PaperProcessor.identify_observation_units(s, "paper", "text", MagicMock(), MagicMock())
+    assert s._attempt_unit_identification.call_count == 1
+
+
+def test_identification_still_skips_after_a_document_specific_error():
+    s = MagicMock()
+    s._check_stop_requested.return_value = False
+    s._attempt_unit_identification.side_effect = ValueError("could not parse")
+
+    result = PaperProcessor.identify_observation_units(s, "paper", "text", MagicMock(), MagicMock())
+
+    assert result.units == []
+    assert "could not parse" in result.skip_reason

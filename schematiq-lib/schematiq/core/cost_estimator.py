@@ -29,6 +29,8 @@ import math
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field, asdict
+from datetime import date, datetime, timezone
+import logging
 import tiktoken
 from importlib import resources as importlib_resources
 from schematiq.core.model_specs import ModelNames
@@ -38,6 +40,12 @@ try:
     _enc = tiktoken.encoding_for_model(ModelNames.TIKTOKEN_ENCODING_MODEL)
 except Exception:
     _enc = tiktoken.get_encoding("cl100k_base")
+
+logger = logging.getLogger(__name__)
+
+# (provider, model) pairs already warned about, so the live cost tracker
+# (which re-prices every call on each progress update) does not spam the log.
+_warned_unpriced: set = set()
 
 # Pricing config will be loaded on first use
 _pricing_config: Optional[Dict[str, Any]] = None
@@ -205,35 +213,85 @@ def _estimate_schema_tokens(initial_schema: List[Dict[str, Any]]) -> int:
     return count_tokens("\n\n".join(parts))
 
 
-def get_model_pricing(provider: str, model: str) -> Dict[str, float]:
+def _apply_price_schedule(pricing: Dict[str, Any], as_of: date) -> Dict[str, Any]:
+    """Return *pricing* with any scheduled rate change that is already in effect.
+
+    A config entry may carry ``schedule: [{"from": "YYYY-MM-DD", "input": ..,
+    "output": ..}, ...]`` for announced price changes (e.g. Gemini 3.6-3.8 Flash
+    intro rates that double on 2027-01-01). The latest step whose ``from`` date
+    is on or before *as_of* overrides the rates it lists (``input``, ``output``,
+    ``cached_input``, ``cache_storage_per_hour``). The ``schedule`` key
+    itself is not returned, so callers only ever see flat rates.
+    """
+    resolved = {k: v for k, v in pricing.items() if k != "schedule"}
+    steps = pricing.get("schedule") or []
+    effective = None
+    for step in steps:
+        try:
+            starts = date.fromisoformat(str(step.get("from")))
+        except ValueError:
+            continue
+        if starts <= as_of and (effective is None or starts >= effective[0]):
+            effective = (starts, step)
+    if effective is not None:
+        for key, value in effective[1].items():
+            if key != "from":
+                resolved[key] = value
+    return resolved
+
+
+def get_model_pricing(
+    provider: str, model: str, as_of: Optional[date] = None,
+) -> Dict[str, float]:
     """
     Get pricing for a specific model.
-    
+
+    Lookup is exact match first, then the LONGEST configured name that the model
+    id starts with (so a dated or suffixed id such as ``gemini-3.8-flash-001``
+    resolves to ``gemini-3.8-flash``). There is deliberately no reverse or
+    substring match: the old bidirectional substring rule priced
+    ``gemini-3.5-flash-lite`` as ``gemini-3.5-flash`` (5x the input rate), and
+    an unlisted newer model silently fell back to the unknown-model default.
+
     Args:
         provider: LLM provider (openai, gemini, together)
         model: Model name/identifier
-        
+        as_of: Date used to apply scheduled price changes (default: today, UTC)
+
     Returns:
         Dict with 'input', 'output' (per 1M tokens), and 'context_window'
     """
     config = _load_pricing_config()
-    provider_lower = provider.lower()
-    
-    # Try exact match first
-    if provider_lower in config["providers"]:
-        provider_models = config["providers"][provider_lower]
-        if model in provider_models:
-            return provider_models[model]
-        
-        # Try partial match for model names
-        for model_key, pricing in provider_models.items():
-            if model_key.lower() in model.lower() or model.lower() in model_key.lower():
-                return pricing
-    
+    provider_lower = (provider or "").lower()
+    model_id = (model or "").strip()
+    # The Gemini SDK sometimes reports ids as "models/<name>".
+    if model_id.lower().startswith("models/"):
+        model_id = model_id[len("models/"):]
+    model_lower = model_id.lower()
+    when = as_of or datetime.now(timezone.utc).date()
+
+    provider_models = config.get("providers", {}).get(provider_lower, {})
+    lowered = {key.lower(): pricing for key, pricing in provider_models.items()}
+
+    if model_lower in lowered:
+        return _apply_price_schedule(lowered[model_lower], when)
+
+    prefix_matches = [key for key in lowered if model_lower.startswith(key)]
+    if prefix_matches:
+        best = max(prefix_matches, key=len)
+        return _apply_price_schedule(lowered[best], when)
+
     # Return default pricing for unknown models. Never raise: an unpriced model
-    # should degrade to an approximate estimate, not a 500 error.
+    # should degrade to an approximate estimate, not a 500 error. Log it so a
+    # newly adopted model missing from pricing_config.json is noticed.
+    if (provider_lower, model_lower) not in _warned_unpriced:
+        _warned_unpriced.add((provider_lower, model_lower))
+        logger.warning(
+            "No pricing configured for %s/%s; using unknown-model default rates",
+            provider_lower, model_id,
+        )
     defaults = config.get("defaults") or {}
-    return defaults.get("unknown_model", _DEFAULT_MODEL_PRICING)
+    return dict(defaults.get("unknown_model", _DEFAULT_MODEL_PRICING))
 
 
 def get_estimation_constants() -> Dict[str, int]:

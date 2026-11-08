@@ -1,5 +1,5 @@
-"""A document's context cache can expire mid-document: one call may run 300s
-before it times out, and its retry then names a cache that is gone (Gemini
+"""A document's context cache can expire mid-document: a stalled call runs
+until the request timeout before it is retried, and its retry then names a cache that is gone (Gemini
 answers 403 "CachedContent not found"). _generate() must then carry on
 without the cache instead of failing the call, which used to drop every unit
 of the document.
@@ -22,10 +22,12 @@ def api_error(code, status, message):
     return excinfo.value
 
 
-def _make_self():
+def _make_self(layout=None):
     s = MagicMock()
     s._active_context_cache = MagicMock()
     s._active_figure_images = []
+    s._uncached_doc_layout = layout
+    s._inline_system_into_first_user = PaperProcessor._inline_system_into_first_user
     return s
 
 
@@ -48,6 +50,31 @@ def test_expired_cache_falls_back_to_uncached_call():
     assert s._active_context_cache is None
 
 
+def test_expired_cache_is_still_handed_to_cleanup():
+    # Its bookkeeping (and storage cost) is released like any finished cache's.
+    s = _make_self()
+    cache = s._active_context_cache
+    s.llm.generate_with_cache.side_effect = api_error(404, "NOT_FOUND", "CachedContent not found")
+
+    PaperProcessor._generate(s, PROMPT)
+    s.llm.delete_context_cache.assert_called_once_with(cache)
+
+
+def test_expired_cache_falls_back_to_the_uncached_document_layout():
+    # A Gemini document keeps its layout, so without the cache it is sent the
+    # way a document too small for a cache is: rules, document, per-call prompt.
+    s = _make_self(layout=("cache rules", "the document"))
+    s.llm.generate_with_cache.side_effect = api_error(403, "PERMISSION_DENIED", "CachedContent not found")
+    s.llm.generate.return_value = "ok"
+
+    assert PaperProcessor._generate(s, PROMPT) == "ok"
+    s.llm.generate.assert_called_once_with([
+        {"role": "system", "content": "cache rules"},
+        {"role": "user", "content": "the document"},
+        {"role": "user", "content": "unit instructions\n\ndocument text and columns"},
+    ])
+
+
 def test_later_calls_skip_the_dropped_cache():
     s = _make_self()
     s.llm.generate_with_cache.side_effect = api_error(404, "NOT_FOUND", "CachedContent not found")
@@ -58,22 +85,6 @@ def test_later_calls_skip_the_dropped_cache():
 
     assert s.llm.generate_with_cache.call_count == 1
     assert s.llm.generate.call_count == 2
-
-
-def test_a_newer_cache_is_not_dropped():
-    # The attribute may hold another document's cache by the time the old one fails.
-    s = _make_self()
-    newer = MagicMock()
-
-    def _expire(prompt, cache, **kwargs):
-        s._active_context_cache = newer
-        raise api_error(403, "PERMISSION_DENIED", "CachedContent not found")
-
-    s.llm.generate_with_cache.side_effect = _expire
-    s.llm.generate.return_value = "ok"
-
-    assert PaperProcessor._generate(s, PROMPT) == "ok"
-    assert s._active_context_cache is newer
 
 
 def test_other_errors_still_raise():

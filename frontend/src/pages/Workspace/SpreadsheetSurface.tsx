@@ -17,9 +17,11 @@ import {
 } from '@/components/DataTable/utils/excerptUtils';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { observationUnitAPI, schemaAPI, schematiqAPI } from '@/services/api';
+import { observationUnitAPI, schemaAPI, schematiqAPI, CELL_BATCH_SIZE } from '@/services/api';
+import type { CellBatchItem } from '@/services/api';
 import type { ColumnInfo, DataRow, FigureExcerpt, PaginatedData, SchemaData, TextExcerpt } from '@/types';
 import { formatColumnName } from '@/utils/formatting';
+import { createFilterValueCountLabeler } from './filterValueCounts';
 import type { EditCommand } from './hooks/useEditHistory';
 
 import {
@@ -67,6 +69,9 @@ registerAllModules();
 // Defined at module scope so its identity is stable; a new function on every
 // render would make Handsontable re-apply settings continuously.
 const sanitizeCellHtml = (content: string): string => DOMPurify.sanitize(content);
+
+const UNGROUNDED_CELL_TOOLTIP =
+  'No supporting quote found in the document. This value may come from inference or general knowledge.';
 
 export function SpreadsheetSurface({
   activeSheet,
@@ -322,6 +327,26 @@ export function SpreadsheetSurface({
     }
   }, [hotTableRef]);
 
+  // Re-align after every commit, not just after Handsontable's own hooks.
+  //
+  // @handsontable/react pushes every prop through hot.updateSettings() in
+  // componentDidUpdate (inline callback props change identity on each render,
+  // so any re-render of this component counts: selecting a cell, clicking a
+  // column's dropdown button, opening its filter-by-value list). updateSettings
+  // calls render() -- which fires afterViewRender, so the sync above runs --
+  // and THEN calls wtOverlays.adjustElementsSize() (core.mjs, end of
+  // updateSettings). That second step resets the header overlay's hider to the
+  // master hider's width, the browser clamps the overlay's scrollLeft to the
+  // shorter range, and no hook fires afterwards. Scrolled fully right, the
+  // headers slide ~15px right of their columns again.
+  //
+  // The child's componentDidUpdate runs before this parent layout effect in
+  // the same commit, so this lands on Handsontable's final sizes and before
+  // paint (no visible jump). The sync is a no-op when already aligned.
+  useLayoutEffect(() => {
+    syncHeaderOverlayScroll();
+  });
+
   useLayoutEffect(() => {
     const element = gridContainerEl;
     if (!element) return undefined;
@@ -359,7 +384,10 @@ export function SpreadsheetSurface({
 
   useEffect(() => {
     syncHotTableDimensions();
-  }, [gridSize, syncHotTableDimensions]);
+    // updateSettings({ width, height }) ends with the same overlay re-size
+    // that undoes the header alignment (see the layout effect above).
+    syncHeaderOverlayScroll();
+  }, [gridSize, syncHotTableDimensions, syncHeaderOverlayScroll]);
 
   // Hover/focus help for Handsontable column-header info icons.
   //
@@ -372,7 +400,9 @@ export function SpreadsheetSurface({
   // instantly, and stays inside the viewport for any column. One element plus
   // delegated listeners means no per-render cost and it survives table remounts.
   useEffect(() => {
-    const INFO_SELECTOR = '.workspace-hot .workspace-col-header-info';
+    // Header info icons, plus data cells kept without a supporting excerpt
+    // (td.cell-ungrounded, set in cellsCallback), which explain their marker.
+    const INFO_SELECTOR = '.workspace-hot .workspace-col-header-info, .workspace-hot td.cell-ungrounded';
     const tooltip = document.createElement('div');
     tooltip.className = 'workspace-hot-tooltip';
     tooltip.setAttribute('role', 'tooltip');
@@ -404,7 +434,8 @@ export function SpreadsheetSurface({
     };
 
     const show = (icon: HTMLElement) => {
-      const text = icon.getAttribute('data-tooltip');
+      const text = icon.getAttribute('data-tooltip')
+        ?? (icon.matches('td.cell-ungrounded') ? UNGROUNDED_CELL_TOOLTIP : null);
       if (!text) return;
       activeIcon = icon;
       tooltip.textContent = text;
@@ -535,6 +566,22 @@ export function SpreadsheetSurface({
       for (const key of Object.keys(rowData)) {
         const value = rowData[key] as { _confirmed_empty?: boolean } | undefined;
         if (value && typeof value === 'object' && value._confirmed_empty) {
+          perColumn[key] = true;
+        }
+      }
+      return perColumn;
+    });
+  }, [data.rows]);
+
+  // Per-cell "ungrounded" flags: a value the model gave without any supporting
+  // excerpt in the document. Same lookup shape as dataConfirmedEmpty.
+  const dataUngrounded = useMemo(() => {
+    return data.rows.map((row) => {
+      const perColumn: Record<string, boolean> = {};
+      const rowData = row.data || {};
+      for (const key of Object.keys(rowData)) {
+        const value = rowData[key] as { _ungrounded?: boolean } | undefined;
+        if (value && typeof value === 'object' && value._ungrounded) {
           perColumn[key] = true;
         }
       }
@@ -1012,8 +1059,11 @@ export function SpreadsheetSurface({
     if (activeSheet === 'data' && column && dataConfirmedEmpty[row]?.[column.key]) {
       props.className = [props.className, 'cell-confirmed-empty'].filter(Boolean).join(' ');
     }
+    if (activeSheet === 'data' && column && dataUngrounded[row]?.[column.key]) {
+      props.className = [props.className, 'cell-ungrounded'].filter(Boolean).join(' ');
+    }
     return props;
-  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, sheet]);
+  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataUngrounded, sheet]);
 
   const prevFormatVersionRef = useRef(formatVersion);
 
@@ -1156,19 +1206,48 @@ export function SpreadsheetSurface({
 
     const allCleared = updates.every((u) => u.value.trim() === '');
 
-    Promise.allSettled(
-      updates.map((u) =>
-        // `raw` is set only when replaying a bulk rewrite's own prior/new
-        // state (reextraction undo/redo, a deleted column's restore) -- write
-        // it back verbatim via restoreCell so the backend does not stamp
-        // manually_edited on a value the user never actually typed. A genuine
-        // manual edit never carries `raw` and keeps going through updateCell.
-        u.raw !== undefined
-          ? schematiqAPI.restoreCell(sessionId, u.rowName, u.column, u.raw, u.sourceDocument, u.rowIndexId)
-          : schematiqAPI.updateCell(sessionId, u.rowName, u.column, u.value, u.sourceDocument, u.rowIndexId),
-      ),
-    ).then((results) => {
-      const failed = results.filter((r) => r.status === 'rejected').length;
+    // Persist the whole batch through PUT /schematiq/cells in chunks, sent one
+    // after another. One request per cell used to rewrite and re-upload the
+    // data file once per cell behind the backend's session lock; a ~200-cell
+    // column clear then ran past the 30s client timeout and most cells were
+    // reported as "could not be saved" even though nothing was wrong with them.
+    //
+    // `raw` is set only when replaying a bulk rewrite's own prior/new state
+    // (reextraction undo/redo, a deleted column's restore) -- it is sent as a
+    // restore so the backend writes it back verbatim and does not stamp
+    // manually_edited on a value the user never actually typed. A genuine
+    // manual edit never carries `raw` and is sent as a plain value.
+    const items: CellBatchItem[] = updates.map((u) => {
+      const item: CellBatchItem = { row_name: u.rowName, column: u.column, value: u.raw !== undefined ? '' : u.value };
+      if (u.sourceDocument) item.source_document = u.sourceDocument;
+      if (u.rowIndexId != null) item.row_index = u.rowIndexId;
+      if (u.raw !== undefined) {
+        item.is_restore = true;
+        item.restore = u.raw;
+      }
+      return item;
+    });
+
+    (async () => {
+      let failed = 0;
+      for (let start = 0; start < items.length; start += CELL_BATCH_SIZE) {
+        const chunk = items.slice(start, start + CELL_BATCH_SIZE);
+        try {
+          const response = await schematiqAPI.updateCells(sessionId, chunk);
+          const results = Array.isArray(response?.results) ? response.results : [];
+          const chunkFailed = results.length === chunk.length
+            ? results.filter((r) => !r.ok).length
+            : chunk.length;
+          if (chunkFailed > 0) {
+            const firstError = results.find((r) => !r.ok)?.error;
+            if (firstError) console.warn('Cell batch: some updates failed:', firstError);
+          }
+          failed += chunkFailed;
+        } catch (err) {
+          console.warn('Cell batch request failed:', err);
+          failed += chunk.length;
+        }
+      }
       const succeeded = updates.length - failed;
 
       let single: { cleared: boolean; label: string; column: string } | null = null;
@@ -1180,7 +1259,7 @@ export function SpreadsheetSurface({
       queueEditToast({ succeeded, failed, allCleared, single });
 
       onRefreshData();
-    });
+    })();
   }, [onOptimisticCellEdit, onRefreshData, queueEditToast, sessionId]);
 
   // Hand the parent a live reference to applyCellUpdates so a bulk server-side
@@ -1833,6 +1912,14 @@ export function SpreadsheetSurface({
   // so the header dropdown also needs the custom items. The predefined
   // `filter_*` keys are re-included so the "Filter by condition/value" UI is
   // preserved.
+  // Adds an occurrence count to each "Filter by value" item ("district (12)").
+  // Stable identity, so the wrapper's per-render updateSettings re-push is a
+  // no-op for this hook.
+  const filterValueCountLabeler = useMemo(
+    () => createFilterValueCountLabeler(() => hotTableRef.current?.hotInstance),
+    [hotTableRef],
+  );
+
   const dropdownMenuConfig = useMemo(() => {
     if (activeSheet !== 'data') return true;
     return {
@@ -1927,6 +2014,7 @@ export function SpreadsheetSurface({
         contextMenu={contextMenuConfig}
         filters
         dropdownMenu={dropdownMenuConfig}
+        modifyFiltersMultiSelectValue={filterValueCountLabeler}
         columnSorting={!hasMultiRowGroup}
         copyPaste
         sanitizer={sanitizeCellHtml}

@@ -4,15 +4,35 @@ from __future__ import annotations
 import difflib
 import json
 import logging
+import os
 import mimetypes
 import re
 from collections import Counter
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
 
 logger = logging.getLogger(__name__)
+
+# What _ground_and_enforce does with an answer that has no supporting excerpt
+# in the document: "flag" keeps the value and marks the cell
+# ``_ungrounded: True`` so the UI and exports can show it; "drop" deletes the
+# answer (the previous behavior). Override with SCHEMATIQ_UNGROUNDED_POLICY.
+UNGROUNDED_POLICIES = ("flag", "drop")
+DEFAULT_UNGROUNDED_POLICY = "flag"
+
+
+def _ungrounded_policy_from_env() -> str:
+    raw = os.getenv("SCHEMATIQ_UNGROUNDED_POLICY", DEFAULT_UNGROUNDED_POLICY).strip().lower()
+    if raw not in UNGROUNDED_POLICIES:
+        logger.warning(
+            "Ignoring invalid SCHEMATIQ_UNGROUNDED_POLICY=%r (use flag or drop)", raw
+        )
+        return DEFAULT_UNGROUNDED_POLICY
+    return raw
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
+from schematiq.core.thread_local import ThreadLocalAttribute
 from schematiq.core.results import UnitIdentificationResult, ExtractionResult
 from schematiq.value_extraction.config.messages import (
     NO_UNITS_FOUND, NO_KNOWN_UNITS, KNOWN_UNITS_EMPTY
@@ -57,8 +77,8 @@ from ..config.constants import (
 from ..config.prompts import (
     SYSTEM_PROMPT_UNIT_IDENTIFICATION,
     USER_PROMPT_TMPL_UNIT_IDENTIFICATION,
-    SYSTEM_PROMPT_VAL_WITH_UNIT,
     SYSTEM_PROMPT_VAL_REEXTRACT,
+    build_val_with_unit_prompt,
 )
 from ..utils.schema_builder import build_extraction_response_schema
 from ..utils.reference_retrieval import ReferenceRetriever
@@ -66,6 +86,41 @@ from ..utils.excerpt_grounder import ExcerptGrounder
 
 # Type alias for warning callback: (paper_title, warning_type, message) -> None
 OnWarningCallback = Callable[[str, str, str], None]
+
+
+_ELLIPSIS_MARKERS = ("...", "\u2026")
+_QUOTE_CHARS = "\"'\u201c\u201d\u2018\u2019"
+_LOG_EXCERPT_MAX_CHARS = 200
+_LOG_EXCERPT_MAX_COUNT = 5
+
+
+def _describe_ungrounded_excerpts(excerpts: List[Any]) -> Dict[str, Any]:
+    """Summarize why a column's excerpts failed grounding, for the null log.
+
+    reason is "no_excerpts" when the model gave no text excerpt at all, and
+    "excerpts_not_found" when it gave excerpts but none matched the source.
+    The ellipsis / quoted counts flag excerpts the model decorated with
+    "..." or wrapping quotes, which the grounder does not strip.
+    """
+    texts = [
+        str(exc.get("text", "")) if isinstance(exc, dict) else str(exc)
+        for exc in excerpts or []
+        if not (isinstance(exc, dict) and exc.get("type") == "figure")
+    ]
+    texts = [t for t in texts if t.strip()]
+    stripped = [t.strip() for t in texts]
+    return {
+        "reason": "excerpts_not_found" if texts else "no_excerpts",
+        "n_excerpts": len(texts),
+        "n_ellipsis": sum(any(m in t for m in _ELLIPSIS_MARKERS) for t in texts),
+        "n_quoted": sum(
+            len(t) >= 2 and t[0] in _QUOTE_CHARS and t[-1] in _QUOTE_CHARS
+            for t in stripped
+        ),
+        "texts": [
+            t[:_LOG_EXCERPT_MAX_CHARS] for t in texts[:_LOG_EXCERPT_MAX_COUNT]
+        ],
+    }
 
 
 def _chunk_list(lst: List, size: int) -> Iterator[List]:
@@ -209,6 +264,17 @@ class StopRequestedException(Exception):
 class PaperProcessor:
     """Handles value extraction from individual papers."""
 
+    # Per-document state, kept per thread: TableBuilder may process several
+    # documents at once on this one instance, and each must see only its own
+    # context cache and figures.
+    _active_context_cache = ThreadLocalAttribute(lambda: None)
+    _active_figure_images = ThreadLocalAttribute(list)
+    _active_figures_by_id = ThreadLocalAttribute(dict)
+    # (system_prompt, document) for a document without a context cache; see
+    # _generate. Per thread like the cache itself, or a concurrent document
+    # would be sent another document's text.
+    _uncached_doc_layout = ThreadLocalAttribute(lambda: None)
+
     def __init__(
         self,
         llm: LLMInterface,
@@ -218,8 +284,12 @@ class PaperProcessor:
         should_stop: Optional[ShouldStopCallback] = None,
         on_warning: Optional[OnWarningCallback] = None,
         reference_context: Optional[str] = None,
+        ungrounded_policy: Optional[str] = None,
     ):
         self.llm = llm
+        if ungrounded_policy is not None and ungrounded_policy not in UNGROUNDED_POLICIES:
+            raise ValueError(f"ungrounded_policy must be one of {UNGROUNDED_POLICIES}")
+        self.ungrounded_policy = ungrounded_policy or _ungrounded_policy_from_env()
         self.cache = cache or LLMCache()
         self.retriever = retriever
         self.json_parser = JSONResponseParser()
@@ -268,6 +338,8 @@ class PaperProcessor:
         self.excerpt_grounder = ExcerptGrounder()
         # Active context cache for current document (Gemini only)
         self._active_context_cache = None
+        # (system_prompt, document) when a document gets no context cache; see _generate.
+        self._uncached_doc_layout = None
         # Figure images for the current document — loaded once (see
         # _load_document_figures), then attached to every per-unit call by
         # _generate() so images and <REQUESTED_COLUMNS> always travel together.
@@ -362,6 +434,7 @@ class PaperProcessor:
         if self._active_context_cache and hasattr(self.llm, 'delete_context_cache'):
             self.llm.delete_context_cache(self._active_context_cache)
             self._active_context_cache = None
+        self._uncached_doc_layout = None
         self._active_figure_images = []
         self._active_figures_by_id = {}
 
@@ -442,13 +515,29 @@ class PaperProcessor:
                     if isinstance(exc, dict) and exc.get("text")
                 )
             if not grounded:
+                diag = _describe_ungrounded_excerpts(excerpts)
+                flag = getattr(self, "ungrounded_policy", DEFAULT_UNGROUNDED_POLICY) == "flag"
                 logger.warning(
-                    "[%s] Nulling ungrounded answer for column %r "
-                    "(no excerpt found in source text): %r",
-                    context_label, col_name, answer,
+                    "[%s] %s ungrounded answer for column %r "
+                    "(no excerpt found in source text): %r "
+                    "[reason=%s n_excerpts=%d n_ellipsis=%d n_quoted=%d]",
+                    context_label, "Flagging" if flag else "Nulling", col_name, answer,
+                    diag["reason"], diag["n_excerpts"],
+                    diag["n_ellipsis"], diag["n_quoted"],
                 )
-                col_data["answer"] = None
+                # Excerpt text is document content, so it stays at DEBUG
+                # (CWE-532). Enable with LOG_LEVEL=DEBUG for run analysis.
+                logger.debug(
+                    "[%s] Ungrounded excerpts for column %r: %r",
+                    context_label, col_name, diag["texts"],
+                )
+                # The excerpts are dropped either way: none of them is in the
+                # source, so there is nothing to highlight.
                 col_data["excerpts"] = []
+                if flag:
+                    col_data["_ungrounded"] = True
+                else:
+                    col_data["answer"] = None
 
         return cleaned
 
@@ -469,17 +558,11 @@ class PaperProcessor:
         behavior exactly like figure_extraction_service.py degrades to "no
         figures extracted" on its own failures.
 
-        Not thread-safe: self._active_figure_images/_active_figures_by_id are
-        plain instance attributes reset-then-refilled per document on a
-        PaperProcessor instance that TableBuilder reuses across its whole run
-        (see TableBuilder.__init__). This is safe today only because every
-        caller of this method processes documents in a strictly sequential
-        loop (_process_papers_with_observation_units) rather than through the
-        ThreadPoolExecutor TableBuilder already uses for its other per-paper
-        path (process_single_paper). Do not route this method's callers
-        through that executor without first making this state thread-local
-        (or giving each worker its own PaperProcessor) -- concurrent calls
-        would cross-contaminate figures/citations between documents.
+        Thread-safe: _active_figure_images and _active_figures_by_id (and
+        _active_context_cache) are per-thread attributes (ThreadLocalAttribute),
+        so documents processed concurrently on this one PaperProcessor do not
+        see each other's figures or cache. Each document must still be handled
+        from start to end on a single thread.
         """
         self._active_figure_images = []
         self._active_figures_by_id = {}
@@ -571,57 +654,82 @@ class PaperProcessor:
         """
         if self._active_figure_images:
             kwargs.setdefault("images", self._active_figure_images)
-        cache = self._active_context_cache
-        if cache and hasattr(self.llm, 'generate_with_cache'):
-            uncached_prompt = prompt
-            if isinstance(prompt, list):
-                system_parts = [m["content"] for m in prompt if m.get("role") == "system"]
-                if system_parts:
-                    system_text = "\n\n".join(system_parts)
-                    new_prompt = []
-                    injected = False
-                    for m in prompt:
-                        if m.get("role") == "system":
-                            continue
-                        if not injected and m.get("role") == "user":
-                            new_prompt.append({**m, "content": f"{system_text}\n\n{m['content']}"})
-                            injected = True
-                        else:
-                            new_prompt.append(m)
-                    prompt = new_prompt
+        if self._active_context_cache and hasattr(self.llm, 'generate_with_cache'):
+            cache = self._active_context_cache
+            cached_prompt = self._inline_system_into_first_user(prompt) if isinstance(prompt, list) else prompt
             try:
-                return self.llm.generate_with_cache(prompt, cache, **kwargs)
+                return self.llm.generate_with_cache(cached_prompt, cache, **kwargs)
             except Exception as e:
                 if not _is_missing_cache_error(e):
                     raise
-                # The cache expired, e.g. while a slow call was retried. The prompt
-                # carries the document text itself, so go on without the cache for
-                # the rest of this document instead of losing its units. Only this
-                # cache is dropped: the attribute may already hold another one.
+                # The cache expired, e.g. while a slow call was retried. Go on
+                # without it for the rest of this document, through the uncached
+                # path below (the document is in _uncached_doc_layout), instead
+                # of losing the document's units.
                 logger.warning(
                     "Context cache %s is gone; continuing this document without it",
                     getattr(cache, "name", "?"),
                 )
-                if self._active_context_cache is cache:
-                    self._active_context_cache = None
-                return self.llm.generate(uncached_prompt, **kwargs)
+                self._active_context_cache = None
+                # Best-effort cleanup still runs, so the cache's bookkeeping is
+                # released and its storage counted, as _delete_document_cache
+                # would have done.
+                if hasattr(self.llm, 'delete_context_cache'):
+                    self.llm.delete_context_cache(cache)
+        layout = getattr(self, "_uncached_doc_layout", None)
+        if layout and isinstance(prompt, list):
+            # A document too small for a context cache, or whose cache expired,
+            # gets the same layout a cached one does: the unit-neutral rules as
+            # system instruction, the document, then the per-call prompt (which
+            # repeats the rules for this unit and the document). #547 found the
+            # second copy helps.
+            cache_system_prompt, document_text = layout
+            prompt = (
+                [{"role": "system", "content": cache_system_prompt},
+                 {"role": "user", "content": document_text}]
+                + self._inline_system_into_first_user(prompt)
+            )
         return self.llm.generate(prompt, **kwargs)
+
+    @staticmethod
+    def _inline_system_into_first_user(prompt: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Move system messages into the first user message (cached-path layout)."""
+        system_parts = [m["content"] for m in prompt if m.get("role") == "system"]
+        if not system_parts:
+            return prompt
+        system_text = "\n\n".join(system_parts)
+        new_prompt = []
+        injected = False
+        for m in prompt:
+            if m.get("role") == "system":
+                continue
+            if not injected and m.get("role") == "user":
+                new_prompt.append({**m, "content": f"{system_text}\n\n{m['content']}"})
+                injected = True
+            else:
+                new_prompt.append(m)
+        return new_prompt
 
     def _track_unmatched_values(
         self, unmatched: Dict[str, list], document_name: str = None
     ):
-        """Track unmatched values for schema evolution suggestions."""
-        for col_name, values in unmatched.items():
-            if col_name not in self.suggested_values:
-                self.suggested_values[col_name] = {}
-            for value in values:
-                if value not in self.suggested_values[col_name]:
-                    self.suggested_values[col_name][value] = []
-                if (
-                    document_name
-                    and document_name not in self.suggested_values[col_name][value]
-                ):
-                    self.suggested_values[col_name][value].append(document_name)
+        """Track unmatched values for schema evolution suggestions.
+
+        Locked: documents processed in parallel all add to the same dict.
+        """
+        lock = self.__dict__.setdefault("_suggested_values_lock", threading.Lock())
+        with lock:
+            for col_name, values in unmatched.items():
+                if col_name not in self.suggested_values:
+                    self.suggested_values[col_name] = {}
+                for value in values:
+                    if value not in self.suggested_values[col_name]:
+                        self.suggested_values[col_name][value] = []
+                    if (
+                        document_name
+                        and document_name not in self.suggested_values[col_name][value]
+                    ):
+                        self.suggested_values[col_name][value].append(document_name)
 
     def _column_dict_for_prompt(self, col: Column) -> dict:
         """Column spec dict for the EXTRACTION prompt -- unlike col.to_dict()
@@ -1014,98 +1122,6 @@ class PaperProcessor:
         except Exception as e:
             print(f"⚠️  Failed to create fallback retriever: {e}")
             return None
-
-    def _single_column_attempt_with_retriever(
-        self,
-        col: Column,
-        strict: bool,
-        k_override: int | None,
-        retriever,
-        paper_text: str,
-        schema: Schema,
-        paper_title: str,
-        use_snippets: bool = False,
-    ) -> Dict[str, Any]:
-        """Single column extraction attempt with explicit retriever control."""
-        # Prepare text based on retriever availability
-        if DISABLE_RETRIEVER:
-            eff = paper_text
-        elif retriever is not None:
-            try:
-                retrieval_query = self.text_processor.build_retrieval_query(
-                    schema, [col]
-                )
-                passages = retriever.query(
-                    [paper_text], retrieval_query, k=(k_override or 8)
-                )
-                if passages:
-                    eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(passages)
-                else:
-                    eff = paper_text
-            except Exception as e:
-                print(
-                    f"⚠️  Fallback retrieval failed for {col.name}: {e}, using full text"
-                )
-                eff = paper_text
-        else:
-            if use_snippets:
-                keywords = self.text_processor.keywords_for_column(col)
-                eff = self.text_processor.heuristic_snippets(paper_text, keywords)
-            else:
-                eff = paper_text
-
-        # Check cache first
-        cache_key = self.cache.get_cache_key(eff, col.name, "fallback", strict)
-        cached_result = self.cache.get(cache_key)
-        if cached_result is not None:
-            return cached_result
-
-        # Build and execute LLM call
-        msgs = self.prompt_builder.build_val_messages(
-            schema.query,
-            paper_title,
-            eff,
-            [self._column_dict_for_prompt(col)],
-            mode="one_by_one",
-            strict=strict,
-        )
-
-        # Skip truncation for long context models
-        should_truncate = not self._should_skip_truncation()
-        max_ctx = getattr(self.llm, "context_window_size", None) or 8192
-        trimmed = utils.fit_prompt(
-            msgs,
-            truncate=should_truncate,
-            max_new=512,
-            safety_margins=SAFETY_MARGIN_SINGLE_MODE,
-            context_window_size=max_ctx,
-        )
-        raw = self._generate(trimmed, temperature=0, **self._gemini_kwargs(thinking_budget=0))
-        # Check stop immediately after LLM call returns
-        if self._check_stop_requested():
-            print("🛑 Stop requested after LLM call, returning empty")
-            return {}
-        try:
-            parsed = self.json_parser.parse_response(raw)
-            # Build allowed_values dict for postprocessing
-            column_allowed_values = (
-                {col.name: self._enforceable_allowed_values(col)} if col.allowed_values else {}
-            )
-            cleaned, unmatched = self.json_parser.postprocess(
-                parsed, [col.name], column_allowed_values, semantic_matcher=self._semantic_matcher
-            )
-            result = cleaned.get(col.name, {})
-
-            # Track unmatched values for schema evolution
-            self._track_unmatched_values(unmatched, paper_title)
-            self._record_allowed_value_confirmations(parsed, [col], paper_title)
-
-            # Cache the result
-            self.cache.put(cache_key, result)
-            return result
-        except Exception:
-            logger.exception("Parse failure for column %s", col.name)
-            return {}
 
     def _batch_column_attempt(
         self,
@@ -2180,6 +2196,10 @@ class PaperProcessor:
                     )
 
             except Exception as e:
+                # Not a verdict on this document: returning a skip_reason would
+                # mark it done, and a resumed run would never try it again.
+                if _is_invalid_api_key_error(e) or is_transient_error(e):
+                    raise
                 last_error = str(e)
                 last_format = "exception"
                 logger.warning(
@@ -2266,7 +2286,7 @@ class PaperProcessor:
                 )
             effective_schema = _dc_replace(schema, columns=columns)
         eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(relevant_passages)
-        system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=unit_name)
+        system_prompt = build_val_with_unit_prompt(unit_name)
 
         should_truncate = not self._should_skip_truncation()
         max_ctx = getattr(self.llm, "context_window_size", None) or 8192
@@ -2526,14 +2546,24 @@ class PaperProcessor:
             f"  📊 Found {len(units)} observation units: {[u['unit_name'] for u in units]}"
         )
 
-        # Create context cache for this document (Gemini only, reused across units)
-        # We use a generic observation unit name in the system prompt for the cache
-        # to make it reusable across all units in this document.
-        cache_system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=observation_unit.name)
+        # Create context cache for this document (Gemini only, reused across units).
+        # The cache is shared by all units, so it keeps the full extraction rules
+        # but names no unit; each call carries the prompt for its own unit.
+        cache_system_prompt = build_val_with_unit_prompt(None)
+        self._uncached_doc_layout = None
         self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
 
+        if self._is_gemini_backend():
+            # Used when there is no cache, and as the fallback if the cache
+            # expires mid-document (see _generate).
+            self._uncached_doc_layout = (cache_system_prompt, paper_text)
         if self._active_context_cache:
             print(f"  📦 Created context cache for {paper_title}")
+        elif self._is_gemini_backend():
+            logger.info(
+                "[%s] No context cache; sending the cached-path layout inline "
+                "(document twice)", paper_title,
+            )
         if self._active_figure_images:
             print(f"  🖼️ Attached {len(self._active_figure_images)} figure image(s) for {paper_title}")
 
@@ -2590,8 +2620,10 @@ class PaperProcessor:
                     )
                 except Exception as e:
                     # A bad key, or a network/provider outage, would fail every
-                    # remaining unit too: let the caller wait and retry the whole
-                    # document instead of saving it with units silently missing.
+                    # remaining unit too: hand the whole document to the caller
+                    # instead of saving it with units silently missing. An outage
+                    # is waited out and retried; a bad key fails this document
+                    # only, and the run goes on (a resumed run retries it).
                     if _is_invalid_api_key_error(e) or is_transient_error(e):
                         raise
                     logger.exception(

@@ -23,6 +23,11 @@ from app.services import session_manager, concurrency_limiter
 from app.core.exceptions import CapacityExceededError
 from app.utils.csv_helpers import format_excerpt_for_csv
 from app.services.file_parser import format_column_header
+from app.services.grounding_flags import (
+    UNGROUNDED_COLUMNS_FIELD,
+    any_ungrounded,
+    ungrounded_columns,
+)
 
 from schematiq.core.cost_estimator import estimate_from_config
 
@@ -531,6 +536,73 @@ async def update_cell(session_id: str, column: str, value: str,
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Upper bound on cells per batch request. The frontend chunks below this; the
+# cap keeps one request from holding the session write lock for an unbounded
+# time on an arbitrarily large payload (CWE-770).
+MAX_CELL_BATCH = 2000
+
+
+class CellBatchItem(BaseModel):
+    """One cell write inside a batch. Mirrors update_cell's query params.
+
+    ``is_restore`` replaces the single-cell endpoint's "body present" signal:
+    when true, ``restore`` (possibly null) is written back verbatim.
+    """
+    column: str
+    value: str = ""
+    row_name: str = ""
+    row_index: Optional[int] = None
+    source_document: Optional[str] = None
+    is_restore: bool = False
+    restore: Any = None
+
+
+class CellBatchBody(BaseModel):
+    updates: List[CellBatchItem]
+
+
+@router.put("/cells/{session_id}")
+async def update_cells(session_id: str, body: CellBatchBody):
+    """Update many cells in one request (column clear, multi-cell paste, undo).
+
+    The data file is read, rewritten and persisted once for the whole batch
+    instead of once per cell. A row that cannot be found fails only its own
+    entry; the response lists a result per update, in request order.
+    """
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if len(body.updates) > MAX_CELL_BATCH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Too many cell updates in one request (max {MAX_CELL_BATCH})",
+            )
+
+        results = await data_editor.update_cells(
+            session_id,
+            [item.model_dump() for item in body.updates],
+        )
+        failed = sum(1 for r in results if not r["ok"])
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "succeeded": len(results) - failed,
+            "failed": failed,
+            "results": [
+                {"ok": r["ok"], "error": r.get("error")} for r in results
+            ],
+        }
+
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("Batch cell update failed for session %s", session_id)
+        raise HTTPException(status_code=500, detail="Batch cell update failed")
+
+
 @router.post("/stop/{session_id}")
 async def stop_schematiq(session_id: str):
     """Request ScheMatiQ execution to stop. Returns immediately."""
@@ -774,6 +846,10 @@ async def export_schematiq_data(
             if has_source_document:
                 id_cols.append('_source_document')
             column_names = id_cols + column_names
+            # One extra column, only when some cell was kept without a
+            # supporting excerpt: which of the row's columns those are.
+            if any_ungrounded(row.data for row in data.rows):
+                column_names.append(UNGROUNDED_COLUMNS_FIELD)
 
         # Write CSV with display headers (Title Case, matching UI)
         display_headers = {c: format_column_header(c) for c in column_names}
@@ -798,6 +874,8 @@ async def export_schematiq_data(
                     csv_row[col_name] = str(value)
                 else:
                     csv_row[col_name] = value
+            if UNGROUNDED_COLUMNS_FIELD in column_names:
+                csv_row[UNGROUNDED_COLUMNS_FIELD] = ungrounded_columns(row.data, column_names)
             writer.writerow(csv_row)
         
         # Prepare response
@@ -1121,6 +1199,10 @@ async def export_schematiq_rich_csv(
                 if isinstance(row.data[col_name], dict) and 'excerpts' in row.data[col_name]:
                     base_columns.add(f"{col_name}_excerpt")
         
+        # A "<col>_grounded" column per data column, only when some cell was
+        # kept without a supporting excerpt (see grounding_flags).
+        has_ungrounded = any_ungrounded(row.data for row in data.rows)
+
         # Build enhanced column list with metadata columns
         enhanced_columns = []
         for col_name in sorted(base_columns):
@@ -1131,6 +1213,8 @@ async def export_schematiq_rich_csv(
                 enhanced_columns.append(f"{col_name}_definition")
                 enhanced_columns.append(f"{col_name}_rationale")
                 enhanced_columns.append(f"{col_name}_allowed_values")
+                if has_ungrounded:
+                    enhanced_columns.append(f"{col_name}_grounded")
         
         writer = csv.DictWriter(output, fieldnames=enhanced_columns)
         
@@ -1180,6 +1264,8 @@ async def export_schematiq_rich_csv(
                 if isinstance(value, dict) and 'answer' in value:
                     # ScheMatiQ format: extract answer and excerpts
                     csv_row[col_name] = value['answer']
+                    if has_ungrounded and value['answer'] not in (None, ''):
+                        csv_row[f"{col_name}_grounded"] = 'false' if value.get('_ungrounded') else 'true'
                     if 'excerpts' in value and value['excerpts']:
                         excerpt_col = f"{col_name}_excerpt"
                         if isinstance(value['excerpts'], list):

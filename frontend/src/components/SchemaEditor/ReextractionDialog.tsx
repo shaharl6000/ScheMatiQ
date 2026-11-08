@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { RefreshCw, AlertTriangle, FileText, Loader2, Check, Info, Square, Brain } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Loader2, Check, Info, Square, Brain } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
 import {

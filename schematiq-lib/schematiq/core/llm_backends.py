@@ -18,6 +18,7 @@ import httpx
 
 from schematiq.core.model_specs import get_model_spec, get_max_output_tokens, ModelNames
 from schematiq.core.llm_call_tracker import LLMCallTracker
+from schematiq.core.thread_local import ThreadLocalAttribute
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +40,81 @@ _RATE_LIMIT_STATUS_CODE = 429
 # because it is classified separately and uses the provider's own retry hint.
 _TRANSIENT_STATUS_CODES = frozenset({408, 500, 502, 503, 504})
 _AUTH_STATUS_CODES = frozenset({401, 403})
-# Transport failures carry no HTTP status, so they need their own check. These
-# are the two the google-genai client retries internally, and generation is a
-# read-only call, so replaying it has no side effect beyond the token cost.
-_TRANSPORT_RETRY_ERRORS = (httpx.TimeoutException, httpx.ConnectError)
+# Transport failures carry no HTTP status, so they need their own check.
+# Timeouts and connect errors are the two the google-genai client retries
+# internally. A dropped connection ("Server disconnected without sending a
+# response", httpx.RemoteProtocolError) and a read reset (httpx.ReadError) are
+# just as transient: without them, one dropped connection failed a whole
+# document. Generation is a read-only call, so replaying it has no side effect
+# beyond the token cost.
+_TRANSPORT_RETRY_ERRORS = (
+    httpx.TimeoutException,
+    httpx.ConnectError,
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+)
+
+
+# Default decoding seed for Gemini calls. Gemini 3.x ignores temperature, so a
+# fixed seed is the remaining control over sampling randomness between
+# identical requests. Google documents it as best effort: identical output is
+# likely, not guaranteed. SCHEMATIQ_GEMINI_SEED overrides it with another int,
+# or disables it with "off".
+_DEFAULT_GEMINI_SEED = 1234
+
+# Per-request timeout for Gemini calls, in seconds. google-genai sends requests
+# with no timeout by default, so a connection that dies silently (Wi-Fi drop,
+# VPN switch, laptop sleep) blocks the call, and the whole extraction, forever.
+# With a timeout the call raises httpx.ReadTimeout, which is retried like any
+# other transport error. Typical calls take 3 to 7 seconds. Override with
+# SCHEMATIQ_GEMINI_TIMEOUT_S; "off" restores no timeout.
+_DEFAULT_GEMINI_TIMEOUT_S = 180.0
+
+
+def gemini_timeout_seconds() -> Optional[float]:
+    """Request timeout from SCHEMATIQ_GEMINI_TIMEOUT_S, or None for no timeout."""
+    raw = os.getenv("SCHEMATIQ_GEMINI_TIMEOUT_S", str(_DEFAULT_GEMINI_TIMEOUT_S)).strip()
+    if raw.lower() in ("", "off", "none", "0"):
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid SCHEMATIQ_GEMINI_TIMEOUT_S=%r; using %ss",
+            raw, _DEFAULT_GEMINI_TIMEOUT_S,
+        )
+        return _DEFAULT_GEMINI_TIMEOUT_S
+    return value if value > 0 else None
+
+
+def gemini_http_options():
+    """HttpOptions with the request timeout for genai.Client, or None.
+
+    Use for every genai.Client so no Gemini call can hang without limit.
+    """
+    timeout = gemini_timeout_seconds()
+    if timeout is None:
+        return None
+    from google.genai import types
+
+    # HttpOptions.timeout is in milliseconds.
+    return types.HttpOptions(timeout=int(timeout * 1000))
+
+
+def _gemini_seed_from_env() -> Optional[int]:
+    raw = os.getenv("SCHEMATIQ_GEMINI_SEED", str(_DEFAULT_GEMINI_SEED)).strip()
+    if raw.lower() in ("", "off", "none"):
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid SCHEMATIQ_GEMINI_SEED=%r (not an int)", raw)
+        return None
+
+
+def _is_seed_rejected_error(error: BaseException) -> bool:
+    """True when the provider rejected the request because of the seed field."""
+    return _status_code(error) == 400 and "seed" in str(error).lower()
 
 
 def _status_code(error: BaseException) -> Optional[int]:
@@ -225,6 +297,51 @@ def _extract_wait_time(error: BaseException) -> int:
 # Base class (copied from scaffold for convenience – delete if already there)
 ##############################################################################
 
+def _usage_int(obj, name: str) -> Optional[int]:
+    """Read an integer usage field; None when absent or not a real number."""
+    value = getattr(obj, name, None) if obj is not None else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def _openai_usage(resp) -> Dict[str, Optional[int]]:
+    """Token usage from an OpenAI-compatible response (OpenAI, Together).
+
+    ``completion_tokens`` already includes reasoning tokens there, so no
+    separate thinking count is passed.
+    """
+    usage = getattr(resp, "usage", None)
+    input_tokens = _usage_int(usage, "prompt_tokens")
+    if input_tokens is None:
+        return {}
+    details = getattr(usage, "prompt_tokens_details", None)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": _usage_int(usage, "completion_tokens"),
+        "cached_tokens": _usage_int(details, "cached_tokens"),
+    }
+
+
+def _gemini_usage(response) -> Dict[str, Optional[int]]:
+    """Token usage from a Gemini ``GenerateContentResponse``.
+
+    ``prompt_token_count`` includes cached tokens; ``candidates_token_count``
+    excludes thinking, which ``thoughts_token_count`` reports and Gemini bills
+    at the output rate.
+    """
+    usage = getattr(response, "usage_metadata", None)
+    input_tokens = _usage_int(usage, "prompt_token_count")
+    if input_tokens is None:
+        return {}
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": _usage_int(usage, "candidates_token_count"),
+        "thinking_tokens": _usage_int(usage, "thoughts_token_count"),
+        "cached_tokens": _usage_int(usage, "cached_content_token_count"),
+    }
+
+
 class LLMInterface(ABC):
     """Minimal wrapper so core code is backend-agnostic."""
 
@@ -326,11 +443,12 @@ class TogetherLLM(LLMInterface):
                 resp = self._client.chat.completions.create(**params)
                 content = resp.choices[0].message.content.strip()
                 
-                # Track LLM call after success
+                # Track LLM call after success, with provider-reported usage
                 LLMCallTracker.get_instance().increment(
                     model=self.model, 
                     prompt_length=prompt_len,
-                    completion_length=len(content)
+                    completion_length=len(content),
+                    **_openai_usage(resp),
                 )
                 return content
             except Exception as e:
@@ -437,11 +555,12 @@ class OpenAILLM(LLMInterface):
                 resp = self._client.chat.completions.create(**params)
                 content = resp.choices[0].message.content.strip()
                 
-                # Track LLM call after success
+                # Track LLM call after success, with provider-reported usage
                 LLMCallTracker.get_instance().increment(
                     model=self.model, 
                     prompt_length=prompt_len,
-                    completion_length=len(content)
+                    completion_length=len(content),
+                    **_openai_usage(resp),
                 )
                 return content
             except Exception as e:
@@ -613,6 +732,11 @@ class GeminiLLM(LLMInterface):
     # flow downstream as ordinary text and cause a fully-empty extraction row,
     # so callers can compare against this set to tell an empty-signal apart from
     # a genuine (but unparseable) model answer. See ``last_call_diag``.
+    # Diagnostics of the last call, kept per thread: one GeminiLLM can serve
+    # several documents at once, and callers read this right after their own
+    # call.
+    last_call_diag = ThreadLocalAttribute(dict)
+
     EMPTY_SIGNAL_RESPONSES = frozenset({
         "No response generated due to safety filters or other restrictions.",
         "Empty response from Gemini.",
@@ -656,6 +780,8 @@ class GeminiLLM(LLMInterface):
         self.supports_sampling_params = spec.supports_sampling_params
         self.allowed_thinking_levels = spec.allowed_thinking_levels
         self.fallback_thinking_level = spec.fallback_thinking_level
+        # Sent as generationConfig.seed on every call (see _apply_seed).
+        self.seed = _gemini_seed_from_env()
 
         # Load single API key
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -685,12 +811,7 @@ class GeminiLLM(LLMInterface):
                 "(https://pypi.org/project/google-genai/)") from e
 
         # Create client with API key (new SDK uses client-based architecture)
-        # Bound every request so a stalled connection raises a retryable
-        # timeout instead of blocking the run forever (HttpOptions is in ms).
-        self._client = genai.Client(
-            api_key=self.api_key,
-            http_options=types.HttpOptions(timeout=int(LLM_REQUEST_TIMEOUT_SECONDS * 1000)),
-        )
+        self._client = genai.Client(api_key=self.api_key, http_options=gemini_http_options())
 
         # Configure safety settings to be less restrictive for scientific content
         self.safety_settings = [
@@ -753,7 +874,13 @@ class GeminiLLM(LLMInterface):
     # (max_budget_inclusive, level). Anything larger maps to "high". Used only
     # to translate a caller's budget hint; the result is then clamped to the
     # levels the specific model accepts.
+    # A budget of 0 maps to low. Minimal (#561) lowered extraction quality: in
+    # same-day runs on one project, grounded coverage was 66.7% with minimal and
+    # 69.0% with low, with about the same run time. Set
+    # SCHEMATIQ_GEMINI_ZERO_BUDGET_LEVEL=minimal to use minimal where the model
+    # accepts it.
     _THINKING_LEVEL_THRESHOLDS = (
+        (0, "low"),
         (2048, "low"),
         (8192, "medium"),
     )
@@ -771,8 +898,16 @@ class GeminiLLM(LLMInterface):
             if budget <= max_budget:
                 level = candidate
                 break
+        if budget <= 0:
+            override = os.getenv("SCHEMATIQ_GEMINI_ZERO_BUDGET_LEVEL", "").strip().lower()
+            if override in ("minimal", "low"):
+                level = override
 
         allowed = self.allowed_thinking_levels
+        if level == "minimal" and (not allowed or level not in allowed):
+            # Never send minimal to a model not known to accept it (3.7/3.8
+            # Flash return 400); keep the pre-minimal mapping instead.
+            level = "low"
         if not allowed or level in allowed:
             return level
 
@@ -810,6 +945,32 @@ class GeminiLLM(LLMInterface):
             config_kwargs["thinking_config"] = self.types.ThinkingConfig(
                 thinking_budget=thinking_budget
             )
+
+    def _apply_seed(self, config_kwargs: dict, seed) -> None:
+        """Add generationConfig.seed: the per-call seed if given, else self.seed.
+
+        Mutates ``config_kwargs`` in place. Nothing is added when both are None.
+        """
+        effective = seed if seed is not None else self.seed
+        if effective is not None:
+            config_kwargs["seed"] = effective
+
+    def _drop_rejected_seed(self, config_kwargs: dict, error: BaseException) -> bool:
+        """If the API rejected the seed field, drop it for this and later calls.
+
+        Returns True when the caller should rebuild its config and retry. This
+        keeps extraction working if a future model starts rejecting the seed.
+        """
+        if "seed" not in config_kwargs or not _is_seed_rejected_error(error):
+            return False
+        logger.warning(
+            "Gemini rejected generationConfig.seed (model=%s); retrying without it "
+            "and disabling the seed for this client: %s",
+            self.model, str(error)[:200],
+        )
+        config_kwargs.pop("seed", None)
+        self.seed = None
+        return True
 
     def _build_contents(
         self,
@@ -913,6 +1074,7 @@ class GeminiLLM(LLMInterface):
         # reject thinking_config with 400 INVALID_ARGUMENT when combined with
         # response_schema, which is handled inside the helper via supports_thinking.
         self._apply_thinking_config(config_kwargs, kwargs.get("thinking_budget"))
+        self._apply_seed(config_kwargs, kwargs.get("seed"))
         config = self.types.GenerateContentConfig(**config_kwargs)
 
         # Retry logic (3 retries like OpenAI/Together)
@@ -935,6 +1097,8 @@ class GeminiLLM(LLMInterface):
                 if not response.candidates:
                     feedback = getattr(response, 'prompt_feedback', None)
                     print(f"Gemini returned no candidates. Feedback: {feedback}")
+                    # Billed even though nothing usable came back; cost only.
+                    self._track_usage(response, prompt_len, 0, count_call=False)
                     self.last_call_diag = {
                         "finish_reason": "NO_CANDIDATES",
                         "empty_reason": f"no candidates (prompt_feedback={feedback})",
@@ -966,6 +1130,8 @@ class GeminiLLM(LLMInterface):
                 # Check for empty content
                 if not candidate.content or not candidate.content.parts:
                     print("Gemini returned empty content")
+                    # e.g. MAX_TOKENS spent entirely on thinking: billed, no text.
+                    self._track_usage(response, prompt_len, 0, count_call=False)
                     self.last_call_diag = {
                         "finish_reason": finish_reason_name,
                         "empty_reason": "candidate had no content parts",
@@ -983,12 +1149,8 @@ class GeminiLLM(LLMInterface):
                     "truncated": finish_reason_name == "MAX_TOKENS",
                 }
 
-                # Track LLM call after success
-                LLMCallTracker.get_instance().increment(
-                    model=self.model, 
-                    prompt_length=prompt_len,
-                    completion_length=len(content)
-                )
+                # Track LLM call after success, with provider-reported usage
+                self._track_usage(response, prompt_len, len(content))
                 
                 return content
 
@@ -1019,6 +1181,9 @@ class GeminiLLM(LLMInterface):
                 if _is_invalid_api_key_error(e):
                     print(f"Invalid/malformed API key: {error_str[:200]}")
                     raise
+                if self._drop_rejected_seed(config_kwargs, e):
+                    config = self.types.GenerateContentConfig(**config_kwargs)
+                    continue
 
                 # Check if this is a retryable error
                 if _is_rate_limit_error(e):
@@ -1058,6 +1223,16 @@ class GeminiLLM(LLMInterface):
 
     # ── Context Caching ──────────────────────────────────────────────
 
+    def _track_usage(self, response, prompt_len: int, completion_len: int, *, count_call: bool = True) -> None:
+        """Record one Gemini response in the call tracker with its billed usage."""
+        LLMCallTracker.get_instance().increment(
+            model=self.model,
+            prompt_length=prompt_len,
+            completion_length=completion_len,
+            count_call=count_call,
+            **_gemini_usage(response),
+        )
+
     def create_context_cache(self, system_instruction: str, document_text: str, ttl_seconds: int = 1800):
         """Create a context cache for system prompt + document.
 
@@ -1077,6 +1252,15 @@ class GeminiLLM(LLMInterface):
                 "Gemini context cache CREATED (model=%s, doc_chars=%d, ttl=%ds, cache=%s)",
                 self.model, len(document_text), ttl_seconds, cache.name,
             )
+            # Remember size and lifetime so storage (billed per token-hour) can
+            # be charged when the cache is deleted.
+            cache_tokens = _usage_int(getattr(cache, "usage_metadata", None), "total_token_count")
+            if cache_tokens:
+                # setdefault is atomic, so parallel documents cannot each create
+                # their own dict and drop another document's entry.
+                self.__dict__.setdefault("_cache_meta", {})[cache.name] = (
+                    time.time(), cache_tokens, ttl_seconds,
+                )
             return cache
         except Exception as e:
             logger.warning("Gemini context cache creation FAILED (model=%s, doc_chars=%d): %s", self.model, len(document_text), e)
@@ -1084,12 +1268,22 @@ class GeminiLLM(LLMInterface):
 
     def delete_context_cache(self, cache):
         """Delete a context cache. Best-effort cleanup."""
+        deleted = False
         try:
             if cache:
                 self._client.caches.delete(name=cache.name)
+                deleted = True
                 logger.info("Gemini context cache DELETED (cache=%s)", cache.name)
         except Exception as e:
             logger.debug("Gemini context cache delete failed (cache=%s): %s", cache.name, e)
+        meta = getattr(self, "_cache_meta", {}).pop(getattr(cache, "name", None), None)
+        if meta:
+            created_at, cache_tokens, ttl_seconds = meta
+            # A cache that could not be deleted is billed until its TTL expires.
+            seconds = min(time.time() - created_at, ttl_seconds) if deleted else ttl_seconds
+            LLMCallTracker.get_instance().record_cache_storage(
+                model=self.model, tokens=cache_tokens, seconds=seconds,
+            )
 
     def generate_with_cache(
         self,
@@ -1140,6 +1334,7 @@ class GeminiLLM(LLMInterface):
             config_kwargs["response_mime_type"] = "application/json"
             config_kwargs["response_schema"] = kwargs["response_schema"]
         self._apply_thinking_config(config_kwargs, kwargs.get("thinking_budget"))
+        self._apply_seed(config_kwargs, kwargs.get("seed"))
         config = self.types.GenerateContentConfig(**config_kwargs)
 
         max_retries = LLM_MAX_RETRIES
@@ -1158,6 +1353,7 @@ class GeminiLLM(LLMInterface):
 
                 if not response.candidates:
                     feedback = getattr(response, 'prompt_feedback', None)
+                    self._track_usage(response, prompt_len, 0, count_call=False)
                     self.last_call_diag = {
                         "finish_reason": "NO_CANDIDATES",
                         "empty_reason": f"no candidates (prompt_feedback={feedback})",
@@ -1185,6 +1381,7 @@ class GeminiLLM(LLMInterface):
                         )
 
                 if not candidate.content or not candidate.content.parts:
+                    self._track_usage(response, prompt_len, 0, count_call=False)
                     self.last_call_diag = {
                         "finish_reason": finish_reason_name,
                         "empty_reason": "candidate had no content parts",
@@ -1202,11 +1399,7 @@ class GeminiLLM(LLMInterface):
                     "truncated": finish_reason_name == "MAX_TOKENS",
                 }
 
-                LLMCallTracker.get_instance().increment(
-                    model=self.model,
-                    prompt_length=prompt_len,
-                    completion_length=len(content)
-                )
+                self._track_usage(response, prompt_len, len(content))
                 return content
 
             except Exception as e:
@@ -1231,6 +1424,9 @@ class GeminiLLM(LLMInterface):
                     return "Response blocked by Gemini safety filters."
                 if _is_invalid_api_key_error(e):
                     raise
+                if self._drop_rejected_seed(config_kwargs, e):
+                    config = self.types.GenerateContentConfig(**config_kwargs)
+                    continue
                 if _is_rate_limit_error(e):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(e)

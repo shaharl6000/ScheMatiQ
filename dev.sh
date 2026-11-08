@@ -21,6 +21,21 @@ set -euo pipefail
 #    that when running several instances at once so they don't share state.
 #    ./dev.sh --local     -> instance 0, forced local storage
 #    ./dev.sh 1 --local   -> instance 1, forced local storage
+#
+#  Backend log file:
+#    BACKEND_LOG=path writes backend output to that file instead of the shared
+#    terminal (follow it with `tail -f path`). Use it for any run whose logs you
+#    need complete. Piping `./dev.sh | tee` shares one pipe with npm, which can
+#    switch it to non-blocking mode; Python writes then fail with
+#    BlockingIOError (Errno 35) and log lines are lost.
+#    BACKEND_LOG=~/run.log ./dev.sh 1
+#
+#  Parallel extraction:
+#    Local runs extract 4 documents at once (SCHEMATIQ_EXTRACTION_WORKERS).
+#    Production keeps the backend default of 1. To change it locally, set
+#    SCHEMATIQ_EXTRACTION_WORKERS in the shell or in backend/.env (both win
+#    over this default). Lower it if Gemini returns 429 (rate limit), e.g.
+#    when running several instances at once.
 # ============================================================
 
 # Parse args: an optional instance number (positional) and an optional --local
@@ -59,6 +74,26 @@ if [[ -d "$ROOT/research" ]] && [[ ! -e "$ROOT/.dev-data/research" ]]; then
   ln -sfn "$ROOT/research" "$ROOT/.dev-data/research"
 fi
 
+# PIDs listening on a TCP port (empty if free).
+port_pids() {
+  lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true
+}
+
+# Refuse to start when a port is taken (usually a leftover instance that did not
+# shut down). Otherwise uvicorn fails with "Address already in use" while the
+# frontend starts anyway and talks to the old, possibly hung, backend.
+for port in "$BACK_PORT" "$FRONT_PORT"; do
+  busy="$(port_pids "$port")"
+  if [[ -n "$busy" ]]; then
+    echo "error: port $port is already in use (instance $N not started):" >&2
+    for pid in $busy; do
+      echo "  $(ps -p "$pid" -o pid=,lstart=,command= 2>/dev/null | cut -c1-160)" >&2
+    done
+    echo "Stop it first, e.g.: kill $(echo $busy)   (if it does not exit: kill -9 $(echo $busy))" >&2
+    exit 1
+  fi
+done
+
 cleanup() {
   echo
   echo "shutting down instance $N..."
@@ -72,17 +107,42 @@ cleanup() {
   for port in "$BACK_PORT" "$FRONT_PORT"; do
     while read -r pid; do
       [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
-    done < <(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+    done < <(port_pids "$port")
+  done
+  # A backend stuck in a long LLM call or a worker thread can ignore SIGTERM and
+  # keep the port, which breaks the next start of this instance. Give processes
+  # a few seconds to exit, then force-stop whatever still holds our ports.
+  local _
+  for _ in 1 2 3 4 5; do
+    [[ -z "$(port_pids "$BACK_PORT")$(port_pids "$FRONT_PORT")" ]] && break
+    sleep 1
+  done
+  for port in "$BACK_PORT" "$FRONT_PORT"; do
+    while read -r pid; do
+      [[ -n "$pid" ]] && kill -9 "$pid" 2>/dev/null || true
+    done < <(port_pids "$port")
   done
   wait 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+
+# Parallel extraction by default for local runs only; an explicit value in the
+# shell or in backend/.env wins (load_dotenv does not override the environment,
+# so we must not export a value when .env sets one).
+if [[ -z "${SCHEMATIQ_EXTRACTION_WORKERS:-}" ]] \
+   && ! grep -q '^SCHEMATIQ_EXTRACTION_WORKERS=' "$ROOT/backend/.env" 2>/dev/null; then
+  export SCHEMATIQ_EXTRACTION_WORKERS=4
+fi
 
 BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
 echo "=================================================="
 echo " instance $N   (branch: $BRANCH)"
 echo "   backend  -> http://localhost:$BACK_PORT"
 echo "   frontend -> http://localhost:$FRONT_PORT"
+if [[ -n "${BACKEND_LOG:-}" ]]; then
+  echo "   backend log -> $BACKEND_LOG (tail -f it)"
+fi
+echo "   extraction workers -> ${SCHEMATIQ_EXTRACTION_WORKERS:-from backend/.env}"
 if [[ "$FORCE_LOCAL" == "1" ]]; then
   echo "   storage  -> local (isolated, forced): $DATA_DIR"
 else
@@ -103,6 +163,12 @@ echo "=================================================="
   cd "$DATA_DIR"
   if [[ "$FORCE_LOCAL" == "1" ]]; then
     export STORAGE_BACKEND="local"
+  fi
+  if [[ -n "${BACKEND_LOG:-}" ]]; then
+    # A regular file never blocks, so no log line is dropped. Unbuffered so
+    # print() output stays in order with logging output.
+    export PYTHONUNBUFFERED=1
+    exec >>"$BACKEND_LOG" 2>&1
   fi
   PATH="$VENV/bin:$PATH" \
   PYTHONPATH="$ROOT/backend" \
