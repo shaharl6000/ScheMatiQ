@@ -2277,7 +2277,9 @@ class PaperProcessor:
 
         Returns:
             ExtractionResult: ``skip_reason`` is set only when *rows* is empty because no
-            usable observation units were produced (often includes the LLM ``notes`` field).
+            usable observation units were produced (often includes the LLM ``notes`` field)
+            or because units failed and none produced a row. Units that fail while others
+            produce rows are named in an ``unit_extraction_failed`` warning instead.
 
         Note: Document preprocessing is handled by the retriever when configured,
         avoiding redundant preprocessing overhead.
@@ -2356,6 +2358,8 @@ class PaperProcessor:
         import time as time_module
 
         results = []
+        failed_units = []
+        last_error = None
         try:
             for i, unit in enumerate(units, 1):
                 if self._check_stop_requested():
@@ -2410,6 +2414,8 @@ class PaperProcessor:
                         "[%s] Extraction failed for unit %s, skipping it", paper_title, unit_name
                     )
                     print(f"  ⚠️ Extraction failed for unit {unit_name}, skipping it: {e}")
+                    failed_units.append(unit_name)
+                    last_error = e
                     continue
 
                 unit_elapsed = time_module.time() - unit_start
@@ -2451,6 +2457,24 @@ class PaperProcessor:
             self._delete_document_cache()
 
         self.cache.log_stats()
+        if failed_units and not results:
+            # No rows at all, so without a reason this document would look like
+            # a success with nothing to extract and miss the skip report. Also
+            # covers failures mixed with units that came back empty.
+            reason = (
+                f"Extraction failed for {len(failed_units)} of {len(units)} units, "
+                f"no rows produced. Last error: {last_error}"
+            )
+            print(f"  ⚠️ {paper_title}: {reason}")
+            return ExtractionResult(rows=[], skip_reason=reason)
+        if failed_units:
+            self._emit_warning(
+                paper_title,
+                "unit_extraction_failed",
+                f"Extraction failed for {len(failed_units)} of {len(units)} units, "
+                f"which are missing from the output: {', '.join(failed_units)}. "
+                f"Last error: {last_error}",
+            )
         print(
             f"  ✅ Completed {paper_title}: {len(results)} rows from {len(units)} units"
         )
