@@ -65,6 +65,22 @@ def test_two_column_page_read_in_column_major_order(tmp_path):
     assert _norm(LEFT_SENTENCE) not in _norm(default)
 
 
+def test_two_column_page_whose_box_does_not_start_at_origin(tmp_path):
+    """Real pages can have a box like (9, -9, 603, 774). Splitting the
+    columns from (0, 0) raised there and silently fell back to the
+    scrambled default."""
+    pdf_path = tmp_path / "two_col.pdf"
+    build_two_column_pdf(pdf_path, LEFT_SENTENCE, RIGHT_SENTENCE)
+
+    with pdfplumber.open(pdf_path) as pdf:
+        page = pdf.pages[0]
+        offset_page = page.crop((9, 9, page.width - 9, page.height - 9))
+        column_aware = _extract_page_text_column_aware(offset_page)
+
+    assert _norm(LEFT_SENTENCE) in _norm(column_aware)
+    assert _norm(RIGHT_SENTENCE) in _norm(column_aware)
+
+
 def test_single_column_page_unaffected(tmp_path):
     pdf_path = tmp_path / "one_col.pdf"
     build_single_column_pdf(pdf_path, "A perfectly ordinary single-column paragraph of text. ")
@@ -216,7 +232,7 @@ class _FakePage:
     def extract_words(self):
         return self._words
 
-    def extract_text(self):
+    def extract_text(self, **kwargs):
         return "plain fallback text"
 
 
