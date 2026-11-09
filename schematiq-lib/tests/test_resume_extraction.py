@@ -10,6 +10,7 @@ import pytest
 
 from schematiq.core import network_resilience
 from schematiq.core.schema import Column, ObservationUnit, Schema
+from schematiq.value_extraction.core.paper_processor import PaperProcessor
 from schematiq.value_extraction.core.table_builder import TableBuilder
 
 
@@ -170,3 +171,30 @@ def test_transient_cause_chain_is_detected():
             raise RuntimeError("wrapped") from inner
     except RuntimeError as outer:
         assert network_resilience.is_transient_error(outer)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [Exception("API key not valid"), httpx.ConnectError("getaddrinfo failed")],
+    ids=["bad_key", "outage"],
+)
+def test_identification_passes_up_errors_that_say_nothing_about_the_document(error):
+    # A skip_reason would mark the document done, so resume would never retry it.
+    s = MagicMock()
+    s._check_stop_requested.return_value = False
+    s._attempt_unit_identification.side_effect = error
+
+    with pytest.raises(type(error)):
+        PaperProcessor.identify_observation_units(s, "paper", "text", MagicMock(), MagicMock())
+    assert s._attempt_unit_identification.call_count == 1
+
+
+def test_identification_still_skips_after_a_document_specific_error():
+    s = MagicMock()
+    s._check_stop_requested.return_value = False
+    s._attempt_unit_identification.side_effect = ValueError("could not parse")
+
+    result = PaperProcessor.identify_observation_units(s, "paper", "text", MagicMock(), MagicMock())
+
+    assert result.units == []
+    assert "could not parse" in result.skip_reason

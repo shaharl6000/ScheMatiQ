@@ -2188,6 +2188,10 @@ class PaperProcessor:
                     )
 
             except Exception as e:
+                # Not a verdict on this document: returning a skip_reason would
+                # mark it done, and a resumed run would never try it again.
+                if _is_invalid_api_key_error(e) or is_transient_error(e):
+                    raise
                 last_error = str(e)
                 last_format = "exception"
                 logger.warning(
