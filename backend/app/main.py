@@ -19,6 +19,7 @@ if _SCHEMATIQ_LIB_PATH.exists() and str(_SCHEMATIQ_LIB_PATH) not in sys.path:
 # Format includes [session_id] for Railway log filtering per session
 from app.core.config import LOG_LEVEL
 from app.core.logging_utils import SessionFilter, set_session_context
+from app.core.request_timing import log_slow_requests
 
 log_level = LOG_LEVEL.upper()
 logging.basicConfig(
@@ -169,6 +170,8 @@ async def tag_logs_with_session(request: Request, call_next):
         set_session_context(match.group(1))
     return await call_next(request)
 
+
+app.middleware("http")(log_slow_requests)
 
 # CORS middleware for frontend communication
 app.add_middleware(

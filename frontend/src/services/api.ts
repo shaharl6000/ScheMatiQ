@@ -101,10 +101,47 @@ export const CELL_BATCH_SIZE = 500;
 // A batch is one file read/rewrite/upload, but give large data files headroom.
 const CELL_BATCH_TIMEOUT_MS = 120000;
 
+// For requests that rewrite or export a whole session's data, which on a large
+// run can outlast the default. Polling and page loads keep the short default, so
+// a request that is really stuck still fails fast.
+const LONG_REQUEST_TIMEOUT_MS = 300000;
+// A request at least this slow, or one that timed out, is logged to the console
+// with its URL: the axios timeout message does not say which request it was.
+const SLOW_REQUEST_WARN_MS = 10000;
+
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 30000,
 });
+
+type TimedConfig = { method?: string; url?: string; startedAt?: number };
+
+const warnIfSlow = (config: TimedConfig | undefined, outcome: string, timedOut = false) => {
+  if (!config?.startedAt) return;
+  const elapsedMs = Date.now() - config.startedAt;
+  if (timedOut || elapsedMs >= SLOW_REQUEST_WARN_MS) {
+    console.warn(
+      `Slow request: ${(config.method ?? 'get').toUpperCase()} ${config.url} -> ${outcome} after ${(elapsedMs / 1000).toFixed(1)}s`,
+    );
+  }
+};
+
+// Optional chaining: tests replace axios with a mock that has no interceptors.
+api.interceptors?.request.use((config) => {
+  (config as TimedConfig).startedAt = Date.now();
+  return config;
+});
+api.interceptors?.response.use(
+  (response) => {
+    warnIfSlow(response.config, String(response.status));
+    return response;
+  },
+  (error) => {
+    const timedOut = error?.code === 'ECONNABORTED';
+    warnIfSlow(error?.config, timedOut ? 'timed out' : String(error?.response?.status ?? 'network error'), timedOut);
+    return Promise.reject(error);
+  },
+);
 
 // Feedback API (release mode only)
 export const feedbackAPI = {
@@ -423,7 +460,8 @@ export const loadAPI = {
 
   exportData: async (sessionId: string): Promise<Blob> => {
     const response = await api.get(`/load/export/${sessionId}`, {
-      responseType: 'blob'
+      responseType: 'blob',
+      timeout: LONG_REQUEST_TIMEOUT_MS,
     });
     return response.data;
   },
@@ -512,7 +550,8 @@ export const schematiqAPI = {
 
   export: async (sessionId: string): Promise<void> => {
     const response = await api.get(`/schematiq/export/${sessionId}`, {
-      responseType: 'blob'
+      responseType: 'blob',
+      timeout: LONG_REQUEST_TIMEOUT_MS,
     });
 
     // Create download link
@@ -541,7 +580,7 @@ export const schematiqAPI = {
     // stored identity key differs from the displayed name (e.g. By-Document rows
     // keyed under _unit_name), which otherwise failed with "row not found".
     if (rowIndex != null) params.row_index = rowIndex;
-    const response = await api.put(`/schematiq/cell/${sessionId}`, null, { params });
+    const response = await api.put(`/schematiq/cell/${sessionId}`, null, { params, timeout: CELL_BATCH_TIMEOUT_MS });
     return response.data;
   },
 
@@ -585,7 +624,7 @@ export const schematiqAPI = {
     const params: Record<string, string | number> = { row_name: rowName, column, value: '' };
     if (sourceDocument) params.source_document = sourceDocument;
     if (rowIndex != null) params.row_index = rowIndex;
-    const response = await api.put(`/schematiq/cell/${sessionId}`, { restore: previousValue }, { params });
+    const response = await api.put(`/schematiq/cell/${sessionId}`, { restore: previousValue }, { params, timeout: CELL_BATCH_TIMEOUT_MS });
     return response.data;
   },
 
@@ -813,7 +852,7 @@ export const schemaAPI = {
   },
 
   reprocessDocuments: async (sessionId: string, request: ReprocessRequest): Promise<{ success: boolean; message: string; session_id: string; }> => {
-    const response = await api.post(`/schema/reprocess/${sessionId}`, request);
+    const response = await api.post(`/schema/reprocess/${sessionId}`, request, { timeout: LONG_REQUEST_TIMEOUT_MS });
     return response.data;
   },
 
@@ -828,12 +867,12 @@ export const schemaAPI = {
   },
 
   backupSchema: async (sessionId: string): Promise<{ success: boolean; backup_id: string; backup_path: string; created_at: string; includes_data: boolean; }> => {
-    const response = await api.post(`/schema/backup/${sessionId}`);
+    const response = await api.post(`/schema/backup/${sessionId}`, undefined, { timeout: LONG_REQUEST_TIMEOUT_MS });
     return response.data;
   },
 
   restoreSchema: async (sessionId: string, backupId: string): Promise<SchemaEditResponse> => {
-    const response = await api.post(`/schema/restore/${sessionId}`, { backup_id: backupId });
+    const response = await api.post(`/schema/restore/${sessionId}`, { backup_id: backupId }, { timeout: LONG_REQUEST_TIMEOUT_MS });
     return response.data;
   },
 
@@ -896,7 +935,7 @@ export const schemaAPI = {
 
   // Document availability pre-check
   precheckDocuments: async (sessionId: string, request: DocumentAvailabilityRequest): Promise<DocumentAvailabilityResponse> => {
-    const response = await api.post(`/schema/precheck-documents/${sessionId}`, request);
+    const response = await api.post(`/schema/precheck-documents/${sessionId}`, request, { timeout: LONG_REQUEST_TIMEOUT_MS });
     return response.data;
   },
 
@@ -912,7 +951,7 @@ export const schemaAPI = {
   },
 
   startReextraction: async (sessionId: string, request: ReextractionRequest): Promise<ReextractionResponse> => {
-    const response = await api.post(`/schema/reextract/${sessionId}`, request);
+    const response = await api.post(`/schema/reextract/${sessionId}`, request, { timeout: LONG_REQUEST_TIMEOUT_MS });
     return response.data;
   },
 
@@ -932,7 +971,7 @@ export const schemaAPI = {
   },
 
   captureBaseline: async (sessionId: string): Promise<{ status: string; message: string; column_count: number }> => {
-    const response = await api.post(`/schema/capture-baseline/${sessionId}`);
+    const response = await api.post(`/schema/capture-baseline/${sessionId}`, undefined, { timeout: LONG_REQUEST_TIMEOUT_MS });
     return response.data;
   },
 
@@ -1206,7 +1245,7 @@ export const unitsAPI = {
    * Merge multiple observation units into one.
    */
   merge: async (sessionId: string, request: MergeUnitsRequest): Promise<MergeUnitsResponse> => {
-    const response = await api.post(`/units/merge/${sessionId}`, request);
+    const response = await api.post(`/units/merge/${sessionId}`, request, { timeout: LONG_REQUEST_TIMEOUT_MS });
     const data = response.data;
     return {
       success: data.success,
@@ -1353,7 +1392,7 @@ export const referenceAPI = {
 };
 
 export async function downloadBlob(path: string, fallbackFilename: string): Promise<void> {
-  const response = await api.get(path, { responseType: 'blob' });
+  const response = await api.get(path, { responseType: 'blob', timeout: LONG_REQUEST_TIMEOUT_MS });
 
   // Try to extract filename from Content-Disposition header
   const disposition = response.headers['content-disposition'];
