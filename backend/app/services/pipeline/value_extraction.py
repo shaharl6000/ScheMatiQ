@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Callable
 from pathlib import Path
 from datetime import datetime
 
+from app.core.config import EXTRACTION_MAX_WORKERS
 from app.services import schematiq_thread_pool
 from app.services.pipeline.callbacks import create_value_extracted_callback, create_warning_callback
 from app.services.reference_context import build_reference_context
@@ -103,7 +104,7 @@ async def run_value_extraction(
             resume=resume,
             mode="all",
             retrieval_k=8,
-            max_workers=1,
+            max_workers=EXTRACTION_MAX_WORKERS,
             on_value_extracted=on_value_extracted,
             should_stop=should_stop,
             on_warning=on_warning,

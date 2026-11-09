@@ -7,12 +7,14 @@ import logging
 import mimetypes
 import re
 from collections import Counter
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
 
 logger = logging.getLogger(__name__)
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
+from schematiq.core.thread_local import ThreadLocalAttribute
 from schematiq.core.results import UnitIdentificationResult, ExtractionResult
 from schematiq.value_extraction.config.messages import (
     NO_UNITS_FOUND, NO_KNOWN_UNITS, KNOWN_UNITS_EMPTY
@@ -208,6 +210,13 @@ class StopRequestedException(Exception):
 
 class PaperProcessor:
     """Handles value extraction from individual papers."""
+
+    # Per-document state, kept per thread: TableBuilder may process several
+    # documents at once on this one instance, and each must see only its own
+    # context cache and figures.
+    _active_context_cache = ThreadLocalAttribute(lambda: None)
+    _active_figure_images = ThreadLocalAttribute(list)
+    _active_figures_by_id = ThreadLocalAttribute(dict)
 
     def __init__(
         self,
@@ -469,17 +478,11 @@ class PaperProcessor:
         behavior exactly like figure_extraction_service.py degrades to "no
         figures extracted" on its own failures.
 
-        Not thread-safe: self._active_figure_images/_active_figures_by_id are
-        plain instance attributes reset-then-refilled per document on a
-        PaperProcessor instance that TableBuilder reuses across its whole run
-        (see TableBuilder.__init__). This is safe today only because every
-        caller of this method processes documents in a strictly sequential
-        loop (_process_papers_with_observation_units) rather than through the
-        ThreadPoolExecutor TableBuilder already uses for its other per-paper
-        path (process_single_paper). Do not route this method's callers
-        through that executor without first making this state thread-local
-        (or giving each worker its own PaperProcessor) -- concurrent calls
-        would cross-contaminate figures/citations between documents.
+        Thread-safe: _active_figure_images and _active_figures_by_id (and
+        _active_context_cache) are per-thread attributes (ThreadLocalAttribute),
+        so documents processed concurrently on this one PaperProcessor do not
+        see each other's figures or cache. Each document must still be handled
+        from start to end on a single thread.
         """
         self._active_figure_images = []
         self._active_figures_by_id = {}
@@ -610,18 +613,23 @@ class PaperProcessor:
     def _track_unmatched_values(
         self, unmatched: Dict[str, list], document_name: str = None
     ):
-        """Track unmatched values for schema evolution suggestions."""
-        for col_name, values in unmatched.items():
-            if col_name not in self.suggested_values:
-                self.suggested_values[col_name] = {}
-            for value in values:
-                if value not in self.suggested_values[col_name]:
-                    self.suggested_values[col_name][value] = []
-                if (
-                    document_name
-                    and document_name not in self.suggested_values[col_name][value]
-                ):
-                    self.suggested_values[col_name][value].append(document_name)
+        """Track unmatched values for schema evolution suggestions.
+
+        Locked: documents processed in parallel all add to the same dict.
+        """
+        lock = self.__dict__.setdefault("_suggested_values_lock", threading.Lock())
+        with lock:
+            for col_name, values in unmatched.items():
+                if col_name not in self.suggested_values:
+                    self.suggested_values[col_name] = {}
+                for value in values:
+                    if value not in self.suggested_values[col_name]:
+                        self.suggested_values[col_name][value] = []
+                    if (
+                        document_name
+                        and document_name not in self.suggested_values[col_name][value]
+                    ):
+                        self.suggested_values[col_name][value].append(document_name)
 
     def _column_dict_for_prompt(self, col: Column) -> dict:
         """Column spec dict for the EXTRACTION prompt -- unlike col.to_dict()

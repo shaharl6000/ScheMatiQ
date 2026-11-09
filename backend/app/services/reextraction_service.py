@@ -25,7 +25,7 @@ from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tr
 from app.services.data_utils import row_name_of
 from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
 from app.storage.factory import get_storage
-from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, EXTRACTION_MAX_WORKERS
 from app.core.logging_utils import set_session_context
 
 # ScheMatiQ library imports
@@ -2057,7 +2057,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         resume=False,
                         mode="one_by_one",
                         retrieval_k=10,
-                        max_workers=1,
+                        max_workers=EXTRACTION_MAX_WORKERS,
                         on_value_extracted=on_value_extracted,
                         on_unit_row_written=on_unit_row_written,
                         on_document_started=on_document_started,
