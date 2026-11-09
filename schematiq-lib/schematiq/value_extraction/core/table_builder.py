@@ -12,7 +12,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from schematiq.core.schema import Schema
-from schematiq.core.llm_backends import LLMInterface
+from schematiq.core.llm_backends import LLMInterface, should_abort_run
 from schematiq.core.results import SkippedDocument
 from schematiq.core.config import config as lib_config
 from schematiq.value_extraction.config.messages import skipped_summary, DEFAULT_SKIP_REASON, NO_KNOWN_UNITS
@@ -494,7 +494,12 @@ class TableBuilder:
     def _record_failed_document(self, paper: Path, error: BaseException) -> None:
         """One bad document must not end a long run: report it as skipped (so it
         shows up in the skip report) and move on. Called on the coordinating
-        thread only, in both the sequential and the parallel path."""
+        thread only, in both the sequential and the parallel path.
+
+        An error that would fail every document the same way (invalid API key,
+        exhausted quota, LLM provider down) is re-raised and ends the run."""
+        if should_abort_run(error):
+            raise error
         traceback.print_exception(type(error), error, error.__traceback__)
         print(f"⚠️  Error processing {paper.name} for observation units, skipping it: {error}")
         self._skipped_documents.append(
