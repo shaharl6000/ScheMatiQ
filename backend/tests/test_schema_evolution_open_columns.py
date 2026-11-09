@@ -1,4 +1,8 @@
-"""Schema evolution extends closed sets but never turns an open column into one."""
+"""Schema evolution never changes a column's allowed_values list.
+
+An open column never gets a list, and an existing list does not grow from
+suggestions. Only the user edits the list.
+"""
 
 import asyncio
 from types import SimpleNamespace
@@ -41,8 +45,9 @@ def test_empty_list_counts_as_open():
     assert not col.pending_values
 
 
-def test_closed_column_still_auto_expands_and_queues_pending():
+def test_closed_column_list_does_not_grow():
     col = ColumnInfo(name="injunction_ruling", definition="d", allowed_values=["granted", "denied"])
-    _run([col], {"injunction_ruling": {**_sugg("granted_in_part", 2), **_sugg("vacated", 1)}})
-    assert col.allowed_values == ["granted", "denied", "granted_in_part"]
-    assert [pv.value for pv in col.pending_values] == ["vacated"]
+    _, ws = _run([col], {"injunction_ruling": {**_sugg("granted_in_part", 2), **_sugg("vacated", 1)}})
+    assert col.allowed_values == ["granted", "denied"]
+    assert not col.pending_values
+    assert ws.calls == []

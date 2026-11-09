@@ -246,8 +246,9 @@ class Schema:
                 existing = combined[key]
                 if len(cand.rationale) > len(existing.rationale):
                     existing.rationale = cand.rationale
-                # Merge allowed_values (union)
-                if cand.allowed_values:
+                # Merge allowed_values (union). A list the user set on a
+                # locked column is kept as is.
+                if cand.allowed_values and not (existing.locked and existing.allowed_values):
                     existing_av = existing.allowed_values or []
                     merged_av = list(dict.fromkeys(existing_av + cand.allowed_values))  # Preserve order, dedupe
                     merged_av = [v for v in merged_av if v is not None]  # Filter nulls from LLM output
@@ -332,9 +333,6 @@ class Schema:
             }
             if col.allowed_values is not None:
                 col_dict["allowed_values"] = col.allowed_values
-            # Include auto_expand_threshold for LLM awareness
-            if col.auto_expand_threshold is not None:
-                col_dict["auto_expand_threshold"] = col.auto_expand_threshold
             if col.locked:
                 col_dict["locked"] = True
             result.append(col_dict)
