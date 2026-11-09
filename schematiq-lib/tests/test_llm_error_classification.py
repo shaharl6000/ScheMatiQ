@@ -10,7 +10,9 @@ from schematiq.core.llm_backends import (
     _MAX_RETRY_WAIT_SECONDS,
     _MIN_RETRY_WAIT_SECONDS,
     _extract_wait_time,
+    _caused_by_invalid_api_key,
     _is_invalid_api_key_error,
+    _is_missing_cache_error,
     _is_rate_limit_error,
     _is_retryable_server_error,
     _status_code,
@@ -130,6 +132,43 @@ class TestInvalidApiKey:
 
     def test_transient_errors_are_not_key_errors(self):
         assert not _is_invalid_api_key_error(api_error(503, "UNAVAILABLE"))
+
+    def test_missing_context_cache_is_not_a_key_error(self):
+        # Gemini's answer to a call naming an expired cache.
+        assert not _is_invalid_api_key_error(
+            api_error(403, "PERMISSION_DENIED", "CachedContent not found (or permission denied)")
+        )
+
+
+class TestMissingCache:
+    @pytest.mark.parametrize("code,status", [(403, "PERMISSION_DENIED"), (404, "NOT_FOUND")])
+    def test_cached_content_not_found(self, code, status):
+        assert _is_missing_cache_error(api_error(code, status, "CachedContent not found (or permission denied)"))
+
+    def test_other_errors_are_not_cache_errors(self):
+        assert not _is_missing_cache_error(api_error(403, "PERMISSION_DENIED", "API key not valid"))
+        assert not _is_missing_cache_error(api_error(504, "DEADLINE_EXCEEDED", "CachedContent call timed out"))
+        assert not _is_missing_cache_error(RuntimeError("CachedContent not found"))
+
+
+class TestWrappedKeyErrors:
+    def test_wrapped_invalid_key_is_found(self):
+        try:
+            try:
+                raise api_error(401, "UNAUTHENTICATED", "Request is missing required authentication")
+            except Exception as inner:
+                raise RuntimeError("discovery failed") from inner
+        except RuntimeError as outer:
+            assert _caused_by_invalid_api_key(outer)
+
+    def test_wrapped_missing_cache_is_not_a_key_error(self):
+        inner = api_error(403, "PERMISSION_DENIED", "CachedContent not found (or permission denied)")
+        outer = RuntimeError(f"step failed: {inner}")
+        outer.__cause__ = inner
+        assert not _caused_by_invalid_api_key(outer)
+
+    def test_unrelated_error_is_not_a_key_error(self):
+        assert not _caused_by_invalid_api_key(RuntimeError("timed out"))
 
 
 class TestExtractWaitTime:

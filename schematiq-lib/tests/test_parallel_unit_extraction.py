@@ -160,6 +160,29 @@ def test_error_in_one_document_does_not_stop_others(tmp_path):
     assert [r for r in _read(out) if r.startswith("doc01")] == []
     assert Path(tmp_path / "doc01.txt") not in processed
     assert len(_read(out)) == 6
+    # The failed document is reported, so a long run's skip report shows it.
+    assert [(s.document, s.reason) for s in tb._skipped_documents] == [("doc01", "Extraction failed: boom")]
+
+
+def test_error_in_one_document_is_skipped_in_the_sequential_path(tmp_path):
+    docs, schema, rows, d2s = _setup(tmp_path, 3)
+
+    class Failing(FakeProcessor):
+        def extract_values_for_paper_with_units(self, paper_title, paper_text, **kwargs):
+            if paper_title == "doc01":
+                raise RuntimeError("boom")
+            return super().extract_values_for_paper_with_units(paper_title, paper_text, **kwargs)
+
+    tb = _builder(Failing())
+    out = tmp_path / "out.jsonl"
+    processed, written = set(), set()
+    for row_name, papers in rows:
+        tb._process_papers_with_observation_units(
+            row_name, papers, d2s, schema, 8, 100, {}, processed, written, out,
+        )
+
+    assert _read(out) == ["doc00-u1", "doc00-u2", "doc02-u1", "doc02-u2"]
+    assert [(s.document, s.reason) for s in tb._skipped_documents] == [("doc01", "Extraction failed: boom")]
 
 
 SESSION = contextvars.ContextVar("session", default="no-session")

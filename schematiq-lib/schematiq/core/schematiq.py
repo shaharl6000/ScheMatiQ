@@ -30,6 +30,7 @@ import random
 from pathlib import Path
 from schematiq.core.schema import Schema, Column, SchemaEvolution, ObservationUnit
 from schematiq.core.llm_call_tracker import LLMCallTracker
+from schematiq.core.llm_backends import _caused_by_invalid_api_key
 from schematiq.core.prompts import (
     get_prompts, get_observation_unit_prompts, SchemaMode, DRAFT_SCHEMA_TMPL,
     OBSERVATION_UNIT_CONTEXT_TMPL,
@@ -802,6 +803,12 @@ def discover_schema(
     logging.info("📦 Schema discovery: %d documents → %d batches (batch_size=%d, max_iters=%d)",
                  len(documents), len(batches), documents_batch_size, max_iters)
 
+    # Batches whose LLM calls failed are skipped rather than aborting the whole
+    # discovery; only if every attempted batch failed is the error re-raised.
+    attempted_batches = 0
+    failed_batches = 0
+    last_batch_error: Exception | None = None
+
     for it, batch_docs_with_names in enumerate(batches[:max_iters], start=1):
         batch_docs = [doc for doc, _ in batch_docs_with_names]
         batch_filenames = [fname for _, fname in batch_docs_with_names]
@@ -829,39 +836,56 @@ def discover_schema(
             )
             continue
 
-        # Discover observation unit in first iteration if not already set
-        # Supports STANDARD (query + docs) and DOCUMENT_ONLY (docs only) modes
-        if it == 1 and not observation_unit and discover_observation_unit and (has_query or passages):
-            logging.info("Discovering observation unit from first batch...")
-            source_doc = batch_filenames[0] if batch_filenames else None
-            observation_unit = _discover_observation_unit(
-                query=query if has_query else None,
-                passages=passages,
-                llm=llm,
-                context_window_size=context_window_size,
-                source_document=source_doc
-            )
-            schema.observation_unit = observation_unit
-            logging.info("Set observation unit: %s - %s", observation_unit.name, observation_unit.definition)
+        attempted_batches += 1
+        try:
+            # Discover observation unit in the first successful iteration if not already set
+            # Supports STANDARD (query + docs) and DOCUMENT_ONLY (docs only) modes
+            if not observation_unit and discover_observation_unit and (has_query or passages):
+                logging.info("Discovering observation unit from first batch...")
+                source_doc = batch_filenames[0] if batch_filenames else None
+                observation_unit = _discover_observation_unit(
+                    query=query if has_query else None,
+                    passages=passages,
+                    llm=llm,
+                    context_window_size=context_window_size,
+                    source_document=source_doc
+                )
+                schema.observation_unit = observation_unit
+                logging.info("Set observation unit: %s - %s", observation_unit.name, observation_unit.definition)
 
-        # Complete any partial user-seeded columns once, with passages from the first
-        # successful iteration as supporting context.
-        if not completion_done and any(_is_partial(c) for c in schema.columns):
-            logging.info("Completing partial user-seeded columns (iteration %d)", it)
-            schema.columns = complete_partial_columns(
-                columns=schema.columns,
-                query=query or "",
-                observation_unit=observation_unit,
-                passages=passages,
-                llm=llm,
-                context_window_size=context_window_size,
-            )
-        completion_done = True
+            # Complete any partial user-seeded columns once, with passages from the first
+            # successful iteration as supporting context.
+            if not completion_done and any(_is_partial(c) for c in schema.columns):
+                logging.info("Completing partial user-seeded columns (iteration %d)", it)
+                schema.columns = complete_partial_columns(
+                    columns=schema.columns,
+                    query=query or "",
+                    observation_unit=observation_unit,
+                    passages=passages,
+                    llm=llm,
+                    context_window_size=context_window_size,
+                )
+            completion_done = True
 
-        proposed, document_helpful, suggested_value_additions, _ = generate_schema(
-            passages, query, max_keys_schema, schema, llm, context_window_size,
-            observation_unit=observation_unit
-        )
+            proposed, document_helpful, suggested_value_additions, _ = generate_schema(
+                passages, query, max_keys_schema, schema, llm, context_window_size,
+                observation_unit=observation_unit
+            )
+        except Exception as exc:
+            if _caused_by_invalid_api_key(exc):
+                raise
+            failed_batches += 1
+            last_batch_error = exc
+            logging.exception("Iteration %d — LLM call failed, skipping batch %s", it, batch_filenames)
+            non_contributing_files.extend(batch_filenames)
+            evolution.add_snapshot(
+                iteration=it,
+                documents=batch_filenames,
+                total_columns=len(schema.columns),
+                new_columns=[],
+                cumulative_documents=cumulative_docs
+            )
+            continue
 
         # Apply suggested value additions to existing schema columns
         if suggested_value_additions:
@@ -933,6 +957,9 @@ def discover_schema(
             return merged, contributing_files, non_contributing_files, evolution
 
         schema = merged  # update and continue
+
+    if attempted_batches and failed_batches == attempted_batches and last_batch_error is not None:
+        raise last_batch_error
 
     return schema, contributing_files, non_contributing_files, evolution
 
