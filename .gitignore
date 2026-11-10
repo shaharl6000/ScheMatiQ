@@ -125,7 +125,7 @@ backend/test_*.py
 *.bak
 
 # AI tooling config
-.claude/agents/
+.claude/
 
 # Local dev runner instance storage (dev.sh multi-instance isolation)
 .dev-data/
@@ -145,6 +145,8 @@ backend/scripts/_preview_output/
 
 # Local root-level helper/docs files
 /CLAUDE.md
+AGENTS.md
+/.agents/
 /tasks.md
 /requirements.txt
 /*.patch
