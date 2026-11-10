@@ -64,6 +64,46 @@ describe('resolvePolledMonitorState', () => {
     });
   });
 
+  it('keeps extraction state during re-extraction even after Stop is clicked while /schematiq/status still reports completed', () => {
+    const res = resolvePolledMonitorState({
+      ...baseCtx,
+      currentState: 'extraction',
+      polledStatus: 'completed',
+      stopRequested: true,
+      activeReextractionId: 'op-1234',
+    });
+    expect(res).toEqual({
+      nextState: 'extraction',
+      isExternalRediscoveryReset: false,
+    });
+  });
+
+  it('clears stopRequested when polled status settles into stopped, completed, or error', () => {
+    const stoppedRes = resolvePolledMonitorState({
+      ...baseCtx,
+      currentState: 'stopped',
+      polledStatus: 'stopped',
+      stopRequested: true,
+    });
+    expect(stoppedRes).toEqual({
+      nextState: 'stopped',
+      isExternalRediscoveryReset: false,
+      clearStopRequested: true,
+    });
+
+    const errorRes = resolvePolledMonitorState({
+      ...baseCtx,
+      currentState: 'stopped',
+      polledStatus: 'error',
+      stopRequested: true,
+    });
+    expect(errorRes).toEqual({
+      nextState: 'error',
+      isExternalRediscoveryReset: false,
+      clearStopRequested: true,
+    });
+  });
+
   it('detects an externally triggered schema rediscovery reset after a completed run', () => {
     const res = resolvePolledMonitorState({
       ...baseCtx,

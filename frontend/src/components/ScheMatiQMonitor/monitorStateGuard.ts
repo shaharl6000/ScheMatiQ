@@ -25,6 +25,7 @@ export interface PolledMonitorContext {
 export interface PolledMonitorTransition {
   nextState: ProcessingState;
   isExternalRediscoveryReset: boolean;
+  clearStopRequested?: boolean;
 }
 
 /**
@@ -34,7 +35,11 @@ export interface PolledMonitorTransition {
  * - Never let a polled `'completed'` / `'stopped'` / `'processing'` status kick
  *   the user out of a manually opened mid-run or post-run Observation Unit editor.
  * - Never let `/schematiq/status`'s `'completed'` or `'stopped'` status overwrite
- *   an active re-extraction run (`activeReextractionId !== null`).
+ *   an active re-extraction run (`activeReextractionId !== null`), even if Stop
+ *   was requested on the re-extraction.
+ * - Clear `stopRequested` once the backend reaches a terminal polled status
+ *   (`'stopped'`, `'completed'`, or `'error'`) so later external runs aren't blocked
+ *   when WebSocket events were missed.
  */
 export function resolvePolledMonitorState(
   ctx: PolledMonitorContext,
@@ -77,7 +82,11 @@ export function resolvePolledMonitorState(
   }
 
   if (polledStatus === 'error') {
-    return { nextState: 'error', isExternalRediscoveryReset: false };
+    return {
+      nextState: 'error',
+      isExternalRediscoveryReset: false,
+      ...(stopRequested ? { clearStopRequested: true } : {}),
+    };
   }
 
   // While the user is actively editing the observation unit in mid_run or
@@ -86,21 +95,27 @@ export function resolvePolledMonitorState(
     return { nextState: currentState, isExternalRediscoveryReset: false };
   }
 
-  // While a stop request is in flight, ignore non-terminal polled states so the
-  // UI does not flip back to 'starting' / 'extraction' before the backend settles.
-  if (stopRequested) {
-    if (polledStatus === 'stopped' || polledStatus === 'completed') {
-      return { nextState: polledStatus, isExternalRediscoveryReset: false };
-    }
-    return { nextState: currentState, isExternalRediscoveryReset: false };
-  }
-
   // While a re-extraction operation is active, `/schematiq/status` still reports
-  // the prior pipeline's 'completed' or 'stopped' status; keep 'extraction'.
+  // the prior pipeline's 'completed' or 'stopped' status; keep 'extraction'
+  // (must be checked BEFORE `stopRequested` so stopping a re-extraction does
+  // not prematurely flip to 'completed' from the prior pipeline status).
   if (
     activeReextractionId &&
     (polledStatus === 'completed' || polledStatus === 'stopped')
   ) {
+    return { nextState: currentState, isExternalRediscoveryReset: false };
+  }
+
+  // While a stop request is in flight, ignore non-terminal polled states so the
+  // UI does not flip back to 'starting' / 'extraction' before the backend settles.
+  if (stopRequested) {
+    if (polledStatus === 'stopped' || polledStatus === 'completed') {
+      return {
+        nextState: polledStatus,
+        isExternalRediscoveryReset: false,
+        clearStopRequested: true,
+      };
+    }
     return { nextState: currentState, isExternalRediscoveryReset: false };
   }
 

@@ -231,6 +231,11 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       reviewEntryMode,
     });
 
+    if (transition.clearStopRequested) {
+      stopRequestedRef.current = false;
+      setIsStopping(false);
+    }
+
     if (transition.isExternalRediscoveryReset) {
       setProcessingState('schema');
       setCurrentStepMessage('Rediscovering schema...');
@@ -587,6 +592,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         setActiveReextractionId(null);
         setSchemaOnly(false);
         setIsStopping(false);
+        stopRequestedRef.current = false;
         setProcessingState('completed');
         setExtractionProgress(prev => ({
           ...prev,
@@ -602,6 +608,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         const data = message.data as { error?: string };
         setActiveReextractionId(null);
         setIsStopping(false);
+        stopRequestedRef.current = false;
         setDeferredExtractError(data?.error || 'Extraction failed');
         setSchemaOnly(true);
         setProcessingState('completed');
@@ -672,6 +679,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
     const applyTerminalStatus = (status: string, error?: string) => {
       setActiveReextractionId(null);
       setIsStopping(false);
+      stopRequestedRef.current = false;
       if (status === 'completed') {
         setSchemaOnly(false);
         setProcessingState('completed');
