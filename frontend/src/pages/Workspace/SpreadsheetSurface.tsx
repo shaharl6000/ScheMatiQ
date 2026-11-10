@@ -44,6 +44,7 @@ import {
   parseAllowedValues,
   recordSchemaSpareRowEdit,
   renderObservationUnitFieldCell,
+  rollbackSchemaSpareRowCreate,
   schemaColumnKeysForCols,
   selectedCellScope,
   selectedColumnIndices,
@@ -977,8 +978,18 @@ export function SpreadsheetSurface({
     const hot = hotTableRef.current?.hotInstance;
     if (!hot || typeof hot.setDataAtRowProp !== 'function') return;
     const spareRowIndex = schemaColumns.length;
+    const activeEditor = typeof hot.getActiveEditor === 'function' ? hot.getActiveEditor() : null;
+    const editorOpen = Boolean(
+      activeEditor && typeof activeEditor.isOpened === 'function' && activeEditor.isOpened(),
+    );
+    const editingSameRowProp =
+      editorOpen && activeEditor?.row === spareRowIndex ? String(activeEditor?.prop ?? '') : null;
+    const editorValue =
+      editorOpen && typeof activeEditor?.getValue === 'function' ? activeEditor.getValue() : undefined;
+
     const changesToRestore: Array<[number, string, string]> = [];
     for (const field of SCHEMA_SPARE_ROW_FIELDS) {
+      if (field === editingSameRowProp) continue;
       const draftVal = state.draft[field];
       if (!draftVal) continue;
       const currentVal = String(hot.getDataAtRowProp(spareRowIndex, field) ?? '');
@@ -989,6 +1000,18 @@ export function SpreadsheetSurface({
     if (changesToRestore.length > 0) {
       try {
         hot.setDataAtRowProp(changesToRestore, 'silent');
+        if (
+          editorOpen &&
+          activeEditor &&
+          typeof activeEditor.isOpened === 'function' &&
+          !activeEditor.isOpened() &&
+          typeof activeEditor.beginEditing === 'function'
+        ) {
+          activeEditor.beginEditing();
+          if (editorValue !== undefined && typeof activeEditor.setValue === 'function') {
+            activeEditor.setValue(editorValue);
+          }
+        }
       } catch {
         /* ignore if grid is mid-teardown */
       }
@@ -1479,7 +1502,11 @@ export function SpreadsheetSurface({
               onRefresh();
             })
             .catch((err: any) => {
-              schemaSpareRowRef.current = createEmptySchemaSpareRowState();
+              schemaSpareRowRef.current = rollbackSchemaSpareRowCreate(
+                schemaSpareRowRef.current,
+                consumed.addColumnPayload,
+                consumed.autoExpandThreshold,
+              );
               toast({
                 title: 'Column add failed',
                 description: err?.response?.data?.detail || err?.message || 'Could not add column',
