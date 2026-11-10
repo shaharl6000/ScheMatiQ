@@ -159,6 +159,9 @@ async def get_status(
     if session.status == SessionStatus.COMPLETED:
         status = "completed"
         progress = 1.0
+    elif session.status == SessionStatus.SCHEMA_EXTRACTED:
+        status = "schema_extracted"
+        progress = 1.0
     elif session.status == SessionStatus.ERROR:
         status = "error"
         progress = 0.0
@@ -169,7 +172,27 @@ async def get_status(
         status = "processing"
         progress = 0.5
     else:
-        if session.status == SessionStatus.DOCUMENTS_UPLOADED:
+        from app.services import concurrency_limiter
+
+        slot_active = concurrency_limiter.is_session_active(session_id)
+        if session.status in (SessionStatus.PROCESSING, SessionStatus.SCHEMA_READY):
+            if slot_active:
+                status = "processing"
+                progress = 0.5
+            else:
+                # Orphaned in-progress state (e.g. after a server restart with no
+                # active task or concurrency slot). Reconcile to STOPPED so the
+                # session does not report a misleading "idle" status forever.
+                logger.info(
+                    "Reconciling orphaned %s session %s to STOPPED",
+                    session.status.value,
+                    session_id,
+                )
+                session.status = SessionStatus.STOPPED
+                session_manager.update_session(session)
+                status = "stopped"
+                progress = 1.0
+        elif session.status == SessionStatus.DOCUMENTS_UPLOADED:
             status = "documents_uploaded"
             progress = 1.0
         elif session.status == SessionStatus.PROCESSING_DOCUMENTS:
@@ -206,6 +229,7 @@ async def get_status(
         current_step="Running" if status == "processing" else status.title(),
         steps_completed=3 if status == "processing" else (7 if status == "completed" else 0),
         total_steps=7,
+        error_message=session.error_message,
         schema_completed=schema_completed,
         columns_discovered=columns_discovered,
         total_documents=session.metadata.total_documents or 0,
