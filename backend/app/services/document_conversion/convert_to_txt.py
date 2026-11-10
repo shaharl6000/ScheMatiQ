@@ -381,11 +381,51 @@ def _visual_line_to_logical(line: str) -> str:
     )
 
 
-def _visual_to_logical(text: str) -> str:
-    """Convert each line of *text* from visual to logical order when RTL text is present."""
+def _visual_to_logical(text: str, *, fix_brackets: bool = True) -> str:
+    """Convert each line of *text* from visual to logical order when RTL text is present.
+
+    *fix_brackets* decides the bracket direction for *text* as a page; pass
+    False for part of a page whose caller decides it for the whole page.
+    """
     if not _RTL_CHAR.search(text):
         return text
-    return "\n".join(_visual_line_to_logical(line) for line in text.split("\n"))
+    logical = "\n".join(_visual_line_to_logical(line) for line in text.split("\n"))
+    return _fix_bracket_direction(logical) if fix_brackets else logical
+
+
+def _unbalanced_brackets(line: str) -> bool:
+    depth = 0
+    for ch in line:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+            if depth < 0:
+                return True
+    return depth != 0
+
+
+def _fix_bracket_direction(text: str) -> str:
+    """Undo the bracket mirroring on a page whose PDF already stores RTL
+    brackets in logical form.
+
+    Producers differ: some draw a mirrored glyph for "(" in Hebrew text, some
+    store the logical character. Reversing a visual line mirrors brackets,
+    which is right for the first kind and turns "(א)" into ")א(" for the
+    second. Per page, keep the form whose RTL lines have fewer unbalanced
+    brackets.
+    """
+    lines = text.split("\n")
+    rtl = [i for i, line in enumerate(lines) if _RTL_CHAR.search(line) and re.search(r"[()\[\]]", line)]
+    if not rtl:
+        return text
+    as_is = sum(_unbalanced_brackets(lines[i]) for i in rtl)
+    swapped = sum(_unbalanced_brackets(lines[i].translate(_BRACKET_MIRROR)) for i in rtl)
+    if swapped >= as_is:
+        return text
+    for i in rtl:
+        lines[i] = lines[i].translate(_BRACKET_MIRROR)
+    return "\n".join(lines)
 
 
 def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
@@ -677,6 +717,7 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", line_layout: Tuple
 
     tolerance = _word_tolerance(page)
     built = []  # (box of the line's characters, text), in reading order
+    visible = []  # box of each line's non-space characters, for word gaps
     for line_chars in placed:
         if line_chars:
             # Figure labels are often drawn twice in place; one line built from
@@ -686,17 +727,19 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", line_layout: Tuple
             line_chars = dedupe_chars(line_chars, tolerance=0.5)
             text = extract_text(line_chars, **_line_word_tolerance(line_chars, tolerance)).replace("\n", " ").strip()
             if text:
+                box = (min(c["x0"] for c in line_chars), min(c["top"] for c in line_chars),
+                       max(c["x1"] for c in line_chars), max(c["bottom"] for c in line_chars))
                 visible_line = [c for c in line_chars if not c["text"].isspace()] or line_chars
-                box = (min(c["x0"] for c in visible_line), min(c["top"] for c in visible_line),
-                       max(c["x1"] for c in visible_line), max(c["bottom"] for c in visible_line))
                 built.append((box, text))
-    out = _join_rows(built)
+                visible.append((min(c["x0"] for c in visible_line), min(c["top"] for c in visible_line),
+                                max(c["x1"] for c in visible_line), max(c["bottom"] for c in visible_line)))
+    out = _join_rows(built, visible)
     if leftover:
         # Rotated or unplaced text (a sidebar, a stray label): kept, at the end.
         text = _extract_leftover_text(leftover, tolerance)
         if text:
             out.append(text)
-    return "\n".join(out)
+    return _fix_bracket_direction("\n".join(out))
 
 
 # PyMuPDF makes every table cell its own line, so a table came out one value
@@ -742,7 +785,7 @@ def _across_gutter(a: tuple, b: tuple) -> bool:
     return gap >= height and max(len(at), len(bt)) > _MAX_CELL_CHARS
 
 
-def _join_rows(built: list) -> list:
+def _join_rows(built: list, visible: Optional[list] = None) -> list:
     """The page's lines of text, one per row of a table.
 
     *built* is [(box, text)] in reading order. Consecutive lines side by side
@@ -799,7 +842,10 @@ def _join_rows(built: list) -> list:
         ordered = sorted(row, key=lambda k: built[k][0][0])
         parts = [built[ordered[0]][1]]
         for prev_k, curr_k in zip(ordered, ordered[1:]):
-            sep = "" if built[curr_k][0][0] - built[prev_k][0][2] < _LINE_SLACK_PT else " "
+            # Gap between the inked parts: a trailing space glyph is not a gap
+            # to glue across ("1984 " + "et" stays two words).
+            boxes = visible if visible is not None else [b for b, _ in built]
+            sep = "" if boxes[curr_k][0] - boxes[prev_k][2] < _LINE_SLACK_PT else " "
             parts.append(sep + built[curr_k][1])
         joined_rows.append(_visual_line_to_logical("".join(parts)))
     return joined_rows
@@ -822,7 +868,8 @@ def _extract_leftover_text(chars: list, tolerance: dict) -> str:
         ([c for c in chars if not c.get("upright", True) and c.get("matrix", (1, 0))[1] <= 0],
          {"char_dir_rotated": "ttb", "line_dir_rotated": "rtl"}),
     )
-    texts = (_visual_to_logical(extract_text(group, **tolerance, **directions).strip()) for group, directions in groups if group)
+    texts = (_visual_to_logical(extract_text(group, **tolerance, **directions).strip(), fix_brackets=False)
+             for group, directions in groups if group)
     return "\n".join(text for text in texts if text)
 
 
