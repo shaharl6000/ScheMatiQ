@@ -3,7 +3,7 @@
 import hashlib
 import logging
 import threading
-from typing import Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 from datetime import datetime
 
 from app.models.session import VisualizationSession, SessionStatus, ColumnBaseline, SchemaBaseline
@@ -11,6 +11,11 @@ from app.models.modification import CreationMetadata
 from app.storage import get_storage, StorageInterface
 
 logger = logging.getLogger(__name__)
+
+ORPHANABLE_RUNNING_STATUSES = (
+    SessionStatus.PROCESSING,
+    SessionStatus.SCHEMA_READY,
+)
 
 
 class SessionManager:
@@ -37,7 +42,9 @@ class SessionManager:
         # Migrate session to include new fields if missing
         return self.migrate_session(session)
 
-    def _load_session(self, session_id: str) -> Optional[VisualizationSession]:
+    def _load_session(
+        self, session_id: str, *, reconcile: bool = True
+    ) -> Optional[VisualizationSession]:
         """Fetch one session from storage and cache it. None if absent or invalid."""
         try:
             session_data = self._storage.get_session_sync(session_id)
@@ -55,8 +62,83 @@ class SessionManager:
             return None
         with self._lock:
             # Another thread may have cached it first; that copy is equivalent.
-            self._sessions.setdefault(session.id, session)
-            return self._sessions[session.id]
+            cached = self._sessions.setdefault(session.id, session)
+        if reconcile:
+            self.reconcile_orphaned_session(cached)
+        return cached
+
+    def reconcile_orphaned_session(
+        self,
+        session: VisualizationSession,
+        running_sessions: Optional[Mapping[str, Any]] = None,
+        state_lock: Optional[threading.Lock] = None,
+    ) -> bool:
+        """Mark a PROCESSING or SCHEMA_READY session as STOPPED if no task or slot owns it."""
+        if session.status not in ORPHANABLE_RUNNING_STATUSES:
+            return False
+
+        from app.services import concurrency_limiter
+
+        if running_sessions is None:
+            try:
+                from app.services.orchestration import schematiq_runner
+
+                running_sessions = schematiq_runner.running_sessions
+                if state_lock is None:
+                    state_lock = schematiq_runner._state_lock
+            except Exception:
+                running_sessions = {}
+
+        if state_lock is not None:
+            with state_lock:
+                has_active_task = session.id in running_sessions
+        else:
+            has_active_task = session.id in running_sessions
+
+        has_active_slot = concurrency_limiter.is_session_active(session.id)
+        if not has_active_task and not has_active_slot:
+            logger.info(
+                "Reconciling orphaned %s session %s to STOPPED",
+                session.status.value,
+                session.id,
+            )
+            session.status = SessionStatus.STOPPED
+            self.update_session(session)
+            return True
+        return False
+
+    def reconcile_orphaned_sessions(
+        self,
+        running_sessions: Optional[Mapping[str, Any]] = None,
+        state_lock: Optional[threading.Lock] = None,
+    ) -> int:
+        """Sweep stored and cached sessions and mark any orphaned running sessions as STOPPED."""
+        reconciled = 0
+        try:
+            stored_ids = list(self._storage.list_sessions_sync())
+        except Exception as e:
+            logger.error(f"Error listing sessions for orphan reconciliation: {e}")
+            stored_ids = []
+
+        with self._lock:
+            cached_ids = list(self._sessions.keys())
+
+        seen = set()
+        for session_id in [*cached_ids, *stored_ids]:
+            if session_id in seen:
+                continue
+            seen.add(session_id)
+            with self._lock:
+                session = self._sessions.get(session_id)
+            if session is None:
+                session = self._load_session(session_id, reconcile=False)
+            if session is None:
+                continue
+            if self.reconcile_orphaned_session(
+                session, running_sessions=running_sessions, state_lock=state_lock
+            ):
+                reconciled += 1
+        return reconciled
 
     def _save_session(self, session: VisualizationSession):
         """Save session to storage."""
