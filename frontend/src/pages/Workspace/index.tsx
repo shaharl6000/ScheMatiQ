@@ -79,6 +79,7 @@ import {
   dataEquals,
   diffPaginatedData,
   documentDisplayName,
+  formatWorkspaceChromeStatus,
   patchDataCell,
   schemaFromLoadSession,
   selectionArea,
@@ -152,6 +153,16 @@ function Workspace() {
   const activeSearchTermRef = useRef<string | null>(null);
   const [activeSheet, setActiveSheet] = useState<SheetId>('data');
   const [sessionMode, setSessionMode] = useState<WorkspaceSessionMode>(requestedMode);
+  // Mirror sessionMode in a ref so refresh() can read and flip the active mode
+  // inline (load -> schematiq promotion, schematiq -> load fallback, or route
+  // query-param switches) without closing over sessionMode in its useCallback
+  // dependencies — which previously re-created refresh and triggered a second
+  // full refresh() right after the inline fetch had already completed.
+  const sessionModeRef = useRef<WorkspaceSessionMode>(requestedMode);
+  const updateSessionMode = useCallback((next: WorkspaceSessionMode) => {
+    sessionModeRef.current = next;
+    setSessionMode(next);
+  }, []);
   const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -565,7 +576,7 @@ function Workspace() {
         // imported (UPLOAD) session. A SCHEMATIQ session whose status call
         // failed (a transient 500/timeout) keeps its mode; demoting it made
         // refresh promote it back on the next pass, ping-ponging between modes.
-        if (loadSession.type !== 'schematiq') setSessionMode('load');
+        if (loadSession.type !== 'schematiq') updateSessionMode('load');
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
         setSession(loadSession);
@@ -579,7 +590,7 @@ function Workspace() {
     };
 
     try {
-      if (sessionMode === 'load') {
+      if (sessionModeRef.current === 'load') {
         const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
         if (!loadSession) {
           setSessionMissing(true);
@@ -593,7 +604,7 @@ function Workspace() {
         // dir — read it as a SCHEMATIQ session from here on instead of
         // rendering a stale/empty load-mode view.
         if (loadSession.type === 'schematiq') {
-          setSessionMode('schematiq');
+          updateSessionMode('schematiq');
           await fetchAsSchematiq();
           return;
         }
@@ -616,7 +627,7 @@ function Workspace() {
         setLoading(false);
       }
     }
-  }, [applyData, noteDataFetchError, noteDataFetchSuccess, sessionId, sessionMode]);
+  }, [applyData, noteDataFetchError, noteDataFetchSuccess, sessionId, updateSessionMode]);
 
   const {
     addDocsFiles,
@@ -743,8 +754,8 @@ function Workspace() {
 
   useEffect(() => {
     setProjectDialogOpen(!sessionId);
-    setSessionMode(requestedMode);
-  }, [requestedMode, sessionId]);
+    updateSessionMode(requestedMode);
+  }, [requestedMode, sessionId, updateSessionMode]);
 
   // Record every project opened in this browser so the New Project dialog can
   // offer a per-browser "recent projects" list. There is no server-side user
@@ -780,6 +791,7 @@ function Workspace() {
     setSchema(null);
     setStatus(null);
     setSession(null);
+    setSessionMissing(false);
     setDataView('by_document');
     setUnitData(emptyData);
     // The undo stack belongs to the session we are leaving.
@@ -914,8 +926,9 @@ function Workspace() {
   }, [activeSheet, sessionId]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh, sessionId]);
+    sessionModeRef.current = requestedMode;
+    void refresh();
+  }, [refresh, requestedMode, sessionId]);
 
   const estimateCurrentCost = useCallback(async () => {
     if (!sessionId) return;
@@ -1165,7 +1178,7 @@ function Workspace() {
     try {
       const upload = await loadAPI.uploadFile(file);
       await loadAPI.parseFile(upload.session_id);
-      setSessionMode('load');
+      updateSessionMode('load');
       setActiveSheet('data');
       toast({
         title: 'Project imported',
@@ -1182,7 +1195,7 @@ function Workspace() {
       setImportingProject(false);
       if (importInputRef.current) importInputRef.current.value = '';
     }
-  }, [navigate, toast]);
+  }, [navigate, toast, updateSessionMode]);
 
   const progressPercent = Math.round((status?.progress || 0) * 100);
   const topbarQuestion = schema?.query || config?.query || '';
@@ -1194,39 +1207,19 @@ function Workspace() {
     return ['completed', 'schema_extracted', 'stopped', 'error', 'failed'].includes(rawStatus);
   }, [status?.status]);
 
-  const chromeStatus = useMemo(() => {
-    if (!sessionId) return 'No project open';
-    if (loading) return 'Loading…';
-
-    const rawStatus = status?.status || '';
-    const isDone = rawStatus === 'completed' || rawStatus === 'schema_extracted' || rawStatus === 'stopped';
-    const isFailed = rawStatus === 'error' || rawStatus === 'failed';
-
-    if (sessionMissing) return 'Project not found';
-    if (isFailed) return 'Extraction failed';
-
-    // Still working: surface a live, human label instead of the raw status key.
-    if (!isDone) {
-      // An UPLOAD-type session only ever reaches status='processing' via
-      // /load/rediscover (see useReextraction) — a plain import never sets
-      // this status. Label it distinctly so "Rediscover schema" doesn't
-      // misleadingly read as "Importing…" for the run's whole duration.
-      if (sessionMode === 'load') {
-        return rawStatus === 'processing' ? 'Rediscovering schema…' : 'Importing…';
-      }
-      return 'Extracting…';
-    }
-
-    // Done: replace the status word (which just repeats what the visible table
-    // already shows) with useful context — where the data came from + its size.
-    const source = sessionMode === 'load' ? 'Imported file' : 'Extracted from documents';
-    const rowCount = data.total_count;
-    const colCount = status?.columns_discovered ?? schema?.schema.length ?? 0;
-    const parts = [source];
-    if (rowCount > 0) parts.push(`${rowCount} ${rowCount === 1 ? 'row' : 'rows'}`);
-    if (colCount > 0) parts.push(`${colCount} ${colCount === 1 ? 'column' : 'columns'}`);
-    return parts.join(' · ');
-  }, [sessionId, loading, status, sessionMode, data.total_count, schema]);
+  const chromeStatus = useMemo(
+    () =>
+      formatWorkspaceChromeStatus({
+        sessionId,
+        loading,
+        sessionMissing,
+        status,
+        sessionMode,
+        rowCount: data.total_count,
+        schema,
+      }),
+    [sessionId, loading, sessionMissing, status, sessionMode, data.total_count, schema],
+  );
   // Below the stacked breakpoint the panes sit one above the other and the
   // divider is display:none, so a chat width measured in pixels no longer says
   // anything about whether a pane is collapsed. Left live, the default 380px

@@ -25,13 +25,14 @@ import {
   diffPaginatedData,
   emptyCellScope,
   finishSchemaSpareRowCreate,
+  formatWorkspaceChromeStatus,
   hasSchemaSpareRowDraft,
   recordSchemaSpareRowEdit,
   rollbackSchemaSpareRowCreate,
   selectedCellScope,
 } from './helpers';
 import type { SheetColumn } from './types';
-import type { ColumnInfo, DataRow, PaginatedData } from '@/types';
+import type { ColumnInfo, DataRow, PaginatedData, ScheMatiQStatus, SchemaData } from '@/types';
 
 const sheetColumns: SheetColumn[] = [
   { key: '_row_name' } as SheetColumn,
@@ -253,4 +254,139 @@ describe('schemaSpareRowState lifecycle', () => {
     expect(hasSchemaSpareRowDraft(rolledBack)).toBe(true);
   });
 });
+
+describe('formatWorkspaceChromeStatus', () => {
+  const baseStatus: ScheMatiQStatus = {
+    session_id: 's1',
+    status: 'completed',
+    progress: 1,
+    current_step: 'Completed',
+    steps_completed: 1,
+    total_steps: 1,
+    schema_completed: true,
+    columns_discovered: 3,
+  };
+
+  const baseSchema: SchemaData = {
+    query: 'q',
+    schema: [{ name: 'c1', definition: 'd1' } as ColumnInfo],
+  };
+
+  it('returns "No project open" when sessionId is missing and "Loading…" while loading', () => {
+    expect(
+      formatWorkspaceChromeStatus({
+        sessionId: undefined,
+        loading: false,
+        sessionMissing: true,
+        status: baseStatus,
+        sessionMode: 'schematiq',
+        rowCount: 10,
+        schema: baseSchema,
+      }),
+    ).toBe('No project open');
+
+    expect(
+      formatWorkspaceChromeStatus({
+        sessionId: 's1',
+        loading: true,
+        sessionMissing: false,
+        status: baseStatus,
+        sessionMode: 'schematiq',
+        rowCount: 10,
+        schema: baseSchema,
+      }),
+    ).toBe('Loading…');
+  });
+
+  it('prioritizes "Project not found" when sessionMissing flips true during a silent refresh', () => {
+    expect(
+      formatWorkspaceChromeStatus({
+        sessionId: 's1',
+        loading: false,
+        sessionMissing: true,
+        status: baseStatus,
+        sessionMode: 'schematiq',
+        rowCount: 5,
+        schema: baseSchema,
+      }),
+    ).toBe('Project not found');
+  });
+
+  it('distinguishes failed, extracting, importing, and rediscovering-schema states', () => {
+    expect(
+      formatWorkspaceChromeStatus({
+        sessionId: 's1',
+        loading: false,
+        sessionMissing: false,
+        status: { ...baseStatus, status: 'failed' },
+        sessionMode: 'schematiq',
+        rowCount: 0,
+        schema: null,
+      }),
+    ).toBe('Extraction failed');
+
+    expect(
+      formatWorkspaceChromeStatus({
+        sessionId: 's1',
+        loading: false,
+        sessionMissing: false,
+        status: { ...baseStatus, status: 'processing' },
+        sessionMode: 'schematiq',
+        rowCount: 0,
+        schema: null,
+      }),
+    ).toBe('Extracting…');
+
+    expect(
+      formatWorkspaceChromeStatus({
+        sessionId: 's1',
+        loading: false,
+        sessionMissing: false,
+        status: { ...baseStatus, status: 'processing_documents' },
+        sessionMode: 'load',
+        rowCount: 0,
+        schema: null,
+      }),
+    ).toBe('Importing…');
+
+    expect(
+      formatWorkspaceChromeStatus({
+        sessionId: 's1',
+        loading: false,
+        sessionMissing: false,
+        status: { ...baseStatus, status: 'processing' },
+        sessionMode: 'load',
+        rowCount: 0,
+        schema: null,
+      }),
+    ).toBe('Rediscovering schema…');
+  });
+
+  it('formats completed summaries with singular/plural counts and schema fallback', () => {
+    expect(
+      formatWorkspaceChromeStatus({
+        sessionId: 's1',
+        loading: false,
+        sessionMissing: false,
+        status: { ...baseStatus, columns_discovered: undefined },
+        sessionMode: 'load',
+        rowCount: 1,
+        schema: baseSchema,
+      }),
+    ).toBe('Imported file · 1 row · 1 column');
+
+    expect(
+      formatWorkspaceChromeStatus({
+        sessionId: 's1',
+        loading: false,
+        sessionMissing: false,
+        status: baseStatus,
+        sessionMode: 'schematiq',
+        rowCount: 4,
+        schema: baseSchema,
+      }),
+    ).toBe('Extracted from documents · 4 rows · 3 columns');
+  });
+});
+
 

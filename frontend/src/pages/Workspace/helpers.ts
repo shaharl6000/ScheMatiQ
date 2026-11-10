@@ -30,6 +30,7 @@ import type {
   SheetColumn,
   SheetSelection,
   WorkspaceMessage,
+  WorkspaceSessionMode,
   WrongCellScope,
 } from './types';
 
@@ -543,6 +544,57 @@ export function statusFromLoadSession(session: VisualizationSession | null): Sch
     total_documents: session.statistics?.total_documents || session.metadata?.uploaded_documents?.length || 0,
     processed_documents: session.metadata?.processed_documents || session.statistics?.total_documents || 0,
   };
+}
+
+export type WorkspaceChromeStatusInput = {
+  sessionId?: string;
+  loading: boolean;
+  sessionMissing: boolean;
+  status: ScheMatiQStatus | null;
+  sessionMode: WorkspaceSessionMode;
+  rowCount: number;
+  schema: SchemaData | null;
+};
+
+export function formatWorkspaceChromeStatus({
+  sessionId,
+  loading,
+  sessionMissing,
+  status,
+  sessionMode,
+  rowCount,
+  schema,
+}: WorkspaceChromeStatusInput): string {
+  if (!sessionId) return 'No project open';
+  if (loading) return 'Loading…';
+
+  const rawStatus = status?.status || '';
+  const isDone = rawStatus === 'completed' || rawStatus === 'schema_extracted' || rawStatus === 'stopped';
+  const isFailed = rawStatus === 'error' || rawStatus === 'failed';
+
+  if (sessionMissing) return 'Project not found';
+  if (isFailed) return 'Extraction failed';
+
+  // Still working: surface a live, human label instead of the raw status key.
+  if (!isDone) {
+    // An UPLOAD-type session only ever reaches status='processing' via
+    // /load/rediscover (see useReextraction) — a plain import never sets
+    // this status. Label it distinctly so "Rediscover schema" doesn't
+    // misleadingly read as "Importing…" for the run's whole duration.
+    if (sessionMode === 'load') {
+      return rawStatus === 'processing' ? 'Rediscovering schema…' : 'Importing…';
+    }
+    return 'Extracting…';
+  }
+
+  // Done: replace the status word (which just repeats what the visible table
+  // already shows) with useful context — where the data came from + its size.
+  const source = sessionMode === 'load' ? 'Imported file' : 'Extracted from documents';
+  const colCount = status?.columns_discovered ?? schema?.schema?.length ?? 0;
+  const parts = [source];
+  if (rowCount > 0) parts.push(`${rowCount} ${rowCount === 1 ? 'row' : 'rows'}`);
+  if (colCount > 0) parts.push(`${colCount} ${colCount === 1 ? 'column' : 'columns'}`);
+  return parts.join(' · ');
 }
 export function mapChatTurnMessage(message: ChatTurnMessage): WorkspaceMessage {
   return {
