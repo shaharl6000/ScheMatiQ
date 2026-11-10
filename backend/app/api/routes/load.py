@@ -1537,9 +1537,7 @@ async def _finalize_upload_stop(session_id: str):
         # Wait up to 30s for the task to notice the stop flag
         for _ in range(60):
             await asyncio.sleep(0.5)
-            with upload_processor._state_lock:
-                still_running = session_id in upload_processor.running_sessions
-            if not still_running:
+            if not upload_processor.is_running(session_id):
                 break
 
         session = session_manager.get_session(session_id)

@@ -422,28 +422,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
     @staticmethod
     def calculate_column_checksum(column: ColumnInfo) -> str:
         """Calculate a checksum for change detection."""
-        content = f"{column.definition or ''}{column.rationale or ''}"
-        if column.allowed_values:
-            content += "|".join(sorted(column.allowed_values))
-        return hashlib.md5(content.encode()).hexdigest()
+        return ColumnBaseline.calculate_checksum(column)
 
     def capture_baseline(self, session: VisualizationSession) -> SchemaBaseline:
         """Capture the current schema state as a baseline."""
-        columns_dict = {}
-        for col in session.columns:
-            if col.name and not col.name.lower().endswith('_excerpt'):
-                columns_dict[col.name] = ColumnBaseline(
-                    name=col.name,
-                    definition=col.definition or "",
-                    rationale=col.rationale or "",
-                    allowed_values=col.allowed_values,
-                    checksum=self.calculate_column_checksum(col)
-                )
-
-        return SchemaBaseline(
-            columns=columns_dict,
-            captured_at=datetime.now()
-        )
+        return SchemaBaseline.from_columns(session.columns)
 
     async def capture_and_save_baseline(self, session_id: str) -> None:
         """Capture baseline and save to session."""
@@ -455,6 +438,24 @@ class ReextractionService(WebSocketBroadcasterMixin):
         session.schema_baseline = baseline
         self.session_manager.update_session(session)
         logger.debug(f"Captured schema baseline for session {session_id} with {len(baseline.columns)} columns")
+
+    def _reconcile_schema_baseline(self, session: VisualizationSession) -> bool:
+        """Ensure `session.schema_baseline` exists and includes already-extracted columns.
+
+        Returns True if a brand-new baseline was captured from the current schema
+        (meaning there are no changes to report relative to that freshly-captured baseline).
+        """
+        if not session.schema_baseline:
+            session.schema_baseline = self.capture_baseline(session)
+            # Only persist if session has extracted data to avoid writes on every poll
+            if any((c.non_null_count or 0) > 0 for c in session.columns):
+                self.session_manager.update_session(session)
+            return True
+
+        healed = session.schema_baseline.reconcile_extracted_columns(session.columns)
+        if healed:
+            self.session_manager.update_session(session)
+        return False
 
     def detect_schema_changes(self, session: VisualizationSession) -> Dict[str, Any]:
         """
@@ -476,14 +477,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "missing_baseline": False
         }
 
-        # If no baseline exists, auto-create one from current state so future edits are tracked
-        if not session.schema_baseline:
-            baseline = self.capture_baseline(session)
-            session.schema_baseline = baseline
-            # Only persist if session has extracted data to avoid writes on every poll
-            if any((c.non_null_count or 0) > 0 for c in session.columns):
-                self.session_manager.update_session(session)
-            # Return no changes — baseline just captured from current state
+        if self._reconcile_schema_baseline(session):
             return result
 
         baseline_columns = session.schema_baseline.columns
@@ -507,8 +501,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # Check for changes
                 baseline = baseline_columns[col.name]
                 current_checksum = self.calculate_column_checksum(col)
-                # Detect rename: baseline entry was moved to new key but name field still has old name
-                was_renamed = col.name != baseline.name
+                was_renamed = baseline.is_renamed_for(col.name)
 
                 if current_checksum != baseline.checksum or was_renamed:
                     # Determine what changed
@@ -527,36 +520,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     if was_renamed:
                         change_detail["old_name"] = baseline.name
                     result["column_changes"][col.name] = change_detail
-
-        # Auto-heal stale baselines: if "new" columns already have extracted data,
-        # the baseline is outdated (e.g., continue discovery added columns).
-        # Recapture baseline and re-detect so they show as unchanged, not "new".
-        if result["new_columns"] and session.schema_baseline:
-            stale_cols = [
-                name for name in result["new_columns"]
-                if any(c.name == name and (c.non_null_count or 0) > 0 for c in session.columns)
-            ]
-            if stale_cols:
-                # Only add the stale columns to the existing baseline —
-                # do NOT recapture the whole baseline, or we'd erase real edits.
-                for col_name in stale_cols:
-                    col = next(c for c in session.columns if c.name == col_name)
-                    session.schema_baseline.columns[col_name] = ColumnBaseline(
-                        name=col.name,
-                        definition=col.definition or "",
-                        rationale=col.rationale or "",
-                        allowed_values=col.allowed_values,
-                        checksum=self.calculate_column_checksum(col),
-                    )
-                self.session_manager.update_session(session)
-                # Inline re-detection: remove the now-patched stale columns from
-                # the result so they are no longer reported as new or changed,
-                # then fall through to recalculate has_changes. This avoids the
-                # infinite recursion that a recursive self.detect_schema_changes()
-                # call would cause if stale_cols were somehow repopulated.
-                for col_name in stale_cols:
-                    result["new_columns"] = [n for n in result["new_columns"] if n != col_name]
-                    result["column_changes"].pop(col_name, None)
 
         result["has_changes"] = bool(result["changed_columns"] or result["new_columns"])
         return result
