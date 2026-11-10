@@ -151,6 +151,11 @@ class RowDataManager:
                 or new_col_data.get('_confirmed_empty')
             ):
                 merged_cell['_confirmed_empty'] = True
+            elif merged_answer and not unique_excerpts and (
+                existing_col_data.get('_ungrounded')
+                or new_col_data.get('_ungrounded')
+            ):
+                merged_cell['_ungrounded'] = True
             merged[col_name] = merged_cell
         
         return merged
