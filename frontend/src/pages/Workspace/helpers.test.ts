@@ -19,7 +19,16 @@ jest.mock(
   { virtual: true },
 );
 
-import { diffPaginatedData, emptyCellScope, selectedCellScope } from './helpers';
+import {
+  consumeSchemaSpareRowForCreate,
+  createEmptySchemaSpareRowState,
+  diffPaginatedData,
+  emptyCellScope,
+  finishSchemaSpareRowCreate,
+  hasSchemaSpareRowDraft,
+  recordSchemaSpareRowEdit,
+  selectedCellScope,
+} from './helpers';
 import type { SheetColumn } from './types';
 import type { ColumnInfo, DataRow, PaginatedData } from '@/types';
 
@@ -168,3 +177,49 @@ describe('diffPaginatedData', () => {
     expect(diffPaginatedData(before, after)).toEqual({ updates: [], inverseUpdates: [] });
   });
 });
+
+describe('schemaSpareRowState lifecycle', () => {
+  it('preserves draft edits typed before name even when live grid cells were cleared by a refresh', () => {
+    let state = createEmptySchemaSpareRowState();
+    expect(hasSchemaSpareRowDraft(state)).toBe(false);
+
+    state = recordSchemaSpareRowEdit(state, 'definition', 'Patient age at baseline');
+    state = recordSchemaSpareRowEdit(state, 'rationale', 'Needed for subgroup analysis');
+    state = recordSchemaSpareRowEdit(state, 'allowed_values', 'adult, pediatric');
+    state = recordSchemaSpareRowEdit(state, 'auto_expand_threshold', '3');
+    expect(hasSchemaSpareRowDraft(state)).toBe(true);
+
+    // Simulate a background refresh having wiped the live DOM row (readLiveCell returns '')
+    const consumed = consumeSchemaSpareRowForCreate(state, '  age_group  ', () => '');
+    expect(consumed).not.toBeNull();
+    expect(consumed!.addColumnPayload).toEqual({
+      name: 'age_group',
+      definition: 'Patient age at baseline',
+      rationale: 'Needed for subgroup analysis',
+      allowed_values: ['adult', 'pediatric'],
+    });
+    expect(consumed!.autoExpandThreshold).toBe(3);
+    expect(consumed!.nextState.creatingColumnName).toBe('age_group');
+    expect(hasSchemaSpareRowDraft(consumed!.nextState)).toBe(false);
+  });
+
+  it('queues follow-up edits made on the spare row while addColumn is still in flight', () => {
+    let state = createEmptySchemaSpareRowState();
+    const consumed = consumeSchemaSpareRowForCreate(state, 'new_col');
+    expect(consumed).not.toBeNull();
+    state = consumed!.nextState;
+
+    // User tabs to definition and rationale while addColumn is still in flight
+    state = recordSchemaSpareRowEdit(state, 'definition', 'Typed while in flight');
+    state = recordSchemaSpareRowEdit(state, 'rationale', 'Also typed while in flight');
+
+    const finished = finishSchemaSpareRowCreate(state);
+    expect(finished.columnName).toBe('new_col');
+    expect(finished.queuedEdits).toEqual({
+      definition: 'Typed while in flight',
+      rationale: 'Also typed while in flight',
+    });
+    expect(finished.nextState).toEqual(createEmptySchemaSpareRowState());
+  });
+});
+

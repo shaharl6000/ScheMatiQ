@@ -682,9 +682,8 @@ class ToolExecutor:
       for col in session.columns:
           if col.name == old_name:
               if new_name:
-                  if session.schema_baseline and old_name in session.schema_baseline.columns:
-                      old_baseline = session.schema_baseline.columns.pop(old_name)
-                      session.schema_baseline.columns[new_name] = old_baseline
+                  if session.schema_baseline:
+                      session.schema_baseline.record_column_rename(old_name, new_name)
                   col.name = new_name
                   col.display_name = new_display_name
               if definition is not None:

@@ -605,3 +605,134 @@ export function describeRequestError(
     code,
   };
 }
+
+export type SchemaSpareRowField =
+  | 'definition'
+  | 'rationale'
+  | 'allowed_values'
+  | 'auto_expand_threshold';
+
+export const SCHEMA_SPARE_ROW_FIELDS: readonly SchemaSpareRowField[] = [
+  'definition',
+  'rationale',
+  'allowed_values',
+  'auto_expand_threshold',
+];
+
+export interface SchemaSpareRowState {
+  draft: Record<SchemaSpareRowField, string>;
+  creatingColumnName: string | null;
+  queuedEdits: Partial<Record<SchemaSpareRowField, string>>;
+}
+
+export function createEmptySchemaSpareRowState(): SchemaSpareRowState {
+  return {
+    draft: {
+      definition: '',
+      rationale: '',
+      allowed_values: '',
+      auto_expand_threshold: '',
+    },
+    creatingColumnName: null,
+    queuedEdits: {},
+  };
+}
+
+export function hasSchemaSpareRowDraft(state: SchemaSpareRowState): boolean {
+  return SCHEMA_SPARE_ROW_FIELDS.some((field) => state.draft[field].trim() !== '');
+}
+
+export function isSchemaSpareRowField(key: string): key is SchemaSpareRowField {
+  return (SCHEMA_SPARE_ROW_FIELDS as readonly string[]).includes(key);
+}
+
+export function recordSchemaSpareRowEdit(
+  state: SchemaSpareRowState,
+  field: SchemaSpareRowField,
+  value: unknown,
+): SchemaSpareRowState {
+  const normalized = String(value ?? '');
+  if (state.creatingColumnName) {
+    return {
+      ...state,
+      queuedEdits: {
+        ...state.queuedEdits,
+        [field]: normalized,
+      },
+    };
+  }
+  return {
+    ...state,
+    draft: {
+      ...state.draft,
+      [field]: normalized,
+    },
+  };
+}
+
+export function consumeSchemaSpareRowForCreate(
+  state: SchemaSpareRowState,
+  rawName: unknown,
+  readLiveCell?: (field: SchemaSpareRowField) => string,
+): {
+  nextState: SchemaSpareRowState;
+  addColumnPayload: {
+    name: string;
+    definition: string;
+    rationale?: string;
+    allowed_values?: string[];
+  };
+  autoExpandThreshold?: number;
+} | null {
+  const name = String(rawName ?? '').trim();
+  if (!name) return null;
+
+  const readMerged = (field: SchemaSpareRowField): string => {
+    const live = readLiveCell ? String(readLiveCell(field) ?? '') : '';
+    return live.trim() !== '' ? live : state.draft[field];
+  };
+
+  const definition = readMerged('definition').trim();
+  const rationale = readMerged('rationale').trim();
+  const allowedValues = parseAllowedValues(readMerged('allowed_values'));
+  const rawThreshold = readMerged('auto_expand_threshold').trim();
+  const parsedThreshold = rawThreshold !== '' ? Number(rawThreshold) : NaN;
+  const autoExpandThreshold =
+    Number.isFinite(parsedThreshold) && parsedThreshold !== 0
+      ? parsedThreshold
+      : undefined;
+
+  return {
+    nextState: {
+      draft: {
+        definition: '',
+        rationale: '',
+        allowed_values: '',
+        auto_expand_threshold: '',
+      },
+      creatingColumnName: name,
+      queuedEdits: {},
+    },
+    addColumnPayload: {
+      name,
+      definition,
+      rationale: rationale || undefined,
+      allowed_values:
+        allowedValues && allowedValues.length > 0 ? allowedValues : undefined,
+    },
+    autoExpandThreshold,
+  };
+}
+
+export function finishSchemaSpareRowCreate(state: SchemaSpareRowState): {
+  nextState: SchemaSpareRowState;
+  columnName: string | null;
+  queuedEdits: Partial<Record<SchemaSpareRowField, string>>;
+} {
+  return {
+    nextState: createEmptySchemaSpareRowState(),
+    columnName: state.creatingColumnName,
+    queuedEdits: { ...state.queuedEdits },
+  };
+}
+

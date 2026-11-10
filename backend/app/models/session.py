@@ -1,5 +1,6 @@
 """Session and data models for visualization."""
 
+import hashlib
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
@@ -90,11 +91,72 @@ class ColumnBaseline(BaseModel):
     allowed_values: Optional[List[str]] = None
     checksum: str = ""  # MD5 hash of definition + rationale + allowed_values
 
+    @staticmethod
+    def calculate_checksum(column: "ColumnInfo") -> str:
+        """Calculate a deterministic MD5 checksum of definition, rationale, and allowed_values."""
+        content = f"{column.definition or ''}{column.rationale or ''}"
+        if column.allowed_values:
+            content += "|".join(sorted(column.allowed_values))
+        return hashlib.md5(content.encode()).hexdigest()
+
+    @classmethod
+    def from_column(cls, column: "ColumnInfo") -> "ColumnBaseline":
+        """Create a ColumnBaseline snapshot from a ColumnInfo."""
+        return cls(
+            name=column.name,
+            definition=column.definition or "",
+            rationale=column.rationale or "",
+            allowed_values=column.allowed_values,
+            checksum=cls.calculate_checksum(column),
+        )
+
+    def is_renamed_for(self, current_name: str) -> bool:
+        """Return True if this baseline entry was originally captured under a different column name."""
+        return current_name != self.name
+
 
 class SchemaBaseline(BaseModel):
     """Snapshot of schema state after last extraction for change detection."""
     columns: Dict[str, ColumnBaseline] = Field(default_factory=dict)
     captured_at: datetime = Field(default_factory=datetime.now)
+
+    @classmethod
+    def from_columns(cls, columns: List["ColumnInfo"]) -> "SchemaBaseline":
+        """Capture a fresh SchemaBaseline from a list of ColumnInfo objects."""
+        columns_dict = {
+            col.name: ColumnBaseline.from_column(col)
+            for col in columns
+            if col.name and not col.name.lower().endswith("_excerpt")
+        }
+        return cls(columns=columns_dict, captured_at=datetime.now())
+
+    def record_column_rename(self, old_name: str, new_name: str) -> bool:
+        """Move a column's baseline entry to `new_name` while preserving its original `name`.
+
+        Keeping `baseline.name` set to the original pre-rename column name lets
+        `ColumnBaseline.is_renamed_for(new_name)` detect the rename (even across
+        chained renames `A -> B -> C` before re-extraction).
+        """
+        if not old_name or not new_name or old_name == new_name:
+            return False
+        if old_name not in self.columns:
+            return False
+        self.columns[new_name] = self.columns.pop(old_name)
+        return True
+
+    def reconcile_extracted_columns(self, columns: List["ColumnInfo"]) -> List[str]:
+        """Add missing baseline entries for columns that already have extracted data.
+
+        Returns the list of column names that were added to the baseline.
+        """
+        healed: List[str] = []
+        for col in columns:
+            if not col.name or col.name.lower().endswith("_excerpt"):
+                continue
+            if col.name not in self.columns and (col.non_null_count or 0) > 0:
+                self.columns[col.name] = ColumnBaseline.from_column(col)
+                healed.append(col.name)
+        return healed
 
 
 class SchemaSnapshot(BaseModel):
