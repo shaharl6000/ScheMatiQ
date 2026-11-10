@@ -275,7 +275,16 @@ class ChatAgentService:
                 reason="Superseded by a new message.",
             )
             outbound_messages.extend(abort_messages)
+            if state.stop_requested:
+                await self._flush_llm_usage(state)
+                return {
+                    "chat_id": state.chat_id,
+                    "status": "stopped",
+                    "messages": outbound_messages,
+                    "pending_action": None,
+                }
             if new_pending:
+                await self._flush_llm_usage(state)
                 return {
                     "chat_id": state.chat_id,
                     "status": "pending_confirmation",
