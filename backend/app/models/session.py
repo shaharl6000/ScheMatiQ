@@ -225,7 +225,7 @@ class SessionMetadata(BaseModel):
         self.skip_stop_data_collection = False
         return skip
 
-    def finish_observation_unit_rediscovery_run(self, *, completed: bool = True) -> bool:
+    def finish_observation_unit_rediscovery_run(self, *, completed: bool) -> bool:
         """Clear per-run observation unit rediscovery and stop-collection flags on exit.
 
         Only clears `pending_observation_unit_rediscovery` when `completed=True` so
