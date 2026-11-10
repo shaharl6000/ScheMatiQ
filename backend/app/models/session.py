@@ -203,6 +203,45 @@ class SessionMetadata(BaseModel):
     # Suppress partial data-collection archive when stop is only preparing rediscovery.
     skip_stop_data_collection: bool = False
 
+    def mark_observation_unit_edited(self, *, status: "SessionStatus", has_columns: bool) -> None:
+        """Update pending rediscovery state after an observation unit edit.
+
+        Initial review pause (`OBSERVATION_UNIT_REVIEW`) just resumes forward;
+        only sessions that already have a discovered schema or columns require
+        rediscovery on resume/re-extraction.
+        """
+        self.pending_observation_unit_rediscovery = (
+            status != SessionStatus.OBSERVATION_UNIT_REVIEW
+            and (self.schema_discovery_completed or bool(has_columns))
+        )
+
+    def begin_observation_unit_rediscovery_run(self) -> None:
+        """Mark the session as executing an observation-unit rediscovery pipeline run."""
+        self.observation_unit_rediscovery_run = True
+
+    def consume_skip_stop_data_collection(self) -> bool:
+        """Return and clear the one-shot skip_stop_data_collection flag."""
+        skip = bool(self.skip_stop_data_collection)
+        self.skip_stop_data_collection = False
+        return skip
+
+    def finish_observation_unit_rediscovery_run(self, *, completed: bool) -> bool:
+        """Clear per-run observation unit rediscovery and stop-collection flags on exit.
+
+        Only clears `pending_observation_unit_rediscovery` when `completed=True` so
+        a stopped, failed, or force-cancelled rediscovery run remains pending until
+        rediscovery (or re-extraction) actually completes.
+
+        Returns True if the run that just ended was an observation unit rediscovery run.
+        """
+        was_rediscovery_run = bool(self.observation_unit_rediscovery_run)
+        if self.observation_unit_rediscovery_run:
+            if completed:
+                self.pending_observation_unit_rediscovery = False
+            self.observation_unit_rediscovery_run = False
+        self.skip_stop_data_collection = False
+        return was_rediscovery_run
+
 class ReferenceDocument(BaseModel):
     """A user-supplied external reference document attached to a session.
 
