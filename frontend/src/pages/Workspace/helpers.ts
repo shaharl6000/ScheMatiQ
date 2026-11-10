@@ -736,3 +736,34 @@ export function finishSchemaSpareRowCreate(state: SchemaSpareRowState): {
   };
 }
 
+export function rollbackSchemaSpareRowCreate(
+  state: SchemaSpareRowState,
+  failedPayload: {
+    definition: string;
+    rationale?: string;
+    allowed_values?: string[];
+  },
+  autoExpandThreshold?: number,
+): SchemaSpareRowState {
+  const baseDraft: Record<SchemaSpareRowField, string> = {
+    definition: failedPayload.definition || '',
+    rationale: failedPayload.rationale || '',
+    allowed_values: Array.isArray(failedPayload.allowed_values)
+      ? failedPayload.allowed_values.join(', ')
+      : '',
+    auto_expand_threshold:
+      autoExpandThreshold !== undefined ? String(autoExpandThreshold) : '',
+  };
+  return {
+    draft: {
+      definition: state.queuedEdits.definition ?? baseDraft.definition,
+      rationale: state.queuedEdits.rationale ?? baseDraft.rationale,
+      allowed_values: state.queuedEdits.allowed_values ?? baseDraft.allowed_values,
+      auto_expand_threshold:
+        state.queuedEdits.auto_expand_threshold ?? baseDraft.auto_expand_threshold,
+    },
+    creatingColumnName: null,
+    queuedEdits: {},
+  };
+}
+
