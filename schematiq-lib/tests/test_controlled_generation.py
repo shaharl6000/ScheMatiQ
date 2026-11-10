@@ -30,20 +30,23 @@ class TestBuildExtractionResponseSchema:
             FakeColumn(name="model"),
             FakeColumn(name="accuracy"),
         ]
-        schema = build_extraction_response_schema(cols)
+        schema, key_map = build_extraction_response_schema(cols)
         assert schema["type"] == "OBJECT"
         assert "model" in schema["properties"]
         assert "accuracy" in schema["properties"]
-        assert "required" not in schema  # all columns optional
+        assert schema["required"] == ["model", "accuracy"]
+        assert key_map == {}
 
     def test_empty(self):
-        schema = build_extraction_response_schema([])
+        schema, key_map = build_extraction_response_schema([])
         assert schema["type"] == "OBJECT"
         assert schema["properties"] == {}
+        assert schema["required"] == []
+        assert key_map == {}
 
     def test_column_structure(self):
         cols = [FakeColumn(name="x")]
-        schema = build_extraction_response_schema(cols)
+        schema, _ = build_extraction_response_schema(cols)
         col_schema = schema["properties"]["x"]
         assert col_schema["properties"]["answer"]["type"] == "STRING"
         assert col_schema["properties"]["excerpts"]["type"] == "ARRAY"
@@ -52,7 +55,7 @@ class TestBuildExtractionResponseSchema:
 
     def test_suggested_for_allowed_values_optional(self):
         cols = [FakeColumn(name="y")]
-        schema = build_extraction_response_schema(cols)
+        schema, _ = build_extraction_response_schema(cols)
         col_schema = schema["properties"]["y"]
         assert "suggested_for_allowed_values" in col_schema["properties"]
         assert "suggested_for_allowed_values" not in col_schema["required"]
@@ -124,8 +127,9 @@ class TestFeatureFlag:
             processor._is_gemini_backend = lambda: True
             # Call the real method
             from schematiq.value_extraction.core.paper_processor import PaperProcessor
-            result = PaperProcessor._build_response_schema(processor, [FakeColumn(name="x")])
-            assert result is None
+            schema, key_map = PaperProcessor._build_response_schema(processor, [FakeColumn(name="x")])
+            assert schema is None
+            assert key_map == {}
         finally:
             pp_module.ENABLE_CONTROLLED_GENERATION = original
 
@@ -133,8 +137,9 @@ class TestFeatureFlag:
         processor = MagicMock()
         processor._is_gemini_backend = lambda: False
         from schematiq.value_extraction.core.paper_processor import PaperProcessor
-        result = PaperProcessor._build_response_schema(processor, [FakeColumn(name="x")])
-        assert result is None
+        schema, key_map = PaperProcessor._build_response_schema(processor, [FakeColumn(name="x")])
+        assert schema is None
+        assert key_map == {}
 
     def test_gemini_backend_returns_schema(self):
         import schematiq.value_extraction.core.paper_processor as pp_module
@@ -145,9 +150,10 @@ class TestFeatureFlag:
             processor = MagicMock()
             processor._is_gemini_backend = lambda: True
             from schematiq.value_extraction.core.paper_processor import PaperProcessor
-            result = PaperProcessor._build_response_schema(processor, [FakeColumn(name="x")])
-            assert result is not None
-            assert result["type"] == "OBJECT"
-            assert "x" in result["properties"]
+            schema, key_map = PaperProcessor._build_response_schema(processor, [FakeColumn(name="x")])
+            assert schema is not None
+            assert schema["type"] == "OBJECT"
+            assert "x" in schema["properties"]
+            assert key_map == {}
         finally:
             pp_module.ENABLE_CONTROLLED_GENERATION = original

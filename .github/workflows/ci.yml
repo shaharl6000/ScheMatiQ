@@ -29,6 +29,10 @@ jobs:
           pip install -r backend/requirements-dev.txt
           pip install -e ./schematiq-lib
 
+      - name: Run schematiq-lib tests
+        working-directory: schematiq-lib
+        run: python -m pytest
+
       - name: Run backend tests
         working-directory: backend
         run: python -m pytest
