@@ -118,3 +118,128 @@ async def test_schema_extracted_status_translated_explicitly(
 
     assert result.status == "schema_extracted"
     assert result.progress == 1.0
+
+
+@pytest.mark.parametrize(
+    "orphaned_status",
+    [SessionStatus.PROCESSING, SessionStatus.SCHEMA_READY],
+)
+def test_startup_reconciles_orphaned_sessions_before_status_poll(
+    tmp_path, orphaned_status
+):
+    from app.services.session_manager import SessionManager
+    from app.storage.local_backend import LocalStorageBackend
+
+    storage = LocalStorageBackend(
+        sessions_dir=str(tmp_path / "sessions"),
+        data_dir=str(tmp_path / "data"),
+        schematiq_work_dir=str(tmp_path / "work"),
+    )
+    session_id = f"startup-orphan-{orphaned_status.value}"
+    storage.save_session_sync(
+        session_id,
+        VisualizationSession(
+            id=session_id,
+            type=SessionType.SCHEMATIQ,
+            status=orphaned_status,
+            metadata=SessionMetadata(source="test", schema_discovery_completed=True),
+        ).model_dump(mode="json"),
+    )
+
+    manager = SessionManager(storage=storage)
+    reconciled = manager.reconcile_orphaned_sessions(
+        running_sessions={}, state_lock=threading.Lock()
+    )
+
+    assert reconciled == 1
+    loaded = manager.get_session(session_id)
+    assert loaded is not None
+    assert loaded.status == SessionStatus.STOPPED
+    persisted = storage.get_session_sync(session_id)
+    assert persisted is not None
+    assert persisted["status"] == SessionStatus.STOPPED.value
+
+
+@pytest.mark.asyncio
+async def test_startup_reconcile_preserves_active_task_and_slot_sessions(tmp_path):
+    from app.services.session_manager import SessionManager
+    from app.storage.local_backend import LocalStorageBackend
+
+    storage = LocalStorageBackend(
+        sessions_dir=str(tmp_path / "sessions"),
+        data_dir=str(tmp_path / "data"),
+        schematiq_work_dir=str(tmp_path / "work"),
+    )
+    manager = SessionManager(storage=storage)
+
+    task_session = VisualizationSession(
+        id="active-task-session",
+        type=SessionType.SCHEMATIQ,
+        status=SessionStatus.PROCESSING,
+        metadata=SessionMetadata(source="test"),
+    )
+    slot_session = VisualizationSession(
+        id="active-slot-session",
+        type=SessionType.SCHEMATIQ,
+        status=SessionStatus.SCHEMA_READY,
+        metadata=SessionMetadata(source="test"),
+    )
+    orphan_session = VisualizationSession(
+        id="orphan-session",
+        type=SessionType.SCHEMATIQ,
+        status=SessionStatus.PROCESSING,
+        metadata=SessionMetadata(source="test"),
+    )
+    manager.create_session(task_session)
+    manager.create_session(slot_session)
+    manager.create_session(orphan_session)
+
+    await concurrency_limiter.acquire(slot_session.id, "schematiq")
+    try:
+        reconciled = manager.reconcile_orphaned_sessions(
+            running_sessions={task_session.id: object()},
+            state_lock=threading.Lock(),
+        )
+        assert reconciled == 1
+        assert manager.get_session(task_session.id).status == SessionStatus.PROCESSING
+        assert manager.get_session(slot_session.id).status == SessionStatus.SCHEMA_READY
+        assert manager.get_session(orphan_session.id).status == SessionStatus.STOPPED
+    finally:
+        await concurrency_limiter.release(slot_session.id)
+
+
+@pytest.mark.parametrize(
+    "orphaned_status",
+    [SessionStatus.PROCESSING, SessionStatus.SCHEMA_READY],
+)
+def test_lazy_load_reconciles_orphaned_session_on_first_get_session(
+    tmp_path, orphaned_status
+):
+    from app.services.session_manager import SessionManager
+    from app.storage.local_backend import LocalStorageBackend
+
+    storage = LocalStorageBackend(
+        sessions_dir=str(tmp_path / "sessions"),
+        data_dir=str(tmp_path / "data"),
+        schematiq_work_dir=str(tmp_path / "work"),
+    )
+    session_id = f"lazy-orphan-{orphaned_status.value}"
+    storage.save_session_sync(
+        session_id,
+        VisualizationSession(
+            id=session_id,
+            type=SessionType.SCHEMATIQ,
+            status=orphaned_status,
+            metadata=SessionMetadata(source="test"),
+        ).model_dump(mode="json"),
+    )
+
+    manager = SessionManager(storage=storage)
+    loaded = manager.get_session(session_id)
+
+    assert loaded is not None
+    assert loaded.status == SessionStatus.STOPPED
+    persisted = storage.get_session_sync(session_id)
+    assert persisted is not None
+    assert persisted["status"] == SessionStatus.STOPPED.value
+
