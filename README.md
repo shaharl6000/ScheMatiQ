@@ -44,7 +44,7 @@ ScheMatiQ helps domain experts turn a research question and a document collectio
 - If a document produces no result, you'll see the model's explanation of why (for example, an empty document, or no observation unit found).
 - Save a whole project as a single file, documents included — reopen it later and the documents are still there to view.
 - Give the chat assistant your own reference documents to work from — for example, a list of judges' birth dates to pull into a new column.
-- Runs on Google's Gemini 3.5 Flash (schema discovery) and 3.5 Flash-Lite (data extraction).
+- Runs on Google's Gemini 3.8 Flash (schema discovery) and 3.5 Flash-Lite (data extraction).
 
 ## How It Works
 
@@ -76,7 +76,7 @@ cd schematiq-lib && pip install -e .
 ```python
 from schematiq import GeminiLLM, EmbeddingRetriever, discover_observation_unit
 
-llm = GeminiLLM(model="gemini-3.5-flash")
+llm = GeminiLLM(model="gemini-3.8-flash")
 retriever = EmbeddingRetriever(k=8)
 documents = [open(f).read() for f in your_files]
 
@@ -181,10 +181,10 @@ Release mode (default) restricts features for public use. Set `DEVELOPER_MODE=tr
 
 | Setting | Release Mode | Developer Mode |
 |---------|-------------|----------------|
-| Document limit | 20 | 10,000 |
+| Document limit | 150 | 10,000 |
 | LLM configuration | Locked (Gemini only) | User-configurable |
-| Schema creation model | gemini-3.5-flash | User's choice |
-| Extraction model | gemini-3.1-flash-lite | User's choice |
+| Schema creation model | gemini-3.8-flash | User's choice |
+| Extraction model | gemini-3.5-flash-lite | User's choice |
 | Research data collection | Enabled (if configured) | Disabled |
 
 ### Deployment (Railway)
