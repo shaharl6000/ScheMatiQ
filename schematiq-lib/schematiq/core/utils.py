@@ -7,7 +7,7 @@ from pathlib import Path
 import io, difflib
 import numpy as np
 import requests, arxiv
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from dataclasses import asdict
 import platform
 import unicodedata, re
