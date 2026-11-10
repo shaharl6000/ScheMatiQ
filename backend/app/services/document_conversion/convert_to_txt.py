@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -339,6 +340,54 @@ def _word_tolerance(page: "pdfplumber.page.Page") -> dict:
     return {"x_tolerance": DEFAULT_X_TOLERANCE, "x_tolerance_ratio": None}
 
 
+_RTL_CHAR = re.compile(r"[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]")
+_BRACKET_MIRROR = str.maketrans("()[]{}<>«»", ")(][}{><»«")
+_REVERSED_LTR_RUN = re.compile(
+    r"[%$₪€£+]?[A-Za-z0-9]+(?:[.,/:\-_][A-Za-z0-9]+)*[$₪€£+]?"
+    r"(?:[.,;:\'\"\s]+[%$₪€£+]?[A-Za-z0-9]+(?:[.,/:\-_][A-Za-z0-9]+)*[$₪€£+]?)*"
+)
+
+
+def _fix_reversed_ltr_match(match: re.Match) -> str:
+    run = match.group(0)
+    if any("A" <= ch <= "Z" or "a" <= ch <= "z" for ch in run):
+        return run[::-1]
+    return re.sub(
+        r"[%$₪€£+]?\d+(?:[.,/:\-]\d+)*[$₪€£+]?",
+        lambda m: m.group(0)[::-1],
+        run,
+    )
+
+
+def _visual_line_to_logical(line: str) -> str:
+    """Convert a line extracted by pdfplumber in visual left-to-right order into
+    logical reading order when it contains RTL (e.g. Hebrew/Arabic) characters."""
+    if not _RTL_CHAR.search(line):
+        return line
+    strong = [
+        "R" if unicodedata.bidirectional(c) in ("R", "AL") else "L"
+        for c in line
+        if unicodedata.bidirectional(c) in ("R", "AL", "L")
+    ]
+    rtl_count = sum(1 for d in strong if d == "R")
+    ltr_count = len(strong) - rtl_count
+    if rtl_count >= ltr_count or strong[0] == "R" or strong[-1] == "R":
+        reversed_line = line[::-1].translate(_BRACKET_MIRROR)
+        return _REVERSED_LTR_RUN.sub(_fix_reversed_ltr_match, reversed_line)
+    return re.sub(
+        r"[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]+(?:[\s\"\x27״׳\-]+[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]+)*",
+        lambda m: m.group(0)[::-1],
+        line,
+    )
+
+
+def _visual_to_logical(text: str) -> str:
+    """Convert each line of *text* from visual to logical order when RTL text is present."""
+    if not _RTL_CHAR.search(text):
+        return text
+    return "\n".join(_visual_line_to_logical(line) for line in text.split("\n"))
+
+
 def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
     """Extract a page's text, reading a confidently-detected two-column page
     column-major (full left column, then full right column) instead of
@@ -355,7 +404,7 @@ def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
         tolerance = _word_tolerance(page)
         gutter = _detect_column_gutter(page, **tolerance)
         if gutter is None:
-            return page.extract_text(**tolerance) or ""
+            return _visual_to_logical(page.extract_text(**tolerance) or "")
 
         mid = (gutter[0] + gutter[1]) / 2
         # The page box need not start at (0, 0) (seen: (9, -9, 603, 774));
@@ -368,10 +417,12 @@ def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
         # Cheap RTL accommodation: if most words on the page are RTL-directed,
         # the visually-first column is the right one.
         words = page.extract_words(**tolerance)
-        if words and sum(1 for w in words if w.get("direction") == "rtl") / len(words) > 0.5:
+        if words and sum(
+            1 for w in words if w.get("direction") == "rtl" or _RTL_CHAR.search(w.get("text", ""))
+        ) / len(words) > 0.5:
             left, right = right, left
 
-        return "\n\n".join(t for t in (left, right) if t)
+        return _visual_to_logical("\n\n".join(t for t in (left, right) if t))
     except Exception:
         # Silent-but-observable: falling back here is always safe (today's
         # exact behavior), but silently swallowing every exception with no
@@ -380,9 +431,9 @@ def _extract_page_text_column_aware(page: "pdfplumber.page.Page") -> str:
         # that the column-aware path is even being exercised.
         logger.debug("Column-aware extraction failed, falling back to plain extract_text()", exc_info=True)
         try:
-            return page.extract_text(**_word_tolerance(page)) or ""
+            return _visual_to_logical(page.extract_text(**_word_tolerance(page)) or "")
         except Exception:
-            return page.extract_text() or ""
+            return _visual_to_logical(page.extract_text() or "")
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +568,33 @@ def _coordinate_offset(chars: list, layout_chars: list) -> Optional[Tuple[float,
             a = chars[text_owner[j]]
             found.append((a["x0"] - b["bbox"][0], (a["top"] + a["bottom"]) / 2 - (b["bbox"][1] + b["bbox"][3]) / 2))
             j = text.find(run, j + 1)
+        if not found and run[::-1] != run:
+            # Visual-order RTL streams in pdfplumber reverse each line relative
+            # to PyMuPDF's logical order; an intra-line run[0] (b) sits at the
+            # end of the reversed match on that same line in *text*.
+            rev_i = i
+            b_end = layout_chars[layout_owner[i + _ALIGN_WINDOW - 1]]
+            if abs(b_end["bbox"][1] - b["bbox"][1]) > _MAX_ALIGN_SPREAD_PT:
+                while rev_i < i + _ALIGN_WINDOW - 1 and abs(
+                    layout_chars[layout_owner[rev_i]]["bbox"][1] - b_end["bbox"][1]
+                ) > _MAX_ALIGN_SPREAD_PT:
+                    rev_i += 1
+            if rev_i + _ALIGN_WINDOW <= len(layout_text):
+                rev_b = layout_chars[layout_owner[rev_i]]
+                rev_end = layout_chars[layout_owner[rev_i + _ALIGN_WINDOW - 1]]
+                rev_run = layout_text[rev_i:rev_i + _ALIGN_WINDOW]
+                if abs(rev_end["bbox"][1] - rev_b["bbox"][1]) <= _MAX_ALIGN_SPREAD_PT and rev_run[::-1] != rev_run:
+                    rev = rev_run[::-1]
+                    j = text.find(rev)
+                    while j >= 0 and len(found) < 50:
+                        a_start = chars[text_owner[j]]
+                        a = chars[text_owner[j + len(rev_run) - 1]]
+                        if abs(a["top"] - a_start["top"]) <= _MAX_ALIGN_SPREAD_PT:
+                            found.append((
+                                a["x0"] - rev_b["bbox"][0],
+                                (a["top"] + a["bottom"]) / 2 - (rev_b["bbox"][1] + rev_b["bbox"][3]) / 2,
+                            ))
+                        j = text.find(rev, j + 1)
         if found:
             candidates.append(found)
     best, best_votes = None, 0
@@ -608,8 +686,9 @@ def _extract_page_text_by_lines(page: "pdfplumber.page.Page", line_layout: Tuple
             line_chars = dedupe_chars(line_chars, tolerance=0.5)
             text = extract_text(line_chars, **_line_word_tolerance(line_chars, tolerance)).replace("\n", " ").strip()
             if text:
-                box = (min(c["x0"] for c in line_chars), min(c["top"] for c in line_chars),
-                       max(c["x1"] for c in line_chars), max(c["bottom"] for c in line_chars))
+                visible_line = [c for c in line_chars if not c["text"].isspace()] or line_chars
+                box = (min(c["x0"] for c in visible_line), min(c["top"] for c in visible_line),
+                       max(c["x1"] for c in visible_line), max(c["bottom"] for c in visible_line))
                 built.append((box, text))
     out = _join_rows(built)
     if leftover:
@@ -712,8 +791,18 @@ def _join_rows(built: list) -> list:
 
     for i, r in target.items():
         rows[r].append(rows[i][0])
-    return [" ".join(built[k][1] for k in sorted(row, key=lambda k: built[k][0][0]))
-            for i, row in enumerate(rows) if i not in target]
+
+    joined_rows = []
+    for i, row in enumerate(rows):
+        if i in target:
+            continue
+        ordered = sorted(row, key=lambda k: built[k][0][0])
+        parts = [built[ordered[0]][1]]
+        for prev_k, curr_k in zip(ordered, ordered[1:]):
+            sep = "" if built[curr_k][0][0] - built[prev_k][0][2] < _LINE_SLACK_PT else " "
+            parts.append(sep + built[curr_k][1])
+        joined_rows.append(_visual_line_to_logical("".join(parts)))
+    return joined_rows
 
 
 def _extract_leftover_text(chars: list, tolerance: dict) -> str:
@@ -733,7 +822,7 @@ def _extract_leftover_text(chars: list, tolerance: dict) -> str:
         ([c for c in chars if not c.get("upright", True) and c.get("matrix", (1, 0))[1] <= 0],
          {"char_dir_rotated": "ttb", "line_dir_rotated": "rtl"}),
     )
-    texts = (extract_text(group, **tolerance, **directions).strip() for group, directions in groups if group)
+    texts = (_visual_to_logical(extract_text(group, **tolerance, **directions).strip()) for group, directions in groups if group)
     return "\n".join(text for text in texts if text)
 
 
