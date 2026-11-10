@@ -163,14 +163,19 @@ class SessionMetadata(BaseModel):
         self.skip_stop_data_collection = False
         return skip
 
-    def finish_observation_unit_rediscovery_run(self) -> bool:
-        """Clear observation unit rediscovery and stop-collection flags on terminal exit.
+    def finish_observation_unit_rediscovery_run(self, *, completed: bool = True) -> bool:
+        """Clear per-run observation unit rediscovery and stop-collection flags on exit.
+
+        Only clears `pending_observation_unit_rediscovery` when `completed=True` so
+        a stopped, failed, or force-cancelled rediscovery run remains pending until
+        rediscovery (or re-extraction) actually completes.
 
         Returns True if the run that just ended was an observation unit rediscovery run.
         """
         was_rediscovery_run = bool(self.observation_unit_rediscovery_run)
         if self.observation_unit_rediscovery_run:
-            self.pending_observation_unit_rediscovery = False
+            if completed:
+                self.pending_observation_unit_rediscovery = False
             self.observation_unit_rediscovery_run = False
         self.skip_stop_data_collection = False
         return was_rediscovery_run

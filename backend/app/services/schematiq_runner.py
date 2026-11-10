@@ -351,6 +351,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 logger.debug("stop_execution: Task didn't handle stop — force-updating to STOPPED")
                 session.status = SessionStatus.STOPPED
                 session.error_message = None
+                session.metadata.finish_observation_unit_rediscovery_run(completed=False)
                 self.session_manager.update_session(session)
                 await self.broadcast_stopped(session_id, {
                     "schema_saved": result["schema_saved"],
@@ -451,7 +452,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             if session:
                 session.status = SessionStatus.ERROR
                 session.error_message = user_message
-                session.metadata.finish_observation_unit_rediscovery_run()
+                session.metadata.finish_observation_unit_rediscovery_run(completed=False)
                 self.session_manager.update_session(session)
 
             is_quota_error = "quota exceeded" in str(e).lower()
@@ -475,6 +476,17 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             with self._state_lock:
                 self.running_sessions.pop(session_id, None)
             self.clear_stop_flag(session_id)
+            session = self.session_manager.get_session(session_id)
+            if (
+                session
+                and session.status != SessionStatus.OBSERVATION_UNIT_REVIEW
+                and (
+                    session.metadata.observation_unit_rediscovery_run
+                    or session.metadata.skip_stop_data_collection
+                )
+            ):
+                session.metadata.finish_observation_unit_rediscovery_run(completed=False)
+                self.session_manager.update_session(session)
             await concurrency_limiter.release(session_id)
 
     async def _reset_for_observation_unit_rediscovery(self, session_id: str) -> None:
@@ -971,7 +983,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 "estimated_cost_usd": initial_cost_estimate_usd,
                 "estimated_calls": initial_calls_estimate,
             }
-            if session.metadata.finish_observation_unit_rediscovery_run():
+            if session.metadata.finish_observation_unit_rediscovery_run(completed=True):
                 logger.info("Cleared pending_observation_unit_rediscovery after successful rediscovery")
                 # An imported (UPLOAD-type) session that just completed a
                 # rediscovery run (see /load/rediscover) now has a real,
@@ -1026,7 +1038,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             if session:
                 session.status = SessionStatus.ERROR
                 session.error_message = user_message
-                session.metadata.finish_observation_unit_rediscovery_run()
+                session.metadata.finish_observation_unit_rediscovery_run(completed=False)
                 self.session_manager.update_session(session)
             await self.broadcast_error(session_id, user_message)
             raise
@@ -1196,16 +1208,11 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         """Handle stop requested after schema discovery."""
         logger.warning("Stop requested - skipping value extraction and finalization")
         session = self.session_manager.get_session(session_id)
-        session.status = SessionStatus.STOPPED
-        session.error_message = None
-        if session.metadata.finish_observation_unit_rediscovery_run():
-            if session.type == SessionType.UPLOAD:
-                session.type = SessionType.SCHEMATIQ
-                logger.info(
-                    "Promoted session %s from UPLOAD to SCHEMATIQ after stopped rediscovery (schema saved)",
-                    session_id,
-                )
-        self.session_manager.update_session(session)
+        if session:
+            session.status = SessionStatus.STOPPED
+            session.error_message = None
+            session.metadata.finish_observation_unit_rediscovery_run(completed=False)
+            self.session_manager.update_session(session)
         logger.debug("Updated session status to STOPPED (from schema discovery stop)")
         await self.broadcast_stopped(session_id, {
             "schema_saved": True,
@@ -1217,17 +1224,13 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         """Handle stop requested after value extraction."""
         logger.warning("Stop requested - skipping finalization")
         session = self.session_manager.get_session(session_id)
-        session.status = SessionStatus.STOPPED
-        session.error_message = None
-        skip_archive = session.metadata.consume_skip_stop_data_collection()
-        if session.metadata.finish_observation_unit_rediscovery_run():
-            if session.type == SessionType.UPLOAD:
-                session.type = SessionType.SCHEMATIQ
-                logger.info(
-                    "Promoted session %s from UPLOAD to SCHEMATIQ after stopped rediscovery",
-                    session_id,
-                )
-        self.session_manager.update_session(session)
+        skip_archive = False
+        if session:
+            session.status = SessionStatus.STOPPED
+            session.error_message = None
+            skip_archive = session.metadata.consume_skip_stop_data_collection()
+            session.metadata.finish_observation_unit_rediscovery_run(completed=False)
+            self.session_manager.update_session(session)
         logger.debug("Updated session status to STOPPED (from value extraction stop)")
         session_dir = self.work_dir / session_id
         data_file = session_dir / "extracted_data.jsonl"
