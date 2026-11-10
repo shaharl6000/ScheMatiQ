@@ -34,6 +34,45 @@ class ChatSessionState:
     # discarded rather than half-committed. Reset at the start of every turn.
     stop_requested: bool = False
 
+    def begin_turn(self) -> None:
+        """Reset per-turn cooperative stop flag before starting or resuming a turn."""
+        self.stop_requested = False
+
+    def request_stop(self) -> None:
+        """Signal the in-flight turn to halt at the next step boundary."""
+        self.stop_requested = True
+
+    def set_pending_confirmation(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        function_call_part: Any,
+    ) -> PendingToolCall:
+        """Record an expensive tool call awaiting user confirmation."""
+        pending = PendingToolCall(
+            tool_name=tool_name,
+            args=args,
+            function_call_part=function_call_part,
+        )
+        self.pending = pending
+        return pending
+
+    def consume_pending_confirmation(self) -> Optional[PendingToolCall]:
+        """Pop and return the pending confirmation, if any."""
+        pending = self.pending
+        self.pending = None
+        return pending
+
+    def record_llm_call(self) -> None:
+        """Increment un-flushed Gemini LLM call counter for this chat session."""
+        self.pending_llm_calls += 1
+
+    def take_pending_llm_calls(self) -> int:
+        """Return and reset the un-flushed Gemini LLM call count."""
+        calls = self.pending_llm_calls
+        self.pending_llm_calls = 0
+        return calls
+
 
 class ChatSessionStore:
     def __init__(self) -> None:
