@@ -223,11 +223,11 @@ class SupabaseStorageBackend(StorageInterface):
     async def list_sessions(self) -> List[str]:
         """List all session IDs from Supabase storage."""
         try:
-            files = self.client.storage.from_("sessions").list()
+            files = self._list_all_storage_items("sessions")
             return [
                 f["name"].replace(".json", "")
                 for f in files
-                if f["name"].endswith(".json")
+                if f.get("name", "").endswith(".json")
             ]
         except Exception as e:
             logger.error(f"Error listing sessions from Supabase: {e}")
@@ -511,11 +511,11 @@ class SupabaseStorageBackend(StorageInterface):
     def list_sessions_sync(self) -> List[str]:
         """Synchronous version of list_sessions."""
         try:
-            files = self.client.storage.from_("sessions").list()
+            files = self._list_all_storage_items("sessions")
             return [
                 f["name"].replace(".json", "")
                 for f in files
-                if f["name"].endswith(".json")
+                if f.get("name", "").endswith(".json")
             ]
         except Exception as e:
             logger.error(f"Error listing sessions from Supabase: {e}")

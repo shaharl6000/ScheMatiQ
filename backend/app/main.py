@@ -81,26 +81,16 @@ def _shutdown_docling_worker() -> None:
         fes.shutdown_worker()
 
 
-def _reconcile_orphaned_sessions() -> None:
-    from app.services import session_manager
-
-    reconciled = session_manager.reconcile_orphaned_sessions()
-    if reconciled:
-        logger.info(
-            "Reconciled %d orphaned in-progress session(s) to STOPPED at startup",
-            reconciled,
-        )
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Reconcile any sessions left in a running status by a previous server
-    # process, and warm up Docling's models in the background so startup
-    # (and /health) do not block.
-    reconcile_task = asyncio.create_task(asyncio.to_thread(_reconcile_orphaned_sessions))
+    # Load Docling's models in the background as soon as the server starts, so
+    # the first PDF upload doesn't pay the model-load time inside its request.
+    # Not awaited: startup (and /health) must not wait on it.
+    # Orphaned PROCESSING/SCHEMA_READY sessions are reconciled lazily on first
+    # load in SessionManager._load_session to avoid reading every session from
+    # cloud storage at startup.
     warm_up = asyncio.create_task(asyncio.to_thread(_warm_up_docling))
     yield
-    reconcile_task.cancel()
     warm_up.cancel()
     # Cancelling the task does not stop its thread; killing the worker does
     # (a warm-up blocked on it fails at once), so shutdown doesn't wait on it.
