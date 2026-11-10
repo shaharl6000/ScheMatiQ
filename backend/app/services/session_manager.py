@@ -122,30 +122,12 @@ class SessionManager:
         if not session:
             return False
 
-        columns_dict = {}
-        for col in session.columns:
-            if col.name and not col.name.lower().endswith('_excerpt'):
-                # Calculate checksum from definition + rationale + allowed_values
-                content = f"{col.definition or ''}{col.rationale or ''}"
-                if col.allowed_values:
-                    content += "|".join(sorted(col.allowed_values))
-                checksum = hashlib.md5(content.encode()).hexdigest()
-
-                columns_dict[col.name] = ColumnBaseline(
-                    name=col.name,
-                    definition=col.definition or "",
-                    rationale=col.rationale or "",
-                    allowed_values=col.allowed_values,
-                    checksum=checksum
-                )
-
-        session.schema_baseline = SchemaBaseline(
-            columns=columns_dict,
-            captured_at=datetime.now()
-        )
+        session.schema_baseline = SchemaBaseline.from_columns(session.columns)
 
         self.update_session(session)
-        logger.debug(f"Captured schema baseline for session {session_id} with {len(columns_dict)} columns")
+        logger.debug(
+            f"Captured schema baseline for session {session_id} with {len(session.schema_baseline.columns)} columns"
+        )
         return True
 
     def finalize_creation(self, session_id: str, llm_model: str = "", llm_provider: str = "") -> bool:
