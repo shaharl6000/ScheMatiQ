@@ -27,6 +27,7 @@ import {
   finishSchemaSpareRowCreate,
   hasSchemaSpareRowDraft,
   recordSchemaSpareRowEdit,
+  rollbackSchemaSpareRowCreate,
   selectedCellScope,
 } from './helpers';
 import type { SheetColumn } from './types';
@@ -220,6 +221,36 @@ describe('schemaSpareRowState lifecycle', () => {
       rationale: 'Also typed while in flight',
     });
     expect(finished.nextState).toEqual(createEmptySchemaSpareRowState());
+  });
+
+  it('restores spare-row draft (including any queued edits) when addColumn fails', () => {
+    let state = createEmptySchemaSpareRowState();
+    state = recordSchemaSpareRowEdit(state, 'definition', 'Initial definition');
+    state = recordSchemaSpareRowEdit(state, 'rationale', 'Initial rationale');
+    state = recordSchemaSpareRowEdit(state, 'allowed_values', 'yes, no');
+    state = recordSchemaSpareRowEdit(state, 'auto_expand_threshold', '4');
+
+    const consumed = consumeSchemaSpareRowForCreate(state, 'outcome');
+    expect(consumed).not.toBeNull();
+    state = consumed!.nextState;
+
+    // User also edited rationale while addColumn was in flight before it failed
+    state = recordSchemaSpareRowEdit(state, 'rationale', 'Updated rationale while in flight');
+
+    const rolledBack = rollbackSchemaSpareRowCreate(
+      state,
+      consumed!.addColumnPayload,
+      consumed!.autoExpandThreshold,
+    );
+    expect(rolledBack.creatingColumnName).toBeNull();
+    expect(rolledBack.queuedEdits).toEqual({});
+    expect(rolledBack.draft).toEqual({
+      definition: 'Initial definition',
+      rationale: 'Updated rationale while in flight',
+      allowed_values: 'yes, no',
+      auto_expand_threshold: '4',
+    });
+    expect(hasSchemaSpareRowDraft(rolledBack)).toBe(true);
   });
 });
 

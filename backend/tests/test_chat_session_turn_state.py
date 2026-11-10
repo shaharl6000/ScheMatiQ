@@ -123,6 +123,28 @@ async def test_confirm_pending_discards_chat_when_tool_raises_quota_exceeded(mon
 
 
 @pytest.mark.asyncio
+async def test_confirm_pending_raises_value_error_if_pending_consumed_during_quota_check(monkeypatch):
+    svc = ChatAgentService()
+    state = _make_state("sess-concurrent-decline")
+    chat_id = state.chat_id
+    try:
+        state.set_pending_confirmation("reextract", {"columns": ["col1"]}, "fc_part")
+
+        async def consume_during_quota_check():
+            # Simulate a concurrent cancel_pending consuming state.pending while
+            # _ensure_quota_available is awaiting.
+            state.consume_pending_confirmation()
+
+        monkeypatch.setattr(svc, "_ensure_quota_available", consume_during_quota_check)
+
+        with pytest.raises(ValueError, match="No pending action to confirm."):
+            await svc.confirm_pending("sess-concurrent-decline", chat_id)
+    finally:
+        if chat_id:
+            chat_session_store.delete(chat_id)
+
+
+@pytest.mark.asyncio
 async def test_send_message_honors_stop_pressed_during_abort_pending(monkeypatch):
     svc = ChatAgentService()
     monkeypatch.setattr(svc, "_message_cap_reached", lambda _sid: False)

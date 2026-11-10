@@ -375,7 +375,8 @@ class ChatAgentService:
             }
 
         pending = state.consume_pending_confirmation()
-        assert pending is not None
+        if pending is None:
+            raise ValueError("No pending action to confirm.")
         # A confirmation resumes the turn, so clear any stale Stop intent first.
         state.begin_turn()
         outbound_messages: list[dict[str, Any]] = []

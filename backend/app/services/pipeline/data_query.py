@@ -183,13 +183,18 @@ async def get_status(
                 # Orphaned in-progress state (e.g. after a server restart with no
                 # active task or concurrency slot). Reconcile to STOPPED so the
                 # session does not report a misleading "idle" status forever.
-                logger.info(
-                    "Reconciling orphaned %s session %s to STOPPED",
-                    session.status.value,
-                    session_id,
-                )
-                session.status = SessionStatus.STOPPED
-                session_manager.update_session(session)
+                if hasattr(session_manager, "reconcile_orphaned_session"):
+                    session_manager.reconcile_orphaned_session(
+                        session, running_sessions=running_sessions, state_lock=state_lock
+                    )
+                else:
+                    logger.info(
+                        "Reconciling orphaned %s session %s to STOPPED",
+                        session.status.value,
+                        session_id,
+                    )
+                    session.status = SessionStatus.STOPPED
+                    session_manager.update_session(session)
                 status = "stopped"
                 progress = 1.0
         elif session.status == SessionStatus.DOCUMENTS_UPLOADED:
