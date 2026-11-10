@@ -128,15 +128,10 @@ async def edit_column(
             if col.name == edit_request.old_name:
                 # Update column properties
                 if canonical_new_name:
-                    # Move baseline entry to the new key so the renamed column stays
-                    # tracked (not reported as "new").  Intentionally, old_baseline.name
-                    # is NOT updated — it retains the previous column name.
-                    # reextraction_service.detect_schema_changes() compares
-                    # col.name (current) vs baseline.name (old) to detect renames;
-                    # keeping the stale name in the baseline entry is the signal it relies on.
-                    if session.schema_baseline and edit_request.old_name in session.schema_baseline.columns:
-                        old_baseline = session.schema_baseline.columns.pop(edit_request.old_name)
-                        session.schema_baseline.columns[canonical_new_name] = old_baseline
+                    if session.schema_baseline:
+                        session.schema_baseline.record_column_rename(
+                            edit_request.old_name, canonical_new_name
+                        )
                     col.name = canonical_new_name
                     col.display_name = new_display_name
                 if edit_request.definition is not None:
