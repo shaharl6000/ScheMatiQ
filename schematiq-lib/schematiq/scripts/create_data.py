@@ -1,4 +1,4 @@
-import PyPDF2
+import pypdf
 import json
 import os
 import re
@@ -8,7 +8,7 @@ from datasets import load_dataset
 import arxiv
 import io
 import requests
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from collections import Counter
 
 
@@ -136,7 +136,7 @@ def text_from_url_s2orc(url):
 
 def text_from_pdf(pdf_path, output_txt_path=""):
     with open(pdf_path, "rb") as file:
-        pdf_reader = PyPDF2.PdfReader(file)
+        pdf_reader = pypdf.PdfReader(file)
 
         # Number of pages
         num_pages = len(pdf_reader.pages)
