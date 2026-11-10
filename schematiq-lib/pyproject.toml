@@ -58,3 +58,6 @@ include = ["schematiq*"]
 
 [tool.setuptools.package-data]
 "schematiq.core" = ["*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

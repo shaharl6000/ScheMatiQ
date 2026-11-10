@@ -28,8 +28,14 @@ def _make_self():
     s._generate.return_value = "{}"
     s.json_parser.parse_response.return_value = {}
     s._remap_response_keys.return_value = {}
-    s.json_parser.postprocess.return_value = ({}, {})
+    s.json_parser.postprocess.side_effect = (
+        lambda _parsed, requested, _allowed=None: (
+            {col: {"answer": "v", "excerpts": []} for col in requested},
+            {},
+        )
+    )
     s._attach_source_to_excerpts.side_effect = lambda cleaned, _title: cleaned
+    s._ground_and_enforce.side_effect = lambda cleaned, _text, _label: cleaned
     return s
 
 
@@ -46,7 +52,7 @@ def _requested_column_names(mock_self):
     names = []
     for call in mock_self.prompt_builder.build_val_messages.call_args_list:
         col_dicts = call.args[3]  # 4th positional arg: [c.to_dict() ...]
-        names.extend(cd["name"] for cd in col_dicts)
+        names.extend(cd.get("name") or cd["column"] for cd in col_dicts)
     return names
 
 
@@ -66,8 +72,8 @@ def test_target_columns_narrows_pass1_and_retry(_fit):
     # Passes 2-4 saw a schema narrowed to the same single column.
     retry_schema = s._retry_missing_columns.call_args.kwargs["schema"]
     assert [c.name for c in retry_schema.columns] == ["B"]
-    # Row is still aligned to the FULL schema (shape unchanged).
-    assert set(result.keys()) == {"A", "B", "C", "D"}
+    # Non-targeted columns stay absent so the merge guard leaves existing table values untouched.
+    assert set(result.keys()) == {"B"}
 
 
 @patch("schematiq.value_extraction.core.paper_processor.utils.fit_prompt",
@@ -85,8 +91,8 @@ def test_empty_target_skips_llm_entirely(_fit):
     s._generate.assert_not_called()
     s.prompt_builder.build_val_messages.assert_not_called()
     s._retry_missing_columns.assert_not_called()
-    # Still returns a full-schema-aligned (empty) row for the merge no-op.
-    assert set(result.keys()) == {"A", "B", "C", "D"}
+    # Returns an empty dict so the merge guard leaves existing table values untouched.
+    assert result == {}
 
 
 @patch("schematiq.value_extraction.core.paper_processor.utils.fit_prompt",

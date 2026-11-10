@@ -12,10 +12,16 @@ def parser() -> JSONResponseParser:
 
 def test_date_iso_normalizes_various_inputs(parser: JSONResponseParser) -> None:
     allowed = ["date"]
-    for raw in ("May 6, 2025", "7/21/2025", "2025-05-06", "May 06, 2025"):
+    cases = (
+        ("May 6, 2025", "2025-05-06"),
+        ("7/21/2025", "2025-07-21"),
+        ("2025-05-06", "2025-05-06"),
+        ("May 06, 2025", "2025-05-06"),
+    )
+    for raw, expected in cases:
         out, matched, _ = parser._normalize_to_allowed_values(raw, allowed)
         assert matched
-        assert out == "2025-05-06"
+        assert out == expected
 
 
 def test_date_us_output_format(parser: JSONResponseParser) -> None:

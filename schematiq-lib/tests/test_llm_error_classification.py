@@ -104,6 +104,15 @@ class TestRetryableServerError:
         assert _is_retryable_server_error(httpx.ReadTimeout("timed out"))
         assert _is_retryable_server_error(httpx.ConnectError("refused"))
 
+    def test_httpx2_transport_failures_are_retryable(self):
+        # google-genai can use httpx2 (a drop-in fork of httpx in a separate
+        # import namespace whose exceptions do not subclass httpx.HTTPError).
+        TimeoutException = type("TimeoutException", (Exception,), {"__module__": "httpx2"})
+        ReadTimeout = type("ReadTimeout", (TimeoutException,), {"__module__": "httpx2"})
+        ConnectError = type("ConnectError", (Exception,), {"__module__": "httpx2"})
+        assert _is_retryable_server_error(ReadTimeout("timed out"))
+        assert _is_retryable_server_error(ConnectError("refused"))
+
     def test_dropped_connection_is_retryable(self):
         # Seen in production: one dropped connection failed a whole document.
         httpx = pytest.importorskip("httpx")
