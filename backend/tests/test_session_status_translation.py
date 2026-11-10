@@ -243,3 +243,43 @@ def test_lazy_load_reconciles_orphaned_session_on_first_get_session(
     assert persisted is not None
     assert persisted["status"] == SessionStatus.STOPPED.value
 
+
+@pytest.mark.asyncio
+async def test_supabase_list_sessions_paginates_past_default_100_limit():
+    from app.storage.supabase_backend import SupabaseStorageBackend
+
+    calls = []
+
+    class _FakeBucket:
+        def list(self, path="", options=None):
+            calls.append((path, options))
+            limit = (options or {}).get("limit", 100)
+            offset = (options or {}).get("offset", 0)
+            total = 1250
+            end = min(offset + limit, total)
+            return [{"name": f"session-{i}.json", "id": str(i)} for i in range(offset, end)]
+
+    class _FakeStorage:
+        def from_(self, bucket):
+            assert bucket == "sessions"
+            return _FakeBucket()
+
+    class _FakeClient:
+        storage = _FakeStorage()
+
+    backend = SupabaseStorageBackend.__new__(SupabaseStorageBackend)
+    backend.client = _FakeClient()
+
+    sync_ids = backend.list_sessions_sync()
+    async_ids = await backend.list_sessions()
+
+    assert len(sync_ids) == 1250
+    assert sync_ids[0] == "session-0"
+    assert sync_ids[-1] == "session-1249"
+    assert async_ids == sync_ids
+    assert calls[:2] == [
+        ("", {"limit": 1000, "offset": 0}),
+        ("", {"limit": 1000, "offset": 1000}),
+    ]
+
+
