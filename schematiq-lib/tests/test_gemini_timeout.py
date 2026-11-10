@@ -64,9 +64,14 @@ def test_hanging_server_raises_a_retryable_timeout(monkeypatch):
     server.close()
 
     import httpx
+    try:
+        import httpx2  # type: ignore[import-not-found]
+        timeout_types = (httpx.TimeoutException, httpx2.TimeoutException)
+    except ImportError:
+        timeout_types = (httpx.TimeoutException,)
 
     # The connection stays open and silent, so this is a real timeout, not a
     # dropped connection.
-    assert isinstance(info.value, httpx.TimeoutException)
+    assert isinstance(info.value, timeout_types)
     assert elapsed < 10
     assert _is_retryable_server_error(info.value)

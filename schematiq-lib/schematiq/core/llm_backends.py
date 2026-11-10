@@ -16,6 +16,10 @@ from typing import List, Dict, Any, Union, Optional, Tuple
 import re
 
 import httpx
+try:
+    import httpx2  # type: ignore[import-not-found]
+except ImportError:
+    httpx2 = None  # type: ignore[assignment]
 
 from schematiq.core.model_specs import get_model_spec, get_max_output_tokens, ModelNames
 from schematiq.core.llm_call_tracker import LLMCallTracker
@@ -65,11 +69,20 @@ _AUTH_STATUS_CODES = frozenset({401, 403})
 # just as transient: without them, one dropped connection failed a whole
 # document. Generation is a read-only call, so replaying it has no side effect
 # beyond the token cost.
-_TRANSPORT_RETRY_ERRORS = (
-    httpx.TimeoutException,
-    httpx.ConnectError,
-    httpx.RemoteProtocolError,
-    httpx.ReadError,
+_TRANSPORT_ERROR_CLASS_NAMES = (
+    "TimeoutException",
+    "ConnectError",
+    "RemoteProtocolError",
+    "ReadError",
+)
+# google-genai can use either httpx or its drop-in fork httpx2 (separate import
+# namespace, so httpx2.ReadTimeout is not an instance of httpx.TimeoutException).
+_TRANSPORT_RETRY_ERRORS = tuple(
+    cls
+    for mod in (httpx, httpx2)
+    if mod is not None
+    for attr in _TRANSPORT_ERROR_CLASS_NAMES
+    if (cls := getattr(mod, attr, None)) is not None
 )
 
 
@@ -171,6 +184,17 @@ def _is_rate_limit_error(error: BaseException) -> bool:
         return True
     return False
 
+def _is_transport_retry_error(error: BaseException) -> bool:
+    """True for httpx / httpx2 / httpcore timeout and connection errors."""
+    if isinstance(error, _TRANSPORT_RETRY_ERRORS):
+        return True
+    return any(
+        cls.__name__ in _TRANSPORT_ERROR_CLASS_NAMES
+        and cls.__module__.startswith(("httpx", "httpcore"))
+        for cls in type(error).__mro__
+    )
+
+
 def _is_openai_connection_error(error: BaseException) -> bool:
     """True for the OpenAI SDK's timeout and connection errors.
 
@@ -195,7 +219,7 @@ def _is_retryable_server_error(error: BaseException) -> bool:
     """
     if _status_code(error) in _TRANSIENT_STATUS_CODES:
         return True
-    if isinstance(error, _TRANSPORT_RETRY_ERRORS):
+    if _is_transport_retry_error(error):
         return True
     if _is_openai_connection_error(error):
         return True
