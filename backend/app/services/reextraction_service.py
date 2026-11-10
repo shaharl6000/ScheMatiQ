@@ -11,6 +11,7 @@ import threading
 import uuid
 import logging
 from typing import List, Dict, Any, Optional, Set, NamedTuple
+from enum import Enum
 from pathlib import Path
 from datetime import datetime
 
@@ -63,6 +64,15 @@ class _OnlyEmptyScan(NamedTuple):
     plan: Dict[str, Dict[str, Dict[str, Any]]]
 
 
+class CellGapState(str, Enum):
+    """Explicit lifecycle states of a table cell for gap-fill planning and merging."""
+
+    RAW_EMPTY = "raw_empty"
+    CONFIRMED_EMPTY = "confirmed_empty"
+    UNGROUNDED = "ungrounded"
+    FILLED = "filled"
+
+
 def _is_empty_cell_value(value: Any) -> bool:
     """True when a cell holds no usable value.
 
@@ -95,6 +105,26 @@ def _is_ungrounded(value: Any) -> bool:
     return isinstance(value, dict) and bool(value.get("_ungrounded"))
 
 
+def classify_cell_gap_state(value: Any) -> CellGapState:
+    """Classify a cell value into its explicit gap-fill lifecycle state."""
+    if _is_empty_cell_value(value):
+        if _is_confirmed_empty(value):
+            return CellGapState.CONFIRMED_EMPTY
+        return CellGapState.RAW_EMPTY
+    if _is_ungrounded(value):
+        return CellGapState.UNGROUNDED
+    return CellGapState.FILLED
+
+
+def _is_retriable_gap(value: Any) -> bool:
+    """True when a cell is skipped by default ``only_empty`` runs but should be
+    retried when ``retry_confirmed_empty=True`` (confirmed-empty or ungrounded)."""
+    return classify_cell_gap_state(value) in (
+        CellGapState.CONFIRMED_EMPTY,
+        CellGapState.UNGROUNDED,
+    )
+
+
 def _is_fillable_gap(value: Any, retry_confirmed_empty: bool = False) -> bool:
     """True when a cell is an unresolved gap worth an extraction attempt.
 
@@ -110,11 +140,34 @@ def _is_fillable_gap(value: Any, retry_confirmed_empty: bool = False) -> bool:
     gap by default either; like a confirmed-empty cell, it is retried only
     with ``retry_confirmed_empty=True``.
     """
-    if retry_confirmed_empty and _is_ungrounded(value):
+    state = classify_cell_gap_state(value)
+    if state == CellGapState.RAW_EMPTY:
         return True
-    if not _is_empty_cell_value(value):
+    if state in (CellGapState.CONFIRMED_EMPTY, CellGapState.UNGROUNDED):
+        return bool(retry_confirmed_empty)
+    return False
+
+
+def _can_overwrite_in_only_empty(
+    existing_value: Any,
+    extracted_value: Any,
+    retry_confirmed_empty: bool = False,
+) -> bool:
+    """True when an ``only_empty`` merge may replace ``existing_value`` with
+    ``extracted_value``.
+
+    Never overwrites a cell that is not a fillable gap. An ``_ungrounded``
+    answer (a guess with no supporting excerpt) is replaced by a retry that
+    comes back confirmed empty (the model checked and found no value), but not
+    by a plain empty result, which may just be a failed extraction.
+    """
+    if not _is_fillable_gap(existing_value, retry_confirmed_empty=retry_confirmed_empty):
         return False
-    if not retry_confirmed_empty and _is_confirmed_empty(value):
+    if (
+        classify_cell_gap_state(existing_value) == CellGapState.UNGROUNDED
+        and _is_empty_cell_value(extracted_value)
+        and not _is_confirmed_empty(extracted_value)
+    ):
         return False
     return True
 
@@ -1167,9 +1220,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 empty_columns.add(col)
                                 docs_with_empties.update(scope_stems)
                             else:
-                                if _is_empty_cell_value(value) and _is_confirmed_empty(value):
+                                if _is_retriable_gap(value):
                                     confirmed_empty_hits = True
-                                if value is not None:
+                                if not _is_empty_cell_value(value):
                                     filled[col] = value
                         # A nameless row still counts toward the summary above but
                         # cannot be planned (no unit key to look it up by).
@@ -2444,11 +2497,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             remove_column_keys_in_row(row, old_name)
                         extracted_value = get_extraction_column_value(extracted, col_name)
                         if extracted_value is not None:
-                            if only_empty and not _is_fillable_gap(
+                            if only_empty and not _can_overwrite_in_only_empty(
                                 get_extraction_column_value(row, col_name),
+                                extracted_value,
                                 retry_confirmed_empty=retry_confirmed_empty,
                             ):
-                                continue  # never overwrite a filled cell
+                                continue  # never overwrite a filled cell; keep an ungrounded guess unless confirmed empty
                             if 'data' in row:
                                 row['data'][col_name] = extracted_value
                             else:
@@ -2538,11 +2592,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 extracted, col_name
                             )
                             if extracted_value is not None:
-                                if only_empty and not _is_fillable_gap(
+                                if only_empty and not _can_overwrite_in_only_empty(
                                     get_extraction_column_value(row, col_name),
+                                    extracted_value,
                                     retry_confirmed_empty=retry_confirmed_empty,
                                 ):
-                                    continue  # never overwrite a filled cell
+                                    continue  # never overwrite a filled cell; keep an ungrounded guess unless confirmed empty
                                 if 'data' in row:
                                     row['data'][col_name] = extracted_value
                                 else:
