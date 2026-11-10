@@ -142,3 +142,46 @@ async def test_confirm_pending_raises_value_error_if_pending_consumed_during_quo
     finally:
         if chat_id:
             chat_session_store.delete(chat_id)
+
+
+@pytest.mark.asyncio
+async def test_send_message_honors_stop_pressed_during_abort_pending(monkeypatch):
+    svc = ChatAgentService()
+    monkeypatch.setattr(svc, "_message_cap_reached", lambda _sid: False)
+    monkeypatch.setattr(svc, "_record_message_used", AsyncMock())
+    monkeypatch.setattr(svc, "_ensure_quota_available", AsyncMock())
+    monkeypatch.setattr(svc, "_persist_history", AsyncMock())
+    flush_mock = AsyncMock()
+    monkeypatch.setattr(svc, "_flush_llm_usage", flush_mock)
+    monkeypatch.setattr(
+        svc,
+        "_function_response_part",
+        lambda tool_name, res: {"tool": tool_name, "result": res},
+    )
+
+    state = _make_state("sess-stop-during-abort")
+    chat_id = state.chat_id
+    state.set_pending_confirmation("reextract", {"columns": ["col1"]}, "fc_part")
+
+    calls = []
+
+    async def fake_send_chat_message(st, content, outbound):
+        calls.append(content)
+        # Simulate user pressing Stop while the abort_pending response is in flight
+        st.request_stop()
+        return SimpleNamespace(text="Aborted", function_calls=[])
+
+    monkeypatch.setattr(svc, "_send_chat_message", fake_send_chat_message)
+
+    result = await svc.send_message(
+        session_id="sess-stop-during-abort",
+        message="Do a new task",
+        session_mode="schematiq",
+        chat_id=chat_id,
+    )
+
+    # Stop during _abort_pending must halt the whole turn and never send the new user message.
+    assert len(calls) == 1
+    assert result["status"] == "stopped"
+    assert chat_session_store.get(chat_id) is None
+    flush_mock.assert_awaited_once_with(state)
