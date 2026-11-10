@@ -47,6 +47,11 @@ import {
   getAvailableProviders,
 } from '@/constants/llmModels';
 import { extractApiErrorMessage } from '../../utils/apiHelpers';
+import {
+  resolvePolledMonitorState,
+  type ProcessingState,
+  type ReviewEntryMode,
+} from './monitorStateGuard';
 
 interface ScheMatiQMonitorProps {
   sessionId: string;
@@ -92,11 +97,6 @@ interface LogEntry {
   message: string;
   details?: any;
 }
-
-type ReviewEntryMode = 'initial' | 'mid_run' | 'post_run';
-
-// Processing state that changes IMMEDIATELY on user action
-type ProcessingState = 'idle' | 'starting' | 'schema' | 'extraction' | 'completed' | 'error' | 'stopped' | 'observation_unit_review';
 
 interface LlmStats {
   total_calls: number;
@@ -219,29 +219,19 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       setSchemaOnly(status.schema_only);
     }
 
-    // An externally-triggered rediscovery (Observation Unit tab edit ->
-    // "Rediscover schema & re-extract" in the Workspace banner) resets the
-    // backend to the schema phase without going through this monitor's own
-    // handleResume. The backend then reports status='processing' with
-    // schema_completed=false and columns_discovered=0, while this component
-    // still shows the *previous* run's completed phase cards -- the header
-    // reads "Discovering Schema..." while both phase cards still read
-    // "Complete". Detect that transition and reset the phase state so the
-    // monitor tracks the new run. Guarded by "the monitor thinks the last run
-    // finished" so it never fires on the initial run (phases not yet complete)
-    // or during normal extraction (schema_completed=true there).
-    const monitorThinksRunFinished =
-      processingState === 'completed' ||
-      processingState === 'stopped' ||
-      schemaProgress.isComplete ||
-      extractionProgress.isComplete;
-    if (
-      status?.status === 'processing' &&
-      status?.schema_completed === false &&
-      (status?.columns_discovered ?? 0) === 0 &&
-      !stopRequestedRef.current &&
-      monitorThinksRunFinished
-    ) {
+    const transition = resolvePolledMonitorState({
+      currentState: processingState,
+      polledStatus: status?.status,
+      schemaCompleted: status?.schema_completed,
+      columnsDiscovered: status?.columns_discovered,
+      schemaProgressComplete: schemaProgress.isComplete,
+      extractionProgressComplete: extractionProgress.isComplete,
+      stopRequested: stopRequestedRef.current,
+      activeReextractionId,
+      reviewEntryMode,
+    });
+
+    if (transition.isExternalRediscoveryReset) {
       setProcessingState('schema');
       setCurrentStepMessage('Rediscovering schema...');
       setSchemaProgress({ iteration: 0, maxIterations: 5, columnsDiscovered: 0, isComplete: false });
@@ -252,35 +242,33 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       return;
     }
 
-    if (status?.status === 'processing' && processingState === 'idle') {
-      setProcessingState('starting');
-    } else if (status?.status === 'completed' && processingState !== 'completed') {
-      setProcessingState('completed');
-    } else if (status?.status === 'stopped' && processingState !== 'stopped') {
-      setProcessingState('stopped');
-    } else if (status?.status === 'observation_unit_review' && processingState !== 'observation_unit_review') {
-      setProcessingState('observation_unit_review');
+    if (transition.nextState !== processingState) {
+      setProcessingState(transition.nextState);
+    }
+
+    if (
+      transition.nextState === 'observation_unit_review' &&
+      processingState !== 'observation_unit_review' &&
+      !reviewObsUnit
+    ) {
       // Load observation unit from session if we don't have it (page refresh case)
-      if (!reviewObsUnit) {
-        loadAPI.getSession(sessionId).then(session => {
-          if (session?.observation_unit) {
-            const obsData: ObservationUnitReadyData = {
-              name: session.observation_unit.name,
-              definition: session.observation_unit.definition,
-              example_names: session.observation_unit.example_names || [],
-            };
-            setReviewObsUnit(obsData);
-            setEditName(obsData.name);
-            setEditDefinition(obsData.definition);
-            setEditExamples(obsData.example_names || []);
-            setEditBaseline(obsData);
-            setReviewEntryMode('initial');
-            setProcessingStateBeforeEdit(null);
-          }
-        }).catch(() => { /* ignore - will retry on next poll */ });
-      }
-    } else if (status?.status === 'error') {
-      setProcessingState('error');
+      loadAPI.getSession(sessionId).then(session => {
+        if (session?.observation_unit) {
+          const obsData: ObservationUnitReadyData = {
+            name: session.observation_unit.name,
+            definition: session.observation_unit.definition,
+            example_names: session.observation_unit.example_names || [],
+          };
+          setReviewObsUnit(obsData);
+          setEditName(obsData.name);
+          setEditDefinition(obsData.definition);
+          setEditExamples(obsData.example_names || []);
+          setEditBaseline(obsData);
+          setReviewEntryMode('initial');
+          setProcessingStateBeforeEdit(null);
+        }
+      }).catch(() => { /* ignore - will retry on next poll */ });
+    } else if (transition.nextState === 'error' && status?.status === 'error') {
       setErrorMessage(status.error_message || 'An error occurred');
     }
 
@@ -291,14 +279,10 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         isComplete: true,
         columnsDiscovered: status.columns_discovered || prev.columnsDiscovered,
       }));
-      // If currently processing, we must be in extraction phase
-      if (status.status === 'processing') {
-        setProcessingState('extraction');
-      }
     }
 
     // Recover extraction progress from polled status
-    if (status?.total_documents && status.total_documents > 0) {
+    if (status?.total_documents && status.total_documents > 0 && !activeReextractionId) {
       setExtractionProgress(prev => ({
         ...prev,
         totalDocs: status.total_documents || prev.totalDocs,
@@ -721,7 +705,6 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         if (cancelled) return;
 
         if (st.total_documents > 0) {
-          setProcessingState('extraction');
           const total = st.total_documents;
           const processed = Math.min(st.processed_documents, total);
           setExtractionProgress({
@@ -729,7 +712,8 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
             totalDocs: total,
             isComplete: st.status === 'completed',
           });
-          if (st.status === 'running' || st.status === 'starting') {
+          if ((st.status === 'running' || st.status === 'starting') && !stopRequestedRef.current) {
+            setProcessingState('extraction');
             setCurrentStepMessage(
               `Extracting values (${st.processed_documents}/${st.total_documents})...`,
             );
