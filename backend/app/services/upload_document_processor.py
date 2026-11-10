@@ -7,6 +7,7 @@ import time
 import math
 import os
 import logging
+from enum import Enum
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -34,6 +35,13 @@ from app.services.session_documents import committed_docs_dir, pending_docs_dir
 logger = logging.getLogger(__name__)
 
 
+class UploadRunState(str, Enum):
+    """Explicit lifecycle state for an active upload document extraction run."""
+
+    RUNNING = "running"
+    STOP_REQUESTED = "stop_requested"
+
+
 class UploadDocumentProcessor(WebSocketBroadcasterMixin):
     """Handles document processing for upload sessions using ScheMatiQ pipeline."""
 
@@ -46,8 +54,38 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         self.session_manager = session_manager
         self._pubmed_enrichment_service = pubmed_enrichment_service
         self._uniprot_enrichment_service = uniprot_enrichment_service
-        self.running_sessions: Dict[str, bool] = {}
+        self.running_sessions: Dict[str, UploadRunState] = {}
         self._state_lock = threading.Lock()
+
+    def mark_running(self, session_id: str) -> None:
+        """Register session_id as actively running upload extraction."""
+        with self._state_lock:
+            self.running_sessions[session_id] = UploadRunState.RUNNING
+
+    def clear_running(self, session_id: str) -> None:
+        """Remove session_id from active upload extraction tracking."""
+        with self._state_lock:
+            self.running_sessions.pop(session_id, None)
+
+    def is_running(self, session_id: str) -> bool:
+        """Return True while the session has an active or draining upload run."""
+        with self._state_lock:
+            return session_id in self.running_sessions
+
+    def is_stop_requested(self, session_id: str) -> bool:
+        """Return True when a stop was requested for an active run."""
+        with self._state_lock:
+            return self.running_sessions.get(session_id) == UploadRunState.STOP_REQUESTED
+
+    def should_abort_worker(self, session_id: str) -> bool:
+        """Callback predicate for worker threads (`should_stop`).
+
+        Returns True both when STOP_REQUESTED is set and after the session has
+        been removed from `running_sessions` in `finally`.
+        """
+        with self._state_lock:
+            state = self.running_sessions.get(session_id)
+            return state != UploadRunState.RUNNING
 
     def _create_callbacks(self, session_id: str, loop: asyncio.AbstractEventLoop, total_documents: int):
         """Create callbacks that stream extraction progress via WebSocket.
@@ -113,8 +151,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         if not SCHEMATIQ_AVAILABLE:
             raise RuntimeError("ScheMatiQ components not available for document processing")
 
-        with self._state_lock:
-            self.running_sessions[session_id] = True
+        self.mark_running(session_id)
 
         try:
             session = self.session_manager.get_session(session_id)
@@ -196,11 +233,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # When running_sessions entry is removed (finally), we must still signal stop —
             # otherwise .get(..., True) falsely reports "running" and the worker resumes LLM calls.
             def should_stop():
-                with self._state_lock:
-                    state = self.running_sessions.get(session_id)
-                    if state is None:
-                        return True
-                    return not state
+                return self.should_abort_worker(session_id)
 
             def run_extraction():
                 logger.info(f"EXTRACTION STARTING for session {session_id}")
@@ -240,10 +273,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
             while not extraction_task.done():
                 # Check for stop request
-                with self._state_lock:
-                    run_state = self.running_sessions.get(session_id)
-                stop_requested = run_state is False
-                if stop_requested:
+                if self.is_stop_requested(session_id):
                     logger.info(
                         "Stop requested for session %s — waiting for extraction to observe should_stop()",
                         session_id,
@@ -262,36 +292,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         except (asyncio.CancelledError, Exception):
                             pass
 
-                    # Update session with partial results
-                    session = self.session_manager.get_session(session_id)
-                    session.status = SessionStatus.STOPPED
-                    session.metadata.last_modified = datetime.now()
-                    self.session_manager.update_session(session)
-
-                    rows_merged = 0
-                    if output_path.exists():
-                        try:
-                            current_session = self.session_manager.get_session(session_id)
-                            rows_merged = await self._merge_extracted_data(session_id, current_session)
-                            session = self.session_manager.get_session(session_id)
-                            session.metadata.additional_rows_added = rows_merged
-                            self.session_manager.update_session(session)
-                        except Exception as e:
-                            logger.warning("Failed to merge partial data after stop: %s", e)
-
-                    session = self.session_manager.get_session(session_id)
-                    try:
-                        await self.broadcast_stopped(
-                            session_id,
-                            {
-                                "schema_saved": True,
-                                "data_rows_saved": session.metadata.additional_rows_added or 0,
-                                "message": "Document processing stopped by user",
-                            },
-                        )
-                    except Exception as e:
-                        logger.warning("broadcast_stopped failed (WebSocket may have closed): %s", e)
-                    logger.info("Upload processing stopped for session %s (%d rows saved)", session_id, rows_merged)
+                    await self._finalize_stopped_run(session_id, output_path)
                     return
 
                 # Check output file for progress tracking only
@@ -356,38 +357,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # If stop was requested while we were waiting for the last document to finish,
             # the while loop may have exited because the task completed — not because we
             # hit the explicit stop_requested branch above. Treat this as a stop.
-            with self._state_lock:
-                run_state_after = self.running_sessions.get(session_id)
-            if run_state_after is False:
-                session = self.session_manager.get_session(session_id)
-                session.status = SessionStatus.STOPPED
-                session.metadata.last_modified = datetime.now()
-                self.session_manager.update_session(session)
-
-                rows_merged = 0
-                if output_path.exists():
-                    try:
-                        current_session = self.session_manager.get_session(session_id)
-                        rows_merged = await self._merge_extracted_data(session_id, current_session)
-                        session = self.session_manager.get_session(session_id)
-                        session.metadata.additional_rows_added = rows_merged
-                        self.session_manager.update_session(session)
-                    except Exception as e:
-                        logger.warning("Failed to merge partial data after stop (post-task): %s", e)
-
-                session = self.session_manager.get_session(session_id)
-                try:
-                    await self.broadcast_stopped(
-                        session_id,
-                        {
-                            "schema_saved": True,
-                            "data_rows_saved": session.metadata.additional_rows_added or 0,
-                            "message": "Document processing stopped by user",
-                        },
-                    )
-                except Exception as e:
-                    logger.warning("broadcast_stopped failed after task completion (WebSocket may have closed): %s", e)
-                logger.info("Upload processing stopped (post-task) for session %s (%d rows saved)", session_id, rows_merged)
+            if self.is_stop_requested(session_id):
+                await self._finalize_stopped_run(session_id, output_path, post_task=True)
                 return
 
             # Merge additional extracted data into main data file
@@ -483,9 +454,43 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         
         finally:
             # Clean up
-            with self._state_lock:
-                self.running_sessions.pop(session_id, None)
+            self.clear_running(session_id)
             await concurrency_limiter.release(session_id)
+
+    async def _finalize_stopped_run(
+        self, session_id: str, output_path: Path, *, post_task: bool = False
+    ) -> None:
+        """Persist partial extraction output, mark session STOPPED, and broadcast stop."""
+        suffix = " (post-task)" if post_task else ""
+        session = self.session_manager.get_session(session_id)
+        session.status = SessionStatus.STOPPED
+        session.metadata.last_modified = datetime.now()
+        self.session_manager.update_session(session)
+
+        rows_merged = 0
+        if output_path.exists():
+            try:
+                current_session = self.session_manager.get_session(session_id)
+                rows_merged = await self._merge_extracted_data(session_id, current_session)
+                session = self.session_manager.get_session(session_id)
+                session.metadata.additional_rows_added = rows_merged
+                self.session_manager.update_session(session)
+            except Exception as e:
+                logger.warning("Failed to merge partial data after stop%s: %s", suffix, e)
+
+        session = self.session_manager.get_session(session_id)
+        try:
+            await self.broadcast_stopped(
+                session_id,
+                {
+                    "schema_saved": True,
+                    "data_rows_saved": session.metadata.additional_rows_added or 0,
+                    "message": "Document processing stopped by user",
+                },
+            )
+        except Exception as e:
+            logger.warning("broadcast_stopped failed%s (WebSocket may have closed): %s", suffix, e)
+        logger.info("Upload processing stopped%s for session %s (%d rows saved)", suffix, session_id, rows_merged)
     
     
     async def _merge_extracted_data(self, session_id: str, session: VisualizationSession = None) -> int:
@@ -819,16 +824,14 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         """Stop document processing for a session."""
         with self._state_lock:
             if session_id in self.running_sessions:
-                self.running_sessions[session_id] = False
+                self.running_sessions[session_id] = UploadRunState.STOP_REQUESTED
                 return True
             return False
 
     def request_stop(self, session_id: str) -> Dict[str, Any]:
         """Set the stop flag and return immediately."""
-        with self._state_lock:
-            if session_id not in self.running_sessions:
-                return {"accepted": False, "message": "No running session found"}
-            self.running_sessions[session_id] = False
+        if not self.stop_processing(session_id):
+            return {"accepted": False, "message": "No running session found"}
         logger.info("Stop requested for upload processing session %s", session_id)
         return {"accepted": True, "message": "Stop signal sent"}
     
