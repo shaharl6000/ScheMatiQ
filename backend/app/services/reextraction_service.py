@@ -156,14 +156,17 @@ def _can_overwrite_in_only_empty(
     """True when an ``only_empty`` merge may replace ``existing_value`` with
     ``extracted_value``.
 
-    Never overwrites a cell that is not a fillable gap, and never replaces an
-    existing non-empty ``_ungrounded`` answer with an empty extraction result.
+    Never overwrites a cell that is not a fillable gap. An ``_ungrounded``
+    answer (a guess with no supporting excerpt) is replaced by a retry that
+    comes back confirmed empty (the model checked and found no value), but not
+    by a plain empty result, which may just be a failed extraction.
     """
     if not _is_fillable_gap(existing_value, retry_confirmed_empty=retry_confirmed_empty):
         return False
     if (
         classify_cell_gap_state(existing_value) == CellGapState.UNGROUNDED
         and _is_empty_cell_value(extracted_value)
+        and not _is_confirmed_empty(extracted_value)
     ):
         return False
     return True
@@ -2536,7 +2539,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 extracted_value,
                                 retry_confirmed_empty=retry_confirmed_empty,
                             ):
-                                continue  # never overwrite a filled cell or wipe an ungrounded answer
+                                continue  # never overwrite a filled cell; keep an ungrounded guess unless confirmed empty
                             if 'data' in row:
                                 row['data'][col_name] = extracted_value
                             else:
@@ -2631,7 +2634,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     extracted_value,
                                     retry_confirmed_empty=retry_confirmed_empty,
                                 ):
-                                    continue  # never overwrite a filled cell or wipe an ungrounded answer
+                                    continue  # never overwrite a filled cell; keep an ungrounded guess unless confirmed empty
                                 if 'data' in row:
                                     row['data'][col_name] = extracted_value
                                 else:

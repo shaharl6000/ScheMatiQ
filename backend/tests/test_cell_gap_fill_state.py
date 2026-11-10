@@ -97,7 +97,7 @@ def test_scan_only_empty_scope_marks_ungrounded_as_retriable_and_excludes_confir
     assert "col_grounded" in unit_plan["filled"]
 
 
-def test_can_overwrite_in_only_empty_protects_ungrounded_answer_from_empty_retry():
+def test_can_overwrite_in_only_empty_ungrounded_retry():
     # Retrying an ungrounded cell with a new grounded value succeeds.
     assert (
         _can_overwrite_in_only_empty(
@@ -107,15 +107,26 @@ def test_can_overwrite_in_only_empty_protects_ungrounded_answer_from_empty_retry
         )
         is True
     )
-    # Retrying an ungrounded cell that comes back empty/confirmed-empty must NOT wipe out the answer.
+    # A retry that comes back confirmed empty replaces the ungrounded guess:
+    # the model checked the document and found no value.
     assert (
         _can_overwrite_in_only_empty(
             UNGROUNDED,
             CONFIRMED_EMPTY,
             retry_confirmed_empty=True,
         )
-        is False
+        is True
     )
+    # A plain empty result (e.g. a failed extraction) keeps the guess.
+    for plain_empty in (RAW_EMPTY_DICT, {"answer": ""}):
+        assert (
+            _can_overwrite_in_only_empty(
+                UNGROUNDED,
+                plain_empty,
+                retry_confirmed_empty=True,
+            )
+            is False
+        )
     # Without retry_confirmed_empty, ungrounded is not overwritten at all.
     assert (
         _can_overwrite_in_only_empty(
