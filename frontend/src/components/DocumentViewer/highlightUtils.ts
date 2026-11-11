@@ -29,11 +29,11 @@ const foldChar = (ch: string): string => CHAR_FOLD[ch] ?? ch;
 
 /** Lowercased+folded copy with runs of whitespace collapsed to one space, plus a
  *  map from each normalized-string index back to its original-string index. */
-function normalizeWithMap(text: string): { norm: string; map: number[] } {
+function normalizeWithMap(text: string, precomputedLower?: string): { norm: string; map: number[] } {
   const normChars: string[] = [];
   const map: number[] = [];
   let prevWasSpace = false;
-  const lower = text.toLowerCase();
+  const lower = precomputedLower ?? text.toLowerCase();
   for (let i = 0; i < lower.length; i += 1) {
     const ch = lower[i];
     if (/\s/.test(ch)) {
@@ -84,10 +84,10 @@ function foldNormalized(s: string): string {
  *  stay in sync -- scoped narrowly (hyphen immediately followed by
  *  newline-containing whitespace) so real compound words ("T-cell",
  *  hyphen with no adjacent whitespace) are untouched. */
-function stripWithMap(text: string): { stripped: string; map: number[] } {
+function stripWithMap(text: string, precomputedLower?: string): { stripped: string; map: number[] } {
   const chars: string[] = [];
   const map: number[] = [];
-  const lower = text.toLowerCase();
+  const lower = precomputedLower ?? text.toLowerCase();
   const n = lower.length;
   let i = 0;
   while (i < n) {
@@ -144,16 +144,43 @@ export function splitExcerptFragments(raw: string): string[] {
     .filter((s) => s.length >= 4);
 }
 
-export function findHighlightRange(
-  text: string | null | undefined,
+interface PreparedHighlightDoc {
+  getLower(): string;
+  getStripped(): { stripped: string; map: number[] };
+  getNormalized(): { norm: string; map: number[] };
+}
+
+function createPreparedDoc(text: string): PreparedHighlightDoc {
+  let lower: string | undefined;
+  let strippedCache: { stripped: string; map: number[] } | undefined;
+  let normCache: { norm: string; map: number[] } | undefined;
+  const getLower = (): string => {
+    if (lower === undefined) lower = text.toLowerCase();
+    return lower;
+  };
+  return {
+    getLower,
+    getStripped() {
+      if (strippedCache === undefined) strippedCache = stripWithMap(text, getLower());
+      return strippedCache;
+    },
+    getNormalized() {
+      if (normCache === undefined) normCache = normalizeWithMap(text, getLower());
+      return normCache;
+    },
+  };
+}
+
+function findHighlightRangeWithDoc(
   rawQuery: string | null | undefined,
+  doc: PreparedHighlightDoc,
 ): Range | null {
-  if (!text || !rawQuery) return null;
+  if (!rawQuery) return null;
   const query = cleanQuery(rawQuery);
   if (query.length < 3) return null;
 
   // 1) Direct case-insensitive match against the original text.
-  const directIdx = text.toLowerCase().indexOf(query.toLowerCase());
+  const directIdx = doc.getLower().indexOf(query.toLowerCase());
   if (directIdx >= 0) return [directIdx, directIdx + query.length];
 
   // 1.5) Whitespace-STRIPPED match: handles source text that has lost
@@ -161,7 +188,7 @@ export function findHighlightRange(
   // PDF text, e.g. "resultswithmice" instead of "results with mice") --
   // step 2 below only collapses whitespace RUNS, which can't fix this
   // since there's often no whitespace there to collapse.
-  const { stripped, map: stripMap } = stripWithMap(text);
+  const { stripped, map: stripMap } = doc.getStripped();
   const strippedQuery = foldStripped(query);
   if (strippedQuery.length >= 3) {
     const strippedIdx = stripped.indexOf(strippedQuery);
@@ -173,7 +200,7 @@ export function findHighlightRange(
   }
 
   // 2) Folded + whitespace-normalized match, mapped back to original offsets.
-  const { norm, map } = normalizeWithMap(text);
+  const { norm, map } = doc.getNormalized();
   const normQuery = foldNormalized(query);
 
   const mapRange = (nIdx: number, len: number): Range => {
@@ -194,6 +221,14 @@ export function findHighlightRange(
   }
 
   return null;
+}
+
+export function findHighlightRange(
+  text: string | null | undefined,
+  rawQuery: string | null | undefined,
+): Range | null {
+  if (!text || !rawQuery) return null;
+  return findHighlightRangeWithDoc(rawQuery, createPreparedDoc(text));
 }
 
 /** Minimal shape findHighlightRanges needs from a grounding excerpt. */
@@ -257,6 +292,11 @@ export function findHighlightRanges(
   if (!text || !excerpts || excerpts.length === 0) return [];
 
   const found: Range[] = [];
+  let preparedDoc: PreparedHighlightDoc | undefined;
+  const getDoc = (): PreparedHighlightDoc => {
+    if (preparedDoc === undefined) preparedDoc = createPreparedDoc(text);
+    return preparedDoc;
+  };
   for (const exc of excerpts) {
     if (!exc || !exc.text) continue;
     const excerptText = exc.text;
@@ -272,8 +312,9 @@ export function findHighlightRanges(
     }
 
     const before = found.length;
+    const doc = getDoc();
     for (const fragment of splitExcerptFragments(excerptText)) {
-      const range = findHighlightRange(text, fragment);
+      const range = findHighlightRangeWithDoc(fragment, doc);
       if (range) found.push(range);
     }
 

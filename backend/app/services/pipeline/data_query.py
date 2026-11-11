@@ -66,34 +66,42 @@ def compute_statistics(
             unique_documents.add(papers)
     total_documents = len(unique_documents) if unique_documents else len(data_rows)
 
+    def _is_valid_value(value):
+        if value is None:
+            return False
+        if isinstance(value, dict):
+            answer = value.get("answer")
+            if answer is None or answer == "None" or answer == "" or answer == "[]":
+                return False
+            return True
+        return value != "None" and value != "" and value != "[]"
+
+    normalized_rows = [normalize_row_data(row) for row in data_rows]
+
     columns = []
     for col in schema.columns:
-        def is_valid_value(value):
-            if value is None:
-                return False
-            if isinstance(value, dict):
-                answer = value.get("answer")
-                if answer is None or answer == "None" or answer == "" or answer == "[]":
-                    return False
-                return True
-            return value != "None" and value != "" and value != "[]"
-
         non_null_count = 0
-        unique_values = set()
+        seen_canonical = set()
 
-        for row in data_rows:
-            row_data = normalize_row_data(row)
-
+        for row_data in normalized_rows:
             if col.name in row_data:
                 value = row_data[col.name]
-                if is_valid_value(value):
+                if _is_valid_value(value):
                     non_null_count += 1
                 canonical = value.get("answer") if isinstance(value, dict) else value
-                try:
-                    unique_values.add(json.dumps(canonical, sort_keys=True))
-                except (TypeError, ValueError):
-                    unique_values.add(str(canonical))
-        unique_count = len(unique_values)
+                if canonical is None or isinstance(canonical, (str, int, bool)):
+                    seen_canonical.add((type(canonical), canonical))
+                elif isinstance(canonical, float):
+                    if math.isnan(canonical):
+                        seen_canonical.add((float, "NaN"))
+                    else:
+                        seen_canonical.add((float, canonical))
+                else:
+                    try:
+                        seen_canonical.add(("json", json.dumps(canonical, sort_keys=True)))
+                    except (TypeError, ValueError):
+                        seen_canonical.add(("repr", str(canonical)))
+        unique_count = len(seen_canonical)
 
         source_document = None
         if schema_evolution and col.name in schema_evolution.column_sources:
@@ -314,6 +322,113 @@ async def session_data_read_failed(
         return False
 
     return await session_has_stored_data(session_id)
+
+
+def _shape_row_dict(row_data: dict) -> Dict[str, Any]:
+    """Shape a raw JSONL row dict into DataRow.model_dump() format (serialize_by_alias=True)."""
+    if "_row_name" in row_data:
+        raw_papers = row_data.get("_papers")
+        return {
+            "row_name": row_data.get("_row_name"),
+            "papers": (
+                list(raw_papers)
+                if isinstance(raw_papers, list)
+                else ([raw_papers] if raw_papers else [])
+            ),
+            "data": {k: v for k, v in row_data.items() if not k.startswith("_")},
+            "_unit_name": row_data.get("_unit_name"),
+            "_source_document": row_data.get("_source_document"),
+            "_parent_document": row_data.get("_parent_document"),
+            "_cell_status": row_data.get("_cell_status"),
+            "_row_index": row_data.get("_row_index"),
+        }
+    raw_papers = row_data.get("papers")
+    raw_data = row_data.get("data")
+    return {
+        "row_name": row_data.get("row_name"),
+        "papers": (
+            list(raw_papers)
+            if isinstance(raw_papers, list)
+            else ([raw_papers] if raw_papers else [])
+        ),
+        "data": raw_data if isinstance(raw_data, dict) else {},
+        "_unit_name": (
+            row_data.get("_unit_name")
+            if "_unit_name" in row_data
+            else row_data.get("unit_name")
+        ),
+        "_source_document": (
+            row_data.get("_source_document")
+            if "_source_document" in row_data
+            else row_data.get("source_document")
+        ),
+        "_parent_document": (
+            row_data.get("_parent_document")
+            if "_parent_document" in row_data
+            else row_data.get("parent_document")
+        ),
+        "_cell_status": (
+            row_data.get("_cell_status")
+            if "_cell_status" in row_data
+            else row_data.get("cell_status")
+        ),
+        "_row_index": (
+            row_data.get("_row_index")
+            if "_row_index" in row_data
+            else row_data.get("row_index")
+        ),
+    }
+
+
+async def load_all_rows(
+    session_id: str,
+    work_dir: Path,
+    max_rows: Optional[int] = 100_000,
+) -> List[Dict[str, Any]]:
+    """Load all canonical, deduplicated rows for a session in a single pass.
+
+    Produces DataRow-compatible dicts matching ``DataRow.model_dump()`` without
+    quadratic paginated file re-reads or per-row Pydantic round-trip overhead.
+    """
+    from app.services.data_utils import (
+        get_data_dir,
+        resolve_session_data_files,
+        row_dedup_key,
+    )
+
+    data_files = await resolve_session_data_files(
+        session_id,
+        work_dir=work_dir,
+        data_dir=get_data_dir(),
+    )
+    if not data_files:
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    seen_keys: set = set()
+    for data_file in data_files:
+        file_keys: set = set()
+        with open(data_file, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    row_data = json.loads(stripped)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(row_data, dict):
+                    continue
+                key = row_dedup_key(row_data)
+                if key[0] and key in seen_keys:
+                    continue
+                if key[0]:
+                    file_keys.add(key)
+                rows.append(_shape_row_dict(row_data))
+                if max_rows is not None and len(rows) >= max_rows:
+                    return rows
+        seen_keys.update(file_keys)
+    return rows
 
 
 async def get_data(

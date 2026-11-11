@@ -3,8 +3,9 @@
 import io
 import json
 import mimetypes
+from collections import OrderedDict
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -307,6 +308,63 @@ async def get_document_content(
     return StreamingResponse(io.BytesIO(content), media_type=media_type, headers=headers)
 
 
+_MAX_FIGURE_CACHE_SESSIONS = 32
+_FigureManifestSig = Tuple[Tuple[str, int, int], ...]
+_FigureSessionIndex = Dict[str, Tuple[Path, dict]]
+_FIGURE_INDEX_CACHE: "OrderedDict[str, Tuple[_FigureManifestSig, _FigureSessionIndex]]" = OrderedDict()
+
+
+def _scan_session_manifests(session_id: str) -> Tuple[List[Tuple[Path, Path]], _FigureManifestSig]:
+    """Collect ``(doc_dir, manifest_path)`` pairs and their stat signature."""
+    pairs: List[Tuple[Path, Path]] = []
+    sig_items: List[Tuple[str, int, int]] = []
+    for doc_dir_root in local_document_dirs(session_id):
+        figures_root = doc_dir_root / "figures"
+        if not figures_root.is_dir():
+            continue
+        for doc_dir in sorted(figures_root.iterdir()):
+            if not doc_dir.is_dir():
+                continue
+            manifest_path = doc_dir / "manifest.json"
+            try:
+                st = manifest_path.stat()
+            except OSError:
+                continue
+            pairs.append((doc_dir, manifest_path))
+            sig_items.append((str(manifest_path.resolve()), st.st_mtime_ns, st.st_size))
+    return pairs, tuple(sig_items)
+
+
+def _get_session_figure_index(session_id: str) -> _FigureSessionIndex:
+    """Return cached ``figure_id -> (doc_dir, fig_dict)`` map, rebuilding when manifests change."""
+    pairs, sig = _scan_session_manifests(session_id)
+    if not pairs:
+        _FIGURE_INDEX_CACHE.pop(session_id, None)
+        return {}
+
+    cached = _FIGURE_INDEX_CACHE.get(session_id)
+    if cached is not None and cached[0] == sig:
+        _FIGURE_INDEX_CACHE.move_to_end(session_id)
+        return cached[1]
+
+    index: _FigureSessionIndex = {}
+    for doc_dir, manifest_path in pairs:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for fig in manifest.get("figures", []):
+            fig_id = fig.get("figure_id")
+            if fig_id and fig_id not in index:
+                index[fig_id] = (doc_dir, fig)
+
+    _FIGURE_INDEX_CACHE[session_id] = (sig, index)
+    _FIGURE_INDEX_CACHE.move_to_end(session_id)
+    while len(_FIGURE_INDEX_CACHE) > _MAX_FIGURE_CACHE_SESSIONS:
+        _FIGURE_INDEX_CACHE.popitem(last=False)
+    return index
+
+
 def _find_figure(session_id: str, figure_id: str) -> Optional[Tuple[Path, dict]]:
     """Locate a figure's image path and manifest entry by figure_id.
 
@@ -318,31 +376,17 @@ def _find_figure(session_id: str, figure_id: str) -> Optional[Tuple[Path, dict]]
     never a raw caller-supplied path — so this is safe against path traversal
     the same way get_document_content's name-allowlist is.
     """
-    for doc_dir_root in local_document_dirs(session_id):
-        figures_root = doc_dir_root / "figures"
-        if not figures_root.is_dir():
-            continue
-        for doc_dir in figures_root.iterdir():
-            if not doc_dir.is_dir():
-                continue
-            manifest_path = doc_dir / "manifest.json"
-            if not manifest_path.is_file():
-                continue
-            try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            for fig in manifest.get("figures", []):
-                if fig.get("figure_id") != figure_id:
-                    continue
-                image_filename = fig.get("image_filename")
-                if not image_filename:
-                    return None
-                image_path = doc_dir / image_filename
-                if not image_path.is_file():
-                    return None
-                return image_path, fig
-    return None
+    entry = _get_session_figure_index(session_id).get(figure_id)
+    if entry is None:
+        return None
+    doc_dir, fig = entry
+    image_filename = fig.get("image_filename")
+    if not image_filename:
+        return None
+    image_path = doc_dir / image_filename
+    if not image_path.is_file():
+        return None
+    return image_path, fig
 
 
 @router.get(
