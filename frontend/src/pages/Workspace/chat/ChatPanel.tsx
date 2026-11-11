@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ModelSelector } from '@/components/ModelSelector';
 import { getDefaultModelForProvider } from '@/constants';
-import { chatAPI, referenceAPI, type ReferenceDocumentInfo } from '@/services/api';
+import { chatAPI, referenceAPI, schemaAPI, type ReferenceDocumentInfo } from '@/services/api';
 import webSocketService from '@/services/websocket';
 import type {
   ChatToolInfo,
@@ -125,7 +125,10 @@ export function ChatPanel({
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [fillRunning, setFillRunning] = useState<{ column: string } | null>(null);
-  const [reextractionRunning, setReextractionRunning] = useState<{ columns: string[] } | null>(null);
+  const [reextractionRunning, setReextractionRunning] = useState<{
+    operationId?: string;
+    columns: string[];
+  } | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Which session's persisted transcript we've already tried to load, so a model
@@ -143,6 +146,9 @@ export function ChatPanel({
   const activeStreamRef = useRef<ActiveChatStream | null>(null);
   const streamFrameRef = useRef<number | null>(null);
   const previousSessionIdRef = useRef<string | undefined>(sessionId);
+  const settledReextractOpIdRef = useRef<string | null>(null);
+  const activeReextractOpIdRef = useRef<string | null>(null);
+  const activeReextractSessionRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const container = messagesRef.current;
@@ -181,6 +187,9 @@ export function ChatPanel({
       setPendingAction(null);
       setFillRunning(null);
       setReextractionRunning(null);
+      settledReextractOpIdRef.current = null;
+      activeReextractOpIdRef.current = null;
+      activeReextractSessionRef.current = undefined;
       setReferenceError(null);
     }
     if (!sessionId) return;
@@ -470,14 +479,28 @@ export function ChatPanel({
       } else if (message.type === 'reextraction_started') {
         // A chat-triggered reextract runs in the background after the turn ends;
         // show a spinner until the completion event posts the model's recap.
-        const data = (message.data ?? {}) as unknown as { columns?: string[] };
-        setReextractionRunning({ columns: data.columns ?? [] });
+        const data = (message.data ?? {}) as unknown as {
+          operation_id?: string;
+          columns?: string[];
+        };
+        if (data.operation_id && settledReextractOpIdRef.current === data.operation_id) return;
+        if (data.operation_id) activeReextractOpIdRef.current = data.operation_id;
+        activeReextractSessionRef.current = sessionId;
+        setReextractionRunning({
+          operationId: data.operation_id,
+          columns: data.columns ?? [],
+        });
       } else if (message.type === 'reextraction_completed') {
         const data = (message.data ?? {}) as unknown as {
-          columns?: string[]; summary?: string;
+          operation_id?: string;
+          columns?: string[];
+          summary?: string;
           coverage?: { column: string; filled: number; empty: number }[];
           total_rows?: number;
         };
+        const opId = data.operation_id || activeReextractOpIdRef.current;
+        if (opId && settledReextractOpIdRef.current === opId) return;
+        if (opId) settledReextractOpIdRef.current = opId;
         setReextractionRunning(null);
         const fallback = () => {
           const cols = data.coverage ?? [];
@@ -497,7 +520,13 @@ export function ChatPanel({
           },
         ]);
       } else if (message.type === 'reextraction_failed') {
-        const data = (message.data ?? {}) as unknown as { error?: string };
+        const data = (message.data ?? {}) as unknown as {
+          operation_id?: string;
+          error?: string;
+        };
+        const opId = data.operation_id || activeReextractOpIdRef.current;
+        if (opId && settledReextractOpIdRef.current === opId) return;
+        if (opId) settledReextractOpIdRef.current = opId;
         setReextractionRunning(null);
         appendMessages([
           {
@@ -511,8 +540,14 @@ export function ChatPanel({
         // so report partial progress rather than treating it as a failure. This
         // is the third and final terminal event that must clear the spinner.
         const data = (message.data ?? {}) as unknown as {
-          processed_documents?: number; total_documents?: number; message?: string;
+          operation_id?: string;
+          processed_documents?: number;
+          total_documents?: number;
+          message?: string;
         };
+        const opId = data.operation_id || activeReextractOpIdRef.current;
+        if (opId && settledReextractOpIdRef.current === opId) return;
+        if (opId) settledReextractOpIdRef.current = opId;
         setReextractionRunning(null);
         const progress =
           data.processed_documents != null && data.total_documents != null
@@ -536,6 +571,81 @@ export function ChatPanel({
     appendMessages,
     discardStreamedMessage,
   ]);
+
+  const activeReextractOpId = reextractionRunning?.operationId;
+
+  // Fallback status polling while a chat-observed re-extraction is active: if
+  // the WebSocket drops briefly and misses the terminal event (or the backend
+  // cleans up the finished operation and returns 404), clear the spinner so it
+  // never hangs forever.
+  useEffect(() => {
+    if (!sessionId || !activeReextractOpId || activeReextractSessionRef.current !== sessionId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const st = await schemaAPI.getReextractionStatus(sessionId, activeReextractOpId);
+        if (cancelled || settledReextractOpIdRef.current === activeReextractOpId) return;
+
+        if (st.status === 'completed') {
+          settledReextractOpIdRef.current = activeReextractOpId;
+          setReextractionRunning(null);
+          const names = st.columns?.length
+            ? ` for ${st.columns.map((c) => `'${c}'`).join(', ')}`
+            : '';
+          appendMessages([
+            {
+              id: `${Date.now()}-reextract-summary`,
+              role: 'assistant',
+              content: `Re-extraction finished${names}.`,
+            },
+          ]);
+        } else if (st.status === 'failed') {
+          settledReextractOpIdRef.current = activeReextractOpId;
+          setReextractionRunning(null);
+          appendMessages([
+            {
+              id: `${Date.now()}-reextract-failed`,
+              role: 'assistant',
+              content: `Re-extraction failed: ${st.error ?? 'unknown error'}.`,
+            },
+          ]);
+        } else if (st.status === 'stopped') {
+          settledReextractOpIdRef.current = activeReextractOpId;
+          setReextractionRunning(null);
+          const progress =
+            st.processed_documents != null && st.total_documents != null
+              ? ` Kept results from ${st.processed_documents} of ${st.total_documents} documents processed so far.`
+              : '';
+          appendMessages([
+            {
+              id: `${Date.now()}-reextract-stopped`,
+              role: 'assistant',
+              content: `Re-extraction stopped.${progress}`,
+            },
+          ]);
+        }
+      } catch (err) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (!cancelled && status === 404 && settledReextractOpIdRef.current !== activeReextractOpId) {
+          settledReextractOpIdRef.current = activeReextractOpId;
+          setReextractionRunning(null);
+        }
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void poll();
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeReextractOpId, appendMessages, sessionId]);
 
   const applyChatResponse = useCallback((response: Awaited<ReturnType<typeof chatAPI.sendMessage>>) => {
     setChatId(response.chat_id);
