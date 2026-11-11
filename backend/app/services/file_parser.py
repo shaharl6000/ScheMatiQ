@@ -12,8 +12,6 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from fastapi import UploadFile
 
-from schematiq.core.model_specs import ModelNames
-
 logger = logging.getLogger(__name__)
 
 from app.models.upload import (
@@ -23,7 +21,7 @@ from app.models.upload import (
 from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SchemaEvolution, SchemaSnapshot
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE
 from app.services import row_filtering
-from app.services.session_documents import committed_docs_dir, pending_docs_dir
+from app.services.session_documents import pending_docs_dir
 
 _COLUMN_DISPLAY_NAMES = {
     '_row_name': 'Doc Name',
@@ -1238,28 +1236,24 @@ class FileParser:
                 has_more=end < filtered_count
             )
         else:
-            # Original efficient pagination (no filtering/sorting)
-            with open(data_file) as f:
-                total_count = sum(1 for line in f if line.strip())
-
+            # Single-pass pagination (no filtering/sorting): count all non-blank
+            # rows while deserializing only the requested [start_line, end_line) slice.
             rows = []
             start_line = page * page_size
             end_line = start_line + page_size
+            total_count = 0
 
-            with open(data_file) as f:
-                idx = 0
+            with open(data_file, encoding="utf-8") as f:
                 for line in f:
                     if not line.strip():
                         continue
-                    if idx >= start_line and idx < end_line:
+                    if start_line <= total_count < end_line:
                         row_data = json.loads(line)
-                        row_data['_row_index'] = idx
+                        row_data['_row_index'] = total_count
                         if 'data' in row_data:
                             row_data['data'] = self._sanitize_data_dict(row_data['data'])
                         rows.append(DataRow(**row_data))
-                    elif idx >= end_line:
-                        break
-                    idx += 1
+                    total_count += 1
 
             return PaginatedData(
                 rows=rows,
@@ -1819,34 +1813,6 @@ class FileParser:
             rationale_parts.append("Contains detailed content that may require summarization or excerpt viewing")
         
         return ". ".join(rationale_parts) + "."
-    
-    def convert_to_schematiq_format(self, extracted_schema: Dict[str, Any], docs_path: str = "documents/") -> Dict[str, Any]:
-        """Convert extracted schema to full ScheMatiQ configuration format."""
-        schematiq_config = {
-            "query": extracted_schema["query"],
-            "docs_path": docs_path,
-            "max_keys_schema": len(extracted_schema["schema"]),
-            "documents_batch_size": 1,
-            "document_randomization_seed": 42,
-            "backend": {
-                "provider": "gemini",
-                "model": ModelNames.DEFAULT_VALUE_EXTRACTION,
-                "temperature": 0
-                # max_output_tokens auto-detected from model_specs
-            },
-            "retriever": {
-                "type": "embedding",
-                "model_name": "all-MiniLM-L6-v2",
-                "k": 8,
-                "max_words": 512,
-                "enable_dynamic_k": True,
-                "dynamic_k_threshold": 0.65,
-                "dynamic_k_minimum": 3
-            },
-            "schema": extracted_schema["schema"]
-        }
-        
-        return schematiq_config
     
     def _extract_csv_metadata(self, file_path: Path) -> Dict[str, Any]:
         """Extract metadata from CSV comment lines."""
