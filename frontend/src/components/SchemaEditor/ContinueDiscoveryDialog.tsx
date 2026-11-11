@@ -53,6 +53,7 @@ import {
   DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
   DEFAULT_CONVERGENCE_THRESHOLD,
 } from '@/constants';
+import { type ContinueDiscoveryLifecycleEvent } from './continueDiscoveryStateGuard';
 
 type DialogStep = 'documents' | 'llm_config' | 'discovery' | 'review' | 'extraction' | 'no_new_columns';
 
@@ -67,6 +68,8 @@ interface ContinueDiscoveryDialogProps {
   onError: (error: string) => void;
   /** Called when extraction starts for live updates */
   onExtractionStarted?: (columns: string[]) => void;
+  /** Called on Continue Discovery lifecycle transitions to keep parent activity state in sync */
+  onLifecycleEvent?: (event: ContinueDiscoveryLifecycleEvent) => void;
 }
 
 const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
@@ -78,6 +81,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   onSuccess,
   onError,
   onExtractionStarted,
+  onLifecycleEvent,
 }) => {
   // Ref for dialog content — used as portal container for Select dropdowns
   const dialogContentRef = useRef<HTMLDivElement>(null);
@@ -150,6 +154,31 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [checkingAvailability, setCheckingAvailability] = useState(false);
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const onLifecycleEventRef = useRef(onLifecycleEvent);
+  useEffect(() => {
+    onLifecycleEventRef.current = onLifecycleEvent;
+  });
+
+  // Notify parent when dialog opens, closes, or unmounts while open
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpenRef.current) {
+      wasOpenRef.current = true;
+      onLifecycleEventRef.current?.({ type: 'dialog_opened' });
+    } else if (!open && wasOpenRef.current) {
+      wasOpenRef.current = false;
+      onLifecycleEventRef.current?.({ type: 'dialog_closed' });
+    }
+  }, [open]);
+
+  useEffect(() => {
+    return () => {
+      if (wasOpenRef.current) {
+        wasOpenRef.current = false;
+        onLifecycleEventRef.current?.({ type: 'dialog_closed' });
+      }
+    };
+  }, []);
 
   // Load document info when dialog opens
   useEffect(() => {
@@ -386,6 +415,11 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       });
 
       setOperationId(response.operation_id);
+      onLifecycleEventRef.current?.({
+        type: 'discovery_started',
+        operationId: response.operation_id,
+        fromDialog: true,
+      });
 
       // Poll for discovery status in-dialog
       pollIntervalRef.current = setInterval(async () => {
@@ -402,6 +436,12 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           if (status.status === 'completed') {
             clearInterval(pollIntervalRef.current!);
             pollIntervalRef.current = null;
+            onLifecycleEventRef.current?.({
+              type: 'discovery_completed',
+              newColumnCount: status.new_columns.length,
+              operationId: response.operation_id,
+              fromDialog: true,
+            });
 
             if (status.new_columns.length === 0) {
               setStep('no_new_columns');
@@ -414,11 +454,13 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           } else if (status.status === 'failed') {
             clearInterval(pollIntervalRef.current!);
             pollIntervalRef.current = null;
+            onLifecycleEventRef.current?.({ type: 'discovery_failed' });
             onError(status.error || 'Schema discovery failed');
             setStep('documents');
           } else if (status.status === 'stopped') {
             clearInterval(pollIntervalRef.current!);
             pollIntervalRef.current = null;
+            onLifecycleEventRef.current?.({ type: 'discovery_stopped' });
             onClose();
           }
         } catch (err: any) {
@@ -427,6 +469,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           if (err?.response?.status === 404) {
             clearInterval(pollIntervalRef.current!);
             pollIntervalRef.current = null;
+            onLifecycleEventRef.current?.({ type: 'discovery_failed' });
             onError('Discovery operation was lost. Please try again.');
             setStep('documents');
           }
@@ -459,7 +502,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       // Get API key for the extraction provider
       const extractionApiKey = await getApiKeyForProvider(extractionProvider);
 
-      await schemaAPI.continueDiscovery.confirmColumns(sessionId, operationId!, {
+      const confirmResult = await schemaAPI.continueDiscovery.confirmColumns(sessionId, operationId!, {
         selected_columns: Array.from(selectedNewColumns),
         row_selection: 'all',
         llm_config: {
@@ -468,6 +511,22 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           api_key: extractionApiKey || apiKey, // Fallback to discovery API key if not configured
           temperature: 0
         }
+      });
+
+      if (confirmResult.status === 'no_columns') {
+        onLifecycleEventRef.current?.({
+          type: 'columns_confirmed',
+          extractValues: false,
+          operationId,
+        });
+        onClose();
+        return;
+      }
+
+      onLifecycleEventRef.current?.({
+        type: 'columns_confirmed',
+        extractValues: true,
+        operationId,
       });
 
       // Notify parent about extraction starting
@@ -487,6 +546,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           if (status.status === 'completed' && status.phase === 'extraction') {
             clearInterval(pollIntervalRef.current!);
             pollIntervalRef.current = null;
+            onLifecycleEventRef.current?.({ type: 'extraction_completed' });
 
             // Convert new columns to ColumnInfo format
             const addedColumns: ColumnInfo[] = newColumns
@@ -505,10 +565,12 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           } else if (status.status === 'failed') {
             clearInterval(pollIntervalRef.current!);
             pollIntervalRef.current = null;
+            onLifecycleEventRef.current?.({ type: 'extraction_failed' });
             onError(status.error || 'Value extraction failed');
           } else if (status.status === 'stopped') {
             clearInterval(pollIntervalRef.current!);
             pollIntervalRef.current = null;
+            onLifecycleEventRef.current?.({ type: 'extraction_stopped' });
             onSuccess('Extraction stopped. Partial values may have been saved.', []);
             onClose();
           }
@@ -518,6 +580,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           if (err?.response?.status === 404) {
             clearInterval(pollIntervalRef.current!);
             pollIntervalRef.current = null;
+            onLifecycleEventRef.current?.({ type: 'extraction_failed' });
             onError('Extraction operation was lost. Please try again.');
           }
         }
@@ -569,6 +632,11 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         discovery_iteration: nc.discovery_iteration
       }));
 
+    onLifecycleEventRef.current?.({
+      type: 'columns_confirmed',
+      extractValues: false,
+      operationId,
+    });
     onSuccess(`Added ${addedColumns.length} new column${addedColumns.length !== 1 ? 's' : ''} (without extraction).`, addedColumns);
     onClose();
   };
@@ -1211,7 +1279,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
       <DialogContent ref={dialogContentRef} className="max-w-2xl max-h-[85vh] flex flex-col">
         {renderStep()}
       </DialogContent>

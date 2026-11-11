@@ -85,6 +85,10 @@ export function useReextraction({
     setPendingSchemaColumns([]);
     setRerunStarting(false);
     setReextraction(null);
+    setReextractConfirm(null);
+    setReextractAvailability(null);
+    setReextractAvailabilityLoading(false);
+    setStoppingReextraction(false);
   }, [sessionId]);
 
   const clearPendingRerun = useCallback(() => {
