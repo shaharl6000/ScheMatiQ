@@ -1,16 +1,62 @@
 """Supabase cloud storage backend implementation."""
 
+import asyncio
 import base64
 import json
 import logging
+import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Coroutine, Dict, List, Optional, Tuple, TypeVar
 
 from supabase import create_client, Client
 
 from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, TemplateInfo, InitialSchemaInfo
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+_bg_loop: Optional[asyncio.AbstractEventLoop] = None
+_bg_loop_thread: Optional[threading.Thread] = None
+_bg_loop_lock = threading.Lock()
+
+
+def _get_bg_event_loop() -> asyncio.AbstractEventLoop:
+    """Return a lazy-started shared daemon event loop for sync-in-async calls."""
+    global _bg_loop, _bg_loop_thread
+    if _bg_loop is not None and _bg_loop.is_running():
+        return _bg_loop
+    with _bg_loop_lock:
+        if _bg_loop is not None and _bg_loop.is_running():
+            return _bg_loop
+        ready = threading.Event()
+        loop_holder: List[asyncio.AbstractEventLoop] = []
+
+        def _runner() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop_holder.append(loop)
+            ready.set()
+            loop.run_forever()
+
+        thread = threading.Thread(
+            target=_runner,
+            name="supabase-sync-bridge",
+            daemon=True,
+        )
+        thread.start()
+        ready.wait()
+        _bg_loop = loop_holder[0]
+        _bg_loop_thread = thread
+        return _bg_loop
+
+
+def _run_coro_sync(coro: Coroutine[Any, Any, _T]) -> _T:
+    """Run ``coro`` synchronously, reusing a persistent daemon event loop when already inside an active loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    return asyncio.run_coroutine_threadsafe(coro, _get_bg_event_loop()).result()
 
 
 def classify_supabase_key(key: str) -> Tuple[str, str]:
@@ -395,118 +441,16 @@ class SupabaseStorageBackend(StorageInterface):
             return False
 
     # =================
-    # URL Generation
-    # =================
-
-    def get_public_url(self, bucket: str, path: str) -> Optional[str]:
-        """Get public URL for a file in Supabase storage."""
-        try:
-            storage_path = self._get_storage_path(bucket, path)
-            response = self.client.storage.from_(bucket).get_public_url(storage_path)
-            return response
-        except Exception as e:
-            logger.error(f"Error getting public URL for {bucket}/{path}: {e}")
-            return None
-
-    def get_signed_url(
-        self,
-        bucket: str,
-        path: str,
-        expires_in: int = 3600
-    ) -> Optional[str]:
-        """Get a signed URL for private file access.
-
-        Args:
-            bucket: Bucket name
-            path: Path within bucket
-            expires_in: URL expiration time in seconds (default: 1 hour)
-
-        Returns:
-            Signed URL string, or None on error
-        """
-        try:
-            storage_path = self._get_storage_path(bucket, path)
-            response = self.client.storage.from_(bucket).create_signed_url(
-                storage_path,
-                expires_in
-            )
-            return response.get("signedURL")
-        except Exception as e:
-            logger.error(f"Error creating signed URL for {bucket}/{path}: {e}")
-            return None
-
-    # =================
     # Sync Helpers
     # =================
 
     def save_session_sync(self, session_id: str, data: Dict[str, Any]) -> bool:
         """Synchronous version of save_session."""
-        import asyncio
-        try:
-            # Check if we're already in an async context
-            loop = asyncio.get_running_loop()
-            # If we get here, we're in an async context - use a new thread
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self.save_session(session_id, data))
-                return future.result()
-        except RuntimeError:
-            # No running loop, safe to use asyncio.run
-            return asyncio.run(self.save_session(session_id, data))
+        return _run_coro_sync(self.save_session(session_id, data))
 
     def get_session_sync(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Synchronous version of get_session."""
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self.get_session(session_id))
-                return future.result()
-        except RuntimeError:
-            return asyncio.run(self.get_session(session_id))
-
-    def upload_file_sync(
-        self,
-        bucket: str,
-        path: str,
-        data: bytes,
-        content_type: Optional[str] = None
-    ) -> str:
-        """Synchronous version of upload_file."""
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self.upload_file(bucket, path, data, content_type))
-                return future.result()
-        except RuntimeError:
-            return asyncio.run(self.upload_file(bucket, path, data, content_type))
-
-    def download_file_sync(self, bucket: str, path: str) -> Optional[bytes]:
-        """Synchronous version of download_file."""
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self.download_file(bucket, path))
-                return future.result()
-        except RuntimeError:
-            return asyncio.run(self.download_file(bucket, path))
-
-    def file_exists_sync(self, bucket: str, path: str) -> bool:
-        """Synchronous version of file_exists."""
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self.file_exists(bucket, path))
-                return future.result()
-        except RuntimeError:
-            return asyncio.run(self.file_exists(bucket, path))
+        return _run_coro_sync(self.get_session(session_id))
 
     def list_sessions_sync(self) -> List[str]:
         """Synchronous version of list_sessions."""

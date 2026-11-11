@@ -2,7 +2,7 @@
 // Parent: ChatPanel. By default it shows a one-line summary ("Used N tools")
 // and expands on click to reveal each individual tool-log entry.
 
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { ChevronRight, Loader2, Wrench } from 'lucide-react';
 
 import type { WorkspaceMessage } from '../types';
@@ -20,7 +20,11 @@ function summarize(logs: WorkspaceMessage[]): string {
   return `Ran ${count} ${noun}`;
 }
 
-export function ToolActivityGroup({ logs }: { logs: WorkspaceMessage[] }) {
+export const ToolActivityGroup = memo(function ToolActivityGroup({
+  logs,
+}: {
+  logs: WorkspaceMessage[];
+}) {
   const [open, setOpen] = useState(false);
   // The backend emits a "running" log then a terminal "done"/"error" log per
   // tool, so a stale "running" entry always remains in the list once a tool has
@@ -64,4 +68,4 @@ export function ToolActivityGroup({ logs }: { logs: WorkspaceMessage[] }) {
       )}
     </div>
   );
-}
+});

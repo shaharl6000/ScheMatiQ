@@ -83,7 +83,7 @@ from ..config.prompts import (
 )
 from ..utils.schema_builder import build_extraction_response_schema
 from ..utils.reference_retrieval import ReferenceRetriever
-from ..utils.excerpt_grounder import ExcerptGrounder
+from ..utils.excerpt_grounder import ExcerptGrounder, _PreparedSource
 
 # Type alias for warning callback: (paper_title, warning_type, message) -> None
 OnWarningCallback = Callable[[str, str, str], None]
@@ -215,12 +215,6 @@ OnUnitRowWrittenCallback = Callable[[Dict[str, Any]], None]
 ShouldStopCallback = Callable[[], bool]
 
 
-class StopRequestedException(Exception):
-    """Raised when a stop has been requested during extraction."""
-
-    pass
-
-
 def _counted_llm_call(breaker, call, *args, **kwargs):
     """Make one LLM call and report its outcome to the run's failure breaker.
 
@@ -257,6 +251,7 @@ class PaperProcessor:
     _active_context_cache = ThreadLocalAttribute(lambda: None)
     _active_figure_images = ThreadLocalAttribute(list)
     _active_figures_by_id = ThreadLocalAttribute(dict)
+    _active_norm_captions_cache = ThreadLocalAttribute(lambda: None)
     # (system_prompt, document) for a document without a context cache, or
     # whose cache expired; see _generate. Per thread like the cache itself, or
     # a concurrent document would be sent another document's text.
@@ -319,6 +314,7 @@ class PaperProcessor:
         # figure_refs entry against what was actually shown this run, instead
         # of trusting an arbitrary string back from the model.
         self._active_figures_by_id: Dict[str, Dict[str, Any]] = {}
+        self._active_norm_captions_cache = None
 
     @staticmethod
     def _flatten_extracted(cleaned: Dict[str, Any]) -> Dict[str, str]:
@@ -406,6 +402,7 @@ class PaperProcessor:
         self._uncached_doc_layout = None
         self._active_figure_images = []
         self._active_figures_by_id = {}
+        self._active_norm_captions_cache = None
 
     def _ground_and_enforce(
         self, cleaned: Dict[str, Any], source_text: str, context_label: str
@@ -535,6 +532,7 @@ class PaperProcessor:
         """
         self._active_figure_images = []
         self._active_figures_by_id = {}
+        self._active_norm_captions_cache = None
         if not ENABLE_FIGURE_VISION_CONTEXT:
             return
         if not figures_dir:
@@ -585,6 +583,15 @@ class PaperProcessor:
 
         self._active_figure_images = images
         self._active_figures_by_id = figures_by_id
+        self._active_norm_captions_cache = (
+            id(figures_by_id),
+            len(figures_by_id),
+            [
+                (fid, norm_cap, _PreparedSource(norm_cap))
+                for fid, f in figures_by_id.items()
+                if (norm_cap := " ".join((f.get("caption") or "").split()))
+            ],
+        )
         logger.debug(
             "Loaded %d figure image(s) for document context (%s)",
             len(images), manifest_path,
@@ -732,10 +739,6 @@ class PaperProcessor:
             }
         return result
 
-    def clear_suggested_values(self):
-        """Clear all tracked suggested values."""
-        self.suggested_values = {}
-
     def _notify_value_extracted(self, row_name: str, column_name: str, value: Any):
         """Call the on_value_extracted callback if set."""
         print(
@@ -792,20 +795,54 @@ class PaperProcessor:
         figures_by_id = getattr(self, "_active_figures_by_id", None) or {}
         if not figures_by_id:
             return None
+
+        cache_entry = getattr(self, "_active_norm_captions_cache", None)
+        if (
+            isinstance(cache_entry, tuple)
+            and len(cache_entry) == 3
+            and cache_entry[0] == id(figures_by_id)
+            and cache_entry[1] == len(figures_by_id)
+        ):
+            prepared_captions = cache_entry[2]
+        else:
+            prepared_captions = [
+                (fid, norm_cap, _PreparedSource(norm_cap))
+                for fid, f in figures_by_id.items()
+                if (norm_cap := " ".join((f.get("caption") or "").split()))
+            ]
+            try:
+                self._active_norm_captions_cache = (
+                    id(figures_by_id),
+                    len(figures_by_id),
+                    prepared_captions,
+                )
+            except AttributeError:
+                pass
+
+        if not prepared_captions:
+            return None
+
         norm_excerpt = " ".join(excerpt_text.split())
+        prepared_excerpt: Optional[_PreparedSource] = None
         best_figure_id: Optional[str] = None
         best_score = -1.0
-        for figure_id, fig in figures_by_id.items():
-            caption = (fig.get("caption") or "").strip()
-            if not caption:
-                continue
-            norm_caption = " ".join(caption.split())
-            short, long_ = (
-                (norm_excerpt, norm_caption)
-                if len(norm_excerpt) <= len(norm_caption)
-                else (norm_caption, norm_excerpt)
-            )
-            _, _, status = self.excerpt_grounder.ground_excerpt(short, long_)
+        for figure_id, norm_caption, prepared_caption in prepared_captions:
+            if len(norm_excerpt) <= len(norm_caption):
+                _, _, status = self.excerpt_grounder.ground_excerpt(
+                    norm_excerpt,
+                    norm_caption,
+                    source_lower=prepared_caption.source_lower,
+                    _prepared=prepared_caption,
+                )
+            else:
+                if prepared_excerpt is None:
+                    prepared_excerpt = _PreparedSource(norm_excerpt)
+                _, _, status = self.excerpt_grounder.ground_excerpt(
+                    norm_caption,
+                    norm_excerpt,
+                    source_lower=prepared_excerpt.source_lower,
+                    _prepared=prepared_excerpt,
+                )
             if status == "not_found":
                 continue
             score = difflib.SequenceMatcher(None, norm_excerpt, norm_caption).ratio()
@@ -872,12 +909,12 @@ class PaperProcessor:
                 })
             allow_caption_fallback = not resolved_refs
 
-            def _wrap(exc):
+            def _wrap(exc, _allow_fallback: bool = allow_caption_fallback):
                 if not isinstance(exc, str):
                     return exc
                 matched_figure_id = (
                     self._match_excerpt_to_figure_caption(exc)
-                    if figures_by_id and allow_caption_fallback
+                    if figures_by_id and _allow_fallback
                     else None
                 )
                 if matched_figure_id:
