@@ -818,19 +818,61 @@ class ReextractionService(WebSocketBroadcasterMixin):
         # Combine local and cloud papers for available list
         available = local_papers + list(cloud_papers.keys())
 
-        # Schema-only / first extraction: no table rows yet, but documents were uploaded for discovery
+        # Schema-only / first extraction / data_missing recovery: no table rows yet,
+        # so resolve source documents from disk, session cloud_dataset, or recorded metadata.
         session_document_filenames: List[str] = []
         if not paper_refs:
             session_document_filenames = self._collect_session_document_filenames(session_id)
-            if session_document_filenames:
-                for doc_name in session_document_filenames:
-                    if doc_name not in local_papers:
-                        local_papers.append(doc_name)
-                available = list(dict.fromkeys(local_papers + list(cloud_papers.keys())))
-                logger.debug(
-                    "discover_papers: no row references; using %d on-disk session document(s)",
-                    len(session_document_filenames),
+            for doc_name in session_document_filenames:
+                if doc_name not in local_papers:
+                    local_papers.append(doc_name)
+
+            if session_cloud_dataset:
+                clean_cloud_dataset = (
+                    session_cloud_dataset.replace("datasets/", "", 1)
+                    if session_cloud_dataset.startswith("datasets/")
+                    else session_cloud_dataset
                 )
+                try:
+                    folder_files = await storage.list_folder_files(
+                        "datasets", clean_cloud_dataset
+                    )
+                except Exception as e:
+                    logger.debug(
+                        "Error listing Supabase folder %s: %s", clean_cloud_dataset, e
+                    )
+                    folder_files = set()
+                for fname in sorted(folder_files or set()):
+                    if not fname or fname.startswith("."):
+                        continue
+                    if fname not in local_files and Path(fname).stem not in local_files:
+                        cloud_papers[fname] = f"{clean_cloud_dataset}/{fname}"
+            elif session.metadata:
+                recorded_docs = list(
+                    dict.fromkeys(
+                        list(session.metadata.uploaded_documents or [])
+                        + list((session.metadata.document_metadata or {}).keys())
+                    )
+                )
+                for doc_name in recorded_docs:
+                    if not doc_name:
+                        continue
+                    stem = Path(doc_name).stem
+                    if (
+                        doc_name not in local_files
+                        and f"{stem}.txt" not in local_files
+                        and stem not in local_files
+                        and doc_name not in missing
+                    ):
+                        missing.append(doc_name)
+
+            available = list(dict.fromkeys(local_papers + list(cloud_papers.keys())))
+            logger.debug(
+                "discover_papers: no row references; local=%d, cloud=%d, missing=%d",
+                len(local_papers),
+                len(cloud_papers),
+                len(missing),
+            )
 
         def _invert_row_paper_mapping(
             mapping: Dict[tuple, List[str]],
@@ -1908,6 +1950,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     schema_data["observation_unit"]["example_names"] = session.observation_unit.example_names
 
             # Save schema file
+            session_dir.mkdir(parents=True, exist_ok=True)
             schema_file = session_dir / f"reextract_schema_{operation_id}.json"
             with open(schema_file, 'w') as f:
                 json.dump(schema_data, f, indent=2)
