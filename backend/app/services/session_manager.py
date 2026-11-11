@@ -1,12 +1,11 @@
 """Session management service."""
 
-import hashlib
 import logging
 import threading
 from typing import Any, Dict, Mapping, Optional
 from datetime import datetime
 
-from app.models.session import VisualizationSession, SessionStatus, ColumnBaseline, SchemaBaseline
+from app.models.session import VisualizationSession, SessionStatus, SchemaBaseline
 from app.models.modification import CreationMetadata
 from app.storage import get_storage, StorageInterface
 
@@ -106,39 +105,6 @@ class SessionManager:
             self.update_session(session)
             return True
         return False
-
-    def reconcile_orphaned_sessions(
-        self,
-        running_sessions: Optional[Mapping[str, Any]] = None,
-        state_lock: Optional[threading.Lock] = None,
-    ) -> int:
-        """Sweep stored and cached sessions and mark any orphaned running sessions as STOPPED."""
-        reconciled = 0
-        try:
-            stored_ids = list(self._storage.list_sessions_sync())
-        except Exception as e:
-            logger.error(f"Error listing sessions for orphan reconciliation: {e}")
-            stored_ids = []
-
-        with self._lock:
-            cached_ids = list(self._sessions.keys())
-
-        seen = set()
-        for session_id in [*cached_ids, *stored_ids]:
-            if session_id in seen:
-                continue
-            seen.add(session_id)
-            with self._lock:
-                session = self._sessions.get(session_id)
-            if session is None:
-                session = self._load_session(session_id, reconcile=False)
-            if session is None:
-                continue
-            if self.reconcile_orphaned_session(
-                session, running_sessions=running_sessions, state_lock=state_lock
-            ):
-                reconciled += 1
-        return reconciled
 
     def _save_session(self, session: VisualizationSession):
         """Save session to storage."""

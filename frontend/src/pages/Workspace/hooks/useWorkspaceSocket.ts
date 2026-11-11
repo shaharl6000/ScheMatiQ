@@ -1,6 +1,7 @@
-import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 
 import { WS_DISCONNECTED_REFRESH_INTERVAL } from '@/constants';
+import { schemaAPI } from '@/services/api';
 import webSocketService from '@/services/websocket';
 import type {
   PaginatedData,
@@ -13,8 +14,13 @@ import type {
 
 import type { SheetId, WorkspaceReextractionState } from '../types';
 
+const REEXTRACTION_POLL_INTERVAL_MS = 2500;
+
+type ReextractionSettleOutcome = 'completed' | 'failed' | 'stopped' | 'cleaned_up';
+
 type UseWorkspaceSocketOptions = {
   sessionId?: string;
+  reextraction?: WorkspaceReextractionState | null;
   refresh: (options?: { silent?: boolean; onCommitted?: (data: PaginatedData) => void }) => Promise<void>;
   refreshSilent: () => Promise<void> | void;
   setActiveSheet: (sheet: SheetId) => void;
@@ -41,6 +47,7 @@ type UseWorkspaceSocketOptions = {
 // Parent: Workspace (index.tsx).
 export function useWorkspaceSocket({
   sessionId,
+  reextraction = null,
   refresh,
   refreshSilent,
   setActiveSheet,
@@ -51,6 +58,7 @@ export function useWorkspaceSocket({
   onReextractionDiscard,
 }: UseWorkspaceSocketOptions) {
   const [wsConnected, setWsConnected] = useState(false);
+  const wsConnectedRef = useRef(false);
   // A 'connected' message only means "catch up on what you missed" when it
   // follows a drop. The first connect of a session lands right after the
   // initial load has already fetched everything, and the subscription below is
@@ -59,11 +67,104 @@ export function useWorkspaceSocket({
   // every one of those made a single project open issue three identical
   // POST /api/load/data requests for the same 500-row page.
   const sawDisconnectRef = useRef(false);
+  const prevSessionIdRef = useRef<string | undefined>(sessionId);
+  const startedOpIdRef = useRef<string | null>(null);
+  const settledOpIdRef = useRef<string | null>(null);
+  const activeOpIdRef = useRef<string | null>(null);
+  // Tracks any operationId carried over from the previous session during the
+  // single transitional render before useReextraction's session-reset effect
+  // clears `reextraction` to null.
+  const staleSessionOpIdRef = useRef<string | null>(null);
+
+  const activeOperationId = reextraction?.operationId ?? null;
 
   useEffect(() => {
-    setWsConnected(false);
-    sawDisconnectRef.current = false;
-  }, [sessionId]);
+    if (prevSessionIdRef.current !== sessionId) {
+      prevSessionIdRef.current = sessionId;
+      wsConnectedRef.current = false;
+      setWsConnected(false);
+      sawDisconnectRef.current = false;
+      startedOpIdRef.current = null;
+      settledOpIdRef.current = null;
+      activeOpIdRef.current = null;
+      staleSessionOpIdRef.current = activeOperationId;
+      return;
+    }
+    if (staleSessionOpIdRef.current && activeOperationId !== staleSessionOpIdRef.current) {
+      staleSessionOpIdRef.current = null;
+    }
+  }, [activeOperationId, sessionId]);
+
+  const markOperationStarted = useCallback(
+    (operationId: string) => {
+      if (!operationId || startedOpIdRef.current === operationId) return;
+      startedOpIdRef.current = operationId;
+      onReextractionStart?.();
+    },
+    [onReextractionStart],
+  );
+
+  // Also observe HTTP-started runs (set via useReextraction.startReextraction)
+  // so the undo snapshot is captured even if the WebSocket is disconnected when
+  // the run starts, while deduplicating against WS `reextraction_started`.
+  useEffect(() => {
+    if (!sessionId || !activeOperationId) return;
+    if (prevSessionIdRef.current !== sessionId) return;
+    if (staleSessionOpIdRef.current === activeOperationId) return;
+    if (settledOpIdRef.current === activeOperationId) return;
+    activeOpIdRef.current = activeOperationId;
+    markOperationStarted(activeOperationId);
+  }, [activeOperationId, markOperationStarted, sessionId]);
+
+  const settleOperation = useCallback(
+    (
+      operationId: string,
+      outcome: ReextractionSettleOutcome,
+      details?: { columns?: string[]; error?: string },
+    ) => {
+      if (operationId && settledOpIdRef.current === operationId) return;
+      if (operationId) settledOpIdRef.current = operationId;
+
+      setReextraction(null);
+
+      if (outcome === 'completed') {
+        void refresh({ silent: true, onCommitted: onReextractionSettled });
+        toast({
+          title: 'Re-extraction completed',
+          description: details?.columns?.length
+            ? `Updated ${details.columns.length} column(s) from source documents.`
+            : 'Table values were refreshed from source documents.',
+        });
+        return;
+      }
+
+      if (outcome === 'stopped') {
+        // A stopped run still keeps whatever it processed before stopping, so
+        // that partial rewrite is worth one undo step too.
+        void refresh({ silent: true, onCommitted: onReextractionSettled });
+        return;
+      }
+
+      if (outcome === 'failed') {
+        // Nothing was written, so there is nothing to diff: discard the
+        // snapshot rather than leaving it to be diffed against unrelated data.
+        onReextractionDiscard?.();
+        toast({
+          title: 'Re-extraction failed',
+          description: details?.error || 'Could not re-extract values from source documents.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // 'cleaned_up' (404 from getReextractionStatus): backend _cleanup_operation
+      // already ran after finishing. Refresh with onReextractionSettled so the
+      // snapshot is cleared and any non-zero cell diff is recorded for undo,
+      // while omitting a toast since the exact terminal status is unknown.
+      void refresh({ silent: true, onCommitted: onReextractionSettled });
+    },
+    [onReextractionDiscard, onReextractionSettled, refresh, setReextraction, toast],
+  );
 
   useEffect(() => {
     if (!sessionId || wsConnected) return undefined;
@@ -71,11 +172,76 @@ export function useWorkspaceSocket({
     return () => window.clearInterval(interval);
   }, [refreshSilent, sessionId, wsConnected]);
 
+  // Fallback status polling while a re-extraction operation is active: if the
+  // WebSocket drops briefly and misses the terminal event (and/or the backend
+  // cleans up the finished operation and returns 404), clear `reextraction`
+  // and settle the undo snapshot so the bottom-bar banner never hangs forever.
+  useEffect(() => {
+    if (!sessionId || !activeOperationId) return undefined;
+    if (prevSessionIdRef.current !== sessionId) return undefined;
+    if (staleSessionOpIdRef.current === activeOperationId) return undefined;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const st = await schemaAPI.getReextractionStatus(sessionId, activeOperationId);
+        if (cancelled || settledOpIdRef.current === activeOperationId) return;
+
+        if (st.status === 'running' || st.status === 'starting') {
+          const totalDocuments = st.total_documents || 0;
+          const processedDocuments = Math.min(
+            st.processed_documents ?? 0,
+            totalDocuments || (st.processed_documents ?? 0),
+          );
+          setReextraction((current) => {
+            if (!current || current.operationId !== activeOperationId) return current;
+            return {
+              ...current,
+              columns: st.columns?.length ? st.columns : current.columns,
+              progress: st.progress ?? current.progress,
+              processedDocuments,
+              totalDocuments: totalDocuments || current.totalDocuments,
+              currentColumn: st.current_column || current.currentColumn,
+            };
+          });
+          if (!wsConnectedRef.current) {
+            void refreshSilent();
+          }
+          return;
+        }
+
+        if (st.status === 'completed' || st.status === 'failed' || st.status === 'stopped') {
+          settleOperation(activeOperationId, st.status, {
+            columns: st.columns,
+            error: st.error,
+          });
+        }
+      } catch (err) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (!cancelled && status === 404) {
+          settleOperation(activeOperationId, 'cleaned_up');
+        }
+        // Ignore transient network errors and keep polling.
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void poll();
+    }, REEXTRACTION_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeOperationId, refreshSilent, sessionId, setReextraction, settleOperation]);
+
   useEffect(() => {
     if (!sessionId) return undefined;
 
     const handler = (message: WebSocketMessage) => {
       if (message.type === 'connected') {
+        wsConnectedRef.current = true;
         setWsConnected(true);
         if (sawDisconnectRef.current) {
           sawDisconnectRef.current = false;
@@ -85,6 +251,7 @@ export function useWorkspaceSocket({
       }
 
       if (message.type === 'disconnected' || message.type === 'reconnecting') {
+        wsConnectedRef.current = false;
         setWsConnected(false);
         sawDisconnectRef.current = true;
         return;
@@ -96,6 +263,8 @@ export function useWorkspaceSocket({
 
       if (message.type === 'reextraction_started' && message.data) {
         const payload = message.data as ReextractionStartedData;
+        if (payload.operation_id && settledOpIdRef.current === payload.operation_id) return;
+        if (payload.operation_id) activeOpIdRef.current = payload.operation_id;
         setReextraction({
           operationId: payload.operation_id,
           columns: payload.columns || [],
@@ -108,13 +277,15 @@ export function useWorkspaceSocket({
         // of a manual edit would now restore a value the model has replaced.
         // Snapshot the current data first so the rewrite itself can become one
         // undo step once it settles (see onReextractionSettled below).
-        onReextractionStart?.();
+        markOperationStarted(payload.operation_id);
         void refresh({ silent: true });
         return;
       }
 
       if (message.type === 'reextraction_progress' && message.data) {
         const payload = message.data as ReextractionProgressData;
+        if (payload.operation_id && settledOpIdRef.current === payload.operation_id) return;
+        if (payload.operation_id) activeOpIdRef.current = payload.operation_id;
         setReextraction((current) => ({
           operationId: payload.operation_id,
           columns: current?.columns || (payload.column ? [payload.column] : []),
@@ -134,36 +305,24 @@ export function useWorkspaceSocket({
 
       if (message.type === 'reextraction_completed' && message.data) {
         const payload = message.data as ReextractionCompletedData;
-        setReextraction(null);
-        void refresh({ silent: true, onCommitted: onReextractionSettled });
-        toast({
-          title: 'Re-extraction completed',
-          description: payload.columns?.length
-            ? `Updated ${payload.columns.length} column(s) from source documents.`
-            : 'Table values were refreshed from source documents.',
-        });
+        const opId = payload.operation_id ?? activeOpIdRef.current ?? '';
+        settleOperation(opId, 'completed', { columns: payload.columns });
         return;
       }
 
       if (message.type === 'reextraction_failed' && message.data) {
         const payload = message.data as ReextractionFailedData;
-        setReextraction(null);
-        // Nothing was written, so there is nothing to diff: discard the
-        // snapshot rather than leaving it to be diffed against unrelated data.
-        onReextractionDiscard?.();
-        toast({
-          title: 'Re-extraction failed',
-          description: payload.error || 'Could not re-extract values from source documents.',
-          variant: 'destructive',
-        });
+        const opId = payload.operation_id ?? activeOpIdRef.current ?? '';
+        settleOperation(opId, 'failed', { error: payload.error });
         return;
       }
 
       if (message.type === 'reextraction_stopped') {
-        setReextraction(null);
-        // A stopped run still keeps whatever it processed before stopping, so
-        // that partial rewrite is worth one undo step too.
-        void refresh({ silent: true, onCommitted: onReextractionSettled });
+        const opId =
+          (message.data as { operation_id?: string } | undefined)?.operation_id
+          ?? activeOpIdRef.current
+          ?? '';
+        settleOperation(opId, 'stopped');
         return;
       }
 
@@ -207,18 +366,17 @@ export function useWorkspaceSocket({
     return () => {
       webSocketService.removeMessageHandler(handler);
       webSocketService.disconnect();
+      wsConnectedRef.current = false;
       setWsConnected(false);
     };
   }, [
+    markOperationStarted,
     refresh,
     refreshSilent,
     sessionId,
     setActiveSheet,
     setReextraction,
-    toast,
-    onReextractionStart,
-    onReextractionSettled,
-    onReextractionDiscard,
+    settleOperation,
   ]);
 
   return { wsConnected };
