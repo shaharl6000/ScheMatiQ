@@ -128,6 +128,67 @@ describe('webSocketService reference counting', () => {
       jest.useRealTimers();
     }
   });
+
+  it('preserves reference count when a second holder connects during reconnect backoff', () => {
+    jest.useFakeTimers();
+    try {
+      webSocketService.connect('session-1', 'progress');
+      const first = MockWebSocket.instances[0];
+      first.simulateOpen();
+
+      // Abnormal close -> socket is null while reconnectTimeout is pending.
+      first.simulateServerClose(1006);
+      expect(MockWebSocket.instances).toHaveLength(1);
+
+      // Second holder connects for the same session during backoff.
+      webSocketService.connect('session-1', 'progress');
+      expect(MockWebSocket.instances).toHaveLength(1);
+
+      // Scheduled reconnect fires and opens a single replacement socket.
+      jest.advanceTimersByTime(2000);
+      expect(MockWebSocket.instances).toHaveLength(2);
+      const reconnected = MockWebSocket.instances[1];
+      reconnected.simulateOpen();
+
+      // First holder disconnects -> second holder still keeps the socket open.
+      webSocketService.disconnect();
+      expect(reconnected.closeCalls).toHaveLength(0);
+      expect(webSocketService.isConnected()).toBe(true);
+
+      // Second holder disconnects -> socket is closed.
+      webSocketService.disconnect();
+      expect(reconnected.closeCalls).toHaveLength(1);
+      expect(webSocketService.isConnected()).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('cancels pending reconnect timer when ensureConnected() or session switch opens a socket early', () => {
+    jest.useFakeTimers();
+    try {
+      webSocketService.connect('session-1', 'progress');
+      const first = MockWebSocket.instances[0];
+      first.simulateOpen();
+
+      // Abnormal close schedules a 2s reconnect timer.
+      first.simulateServerClose(1006);
+      expect(MockWebSocket.instances).toHaveLength(1);
+
+      // Caller triggers immediate reconnect before the timer fires.
+      webSocketService.ensureConnected('session-1', 'progress');
+      expect(MockWebSocket.instances).toHaveLength(2);
+      MockWebSocket.instances[1].simulateOpen();
+
+      // Advancing past the original 2s backoff must NOT open a duplicate socket.
+      jest.advanceTimersByTime(5000);
+      expect(MockWebSocket.instances).toHaveLength(2);
+
+      webSocketService.disconnect();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 export {};
