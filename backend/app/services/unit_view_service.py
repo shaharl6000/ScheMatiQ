@@ -3,7 +3,7 @@
 import json
 import logging
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
@@ -19,6 +19,12 @@ from app.models.unit import (
 )
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
 from app.services import row_filtering
+from app.services.atomic_jsonl import write_jsonl_atomic
+from app.services.data_utils import (
+    candidate_data_dirs,
+    candidate_work_dirs,
+    enumerate_session_data_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,96 +32,48 @@ logger = logging.getLogger(__name__)
 class UnitViewService:
     """Service for managing observation unit views and merges."""
 
-    # In-memory row cache: session_id -> (rows, file_signatures, cached_at)
-    _row_cache: Dict[str, Tuple[List[Dict], Dict[str, Tuple[float, int]], float]] = {}
+    # Bounded LRU row cache: session_id -> (rows, file_signatures, cached_at)
+    _row_cache: OrderedDict[str, Tuple[List[Dict], Dict[str, Tuple[float, int]], float]] = OrderedDict()
     _CACHE_TTL = 30  # seconds
+    _MAX_ROW_CACHE_SESSIONS = 32
 
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = Path(data_dir)
         self.work_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR)
 
-    def _dev_instance_work_dirs(self) -> List[Path]:
-        """schematiq_work dirs from dev.sh isolation (.dev-data/instance-N/)."""
-        from app.services.data_utils import dev_instance_dirs
-
-        return dev_instance_dirs("schematiq_work")
-
     def _candidate_work_dirs(self) -> List[Path]:
-        """Work dirs to search — CWD-relative, module-relative, and dev.sh instances."""
-        from app.services.data_utils import get_schematiq_work_dir
-
-        seen: set[Path] = set()
-        candidates: List[Path] = []
-        for d in (self.work_dir, get_schematiq_work_dir(), *self._dev_instance_work_dirs()):
-            resolved = d.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                candidates.append(d)
-        return candidates
-
-    def _dev_instance_data_dirs(self) -> List[Path]:
-        """data dirs from dev.sh isolation (.dev-data/instance-N/data)."""
-        from app.services.data_utils import dev_instance_dirs
-
-        return dev_instance_dirs("data")
+        """Work dirs to search — delegates to data_utils while honoring instance overrides."""
+        dirs = candidate_work_dirs()
+        seen = {d.resolve() for d in dirs}
+        if self.work_dir.resolve() not in seen:
+            return [self.work_dir, *dirs]
+        return dirs
 
     def _candidate_data_dirs(self) -> List[Path]:
-        """Data dirs to search — CWD-relative, module-relative, and dev.sh instances."""
-        from app.services.data_utils import get_data_dir
-
-        seen: set[Path] = set()
-        candidates: List[Path] = []
-        for d in (self.data_dir, get_data_dir(), *self._dev_instance_data_dirs()):
-            resolved = d.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                candidates.append(d)
-        return candidates
+        """Data dirs to search — delegates to data_utils while honoring instance overrides."""
+        dirs = candidate_data_dirs()
+        seen = {d.resolve() for d in dirs}
+        if self.data_dir.resolve() not in seen:
+            return [self.data_dir, *dirs]
+        return dirs
 
     def _get_all_data_files(self, session_id: str) -> List[Path]:
-        """Get all data file paths for a session, checking multiple locations.
-
-        Checks both CWD-relative paths (where schematiq_runner writes under dev.sh)
-        and module-relative paths (backend/schematiq_work) so units are found
-        regardless of process working directory.
-
-        Returns list of existing files from:
-        1. schematiq_work/{session_id}/extracted_data.jsonl (ScheMatiQ sessions)
-        2. schematiq_work/{session_id}/data.jsonl (fallback if extracted_data doesn't exist)
-        3. data/{session_id}/data.jsonl (always check - may have additional docs)
-        """
-        data_files: List[Path] = []
-        resolved_files: set[Path] = set()
-
-        # Check ScheMatiQ work directories (original ScheMatiQ extraction)
-        for work_dir in self._candidate_work_dirs():
-            schematiq_extracted = work_dir / session_id / "extracted_data.jsonl"
-            if schematiq_extracted.exists():
-                resolved = schematiq_extracted.resolve()
-                if resolved not in resolved_files:
-                    resolved_files.add(resolved)
-                    data_files.append(schematiq_extracted)
-
-        # Check schematiq_work for data.jsonl (only if extracted_data.jsonl doesn't exist)
-        if not data_files:
-            for work_dir in self._candidate_work_dirs():
-                schematiq_data = work_dir / session_id / "data.jsonl"
-                if schematiq_data.exists():
-                    resolved = schematiq_data.resolve()
-                    if resolved not in resolved_files:
-                        resolved_files.add(resolved)
-                        data_files.append(schematiq_data)
-
-        # Always check data directories — may contain additional documents
-        for data_dir in self._candidate_data_dirs():
-            data_file = data_dir / session_id / "data.jsonl"
-            if data_file.exists():
-                resolved = data_file.resolve()
-                if resolved not in resolved_files:
-                    resolved_files.add(resolved)
-                    data_files.append(data_file)
-
-        return data_files
+        """Get all data file paths for a session across work and data directories."""
+        custom_work = (
+            self.work_dir
+            if self.work_dir != Path(DEFAULT_SCHEMATIQ_WORK_DIR)
+            else None
+        )
+        custom_data = (
+            self.data_dir
+            if self.data_dir != Path(DEFAULT_DATA_DIR)
+            else None
+        )
+        return enumerate_session_data_files(
+            session_id,
+            work_dir=custom_work,
+            data_dir=custom_data,
+        )
 
     def _get_data_file(self, session_id: str) -> Optional[Path]:
         """Get the primary data file path for a session (for backwards compatibility)."""
@@ -153,7 +111,10 @@ class UnitViewService:
         if session_id in self._row_cache:
             cached_rows, cached_signatures, cached_at = self._row_cache[session_id]
             if (now - cached_at) < self._CACHE_TTL and cached_signatures == current_signatures:
+                if isinstance(self._row_cache, OrderedDict):
+                    self._row_cache.move_to_end(session_id)
                 return cached_rows
+            self._row_cache.pop(session_id, None)
 
         # Cache miss — read from disk
         from app.services.data_utils import row_dedup_key
@@ -187,19 +148,20 @@ class UnitViewService:
             seen_keys.update(file_keys)
 
         self._row_cache[session_id] = (rows, current_signatures, now)
+        if isinstance(self._row_cache, OrderedDict):
+            self._row_cache.move_to_end(session_id)
+            while len(self._row_cache) > self._MAX_ROW_CACHE_SESSIONS:
+                self._row_cache.popitem(last=False)
         return rows
 
     def _save_all_rows(self, session_id: str, rows: List[Dict]) -> None:
-        """Save all data rows to a session's JSONL file."""
+        """Save all data rows atomically to a session's JSONL file."""
         data_file = self._get_data_file(session_id)
         if not data_file:
             # Default to schematiq_work directory for new files
             data_file = self.work_dir / session_id / "extracted_data.jsonl"
-        data_file.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(data_file, 'w', encoding='utf-8') as f:
-            for row in rows:
-                f.write(json.dumps(row, ensure_ascii=False) + '\n')
+        write_jsonl_atomic(data_file, rows, ensure_ascii=False)
 
         # Invalidate cache since data changed
         self._invalidate_cache(session_id)
@@ -574,20 +536,60 @@ class UnitViewService:
         """Calculate pairwise similarity suggestions for all units."""
         summary = self.get_units_summary(session_id)
         unit_names = [u.name for u in summary.units]
+        num_units = len(unit_names)
+        if num_units < 2:
+            return []
+
+        lower_names = [u.lower() for u in unit_names]
+        norm_names = [l.strip() for l in lower_names]
+        word_sets = [frozenset(n.split()) for n in norm_names]
+        word_counts = [len(ws) for ws in word_sets]
 
         suggestions = []
         processed_pairs = set()
 
-        for i, name1 in enumerate(unit_names):
-            for name2 in unit_names[i + 1:]:
-                pair_key = tuple(sorted([name1.lower(), name2.lower()]))
+        for i in range(num_units - 1):
+            name1 = unit_names[i]
+            l1 = lower_names[i]
+            n1 = norm_names[i]
+            w1 = word_sets[i]
+            len_w1 = word_counts[i]
+            sm = SequenceMatcher(None, n1, "")
+
+            for j in range(i + 1, num_units):
+                l2 = lower_names[j]
+                pair_key = (l1, l2) if l1 <= l2 else (l2, l1)
                 if pair_key in processed_pairs:
                     continue
                 processed_pairs.add(pair_key)
 
-                similarity = self._calculate_similarity(name1, name2)
+                w2 = word_sets[j]
+                len_w2 = word_counts[j]
+                if len_w1 and len_w2:
+                    if w1.isdisjoint(w2):
+                        word_overlap = 0.0
+                    else:
+                        smaller, larger = (w1, w2) if len_w1 <= len_w2 else (w2, w1)
+                        inter = sum(1 for tok in smaller if tok in larger)
+                        word_overlap = inter / (len_w1 if len_w1 >= len_w2 else len_w2)
+                else:
+                    word_overlap = 0.0
+
+                min_seq_ratio = (threshold - 0.3 * word_overlap) / 0.7
+                if min_seq_ratio > 1.0 + 1e-9:
+                    continue
+
+                sm.set_seq2(norm_names[j])
+                if min_seq_ratio > 0.0:
+                    gate = min_seq_ratio - 1e-9
+                    if sm.real_quick_ratio() < gate or sm.quick_ratio() < gate:
+                        continue
+
+                seq_ratio = sm.ratio()
+                similarity = 0.7 * seq_ratio + 0.3 * word_overlap
 
                 if similarity >= threshold:
+                    name2 = unit_names[j]
                     suggested_name, reason = self._generate_merge_suggestion(
                         name1, name2, similarity
                     )

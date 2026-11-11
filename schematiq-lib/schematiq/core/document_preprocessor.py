@@ -192,29 +192,3 @@ class DocumentPreprocessor:
             lines[table.start_line : table.end_line] = md.split("\n")
 
         return "\n".join(lines)
-
-    def get_stats(self, original: str, preprocessed: str) -> dict:
-        """Get preprocessing statistics for debugging/monitoring.
-
-        Args:
-            original: Original document text.
-            preprocessed: Preprocessed document text.
-
-        Returns:
-            Dict with original_length, preprocessed_length, reduction_percent,
-            and is_paper flag.
-        """
-        original_len = len(original)
-        preprocessed_len = len(preprocessed)
-        reduction = (
-            (original_len - preprocessed_len) / original_len * 100
-            if original_len > 0
-            else 0
-        )
-
-        return {
-            "original_length": original_len,
-            "preprocessed_length": preprocessed_len,
-            "reduction_percent": round(reduction, 2),
-            "is_paper": self._is_academic_paper(original),
-        }

@@ -31,12 +31,20 @@ import {
   COMPACT_ROW_HEIGHT,
 } from './constants';
 import {
+  SCHEMA_SPARE_ROW_FIELDS,
+  consumeSchemaSpareRowForCreate,
+  createEmptySchemaSpareRowState,
   documentDisplayName,
   emptyCellScope,
+  finishSchemaSpareRowCreate,
   formatSheetColHeader,
   getCellFormatClasses,
+  hasSchemaSpareRowDraft,
+  isSchemaSpareRowField,
   parseAllowedValues,
+  recordSchemaSpareRowEdit,
   renderObservationUnitFieldCell,
+  rollbackSchemaSpareRowCreate,
   schemaColumnKeysForCols,
   selectedCellScope,
   selectedColumnIndices,
@@ -954,6 +962,62 @@ export function SpreadsheetSurface({
     }));
   }, [schemaColumns]);
 
+  // Tracks in-progress spare-row edits on the Schema sheet before `name` is
+  // entered (or while `schemaAPI.addColumn` is in flight) so a background
+  // schema refresh does not wipe uncommitted fields and edits typed while
+  // creation is in flight are flushed once the column exists.
+  const schemaSpareRowRef = useRef(createEmptySchemaSpareRowState());
+  useEffect(() => {
+    schemaSpareRowRef.current = createEmptySchemaSpareRowState();
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (activeSheet !== 'schema') return;
+    const state = schemaSpareRowRef.current;
+    if (state.creatingColumnName || !hasSchemaSpareRowDraft(state)) return;
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot || typeof hot.setDataAtRowProp !== 'function') return;
+    const spareRowIndex = schemaColumns.length;
+    const activeEditor = typeof hot.getActiveEditor === 'function' ? hot.getActiveEditor() : null;
+    const editorOpen = Boolean(
+      activeEditor && typeof activeEditor.isOpened === 'function' && activeEditor.isOpened(),
+    );
+    const editingSameRowProp =
+      editorOpen && activeEditor?.row === spareRowIndex ? String(activeEditor?.prop ?? '') : null;
+    const editorValue =
+      editorOpen && typeof activeEditor?.getValue === 'function' ? activeEditor.getValue() : undefined;
+
+    const changesToRestore: Array<[number, string, string]> = [];
+    for (const field of SCHEMA_SPARE_ROW_FIELDS) {
+      if (field === editingSameRowProp) continue;
+      const draftVal = state.draft[field];
+      if (!draftVal) continue;
+      const currentVal = String(hot.getDataAtRowProp(spareRowIndex, field) ?? '');
+      if (!currentVal) {
+        changesToRestore.push([spareRowIndex, field, draftVal]);
+      }
+    }
+    if (changesToRestore.length > 0) {
+      try {
+        hot.setDataAtRowProp(changesToRestore, 'silent');
+        if (
+          editorOpen &&
+          activeEditor &&
+          typeof activeEditor.isOpened === 'function' &&
+          !activeEditor.isOpened() &&
+          typeof activeEditor.beginEditing === 'function'
+        ) {
+          activeEditor.beginEditing();
+          if (editorValue !== undefined && typeof activeEditor.setValue === 'function') {
+            activeEditor.setValue(editorValue);
+          }
+        }
+      } catch {
+        /* ignore if grid is mid-teardown */
+      }
+    }
+  }, [activeSheet, schemaColumns.length, schemaRows, hotTableRef]);
+
   const observationUnitRows = useMemo(() => {
     const unit = schema?.observation_unit;
     const exampleNames = Array.isArray(unit?.example_names) ? unit.example_names.join(', ') : '';
@@ -1345,6 +1409,32 @@ export function SpreadsheetSurface({
       return;
     }
 
+    const spareRowsWithName = new Set<number>();
+    if (activeSheet === 'schema') {
+      // Pre-fold any non-`name` edits on the spare row from the same `changes`
+      // batch before processing `name`, so a multi-cell paste into the spare
+      // row captures every field in the single `addColumn` request.
+      for (const [rIdx, p, oldV, newV] of changes) {
+        if (oldV === newV || p == null) continue;
+        if (!schemaColumns[rIdx] && String(p) === 'name' && String(newV || '').trim()) {
+          spareRowsWithName.add(rIdx);
+        }
+      }
+      if (spareRowsWithName.size > 0) {
+        for (const [rIdx, p, oldV, newV] of changes) {
+          if (oldV === newV || p == null || !spareRowsWithName.has(rIdx)) continue;
+          const k = String(p);
+          if (isSchemaSpareRowField(k)) {
+            schemaSpareRowRef.current = recordSchemaSpareRowEdit(
+              schemaSpareRowRef.current,
+              k,
+              newV,
+            );
+          }
+        }
+      }
+    }
+
     for (const change of changes) {
       const [rowIndex, prop, oldValue, newValue] = change;
       if (oldValue === newValue || prop == null) continue;
@@ -1356,35 +1446,67 @@ export function SpreadsheetSurface({
         if (!editable.includes(key)) continue;
 
         if (!existing && key === 'name' && String(newValue || '').trim()) {
-          // A brand-new column is created from the spare schema row. Other cells
-          // on that row (definition/rationale/allowed_values) may already hold
-          // values the user typed before the name -- e.g. when filling the row
-          // right-to-left, where the name is entered last. Those edits landed on
-          // a still-non-existing row and were skipped by the `!existing` guard
-          // below, so read them back from the live grid and include them in the
-          // create request. Otherwise the subsequent onRefresh() re-renders from
-          // the backend (name only) and the typed values are lost.
+          // A brand-new column is created from the spare schema row. Merge live
+          // grid values with `schemaSpareRowRef.current` so fields typed before
+          // `name` survive even if a background refresh re-rendered the grid.
           const hot = hotTableRef.current?.hotInstance;
           const readRowCell = (field: string): string =>
             hot ? String(hot.getDataAtRowProp(rowIndex, field) ?? '') : '';
-          const pendingRationale = readRowCell('rationale').trim();
-          const pendingAllowedValues = parseAllowedValues(readRowCell('allowed_values'));
+          const consumed = consumeSchemaSpareRowForCreate(
+            schemaSpareRowRef.current,
+            newValue,
+            readRowCell,
+          );
+          if (!consumed) continue;
+          schemaSpareRowRef.current = consumed.nextState;
+          const createdName = consumed.addColumnPayload.name;
 
-          schemaAPI.addColumn(sessionId, {
-            name: String(newValue).trim(),
-            definition: readRowCell('definition').trim(),
-            rationale: pendingRationale || undefined,
-            allowed_values:
-              pendingAllowedValues && pendingAllowedValues.length > 0
-                ? pendingAllowedValues
-                : undefined,
-          })
-            .then(() => {
+          schemaAPI.addColumn(sessionId, consumed.addColumnPayload)
+            .then(async () => {
+              const finished = finishSchemaSpareRowCreate(schemaSpareRowRef.current);
+              schemaSpareRowRef.current = finished.nextState;
+
+              const editReq: Record<string, any> = { old_name: createdName, reprocess: false };
+              let hasEditReq = false;
+              if (finished.queuedEdits.definition !== undefined) {
+                editReq.definition = finished.queuedEdits.definition;
+                hasEditReq = true;
+              }
+              if (finished.queuedEdits.rationale !== undefined) {
+                editReq.rationale = finished.queuedEdits.rationale;
+                hasEditReq = true;
+              }
+              if (finished.queuedEdits.allowed_values !== undefined) {
+                editReq.allowed_values = parseAllowedValues(finished.queuedEdits.allowed_values) ?? [];
+                hasEditReq = true;
+              }
+              const queuedThresholdRaw = finished.queuedEdits.auto_expand_threshold;
+              const thresholdToApply =
+                queuedThresholdRaw !== undefined
+                  ? Number(queuedThresholdRaw) || 0
+                  : consumed.autoExpandThreshold;
+
+              try {
+                if (hasEditReq) {
+                  await schemaAPI.editColumn(sessionId, editReq as any);
+                }
+                if (thresholdToApply !== undefined) {
+                  await schemaAPI.setAutoExpandThreshold(sessionId, createdName, thresholdToApply);
+                }
+              } catch {
+                /* best-effort follow-up flush; onRefresh below syncs canonical state */
+              }
+
               toast({ title: 'Schema column added' });
-              onEditFollowUp('schema', [String(newValue).trim()]);
+              onEditFollowUp('schema', [createdName]);
               onRefresh();
             })
             .catch((err: any) => {
+              schemaSpareRowRef.current = rollbackSchemaSpareRowCreate(
+                schemaSpareRowRef.current,
+                consumed.addColumnPayload,
+                consumed.autoExpandThreshold,
+              );
               toast({
                 title: 'Column add failed',
                 description: err?.response?.data?.detail || err?.message || 'Could not add column',
@@ -1395,7 +1517,16 @@ export function SpreadsheetSurface({
           continue;
         }
 
-        if (!existing) continue;
+        if (!existing) {
+          if (isSchemaSpareRowField(key) && !spareRowsWithName.has(rowIndex)) {
+            schemaSpareRowRef.current = recordSchemaSpareRowEdit(
+              schemaSpareRowRef.current,
+              key,
+              newValue,
+            );
+          }
+          continue;
+        }
 
         if (key === 'auto_expand_threshold') {
           schemaAPI.setAutoExpandThreshold(sessionId, existing.name, Number(newValue) || 0)

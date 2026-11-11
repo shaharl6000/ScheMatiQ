@@ -1,16 +1,20 @@
 """Session management service."""
 
-import hashlib
 import logging
 import threading
-from typing import Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 from datetime import datetime
 
-from app.models.session import VisualizationSession, SessionStatus, ColumnBaseline, SchemaBaseline
+from app.models.session import VisualizationSession, SessionStatus, SchemaBaseline
 from app.models.modification import CreationMetadata
 from app.storage import get_storage, StorageInterface
 
 logger = logging.getLogger(__name__)
+
+ORPHANABLE_RUNNING_STATUSES = (
+    SessionStatus.PROCESSING,
+    SessionStatus.SCHEMA_READY,
+)
 
 
 class SessionManager:
@@ -37,7 +41,9 @@ class SessionManager:
         # Migrate session to include new fields if missing
         return self.migrate_session(session)
 
-    def _load_session(self, session_id: str) -> Optional[VisualizationSession]:
+    def _load_session(
+        self, session_id: str, *, reconcile: bool = True
+    ) -> Optional[VisualizationSession]:
         """Fetch one session from storage and cache it. None if absent or invalid."""
         try:
             session_data = self._storage.get_session_sync(session_id)
@@ -55,8 +61,50 @@ class SessionManager:
             return None
         with self._lock:
             # Another thread may have cached it first; that copy is equivalent.
-            self._sessions.setdefault(session.id, session)
-            return self._sessions[session.id]
+            cached = self._sessions.setdefault(session.id, session)
+        if reconcile:
+            self.reconcile_orphaned_session(cached)
+        return cached
+
+    def reconcile_orphaned_session(
+        self,
+        session: VisualizationSession,
+        running_sessions: Optional[Mapping[str, Any]] = None,
+        state_lock: Optional[threading.Lock] = None,
+    ) -> bool:
+        """Mark a PROCESSING or SCHEMA_READY session as STOPPED if no task or slot owns it."""
+        if session.status not in ORPHANABLE_RUNNING_STATUSES:
+            return False
+
+        from app.services import concurrency_limiter
+
+        if running_sessions is None:
+            try:
+                from app.services.orchestration import schematiq_runner
+
+                running_sessions = schematiq_runner.running_sessions
+                if state_lock is None:
+                    state_lock = schematiq_runner._state_lock
+            except Exception:
+                running_sessions = {}
+
+        if state_lock is not None:
+            with state_lock:
+                has_active_task = session.id in running_sessions
+        else:
+            has_active_task = session.id in running_sessions
+
+        has_active_slot = concurrency_limiter.is_session_active(session.id)
+        if not has_active_task and not has_active_slot:
+            logger.info(
+                "Reconciling orphaned %s session %s to STOPPED",
+                session.status.value,
+                session.id,
+            )
+            session.status = SessionStatus.STOPPED
+            self.update_session(session)
+            return True
+        return False
 
     def _save_session(self, session: VisualizationSession):
         """Save session to storage."""
@@ -122,67 +170,12 @@ class SessionManager:
         if not session:
             return False
 
-        columns_dict = {}
-        for col in session.columns:
-            if col.name and not col.name.lower().endswith('_excerpt'):
-                # Calculate checksum from definition + rationale + allowed_values
-                content = f"{col.definition or ''}{col.rationale or ''}"
-                if col.allowed_values:
-                    content += "|".join(sorted(col.allowed_values))
-                checksum = hashlib.md5(content.encode()).hexdigest()
-
-                columns_dict[col.name] = ColumnBaseline(
-                    name=col.name,
-                    definition=col.definition or "",
-                    rationale=col.rationale or "",
-                    allowed_values=col.allowed_values,
-                    checksum=checksum
-                )
-
-        session.schema_baseline = SchemaBaseline(
-            columns=columns_dict,
-            captured_at=datetime.now()
-        )
+        session.schema_baseline = SchemaBaseline.from_columns(session.columns)
 
         self.update_session(session)
-        logger.debug(f"Captured schema baseline for session {session_id} with {len(columns_dict)} columns")
-        return True
-
-    def finalize_creation(self, session_id: str, llm_model: str = "", llm_provider: str = "") -> bool:
-        """
-        Finalize ScheMatiQ creation by capturing immutable creation metadata.
-        Call this when ScheMatiQ schema discovery or loading completes.
-
-        Args:
-            session_id: The session ID
-            llm_model: The LLM model used for schema creation
-            llm_provider: The LLM provider (e.g., "gemini", "openai")
-
-        Returns:
-            True if creation was finalized successfully, False otherwise.
-        """
-        session = self.get_session(session_id)
-        if not session:
-            return False
-
-        # Only finalize if not already finalized
-        if session.creation_metadata is not None:
-            logger.debug(f"Session {session_id} already has creation metadata, skipping finalize")
-            return True
-
-        # Create immutable creation metadata
-        session.creation_metadata = CreationMetadata(
-            created_at=session.metadata.created,
-            creation_query=session.schema_query or "",
-            llm_model=llm_model,
-            llm_provider=llm_provider,
-            iterations_count=len(session.statistics.schema_evolution.snapshots) if session.statistics and session.statistics.schema_evolution else 0,
-            final_schema_size=len([c for c in session.columns if not c.name.lower().endswith('_excerpt')]),
-            convergence_achieved=(session.status == SessionStatus.COMPLETED)
+        logger.debug(
+            f"Captured schema baseline for session {session_id} with {len(session.schema_baseline.columns)} columns"
         )
-
-        self.update_session(session)
-        logger.debug(f"Finalized creation for session {session_id}")
         return True
 
     def migrate_session(self, session: VisualizationSession) -> VisualizationSession:

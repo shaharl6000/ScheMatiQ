@@ -86,6 +86,9 @@ async def lifespan(app: FastAPI):
     # Load Docling's models in the background as soon as the server starts, so
     # the first PDF upload doesn't pay the model-load time inside its request.
     # Not awaited: startup (and /health) must not wait on it.
+    # Orphaned PROCESSING/SCHEMA_READY sessions are reconciled lazily on first
+    # load in SessionManager._load_session to avoid reading every session from
+    # cloud storage at startup.
     warm_up = asyncio.create_task(asyncio.to_thread(_warm_up_docling))
     yield
     warm_up.cancel()

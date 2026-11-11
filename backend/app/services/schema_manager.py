@@ -8,28 +8,23 @@ import asyncio
 import functools
 import logging
 import threading
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from pathlib import Path
 from datetime import datetime
 
-from app.models.session import ColumnInfo
 from app.services.atomic_jsonl import write_jsonl_atomic
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import schematiq_thread_pool, concurrency_limiter, find_session_data_file
-from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.config import DEFAULT_DATA_DIR
+from app.services.pipeline.llm_factory import resolve_llm_for_session
 
 logger = logging.getLogger(__name__)
 
 # ScheMatiQ library imports
 from schematiq.value_extraction.main import build_table_jsonl
-from schematiq.core.llm_backends import GeminiLLM
-from schematiq.core.model_specs import ModelNames
-from schematiq.core import utils
-from app.services.session_documents import committed_docs_dir, pending_docs_dir
-
-SCHEMATIQ_AVAILABLE = True
+from app.services.session_documents import committed_docs_dir
 
 
 class SchemaManager(WebSocketBroadcasterMixin):
@@ -60,85 +55,8 @@ class SchemaManager(WebSocketBroadcasterMixin):
         
     def _get_value_extraction_llm_from_session(self, session_id: str):
         """Get value extraction LLM configuration from session, including API key."""
-        session_dir = Path(DEFAULT_DATA_DIR) / session_id
+        return resolve_llm_for_session(session_id, session_manager=self.session_manager)
 
-        # Priority 0: Check user_llm_config.json (user-provided config from frontend)
-        # This is checked FIRST even in release mode, because it contains the user's API key.
-        try:
-            user_config_file = session_dir / "user_llm_config.json"
-            if user_config_file.exists():
-                with open(user_config_file) as f:
-                    user_config = json.load(f)
-                if not DEVELOPER_MODE:
-                    # Release mode: use locked model but with user's API key
-                    api_key = user_config.get('api_key')
-                    if api_key:
-                        logger.info(f"Release mode - using locked LLM {RELEASE_CONFIG['value_extraction_model']} with user API key")
-                        return GeminiLLM(
-                            model=RELEASE_CONFIG["value_extraction_model"],
-                            api_key=api_key,
-                            temperature=RELEASE_CONFIG["llm_temperature"]
-                        )
-                else:
-                    logger.debug(f"Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
-                    return utils.build_llm(user_config)
-        except Exception as e:
-            logger.debug(f"Could not load user LLM config: {e}")
-
-        # In release mode without user config, use the release-mode LLM (requires GEMINI_API_KEY env var)
-        if not DEVELOPER_MODE:
-            logger.info(f"Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']} (no user API key, using env var)")
-            return GeminiLLM(
-                model=RELEASE_CONFIG["value_extraction_model"],
-                temperature=RELEASE_CONFIG["llm_temperature"]
-            )
-
-        # Priority 1: Check session's metadata.extracted_schema for llm_configuration
-        try:
-            session = self.session_manager.get_session(session_id)
-            if session and session.metadata.extracted_schema:
-                extracted_schema = session.metadata.extracted_schema
-                if "llm_configuration" in extracted_schema:
-                    llm_config = extracted_schema["llm_configuration"]
-                    backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
-                    if backend_config:
-                        logger.debug(f"Using LLM config from session metadata: {backend_config.get('provider')} {backend_config.get('model')}")
-                        return utils.build_llm(backend_config)
-        except Exception as e:
-            logger.debug(f"Could not load LLM config from session metadata: {e}")
-
-        # Priority 2: Check parsed_schema.json (contains llm_configuration with api_key)
-        try:
-            parsed_schema_file = session_dir / "parsed_schema.json"
-            if parsed_schema_file.exists():
-                with open(parsed_schema_file) as f:
-                    parsed_schema = json.load(f)
-                if "llm_configuration" in parsed_schema:
-                    llm_config = parsed_schema["llm_configuration"]
-                    backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
-                    if backend_config:
-                        logger.debug(f"Using LLM config from parsed_schema.json: {backend_config.get('provider')} {backend_config.get('model')}")
-                        return utils.build_llm(backend_config)
-        except Exception as e:
-            logger.debug(f"Could not load LLM config from parsed_schema.json: {e}")
-
-        # Priority 3: Check schematiq_config.json (legacy location)
-        try:
-            schematiq_config_file = session_dir / "schematiq_config.json"
-            if schematiq_config_file.exists():
-                with open(schematiq_config_file) as f:
-                    schematiq_config = json.load(f)
-                backend_config = schematiq_config.get("value_extraction_backend") or schematiq_config.get("schema_creation_backend")
-                if backend_config:
-                    logger.debug(f"Using LLM config from schematiq_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
-                    return utils.build_llm(backend_config)
-        except Exception as e:
-            logger.debug(f"Could not load LLM config from schematiq_config.json: {e}")
-
-        # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
-        logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
-        return GeminiLLM(model=ModelNames.DEFAULT_VALUE_EXTRACTION, temperature=0)
-    
     async def reprocess_column(self, session_id: str, column_name: str):
         """Reprocess documents for a specific column after editing."""
         # Track this task for stop support
@@ -147,7 +65,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
         try:
             session = self.session_manager.get_session(session_id)
-            if not session or not SCHEMATIQ_AVAILABLE:
+            if not session:
                 return
 
             await self.broadcast_progress(
@@ -361,159 +279,6 @@ class SchemaManager(WebSocketBroadcasterMixin):
             await self.broadcast_error(session_id, f"Failed to remove column data: {str(e)}")
             raise
     
-    async def extract_values_for_new_column(self, session_id: str, column: ColumnInfo, documents_path: Optional[str] = None):
-        """Extract values for a newly added column using comprehensive schema context."""
-        # Clear any stale stop flag
-        with self._state_lock:
-            self._stop_flags.pop(session_id, None)
-
-        try:
-            if not SCHEMATIQ_AVAILABLE:
-                await self.broadcast_error(session_id, "ScheMatiQ components not available")
-                return
-
-            await self.broadcast_progress(
-                session_id,
-                f"Extracting values for new column '{column.name}' with schema context",
-                0.0,
-                "extracting_new_column"
-            )
-
-            session = self.session_manager.get_session(session_id)
-            if not session:
-                return
-
-            # Validate column metadata
-            if not column.definition and not column.rationale:
-                await self.broadcast_progress(
-                    session_id,
-                    f"Warning: New column '{column.name}' lacks definition and rationale - extraction may be less accurate",
-                    0.0,
-                    "schema_warning"
-                )
-
-            # Create schema for value extraction — must use "schema" key (list of columns)
-            # so that Schema.from_dict() can parse it correctly
-            session_dir = Path(DEFAULT_DATA_DIR) / session_id
-            column_entry = {
-                "column": column.name,
-                "definition": column.definition or f"New data field: {column.name}",
-                "explanation": column.rationale or f"Additional information for {column.name}",
-            }
-            if column.allowed_values:
-                column_entry["allowed_values"] = column.allowed_values
-
-            comprehensive_schema = {
-                "query": session.schema_query or "Extract structured information",
-                "schema": [column_entry],
-            }
-
-            # Add observation_unit (required by value extraction)
-            if session.observation_unit:
-                comprehensive_schema["observation_unit"] = {
-                    "name": session.observation_unit.name,
-                    "definition": session.observation_unit.definition,
-                }
-                if session.observation_unit.example_names:
-                    comprehensive_schema["observation_unit"]["example_names"] = session.observation_unit.example_names
-
-            schema_file = session_dir / f"new_column_enhanced_schema_{column.name}.json"
-            with open(schema_file, 'w') as f:
-                json.dump(comprehensive_schema, f, indent=2)
-
-            # Setup enhanced extraction components
-            llm = self._get_value_extraction_llm_from_session(session_id)
-            from app.services import get_shared_retriever
-            retriever = get_shared_retriever()
-
-            # Determine documents directories — check all possible locations
-            # (same pattern as reextraction_service._run_reextraction)
-            if documents_path:
-                docs_directories = [Path(documents_path)]
-            else:
-                schematiq_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id
-                candidate_dirs = [
-                    committed_docs_dir(session_dir),
-                    pending_docs_dir(session_dir),
-                ]
-                # Check schematiq_work datasets directories
-                schematiq_datasets_dir = schematiq_dir / "datasets"
-                if schematiq_datasets_dir.exists():
-                    for dataset_subdir in schematiq_datasets_dir.iterdir():
-                        if dataset_subdir.is_dir():
-                            candidate_dirs.append(dataset_subdir)
-                # Check schematiq_work capped_documents
-                capped_dir = schematiq_dir / "capped_documents"
-                if capped_dir.exists():
-                    candidate_dirs.append(capped_dir)
-                # Check original docs_path from ScheMatiQ config
-                schematiq_config_file = schematiq_dir / "schematiq_config.json"
-                if schematiq_config_file.exists():
-                    try:
-                        with open(schematiq_config_file) as f:
-                            schematiq_cfg = json.load(f)
-                        config_docs_path = schematiq_cfg.get("docs_path", [])
-                        if isinstance(config_docs_path, str):
-                            config_docs_path = [config_docs_path]
-                        for dp in config_docs_path:
-                            if dp:
-                                dp_path = Path(dp)
-                                if dp_path.is_dir() and dp_path not in candidate_dirs:
-                                    candidate_dirs.append(dp_path)
-                    except Exception:
-                        pass
-                docs_directories = [d for d in candidate_dirs if d.exists()]
-
-            if not docs_directories:
-                await self.broadcast_error(session_id, "No document directories found for extraction")
-                return
-
-            logger.info(f"extract_values_for_new_column docs_directories={[str(d) for d in docs_directories]}")
-
-            # Extract values with enhanced schema awareness
-            output_file = session_dir / f"new_column_enhanced_values_{column.name}.jsonl"
-
-            # Create should_stop callback for graceful cancellation
-            def should_stop():
-                return self.is_stop_requested(session_id)
-
-            await asyncio.get_event_loop().run_in_executor(
-                schematiq_thread_pool,
-                functools.partial(
-                    build_table_jsonl,
-                    schema_path=schema_file,
-                    docs_directories=docs_directories,
-                    output_path=output_file,
-                    llm=llm,
-                    retriever=retriever,
-                    resume=False,
-                    mode="one_by_one",
-                    retrieval_k=10,
-                    max_workers=1,
-                    should_stop=should_stop,
-                    write_skip_rationale_artifact=session.write_artifacts,
-                )
-            )
-
-            # Add new column data to existing records
-            await self._add_new_column_data(session_id, column.name, output_file)
-
-            await self.broadcast_completion(
-                session_id,
-                f"Enhanced extraction completed for new column '{column.name}'"
-            )
-
-            # Cleanup
-            schema_file.unlink(missing_ok=True)
-            output_file.unlink(missing_ok=True)
-
-        except Exception as e:
-            await self.broadcast_error(session_id, f"Enhanced extraction failed for new column: {str(e)}")
-            raise
-        finally:
-            self.clear_stop_flag(session_id)
-            await concurrency_limiter.release(session_id)
-    
     async def merge_column_data(self, session_id: str, source_columns: List[str], target_column: str, strategy: str, separator: str = " | "):
         """Merge data from multiple columns into a new column."""
         try:
@@ -602,11 +367,11 @@ class SchemaManager(WebSocketBroadcasterMixin):
         """Update existing data with newly extracted values for a column.
 
         Values are matched to existing rows by a composite key (row name +
-        source document), with row-name and paper-stem fallbacks, mirroring
-        ``_add_new_column_data``. Matching by key rather than by file position
-        keeps each value aligned to the correct observation unit even when the
-        extraction file and the main data file differ in row order or count
-        (e.g. after dedup, sorting, or sampling).
+        source document), with row-name and paper-stem fallbacks. Matching by
+        key rather than by file position keeps each value aligned to the
+        correct observation unit even when the extraction file and the main
+        data file differ in row order or count (e.g. after dedup, sorting, or
+        sampling).
         """
         if not extraction_file.exists():
             return
@@ -683,116 +448,10 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
         # Write back updated data
         write_jsonl_atomic(data_file, updated_rows)
-    
-    async def _add_new_column_data(self, session_id: str, column_name: str, extraction_file: Path):
-        """Add data for a new column to existing records across ALL data files."""
-        if not extraction_file.exists():
-            return
 
-        # Read extracted values indexed by composite key (row_name, source_document)
-        from app.services.data_utils import row_dedup_key, _resolve_source_document
-
-        extracted_by_key: Dict[tuple, Any] = {}
-        extracted_by_row_name: Dict[str, List[tuple]] = {}
-        extracted_by_paper_stem: Dict[str, List[tuple]] = {}
-        with open(extraction_file, 'r') as f:
-            for line in f:
-                if line.strip():
-                    row_data = json.loads(line)
-                    key = row_dedup_key(row_data)
-                    value = row_data.get(column_name)
-                    if key[0] and value is not None:
-                        extracted_by_key[key] = value
-                        extracted_by_row_name.setdefault(key[0], []).append((key, value))
-                        extracted_by_paper_stem.setdefault(key[0].lower(), []).append((key, value))
-
-        # Find ALL data files (same pattern as unit_view_service._get_all_data_files)
-        data_files = []
-        schematiq_extracted = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "extracted_data.jsonl"
-        if schematiq_extracted.exists():
-            data_files.append(schematiq_extracted)
-        if not data_files:
-            schematiq_data = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "data.jsonl"
-            if schematiq_data.exists():
-                data_files.append(schematiq_data)
-        load_data = Path(DEFAULT_DATA_DIR) / session_id / "data.jsonl"
-        if load_data.exists() and load_data.resolve() not in [f.resolve() for f in data_files]:
-            data_files.append(load_data)
-
-        if not data_files:
-            # Create new data file in default location
-            session_dir = Path(DEFAULT_DATA_DIR) / session_id
-            session_dir.mkdir(parents=True, exist_ok=True)
-            data_file = session_dir / "data.jsonl"
-            with open(data_file, 'w') as f:
-                for (row_name, src_doc), value in extracted_by_key.items():
-                    row_data = {
-                        "row_name": row_name,
-                        "data": {column_name: value},
-                        "papers": [],
-                        "_source_document": src_doc,
-                    }
-                    f.write(json.dumps(row_data) + '\n')
-            return
-
-        # Update each data file
-        for data_file in data_files:
-            updated_rows = []
-            with open(data_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        row_data = json.loads(line)
-                        row_name = row_data.get('row_name') or row_data.get('_row_name')
-                        row_src = _resolve_source_document(row_data)
-                        papers = row_data.get('papers') or []
-
-                        # Try composite key match first
-                        value = None
-                        row_key = (row_name, row_src) if row_name else None
-                        if row_key and row_key in extracted_by_key:
-                            value = extracted_by_key[row_key]
-                        elif row_name and row_name in extracted_by_row_name:
-                            candidates = extracted_by_row_name[row_name]
-                            if len(candidates) == 1:
-                                value = candidates[0][1]
-                            else:
-                                for paper in papers:
-                                    paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                                    for cand_key, cand_val in candidates:
-                                        if cand_key[1].lower() == paper_stem:
-                                            value = cand_val
-                                            break
-                                    if value is not None:
-                                        break
-                        if value is None:
-                            for paper in papers:
-                                paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                                if paper_stem in extracted_by_paper_stem:
-                                    candidates = extracted_by_paper_stem[paper_stem]
-                                    if len(candidates) == 1:
-                                        value = candidates[0][1]
-                                    break
-
-                        if value is not None:
-                            if 'data' not in row_data:
-                                row_data['data'] = {}
-                            row_data['data'][column_name] = value
-
-                        updated_rows.append(row_data)
-
-            with open(data_file, 'w') as f:
-                for row in updated_rows:
-                    f.write(json.dumps(row) + '\n')
-
-        logger.debug(f"Added new column '{column_name}' data across {len(data_files)} data files")
-    
     async def reprocess_documents(self, session_id: str, columns: List[str], incremental: bool = True, force: bool = False):
         """Reprocess documents for multiple columns using comprehensive schema context."""
         try:
-            if not SCHEMATIQ_AVAILABLE:
-                await self.broadcast_error(session_id, "ScheMatiQ components not available")
-                return
-            
             session = self.session_manager.get_session(session_id)
             if not session:
                 return
@@ -909,7 +568,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
         """Reprocess a column using full schema context for improved accuracy."""
         try:
             session = self.session_manager.get_session(session_id)
-            if not session or not SCHEMATIQ_AVAILABLE:
+            if not session:
                 return
             
             await self.broadcast_progress(

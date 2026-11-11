@@ -1,5 +1,6 @@
 import { DataRow, CellValue } from '../../../types';
 import { SortState, SortColumn } from '../types/filters';
+import { getCellValue } from './valueUtils';
 
 /**
  * Apply sorting to a set of rows
@@ -33,19 +34,6 @@ function compareRows(a: DataRow, b: DataRow, sortCol: SortColumn): number {
   const comparison = compareValues(aValue, bValue);
 
   return sortCol.direction === 'asc' ? comparison : -comparison;
-}
-
-/**
- * Get cell value for a column, handling special columns
- */
-function getCellValue(row: DataRow, columnName: string): CellValue {
-  if (columnName === '_row_name') {
-    return row.row_name;
-  }
-  if (columnName === '_papers') {
-    return row.papers;
-  }
-  return row.data[columnName];
 }
 
 /**

@@ -4,15 +4,12 @@ import asyncio
 import logging
 import uuid
 import json
-import csv
-import io
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 from app.core.config import DEFAULT_DATA_DIR
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Query
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.models.session import VisualizationSession, SessionType, SessionMetadata, PaginatedData, SessionStatus, FilterSortRequest
@@ -20,11 +17,12 @@ from app.services.session_capabilities import has_live_pipeline, is_imported
 from app.models.upload import (
     ColumnMappingRequest, CompatibilityCheck
 )
-from app.services.file_parser import FileParser, format_column_header, is_system_file
-from app.services.grounding_flags import (
-    UNGROUNDED_COLUMNS_FIELD,
-    any_ungrounded,
-    ungrounded_columns,
+from app.services.file_parser import FileParser, is_system_file
+from app.services.export_service import (
+    export_complete_upload,
+    export_upload_csv,
+    export_upload_rich_csv_data,
+    export_upload_schema_json,
 )
 from app.services.pipeline.data_query import session_data_read_failed
 from app.services.data_utils import (
@@ -652,134 +650,14 @@ async def export_upload_data(
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Get the original parsed data
+
         parser = FileParser()
         data_file = parser.data_dir / session_id / "data.jsonl"
-
-        if not data_file.exists():
-            raise HTTPException(status_code=404, detail="No data found for export")
-
-        # Helper function to flatten ScheMatiQ answer format to plain values
-        def flatten_cell_value(value):
-            """Convert ScheMatiQ answer format {'answer': ..., 'excerpts': [...]} to plain value."""
-            if isinstance(value, dict) and 'answer' in value:
-                return value['answer']
-            return value
-
-        # Build the set of schema column names (what the user sees in the UI)
-        schema_col_names = {col.name for col in session.columns if col.name}
-
-        # Read JSONL and flatten to plain values, keeping only UI-visible columns
-        raw_rows = []
-        has_row_name = False
-        has_unit_name = False
-        has_source_document = False
-
-        with open(data_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.strip():
-                    row_data = json.loads(line)
-                    raw_rows.append(row_data)
-                    if 'data' in row_data:
-                        if row_data.get('row_name'):
-                            has_row_name = True
-                        if row_data.get('_unit_name'):
-                            has_unit_name = True
-                        if row_data.get('_source_document'):
-                            has_source_document = True
-
-        # One extra column, only when some cell was kept without a supporting
-        # excerpt: which of the row's columns those are.
-        has_ungrounded = any_ungrounded(
-            row_data.get('data', {}) for row_data in raw_rows if isinstance(row_data.get('data'), dict)
+        return export_upload_csv(
+            session, data_file, column_order=column_order, tz_offset=tz_offset
         )
-        schema_col_order = [col.name for col in session.columns if col.name]
-
-        rows = []
-        for row_data in raw_rows:
-            flat_row = {}
-            if 'data' in row_data:
-                for key, value in row_data['data'].items():
-                    if key in schema_col_names:
-                        flat_row[key] = flatten_cell_value(value)
-                if has_ungrounded:
-                    flat_row[UNGROUNDED_COLUMNS_FIELD] = ungrounded_columns(
-                        row_data['data'], schema_col_order
-                    )
-                if has_row_name:
-                    flat_row['_row_name'] = row_data.get('row_name', '')
-                if has_unit_name:
-                    flat_row['_unit_name'] = row_data.get('_unit_name', '')
-                if has_source_document:
-                    flat_row['_source_document'] = row_data.get('_source_document', '')
-            else:
-                for key, value in row_data.items():
-                    flat_row[key] = flatten_cell_value(value)
-            rows.append(flat_row)
-
-        # Fill missing columns with empty string
-        if rows:
-            all_keys = set()
-            for row in rows:
-                all_keys.update(row.keys())
-            for row in rows:
-                for col in all_keys:
-                    if col not in row:
-                        row[col] = ''
-
-        if not rows:
-            raise HTTPException(status_code=404, detail="No data to export")
-
-        # Build column order: row ID fields first, then schema columns
-        output = io.StringIO()
-        available_columns = set(rows[0].keys())
-
-        if column_order:
-            requested_order = [col.strip() for col in column_order.split(',')]
-            column_names = [col for col in requested_order if col in available_columns]
-            remaining = [col for col in available_columns if col not in column_names]
-            column_names.extend(remaining)
-        else:
-            column_names = []
-            for meta_col in ['_row_name', '_unit_name', '_source_document']:
-                if meta_col in available_columns:
-                    column_names.append(meta_col)
-            for col in session.columns:
-                if col.name in available_columns and col.name not in column_names:
-                    column_names.append(col.name)
-            if UNGROUNDED_COLUMNS_FIELD in available_columns:
-                column_names.append(UNGROUNDED_COLUMNS_FIELD)
-
-        # Write CSV with display headers (Title Case, matching UI)
-        display_headers = {c: format_column_header(c) for c in column_names}
-        writer = csv.DictWriter(output, fieldnames=column_names, extrasaction='ignore')
-        writer.writerow(display_headers)
-
-        for row in rows:
-            writer.writerow(row)
-        
-        # Prepare response
-        output.seek(0)
-        content = output.getvalue()
-        
-        # Generate filename with timestamp in user's timezone
-        source_name = session.metadata.source or "uploaded_data"
-        # Strip file extension to avoid double extensions (e.g., file.csv_timestamp.csv)
-        if source_name.lower().endswith(('.csv', '.json', '.jsonl')):
-            source_name = Path(source_name).stem
-        safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        # Apply timezone offset (offset is minutes from UTC, negative means ahead of UTC)
-        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
-        timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"{safe_name}_{timestamp}.csv"
-        
-        return StreamingResponse(
-            io.BytesIO(content.encode('utf-8')),
-            media_type='text/csv',
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
-        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1537,9 +1415,7 @@ async def _finalize_upload_stop(session_id: str):
         # Wait up to 30s for the task to notice the stop flag
         for _ in range(60):
             await asyncio.sleep(0.5)
-            with upload_processor._state_lock:
-                still_running = session_id in upload_processor.running_sessions
-            if not still_running:
+            if not upload_processor.is_running(session_id):
                 break
 
         session = session_manager.get_session(session_id)
@@ -1608,211 +1484,12 @@ async def export_complete_data(session_id: str, format: str = "json"):
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Prepare complete export data structure
-        export_data = {
-            "session_id": session_id,
-            "session_type": session.type.value,
-            "created": session.metadata.created.isoformat(),
-            "last_modified": session.metadata.last_modified.isoformat(),
-            "query": session.schema_query,
-            "schema": {
-                "columns": [
-                    {
-                        "name": col.name,
-                        "definition": col.definition or "",
-                        "rationale": col.rationale or "",
-                        "data_type": col.data_type,
-                        "source_document": col.source_document,
-                        "discovery_iteration": col.discovery_iteration,
-                        "allowed_values": col.allowed_values,
-                    }
-                    for col in session.columns
-                ]
-            },
-            "metadata": {
-                "total_rows": session.statistics.total_rows if session.statistics else 0,
-                "total_columns": len(session.columns),
-                "source": session.metadata.source,
-                "file_size": session.metadata.file_size,
-                "cloud_dataset": session.metadata.cloud_dataset,
-                "document_metadata": session.metadata.document_metadata or {},
-            },
-            "data": []
-        }
 
-        # Include schema evolution if available
-        if session.statistics and session.statistics.schema_evolution:
-            export_data["schema_evolution"] = session.statistics.schema_evolution.model_dump()
-
-        # Include skipped documents if available (parity with the GUI banner)
-        if session.statistics and session.statistics.skipped_documents:
-            export_data["metadata"]["skipped_documents"] = [
-                doc.model_dump() if hasattr(doc, "model_dump") else doc
-                for doc in session.statistics.skipped_documents
-            ]
-
-        # Include observation_unit if available
-        if session.observation_unit:
-            export_data["observation_unit"] = session.observation_unit.model_dump()
-
-        # Include documents_batch_size from schematiq_config if available
-        session_dir = Path(DEFAULT_DATA_DIR) / session_id
-        schematiq_config_file = session_dir / "schematiq_config.json"
-        if schematiq_config_file.exists():
-            try:
-                with open(schematiq_config_file) as f:
-                    schematiq_config = json.load(f)
-                    if "documents_batch_size" in schematiq_config:
-                        export_data["metadata"]["documents_batch_size"] = schematiq_config["documents_batch_size"]
-            except Exception:
-                pass  # Continue without batch size if there's an error
-
-        # Get all data
         parser = FileParser()
         data_file = parser.data_dir / session_id / "data.jsonl"
-        
-        if data_file.exists():
-            with open(data_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if line.strip():
-                        row_data = json.loads(line)
-                        export_data["data"].append(row_data)
-        
-        # Handle different export formats
-        if format.lower() == "json":
-            # JSON format with complete metadata
-            content = json.dumps(export_data, indent=2, ensure_ascii=False)
-            filename = f"{session_id[:8]}_complete_export.json"
-            
-            return StreamingResponse(
-                io.BytesIO(content.encode('utf-8')),
-                media_type='application/json',
-                headers={"Content-Disposition": f"attachment; filename={filename}"}
-            )
-            
-        elif format.lower() == "bundle":
-            # Self-contained project bundle: the round-trippable project.json plus
-            # the original source files, so a re-imported project can preview them.
-            import zipfile
-            from app.services.document_files import gather_source_documents
-
-            documents = await gather_source_documents(session, session_id)
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                zip_file.writestr(
-                    "project.json",
-                    json.dumps(export_data, indent=2, ensure_ascii=False, default=str),
-                )
-                for name, content in documents:
-                    safe = Path(name).name
-                    if safe:
-                        zip_file.writestr(f"documents/{safe}", content)
-
-            filename = f"{session_id[:8]}_bundle.zip"
-            return StreamingResponse(
-                io.BytesIO(buf.getvalue()),
-                media_type="application/zip",
-                headers={"Content-Disposition": f"attachment; filename={filename}"},
-            )
-
-        elif format.lower() == "zip":
-            # ZIP package with separate files
-            import zipfile
-            import tempfile
-            
-            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                with zipfile.ZipFile(tmp_file.name, 'w') as zip_file:
-                    # Add schema file
-                    schema_data = {
-                        "query": export_data["query"],
-                        "schema": export_data["schema"]["columns"]
-                    }
-                    
-                    # Include LLM configuration if available from parsed schema
-                    session_dir = Path(DEFAULT_DATA_DIR) / session_id
-                    parsed_schema_file = session_dir / "parsed_schema.json"
-                    
-                    if parsed_schema_file.exists():
-                        try:
-                            with open(parsed_schema_file) as f:
-                                parsed_schema = json.load(f)
-                                if "llm_configuration" in parsed_schema:
-                                    schema_data["llm_configuration"] = parsed_schema["llm_configuration"]
-                        except Exception:
-                            pass  # Continue without LLM config if there's an error
-                    
-                    zip_file.writestr("schema.json", json.dumps(schema_data, indent=2))
-                    
-                    # Add separate column metadata CSV for easy reference
-                    metadata_output = io.StringIO()
-                    metadata_writer = csv.writer(metadata_output)
-                    metadata_writer.writerow(["Column Name", "Definition", "Rationale", "Data Type"])
-                    
-                    for col in export_data["schema"]["columns"]:
-                        metadata_writer.writerow([
-                            col["name"],
-                            col.get("definition", ""),
-                            col.get("rationale", ""),
-                            col.get("data_type", "text")
-                        ])
-                    
-                    # Add special columns documentation
-                    metadata_writer.writerow(["row_name", "Identifier for this data row", "Standard upload metadata field", "text"])
-                    metadata_writer.writerow(["papers", "Source documents (if applicable)", "Standard upload metadata field", "text"])
-                    
-                    zip_file.writestr("column_metadata.csv", metadata_output.getvalue())
-                    
-                    # Add data file as CSV
-                    if export_data["data"]:
-                        output = io.StringIO()
-                        # Get all column names
-                        all_columns = set()
-                        for row in export_data["data"]:
-                            if "data" in row:
-                                all_columns.update(row["data"].keys())
-                            if "row_name" in row:
-                                all_columns.add("row_name")
-                            if "papers" in row:
-                                all_columns.add("papers")
-                        
-                        column_names = sorted(list(all_columns))
-                        writer = csv.DictWriter(output, fieldnames=column_names)
-                        writer.writeheader()
-                        
-                        for row in export_data["data"]:
-                            csv_row = {}
-                            if "row_name" in row:
-                                csv_row["row_name"] = row["row_name"]
-                            if "papers" in row:
-                                csv_row["papers"] = row["papers"]
-                            if "data" in row:
-                                for col, value in row["data"].items():
-                                    csv_row[col] = str(value) if value is not None else ""
-                            writer.writerow(csv_row)
-                        
-                        zip_file.writestr("data.csv", output.getvalue())
-                    
-                    # Add metadata file
-                    zip_file.writestr("metadata.json", json.dumps(export_data["metadata"], indent=2))
-                
-                # Read and return zip file
-                with open(tmp_file.name, 'rb') as f:
-                    zip_content = f.read()
-                
-                # Clean up temp file
-                Path(tmp_file.name).unlink()
-                
-                filename = f"{session_id[:8]}_complete_export.zip"
-                return StreamingResponse(
-                    io.BytesIO(zip_content),
-                    media_type='application/zip',
-                    headers={"Content-Disposition": f"attachment; filename={filename}"}
-                )
-                
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported format. Use 'json' or 'zip'")
-        
+        return await export_complete_upload(session, session_id, data_file, format=format)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Exception in export_complete_data: {e}")
         import traceback
@@ -1826,123 +1503,12 @@ async def export_upload_rich_csv(session_id: str):
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Get all data
+
         parser = FileParser()
         data_file = parser.data_dir / session_id / "data.jsonl"
-        
-        if not data_file.exists():
-            raise HTTPException(status_code=404, detail="No data found for export")
-        
-        # Load all data rows
-        rows = []
-        with open(data_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.strip():
-                    row_data = json.loads(line)
-                    if 'data' in row_data:
-                        # Extract data from DataRow format
-                        flat_row = row_data['data'].copy()
-                        # Use _row_name for consistency with main export
-                        if row_data.get('row_name'):
-                            flat_row['_row_name'] = row_data['row_name']
-                        if row_data.get('papers'):
-                            flat_row['papers'] = row_data['papers']
-                        # Include observation unit fields
-                        if row_data.get('_unit_name'):
-                            flat_row['_unit_name'] = row_data['_unit_name']
-                        if row_data.get('_source_document'):
-                            flat_row['_source_document'] = row_data['_source_document']
-                        rows.append(flat_row)
-                    else:
-                        rows.append(row_data)
-        
-        if not rows:
-            raise HTTPException(status_code=404, detail="No data to export")
-        
-        # Prepare metadata-rich CSV
-        output = io.StringIO()
-        
-        # Get base columns from data
-        base_columns = set()
-        for row in rows:
-            base_columns.update(row.keys())
-        
-        # Build enhanced column list with metadata columns
-        enhanced_columns = []
-        for col_name in sorted(base_columns):
-            enhanced_columns.append(col_name)
-            # Add metadata columns for schema columns (not for standard columns)
-            if col_name not in ['_row_name', 'row_name', 'papers', '_unit_name', '_source_document']:
-                enhanced_columns.append(f"{col_name}_definition")
-                enhanced_columns.append(f"{col_name}_rationale")
-                enhanced_columns.append(f"{col_name}_allowed_values")
-        
-        writer = csv.DictWriter(output, fieldnames=enhanced_columns)
-        
-        # Write metadata header rows first
-        output.write("# Metadata-Rich CSV Export\n")
-        output.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        output.write(f"# Session ID: {session_id}\n")
-        output.write(f"# Source: {session.metadata.source}\n")
-        if session.schema_query:
-            output.write(f"# Query: {session.schema_query}\n")
-        # Include observation_unit if available
-        if session.observation_unit:
-            obs_unit_json = json.dumps(session.observation_unit.model_dump())
-            output.write(f"# Observation Unit: {obs_unit_json}\n")
-        output.write("# Format: Each data column has corresponding _definition and _rationale columns\n")
-        output.write("#\n")
-        
-        # Write CSV headers
-        writer.writeheader()
-        
-        # Create column metadata lookup
-        column_metadata = {}
-        for col in session.columns:
-            if col.name:
-                column_metadata[col.name] = {
-                    'definition': col.definition or '',
-                    'rationale': col.rationale or '',
-                    'allowed_values': ', '.join(col.allowed_values) if col.allowed_values else ''
-                }
-        
-        # Write data rows with metadata
-        for row in rows:
-            csv_row = {}
-            
-            # Process all columns
-            for col_name, value in row.items():
-                # Add the actual data value
-                csv_row[col_name] = str(value) if value is not None else ""
-                
-                # Add metadata columns for schema columns (not for standard columns)
-                if col_name not in ['_row_name', 'row_name', 'papers', '_unit_name', '_source_document'] and col_name in column_metadata:
-                    csv_row[f"{col_name}_definition"] = column_metadata[col_name]['definition']
-                    csv_row[f"{col_name}_rationale"] = column_metadata[col_name]['rationale']
-                    csv_row[f"{col_name}_allowed_values"] = column_metadata[col_name]['allowed_values']
-            
-            writer.writerow(csv_row)
-        
-        # Prepare response
-        output.seek(0)
-        content = output.getvalue()
-        
-        # Generate filename
-        source_name = session.metadata.source or "uploaded_data"
-        # Strip file extension to avoid double extensions (e.g., file.csv_timestamp.csv)
-        if source_name.lower().endswith(('.csv', '.json', '.jsonl')):
-            source_name = Path(source_name).stem
-        safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"{safe_name}_{timestamp}_rich.csv"
-        
-        return StreamingResponse(
-            io.BytesIO(content.encode('utf-8')),
-            media_type='text/csv',
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
-        
+        return export_upload_rich_csv_data(session, session_id, data_file)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Exception in export_upload_rich_csv: {e}")
         import traceback
@@ -1956,59 +1522,10 @@ async def export_schema_only(session_id: str):
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Create ScheMatiQ-compatible schema export
-        schema_columns = []
-        for col in session.columns:
-            if col.name and not col.name.lower().endswith('_excerpt'):
-                col_export = {
-                    "name": col.name,
-                    "definition": col.definition or "",
-                    "rationale": col.rationale or "",
-                    "source_document": col.source_document,
-                    "discovery_iteration": col.discovery_iteration
-                }
-                if col.allowed_values:
-                    col_export["allowed_values"] = col.allowed_values
-                schema_columns.append(col_export)
 
-        schema_export = {
-            "query": session.schema_query or "",
-            "schema": schema_columns,
-            "metadata": {
-                "session_id": session_id,
-                "session_type": session.type.value,
-                "created": session.metadata.created.isoformat(),
-                "source": session.metadata.source,
-                "total_columns": len([col for col in session.columns if not col.name.lower().endswith('_excerpt')]),
-                "export_timestamp": datetime.now().isoformat()
-            }
-        }
-
-        # Include schema evolution if available
-        if session.statistics and session.statistics.schema_evolution:
-            schema_export["schema_evolution"] = session.statistics.schema_evolution.model_dump()
-
-        # Include observation_unit if available
-        if session.observation_unit:
-            schema_export["observation_unit"] = session.observation_unit.model_dump()
-
-        content = json.dumps(schema_export, indent=2, ensure_ascii=False)
-
-        # Generate filename
-        source_name = session.metadata.source or "schema"
-        # Strip file extension to avoid double extensions (e.g., file.csv_schema.json)
-        if source_name.lower().endswith(('.csv', '.json', '.jsonl')):
-            source_name = Path(source_name).stem
-        safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        filename = f"{safe_name}_schema_{session_id[:8]}.json"
-        
-        return StreamingResponse(
-            io.BytesIO(content.encode('utf-8')),
-            media_type='application/json',
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
-
+        return export_upload_schema_json(session, session_id)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Exception in export_schema_only: {e}")
         raise HTTPException(status_code=500, detail=str(e))

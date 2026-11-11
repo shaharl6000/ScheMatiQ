@@ -260,3 +260,63 @@ class TestGroundAllExcerpts:
         assert excerpts[0].get("type") == "figure"
         assert "grounding_status" not in excerpts[0]
         assert excerpts[1]["grounding_status"] == "exact"
+
+    def test_batch_grounding_parity_and_single_source_precomputation(self, monkeypatch):
+        """ground_all_excerpts precomputes normalized/tokenized source once and
+        produces identical spans and tiers to individual ground_excerpt calls."""
+        source = (
+            "Introduction: The baseline cohort enrolled 142 patients in 2021. "
+            "Inexperimentsabove,resultswithmice\nhomozygousforwild-typewereobserved. "
+            "Furthermore, thymicTcellsundergorecombina-\ntionandexhibitincreasedPNAbinding. "
+            "The model achieved an accuracy of 86.4 percent on the MMLU benchmark. "
+            "Citation record 2025 WL 1325305 governed the procedural ruling."
+        )
+        excerpts_by_col = {
+            "exact_col": ["baseline cohort enrolled 142 patients"],
+            "ci_col": ["THE BASELINE COHORT ENROLLED"],
+            "norm_col": [
+                "Inexperimentsabove,resultswithmice homozygousforwild-typewereobserved.",
+                "thymic T cells undergo recombination and exhibit increased PNA binding",
+            ],
+            "elided_col": [
+                '"...baseline cohort enrolled 142 patients ... accuracy of 86.4 percent on the MMLU..."'
+            ],
+            "fuzzy_col": [
+                "accuracy of 86.4% on MMLU benchmark",
+                "Citation record 2025 WL 1825431 governed procedural ruling",
+                "completely fabricated statement absent from text",
+            ],
+        }
+
+        expected = {
+            col: [self.grounder.ground_excerpt(exc, source) for exc in excs]
+            for col, excs in excerpts_by_col.items()
+        }
+
+        orig_normalize = ExcerptGrounder._normalize_for_matching
+        source_norm_calls = 0
+
+        def counting_normalize(text: str):
+            nonlocal source_norm_calls
+            if text == source:
+                source_norm_calls += 1
+            return orig_normalize(text)
+
+        monkeypatch.setattr(
+            ExcerptGrounder, "_normalize_for_matching", staticmethod(counting_normalize)
+        )
+
+        payload = {
+            col: {"answer": "val", "excerpts": list(excs)}
+            for col, excs in excerpts_by_col.items()
+        }
+        self.grounder.ground_all_excerpts(payload, source)
+
+        assert source_norm_calls == 1
+        for col, exp_list in expected.items():
+            actual_list = [
+                (e["char_start"], e["char_end"], e["grounding_status"])
+                for e in payload[col]["excerpts"]
+            ]
+            assert actual_list == exp_list
+

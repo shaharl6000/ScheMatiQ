@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { isEmpty } from '../utils/valueUtils';
-import { DataRow, CellValue } from '../../../types';
+import { getCellValue, isEmpty } from '../utils/valueUtils';
+import { DataRow } from '../../../types';
 
 export interface ColumnStats {
   columnName: string;
@@ -15,20 +15,6 @@ export interface UseColumnStatsReturn {
   getColumnFullness: (columnName: string) => number;
   getColumnsAboveThreshold: (threshold: number) => string[];
   overallCompleteness: number;
-}
-
-/**
- * Helper to get cell value from a DataRow
- * Handles special columns like _row_name and _papers
- */
-function getCellValue(row: DataRow, columnName: string): CellValue {
-  if (columnName === '_row_name') {
-    return row.row_name;
-  }
-  if (columnName === '_papers') {
-    return row.papers;
-  }
-  return row.data[columnName];
 }
 
 /**

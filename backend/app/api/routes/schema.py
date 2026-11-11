@@ -31,7 +31,7 @@ schema_manager = SchemaManager(websocket_manager, session_manager)
 # app.services.orchestration): the same instances the chat tools and the
 # /load/rediscover route operate on, so stop/resume see the in-flight task.
 from app.services.orchestration import continue_discovery_service, reextraction_service
-from app.services.session_documents import committed_docs_dir, pending_docs_dir
+from app.services.session_documents import committed_docs_dir
 
 # Create data editor instance
 data_editor = DataEditor()
@@ -128,15 +128,10 @@ async def edit_column(
             if col.name == edit_request.old_name:
                 # Update column properties
                 if canonical_new_name:
-                    # Move baseline entry to the new key so the renamed column stays
-                    # tracked (not reported as "new").  Intentionally, old_baseline.name
-                    # is NOT updated — it retains the previous column name.
-                    # reextraction_service.detect_schema_changes() compares
-                    # col.name (current) vs baseline.name (old) to detect renames;
-                    # keeping the stale name in the baseline entry is the signal it relies on.
-                    if session.schema_baseline and edit_request.old_name in session.schema_baseline.columns:
-                        old_baseline = session.schema_baseline.columns.pop(edit_request.old_name)
-                        session.schema_baseline.columns[canonical_new_name] = old_baseline
+                    if session.schema_baseline:
+                        session.schema_baseline.record_column_rename(
+                            edit_request.old_name, canonical_new_name
+                        )
                     col.name = canonical_new_name
                     col.display_name = new_display_name
                 if edit_request.definition is not None:

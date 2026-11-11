@@ -175,10 +175,9 @@ class ChatAgentService:
     @staticmethod
     async def _flush_llm_usage(state: ChatSessionState) -> None:
         """Record this turn's Gemini calls toward the global LLM quota."""
-        calls = state.pending_llm_calls
+        calls = state.take_pending_llm_calls()
         if not calls:
             return
-        state.pending_llm_calls = 0
         try:
             record_id = f"chat-{(state.chat_id or 'unknown')[:8]}-{int(time.time())}"
             await asyncio.to_thread(
@@ -266,25 +265,42 @@ class ChatAgentService:
                 "messages": outbound_messages,
             }
         await self._record_message_used(session_id)
+        # A fresh turn clears any stale Stop intent from a prior turn BEFORE
+        # aborting a pending confirmation so the cancellation function_response
+        # is not short-circuited by a leftover stop_requested flag.
+        state.begin_turn()
         if state.pending:
             abort_messages, new_pending = await self._abort_pending(
                 state,
                 reason="Superseded by a new message.",
             )
             outbound_messages.extend(abort_messages)
+            if state.stop_requested:
+                await self._flush_llm_usage(state)
+                return {
+                    "chat_id": state.chat_id,
+                    "status": "stopped",
+                    "messages": outbound_messages,
+                    "pending_action": None,
+                }
             if new_pending:
+                await self._flush_llm_usage(state)
                 return {
                     "chat_id": state.chat_id,
                     "status": "pending_confirmation",
                     "messages": outbound_messages,
                     "pending_action": new_pending,
                 }
+            if state.chat_id and chat_session_store.get(state.chat_id) is None:
+                await self._flush_llm_usage(state)
+                state = await self._get_or_create_session(
+                    session_id, session_mode, None, model
+                )
+                state.begin_turn()
         user_text = message
         if pinned_tool:
             user_text = f"[User suggested tool: {pinned_tool}]\n{message}"
 
-        # A fresh turn clears any stale Stop intent from a prior turn.
-        state.stop_requested = False
         try:
             await self._ensure_quota_available()
             result = await self._run_loop(state, user_text, outbound_messages)
@@ -317,7 +333,7 @@ class ChatAgentService:
                 state = await self._get_or_create_session(
                     session_id, session_mode, None, model
                 )
-                state.stop_requested = False
+                state.begin_turn()
                 result = await self._run_loop(state, user_text, outbound_messages)
                 if result["status"] == "complete":
                     await self._persist_history(state)
@@ -358,10 +374,11 @@ class ChatAgentService:
                 "messages": [self._text_message(QUOTA_EXCEEDED_CHAT_MESSAGE)],
             }
 
-        pending = state.pending
-        state.pending = None
+        pending = state.consume_pending_confirmation()
+        if pending is None:
+            raise ValueError("No pending action to confirm.")
         # A confirmation resumes the turn, so clear any stale Stop intent first.
-        state.stop_requested = False
+        state.begin_turn()
         outbound_messages: list[dict[str, Any]] = []
         await self._emit(state, outbound_messages,
             self._tool_log(pending.tool_name, "running", f"...{tool_running_label(pending.tool_name).lower()}")
@@ -375,6 +392,11 @@ class ChatAgentService:
                     pending.args,
                 )
             except QuotaExceededError:
+                # Pending was consumed without sending a function_response;
+                # discard the live SDK chat so the next turn rebuilds from the
+                # last settled persisted history instead of holding a dangling
+                # unanswered function_call.
+                self._discard_stopped_turn(state)
                 outbound_messages.append(self._text_message(QUOTA_EXCEEDED_CHAT_MESSAGE))
                 return {
                     "chat_id": chat_id,
@@ -437,11 +459,14 @@ class ChatAgentService:
         if not state or state.workspace_session_id != session_id:
             raise ValueError("Chat session not found. Start a new conversation.")
 
+        state.begin_turn()
         outbound_messages, new_pending = await self._abort_pending(
             state,
             reason="User declined confirmation.",
         )
-        if not new_pending:
+        if not new_pending and not state.stop_requested and (
+            not state.chat_id or chat_session_store.get(state.chat_id) is not None
+        ):
             await self._persist_history(state)
         await self._flush_llm_usage(state)
         return {
@@ -462,7 +487,7 @@ class ChatAgentService:
         state = chat_session_store.get_by_workspace_session(session_id)
         if state is None:
             return False
-        state.stop_requested = True
+        state.request_stop()
         return True
 
     def _discard_stopped_turn(self, state: ChatSessionState) -> None:
@@ -484,11 +509,10 @@ class ChatAgentService:
         reason: str,
     ) -> tuple[list[dict[str, Any]], Optional[dict[str, Any]]]:
         """Drop a held expensive-tool confirmation and unblock the Gemini chat."""
-        pending = state.pending
+        pending = state.consume_pending_confirmation()
         if not pending:
             return [], None
 
-        state.pending = None
         outbound_messages: list[dict[str, Any]] = []
         try:
             response = await self._send_function_response(
@@ -502,6 +526,8 @@ class ChatAgentService:
                 response,
                 outbound_messages,
             )
+            if loop_result.get("status") == "stopped":
+                self._discard_stopped_turn(state)
             return outbound_messages, loop_result.get("pending_action")
         except Exception as exc:
             logger.warning(
@@ -510,6 +536,7 @@ class ChatAgentService:
                 state.workspace_session_id,
                 exc,
             )
+            self._discard_stopped_turn(state)
         return outbound_messages, None
 
     async def _get_or_create_session(
@@ -902,7 +929,7 @@ class ChatAgentService:
         The non-streaming fallback keeps tests and older SDK clients compatible.
         """
         LLMCallTracker.get_instance().set_stage("chat")
-        state.pending_llm_calls += 1
+        state.record_llm_call()
 
         send_stream = getattr(state.chat, "send_message_stream", None)
         if not callable(send_stream):
@@ -1030,7 +1057,7 @@ class ChatAgentService:
                         description = await self._executor.estimate_cost(
                             tool_name, state.workspace_session_id, args
                         )
-                        state.pending = PendingToolCall(
+                        state.set_pending_confirmation(
                             tool_name=tool_name,
                             args=args,
                             function_call_part=function_call,

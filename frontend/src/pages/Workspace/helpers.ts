@@ -30,6 +30,7 @@ import type {
   SheetColumn,
   SheetSelection,
   WorkspaceMessage,
+  WorkspaceSessionMode,
   WrongCellScope,
 } from './types';
 
@@ -421,6 +422,18 @@ export function dataEquals(a: PaginatedData, b: PaginatedData): boolean {
   return JSON.stringify(a.rows) === JSON.stringify(b.rows);
 }
 
+export function chainDataCommittedCallbacks(
+  pending?: (data: PaginatedData) => void,
+  incoming?: (data: PaginatedData) => void,
+): ((data: PaginatedData) => void) | undefined {
+  if (!pending || pending === incoming) return incoming ?? pending;
+  if (!incoming) return pending;
+  return (data: PaginatedData) => {
+    pending(data);
+    incoming(data);
+  };
+}
+
 export function formatFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -544,6 +557,57 @@ export function statusFromLoadSession(session: VisualizationSession | null): Sch
     processed_documents: session.metadata?.processed_documents || session.statistics?.total_documents || 0,
   };
 }
+
+export type WorkspaceChromeStatusInput = {
+  sessionId?: string;
+  loading: boolean;
+  sessionMissing: boolean;
+  status: ScheMatiQStatus | null;
+  sessionMode: WorkspaceSessionMode;
+  rowCount: number;
+  schema: SchemaData | null;
+};
+
+export function formatWorkspaceChromeStatus({
+  sessionId,
+  loading,
+  sessionMissing,
+  status,
+  sessionMode,
+  rowCount,
+  schema,
+}: WorkspaceChromeStatusInput): string {
+  if (!sessionId) return 'No project open';
+  if (loading) return 'Loading…';
+
+  const rawStatus = status?.status || '';
+  const isDone = rawStatus === 'completed' || rawStatus === 'schema_extracted' || rawStatus === 'stopped';
+  const isFailed = rawStatus === 'error' || rawStatus === 'failed';
+
+  if (sessionMissing) return 'Project not found';
+  if (isFailed) return 'Extraction failed';
+
+  // Still working: surface a live, human label instead of the raw status key.
+  if (!isDone) {
+    // An UPLOAD-type session only ever reaches status='processing' via
+    // /load/rediscover (see useReextraction) — a plain import never sets
+    // this status. Label it distinctly so "Rediscover schema" doesn't
+    // misleadingly read as "Importing…" for the run's whole duration.
+    if (sessionMode === 'load') {
+      return rawStatus === 'processing' ? 'Rediscovering schema…' : 'Importing…';
+    }
+    return 'Extracting…';
+  }
+
+  // Done: replace the status word (which just repeats what the visible table
+  // already shows) with useful context — where the data came from + its size.
+  const source = sessionMode === 'load' ? 'Imported file' : 'Extracted from documents';
+  const colCount = status?.columns_discovered ?? schema?.schema?.length ?? 0;
+  const parts = [source];
+  if (rowCount > 0) parts.push(`${rowCount} ${rowCount === 1 ? 'row' : 'rows'}`);
+  if (colCount > 0) parts.push(`${colCount} ${colCount === 1 ? 'column' : 'columns'}`);
+  return parts.join(' · ');
+}
 export function mapChatTurnMessage(message: ChatTurnMessage): WorkspaceMessage {
   return {
     id: message.id,
@@ -605,3 +669,165 @@ export function describeRequestError(
     code,
   };
 }
+
+export type SchemaSpareRowField =
+  | 'definition'
+  | 'rationale'
+  | 'allowed_values'
+  | 'auto_expand_threshold';
+
+export const SCHEMA_SPARE_ROW_FIELDS: readonly SchemaSpareRowField[] = [
+  'definition',
+  'rationale',
+  'allowed_values',
+  'auto_expand_threshold',
+];
+
+export interface SchemaSpareRowState {
+  draft: Record<SchemaSpareRowField, string>;
+  creatingColumnName: string | null;
+  queuedEdits: Partial<Record<SchemaSpareRowField, string>>;
+}
+
+export function createEmptySchemaSpareRowState(): SchemaSpareRowState {
+  return {
+    draft: {
+      definition: '',
+      rationale: '',
+      allowed_values: '',
+      auto_expand_threshold: '',
+    },
+    creatingColumnName: null,
+    queuedEdits: {},
+  };
+}
+
+export function hasSchemaSpareRowDraft(state: SchemaSpareRowState): boolean {
+  return SCHEMA_SPARE_ROW_FIELDS.some((field) => state.draft[field].trim() !== '');
+}
+
+export function isSchemaSpareRowField(key: string): key is SchemaSpareRowField {
+  return (SCHEMA_SPARE_ROW_FIELDS as readonly string[]).includes(key);
+}
+
+export function recordSchemaSpareRowEdit(
+  state: SchemaSpareRowState,
+  field: SchemaSpareRowField,
+  value: unknown,
+): SchemaSpareRowState {
+  const normalized = String(value ?? '');
+  if (state.creatingColumnName) {
+    return {
+      ...state,
+      queuedEdits: {
+        ...state.queuedEdits,
+        [field]: normalized,
+      },
+    };
+  }
+  return {
+    ...state,
+    draft: {
+      ...state.draft,
+      [field]: normalized,
+    },
+  };
+}
+
+export function consumeSchemaSpareRowForCreate(
+  state: SchemaSpareRowState,
+  rawName: unknown,
+  readLiveCell?: (field: SchemaSpareRowField) => string,
+): {
+  nextState: SchemaSpareRowState;
+  addColumnPayload: {
+    name: string;
+    definition: string;
+    rationale?: string;
+    allowed_values?: string[];
+  };
+  autoExpandThreshold?: number;
+} | null {
+  const name = String(rawName ?? '').trim();
+  if (!name) return null;
+
+  const readMerged = (field: SchemaSpareRowField): string => {
+    const live = readLiveCell ? String(readLiveCell(field) ?? '') : '';
+    return live.trim() !== '' ? live : state.draft[field];
+  };
+
+  const definition = readMerged('definition').trim();
+  const rationale = readMerged('rationale').trim();
+  const allowedValues = parseAllowedValues(readMerged('allowed_values'));
+  const rawThreshold = readMerged('auto_expand_threshold').trim();
+  const parsedThreshold = rawThreshold !== '' ? Number(rawThreshold) : NaN;
+  const autoExpandThreshold =
+    Number.isFinite(parsedThreshold) && parsedThreshold !== 0
+      ? parsedThreshold
+      : undefined;
+
+  return {
+    nextState: {
+      draft: {
+        definition: '',
+        rationale: '',
+        allowed_values: '',
+        auto_expand_threshold: '',
+      },
+      creatingColumnName: name,
+      queuedEdits: {},
+    },
+    addColumnPayload: {
+      name,
+      definition,
+      rationale: rationale || undefined,
+      allowed_values:
+        allowedValues && allowedValues.length > 0 ? allowedValues : undefined,
+    },
+    autoExpandThreshold,
+  };
+}
+
+export function finishSchemaSpareRowCreate(state: SchemaSpareRowState): {
+  nextState: SchemaSpareRowState;
+  columnName: string | null;
+  queuedEdits: Partial<Record<SchemaSpareRowField, string>>;
+} {
+  return {
+    nextState: createEmptySchemaSpareRowState(),
+    columnName: state.creatingColumnName,
+    queuedEdits: { ...state.queuedEdits },
+  };
+}
+
+export function rollbackSchemaSpareRowCreate(
+  state: SchemaSpareRowState,
+  failedPayload: {
+    definition: string;
+    rationale?: string;
+    allowed_values?: string[];
+  },
+  autoExpandThreshold?: number,
+): SchemaSpareRowState {
+  const baseDraft: Record<SchemaSpareRowField, string> = {
+    definition: failedPayload.definition || '',
+    rationale: failedPayload.rationale || '',
+    allowed_values: Array.isArray(failedPayload.allowed_values)
+      ? failedPayload.allowed_values.join(', ')
+      : '',
+    auto_expand_threshold:
+      autoExpandThreshold !== undefined ? String(autoExpandThreshold) : '',
+  };
+  return {
+    draft: {
+      definition: state.queuedEdits.definition ?? baseDraft.definition,
+      rationale: state.queuedEdits.rationale ?? baseDraft.rationale,
+      allowed_values: state.queuedEdits.allowed_values ?? baseDraft.allowed_values,
+      auto_expand_threshold:
+        state.queuedEdits.auto_expand_threshold ?? baseDraft.auto_expand_threshold,
+    },
+    creatingColumnName: null,
+    queuedEdits: {},
+  };
+}
+

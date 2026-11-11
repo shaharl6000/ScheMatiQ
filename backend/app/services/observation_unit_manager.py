@@ -12,7 +12,6 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
-from app.models.session import SessionStatus
 from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
 
@@ -366,12 +365,9 @@ class ObservationUnitManager:
         session.observation_unit = updated_observation_unit
         session.metadata.last_modified = datetime.now()
         # Only flag rediscovery after schema exists — initial review pause just resumes forward.
-        session.metadata.pending_observation_unit_rediscovery = (
-            session.status != SessionStatus.OBSERVATION_UNIT_REVIEW
-            and (
-                session.metadata.schema_discovery_completed
-                or bool(session.columns)
-            )
+        session.metadata.mark_observation_unit_edited(
+            status=session.status,
+            has_columns=bool(session.columns),
         )
         self.session_manager.update_session(session)
 

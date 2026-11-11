@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   getAvailableProviders,
@@ -46,6 +46,15 @@ export function useAddDocuments({
   const [addDocsResult, setAddDocsResult] = useState<DocumentUploadResult | null>(null);
   const [addDocsError, setAddDocsError] = useState<string | null>(null);
   const [addDocsNotice, setAddDocsNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAddDocsFiles([]);
+    setAddDocsUploading(false);
+    setAddDocsProcessing(false);
+    setAddDocsResult(null);
+    setAddDocsError(null);
+    setAddDocsNotice(null);
+  }, [sessionId]);
 
   // Everything already in this project. Two sources, unioned:
   //  - documents.documents: documents that already have extracted rows. This is

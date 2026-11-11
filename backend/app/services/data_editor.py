@@ -333,8 +333,9 @@ class DataEditor:
                     cell_value["answer"] = value
                     cell_value["excerpts"] = []
                     cell_value["manually_edited"] = True
-                    # A user-entered value is no longer a model guess.
+                    # A user-entered or user-cleared value is no longer a model guess or confirmed-empty marker.
                     cell_value.pop("_ungrounded", None)
+                    cell_value.pop("_confirmed_empty", None)
                 else:
                     row["data"][column] = {
                         "answer": value,
@@ -359,6 +360,7 @@ class DataEditor:
                 row[column]["excerpts"] = []
                 row[column]["manually_edited"] = True
                 row[column].pop("_ungrounded", None)
+                row[column].pop("_confirmed_empty", None)
             else:
                 row[column] = {
                     "answer": value,

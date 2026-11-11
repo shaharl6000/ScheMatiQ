@@ -6,11 +6,11 @@ Handles schema change detection, paper discovery, and selective re-extraction.
 import json
 import os
 import asyncio
-import hashlib
 import threading
 import uuid
 import logging
 from typing import List, Dict, Any, Optional, Set, NamedTuple
+from enum import Enum
 from pathlib import Path
 from datetime import datetime
 
@@ -37,8 +37,6 @@ from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
-SCHEMATIQ_AVAILABLE = True
-
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +59,15 @@ class _OnlyEmptyScan(NamedTuple):
     scoped_rows_matched: bool
     confirmed_empty_hits: bool
     plan: Dict[str, Dict[str, Dict[str, Any]]]
+
+
+class CellGapState(str, Enum):
+    """Explicit lifecycle states of a table cell for gap-fill planning and merging."""
+
+    RAW_EMPTY = "raw_empty"
+    CONFIRMED_EMPTY = "confirmed_empty"
+    UNGROUNDED = "ungrounded"
+    FILLED = "filled"
 
 
 def _is_empty_cell_value(value: Any) -> bool:
@@ -95,6 +102,26 @@ def _is_ungrounded(value: Any) -> bool:
     return isinstance(value, dict) and bool(value.get("_ungrounded"))
 
 
+def classify_cell_gap_state(value: Any) -> CellGapState:
+    """Classify a cell value into its explicit gap-fill lifecycle state."""
+    if _is_empty_cell_value(value):
+        if _is_confirmed_empty(value):
+            return CellGapState.CONFIRMED_EMPTY
+        return CellGapState.RAW_EMPTY
+    if _is_ungrounded(value):
+        return CellGapState.UNGROUNDED
+    return CellGapState.FILLED
+
+
+def _is_retriable_gap(value: Any) -> bool:
+    """True when a cell is skipped by default ``only_empty`` runs but should be
+    retried when ``retry_confirmed_empty=True`` (confirmed-empty or ungrounded)."""
+    return classify_cell_gap_state(value) in (
+        CellGapState.CONFIRMED_EMPTY,
+        CellGapState.UNGROUNDED,
+    )
+
+
 def _is_fillable_gap(value: Any, retry_confirmed_empty: bool = False) -> bool:
     """True when a cell is an unresolved gap worth an extraction attempt.
 
@@ -110,11 +137,34 @@ def _is_fillable_gap(value: Any, retry_confirmed_empty: bool = False) -> bool:
     gap by default either; like a confirmed-empty cell, it is retried only
     with ``retry_confirmed_empty=True``.
     """
-    if retry_confirmed_empty and _is_ungrounded(value):
+    state = classify_cell_gap_state(value)
+    if state == CellGapState.RAW_EMPTY:
         return True
-    if not _is_empty_cell_value(value):
+    if state in (CellGapState.CONFIRMED_EMPTY, CellGapState.UNGROUNDED):
+        return bool(retry_confirmed_empty)
+    return False
+
+
+def _can_overwrite_in_only_empty(
+    existing_value: Any,
+    extracted_value: Any,
+    retry_confirmed_empty: bool = False,
+) -> bool:
+    """True when an ``only_empty`` merge may replace ``existing_value`` with
+    ``extracted_value``.
+
+    Never overwrites a cell that is not a fillable gap. An ``_ungrounded``
+    answer (a guess with no supporting excerpt) is replaced by a retry that
+    comes back confirmed empty (the model checked and found no value), but not
+    by a plain empty result, which may just be a failed extraction.
+    """
+    if not _is_fillable_gap(existing_value, retry_confirmed_empty=retry_confirmed_empty):
         return False
-    if not retry_confirmed_empty and _is_confirmed_empty(value):
+    if (
+        classify_cell_gap_state(existing_value) == CellGapState.UNGROUNDED
+        and _is_empty_cell_value(extracted_value)
+        and not _is_confirmed_empty(extracted_value)
+    ):
         return False
     return True
 
@@ -193,6 +243,8 @@ class ReextractionOperation:
         self.incrementally_merged_keys: Set[tuple] = set()
         # paper discovery snapshot for this operation (avoids redundant rescans)
         self.paper_discovery: Optional[Dict[str, Any]] = None
+        # Pre-validated LLM backend from start_reextraction (avoids resolving twice)
+        self.llm: Optional[Any] = None
         # Guards against leaking or double-releasing the concurrency slot: the
         # slot is released exactly once, whether by the running task's finally
         # or by stop_operation, whichever gets there first.
@@ -369,28 +421,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
     @staticmethod
     def calculate_column_checksum(column: ColumnInfo) -> str:
         """Calculate a checksum for change detection."""
-        content = f"{column.definition or ''}{column.rationale or ''}"
-        if column.allowed_values:
-            content += "|".join(sorted(column.allowed_values))
-        return hashlib.md5(content.encode()).hexdigest()
+        return ColumnBaseline.calculate_checksum(column)
 
     def capture_baseline(self, session: VisualizationSession) -> SchemaBaseline:
         """Capture the current schema state as a baseline."""
-        columns_dict = {}
-        for col in session.columns:
-            if col.name and not col.name.lower().endswith('_excerpt'):
-                columns_dict[col.name] = ColumnBaseline(
-                    name=col.name,
-                    definition=col.definition or "",
-                    rationale=col.rationale or "",
-                    allowed_values=col.allowed_values,
-                    checksum=self.calculate_column_checksum(col)
-                )
-
-        return SchemaBaseline(
-            columns=columns_dict,
-            captured_at=datetime.now()
-        )
+        return SchemaBaseline.from_columns(session.columns)
 
     async def capture_and_save_baseline(self, session_id: str) -> None:
         """Capture baseline and save to session."""
@@ -402,6 +437,24 @@ class ReextractionService(WebSocketBroadcasterMixin):
         session.schema_baseline = baseline
         self.session_manager.update_session(session)
         logger.debug(f"Captured schema baseline for session {session_id} with {len(baseline.columns)} columns")
+
+    def _reconcile_schema_baseline(self, session: VisualizationSession) -> bool:
+        """Ensure `session.schema_baseline` exists and includes already-extracted columns.
+
+        Returns True if a brand-new baseline was captured from the current schema
+        (meaning there are no changes to report relative to that freshly-captured baseline).
+        """
+        if not session.schema_baseline:
+            session.schema_baseline = self.capture_baseline(session)
+            # Only persist if session has extracted data to avoid writes on every poll
+            if any((c.non_null_count or 0) > 0 for c in session.columns):
+                self.session_manager.update_session(session)
+            return True
+
+        healed = session.schema_baseline.reconcile_extracted_columns(session.columns)
+        if healed:
+            self.session_manager.update_session(session)
+        return False
 
     def detect_schema_changes(self, session: VisualizationSession) -> Dict[str, Any]:
         """
@@ -423,14 +476,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "missing_baseline": False
         }
 
-        # If no baseline exists, auto-create one from current state so future edits are tracked
-        if not session.schema_baseline:
-            baseline = self.capture_baseline(session)
-            session.schema_baseline = baseline
-            # Only persist if session has extracted data to avoid writes on every poll
-            if any((c.non_null_count or 0) > 0 for c in session.columns):
-                self.session_manager.update_session(session)
-            # Return no changes — baseline just captured from current state
+        if self._reconcile_schema_baseline(session):
             return result
 
         baseline_columns = session.schema_baseline.columns
@@ -454,8 +500,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # Check for changes
                 baseline = baseline_columns[col.name]
                 current_checksum = self.calculate_column_checksum(col)
-                # Detect rename: baseline entry was moved to new key but name field still has old name
-                was_renamed = col.name != baseline.name
+                was_renamed = baseline.is_renamed_for(col.name)
 
                 if current_checksum != baseline.checksum or was_renamed:
                     # Determine what changed
@@ -474,36 +519,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     if was_renamed:
                         change_detail["old_name"] = baseline.name
                     result["column_changes"][col.name] = change_detail
-
-        # Auto-heal stale baselines: if "new" columns already have extracted data,
-        # the baseline is outdated (e.g., continue discovery added columns).
-        # Recapture baseline and re-detect so they show as unchanged, not "new".
-        if result["new_columns"] and session.schema_baseline:
-            stale_cols = [
-                name for name in result["new_columns"]
-                if any(c.name == name and (c.non_null_count or 0) > 0 for c in session.columns)
-            ]
-            if stale_cols:
-                # Only add the stale columns to the existing baseline —
-                # do NOT recapture the whole baseline, or we'd erase real edits.
-                for col_name in stale_cols:
-                    col = next(c for c in session.columns if c.name == col_name)
-                    session.schema_baseline.columns[col_name] = ColumnBaseline(
-                        name=col.name,
-                        definition=col.definition or "",
-                        rationale=col.rationale or "",
-                        allowed_values=col.allowed_values,
-                        checksum=self.calculate_column_checksum(col),
-                    )
-                self.session_manager.update_session(session)
-                # Inline re-detection: remove the now-patched stale columns from
-                # the result so they are no longer reported as new or changed,
-                # then fall through to recalculate has_changes. This avoids the
-                # infinite recursion that a recursive self.detect_schema_changes()
-                # call would cause if stale_cols were somehow repopulated.
-                for col_name in stale_cols:
-                    result["new_columns"] = [n for n in result["new_columns"] if n != col_name]
-                    result["column_changes"].pop(col_name, None)
 
         result["has_changes"] = bool(result["changed_columns"] or result["new_columns"])
         return result
@@ -817,13 +832,26 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     len(session_document_filenames),
                 )
 
-        # Build paper to rows mapping (extract display name from tuple key)
-        paper_to_rows: Dict[str, List[str]] = {}
-        for paper in available:
-            paper_to_rows[paper] = [
-                rk[0] for rk, rk_papers in row_paper_mapping.items()
-                if paper in rk_papers
-            ]
+        def _invert_row_paper_mapping(
+            mapping: Dict[tuple, List[str]],
+        ) -> Dict[str, List[str]]:
+            inverted: Dict[str, List[str]] = {p: [] for p in available}
+            for p in missing:
+                inverted.setdefault(p, [])
+            for rk, rk_papers in mapping.items():
+                r_name = rk[0]
+                seen_in_row: Set[str] = set()
+                for paper in rk_papers:
+                    if paper in seen_in_row:
+                        continue
+                    seen_in_row.add(paper)
+                    inverted.setdefault(paper, []).append(r_name)
+            return inverted
+
+        # Build paper to rows mapping in a single O(|rows|) pass covering both
+        # available and missing papers (avoids O(|papers| * |rows|) scans and
+        # eliminates the second disk scan in precheck_document_availability).
+        paper_to_rows = _invert_row_paper_mapping(row_paper_mapping)
 
         rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
 
@@ -855,6 +883,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     except json.JSONDecodeError:
                                         continue
                 rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
+                paper_to_rows = _invert_row_paper_mapping(row_paper_mapping)
                 logger.debug(f"After backfill - rows_with_papers: {rows_with_papers}")
 
         return {
@@ -1204,9 +1233,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 empty_columns.add(col)
                                 docs_with_empties.update(scope_stems)
                             else:
-                                if _is_empty_cell_value(value) and _is_confirmed_empty(value):
+                                if _is_retriable_gap(value):
                                     confirmed_empty_hits = True
-                                if value is not None:
+                                if not _is_empty_cell_value(value):
                                     filled[col] = value
                         # A nameless row still counts toward the summary above but
                         # cannot be planned (no unit key to look it up by).
@@ -1535,9 +1564,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
         Returns:
             Dictionary with operation details
         """
-        if not SCHEMATIQ_AVAILABLE:
-            raise RuntimeError("ScheMatiQ components not available for re-extraction")
-
         session = self.session_manager.get_session(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")
@@ -1633,6 +1659,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         operation.only_empty_targets = only_empty_targets
         operation.total_documents = doc_count
         operation.paper_discovery = paper_discovery
+        operation.llm = llm
         with self._state_lock:
             self.active_operations[operation_id] = operation
 
@@ -1885,10 +1912,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
             with open(schema_file, 'w') as f:
                 json.dump(schema_data, f, indent=2)
 
-            # Setup LLM and retriever (use cached retriever for performance)
-            llm = self._get_llm_from_session(
-                operation.session_id, honor_user_llm_config=operation.honor_user_llm_config
-            )
+            # Setup LLM and retriever (reuse pre-validated LLM when available)
+            llm = operation.llm
+            if llm is None:
+                llm = self._get_llm_from_session(
+                    operation.session_id, honor_user_llm_config=operation.honor_user_llm_config
+                )
             retriever = self.get_cached_retriever()
 
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
@@ -2481,11 +2510,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             remove_column_keys_in_row(row, old_name)
                         extracted_value = get_extraction_column_value(extracted, col_name)
                         if extracted_value is not None:
-                            if only_empty and not _is_fillable_gap(
+                            if only_empty and not _can_overwrite_in_only_empty(
                                 get_extraction_column_value(row, col_name),
+                                extracted_value,
                                 retry_confirmed_empty=retry_confirmed_empty,
                             ):
-                                continue  # never overwrite a filled cell
+                                continue  # never overwrite a filled cell; keep an ungrounded guess unless confirmed empty
                             if 'data' in row:
                                 row['data'][col_name] = extracted_value
                             else:
@@ -2575,11 +2605,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 extracted, col_name
                             )
                             if extracted_value is not None:
-                                if only_empty and not _is_fillable_gap(
+                                if only_empty and not _can_overwrite_in_only_empty(
                                     get_extraction_column_value(row, col_name),
+                                    extracted_value,
                                     retry_confirmed_empty=retry_confirmed_empty,
                                 ):
-                                    continue  # never overwrite a filled cell
+                                    continue  # never overwrite a filled cell; keep an ungrounded guess unless confirmed empty
                                 if 'data' in row:
                                     row['data'][col_name] = extracted_value
                                 else:
@@ -2892,19 +2923,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
         (per-column stats, total_rows). Columns absent from the data are reported
         with zero fills rather than dropped, so the recap can still mention them.
         """
-        from app.services.pipeline.data_query import get_data as query_get_data
+        from app.services.pipeline.data_query import load_all_rows
         from app.services.chat.deps import WORK_DIR
 
-        rows: List[Dict[str, Any]] = []
-        page = 0
-        page_size = 200
-        while page < 500:  # hard cap: 100k rows, matches the chat tool
-            data = await query_get_data(session_id, WORK_DIR, page=page, page_size=page_size)
-            batch = [r.model_dump() for r in data.rows]
-            rows.extend(batch)
-            if len(batch) < page_size:
-                break
-            page += 1
+        rows = await load_all_rows(session_id, WORK_DIR, max_rows=100_000)
 
         total = len(rows)
         stats: List[Dict[str, Any]] = []
@@ -3062,61 +3084,66 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 "affected_rows": affected_rows
             })
 
-        # Format missing documents with affected rows
-        # For missing papers, we need to find which rows reference them
+        # Format missing documents with affected rows.
+        # discover_papers already populates paper_to_rows for missing papers in a
+        # single pass; fall back to scanning JSONL files only if a caller supplied
+        # a partial paper_discovery dict lacking entries for some missing papers.
+        missing_papers_list = discovery.get("missing_papers", [])
+        unresolved_missing = {p for p in missing_papers_list if p not in paper_to_rows}
+        fallback_missing_to_rows: Dict[str, List[str]] = {}
+
+        if unresolved_missing:
+            precheck_data_files = []
+            schematiq_extracted = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "extracted_data.jsonl"
+            if schematiq_extracted.exists():
+                precheck_data_files.append(schematiq_extracted)
+            if not precheck_data_files:
+                schematiq_data = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "data.jsonl"
+                if schematiq_data.exists():
+                    precheck_data_files.append(schematiq_data)
+            data_dir_file = Path(DEFAULT_DATA_DIR) / session_id / "data.jsonl"
+            if data_dir_file.exists() and data_dir_file not in precheck_data_files:
+                precheck_data_files.append(data_dir_file)
+
+            for data_file in precheck_data_files:
+                with open(data_file, 'r') as f:
+                    row_idx = 0
+                    for line in f:
+                        if line.strip():
+                            row_idx += 1
+                            try:
+                                row = json.loads(line)
+                                row_name = row_name_of(row) or f"row_{row_idx}"
+                                papers_raw = (
+                                    row.get('papers') or
+                                    row.get('_papers') or
+                                    row.get('Papers') or
+                                    row.get('data', {}).get('Papers') or
+                                    row.get('data', {}).get('papers') or
+                                    []
+                                )
+                                if isinstance(papers_raw, dict) and 'answer' in papers_raw:
+                                    papers_raw = papers_raw.get('answer', [])
+                                if isinstance(papers_raw, str):
+                                    papers = [papers_raw] if papers_raw else []
+                                elif isinstance(papers_raw, list):
+                                    papers = papers_raw
+                                else:
+                                    papers = []
+
+                                for paper in papers:
+                                    if paper in unresolved_missing:
+                                        fallback_missing_to_rows.setdefault(paper, []).append(row_name)
+                            except json.JSONDecodeError:
+                                continue
+
         missing_documents = []
-
-        # Find data files from all possible locations
-        precheck_data_files = []
-        schematiq_extracted = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "extracted_data.jsonl"
-        if schematiq_extracted.exists():
-            precheck_data_files.append(schematiq_extracted)
-        if not precheck_data_files:
-            schematiq_data = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "data.jsonl"
-            if schematiq_data.exists():
-                precheck_data_files.append(schematiq_data)
-        data_dir_file = Path(DEFAULT_DATA_DIR) / session_id / "data.jsonl"
-        if data_dir_file.exists() and data_dir_file not in precheck_data_files:
-            precheck_data_files.append(data_dir_file)
-
-        # Build a mapping from paper name to rows for missing papers
-        missing_paper_to_rows: Dict[str, List[str]] = {}
-        for data_file in precheck_data_files:
-            with open(data_file, 'r') as f:
-                row_idx = 0
-                for line in f:
-                    if line.strip():
-                        row_idx += 1
-                        try:
-                            row = json.loads(line)
-                            row_name = row_name_of(row) or f"row_{row_idx}"
-                            papers_raw = (
-                                row.get('papers') or
-                                row.get('_papers') or
-                                row.get('Papers') or
-                                row.get('data', {}).get('Papers') or
-                                row.get('data', {}).get('papers') or
-                                []
-                            )
-                            if isinstance(papers_raw, dict) and 'answer' in papers_raw:
-                                papers_raw = papers_raw.get('answer', [])
-                            if isinstance(papers_raw, str):
-                                papers = [papers_raw] if papers_raw else []
-                            elif isinstance(papers_raw, list):
-                                papers = papers_raw
-                            else:
-                                papers = []
-
-                            for paper in papers:
-                                if paper in discovery.get("missing_papers", []):
-                                    if paper not in missing_paper_to_rows:
-                                        missing_paper_to_rows[paper] = []
-                                    missing_paper_to_rows[paper].append(row_name)
-                        except json.JSONDecodeError:
-                            continue
-
-        for paper in discovery.get("missing_papers", []):
-            affected_rows = missing_paper_to_rows.get(paper, [])
+        for paper in missing_papers_list:
+            affected_rows = (
+                paper_to_rows[paper]
+                if paper in paper_to_rows
+                else fallback_missing_to_rows.get(paper, [])
+            )
             missing_documents.append({
                 "name": paper,
                 "status": "missing",

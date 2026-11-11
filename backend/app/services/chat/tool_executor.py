@@ -16,7 +16,10 @@ from app.models.session import ColumnInfo
 from app.services.session_capabilities import has_live_pipeline
 from app.services import concurrency_limiter, session_manager
 from app.services.data_utils import _resolve_source_document, canonicalize_column_name
-from app.services.pipeline.data_query import get_data as query_get_data
+from app.services.pipeline.data_query import (
+    get_data as query_get_data,
+    load_all_rows,
+)
 from schematiq.core.cost_estimator import estimate_from_config
 from .deps import (
     WORK_DIR,
@@ -32,7 +35,7 @@ from .deps import (
     websocket_manager,
 )
 from .tool_registry import TOOL_BY_NAME
-from app.services.session_documents import committed_docs_dir, pending_docs_dir
+from app.services.session_documents import pending_docs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -230,20 +233,10 @@ class ToolExecutor:
       # Canonical, deduplicated row list — the same source preview_data uses — so
       # summaries and row searches agree with what the user sees. Cell values are
       # kept raw (answer-dicts, including _confirmed_empty), which the coverage
-      # breakdown relies on. Paginated to avoid materializing huge tables at once.
+      # breakdown relies on. Loaded in a single pass (capped at 100k rows).
       from app.services.chat.deps import WORK_DIR
 
-      rows: list[dict[str, Any]] = []
-      page = 0
-      page_size = 200
-      while page < 500:  # hard cap: 100k rows
-          data = await query_get_data(session_id, WORK_DIR, page=page, page_size=page_size)
-          batch = [r.model_dump() for r in data.rows]
-          rows.extend(batch)
-          if len(batch) < page_size:
-              break
-          page += 1
-      return rows
+      return await load_all_rows(session_id, WORK_DIR, max_rows=100_000)
 
   async def _handle_data_summary(
       self, session_id: str, session_mode: str, args: dict[str, Any]
@@ -682,9 +675,8 @@ class ToolExecutor:
       for col in session.columns:
           if col.name == old_name:
               if new_name:
-                  if session.schema_baseline and old_name in session.schema_baseline.columns:
-                      old_baseline = session.schema_baseline.columns.pop(old_name)
-                      session.schema_baseline.columns[new_name] = old_baseline
+                  if session.schema_baseline:
+                      session.schema_baseline.record_column_rename(old_name, new_name)
                   col.name = new_name
                   col.display_name = new_display_name
               if definition is not None:

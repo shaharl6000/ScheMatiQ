@@ -28,9 +28,7 @@ const getWebSocketBaseUrl = (): string => {
 export const WS_BASE_URL = getWebSocketBaseUrl();
 
 // UI Configuration
-export const DEFAULT_PAGE_SIZE = 50;
 export const AVAILABLE_PAGE_SIZES = [25, 50, 100, 200, 500, 1000];
-export const DEFAULT_DEBOUNCE_DELAY = 300; // milliseconds
 
 // WebSocket Configuration
 export const WS_RECONNECT_ATTEMPTS = 5;
@@ -40,7 +38,6 @@ export const WS_RECONNECT_MAX_DELAY = 10000; // milliseconds
 // Data Refresh Intervals
 export const SCHEMATIQ_REFRESH_INTERVAL = 3000; // milliseconds for ScheMatiQ data polling
 export const PROCESSING_REFRESH_INTERVAL = 2000; // milliseconds for processing status
-export const SESSION_REFRESH_INTERVAL = 3000; // milliseconds
 export const WS_DISCONNECTED_REFRESH_INTERVAL = 20000; // fallback poll when WebSocket is down
 
 // File Upload Configuration
@@ -66,57 +63,6 @@ export const ALLOWED_FILE_TYPES = {
 
 // UI Timing
 export const NEW_ROW_HIGHLIGHT_DURATION = 5000; // milliseconds
-export const NOTIFICATION_AUTO_HIDE_DURATION = 6000; // milliseconds
-
-// Text Limits  
-export const MAX_CELL_TEXT_LENGTH = 200;
-export const MAX_CELL_LINES = 5; // maximum number of lines in a cell
-export const LONG_TEXT_THRESHOLD = 300; // characters
-export const MEDIUM_TEXT_THRESHOLD = 150; // characters
-export const SHORT_TEXT_THRESHOLD = 300; // characters
-export const MAX_PREVIEW_ROWS = 10;
-export const MAX_SEARCH_RESULTS = 100;
-
-// Animation Durations
-export const FADE_ANIMATION_DURATION = 300; // milliseconds
-export const SLIDE_ANIMATION_DURATION = 250; // milliseconds
-
-// Component Sizes
-export const FROZEN_COLUMN_WIDTH = 220; // pixels for frozen columns
-export const REGULAR_COLUMN_WIDTH = 200; // pixels for regular columns  
-export const MIN_COLUMN_WIDTH = 150; // pixels
-export const MAX_COLUMN_WIDTH = 400; // pixels
-export const TABLE_MAX_HEIGHT = 600; // pixels
-export const TABLE_MIN_WIDTH = 800; // pixels
-export const SEARCH_FIELD_WIDTH = 300; // pixels
-export const TABLE_ROW_MAX_HEIGHT = 120; // pixels
-
-// Status Messages
-export const STATUS_MESSAGES = {
-  NO_DATA: 'No data available',
-  LOADING: 'Loading...',
-  ERROR: 'An error occurred',
-  SUCCESS: 'Operation completed successfully',
-  PROCESSING: 'Processing...',
-  LOADING_FILES: 'Loading files...',
-  EXTRACTING: 'Extracting schema...',
-  ANALYZING: 'Analyzing documents...'
-} as const;
-
-// Route Paths
-export const ROUTES = {
-  HOME: '/',
-  LOAD: '/load',
-  SCHEMATIQ: '/schematiq',
-  VISUALIZE: '/visualize'
-} as const;
-
-// LocalStorage Keys
-export const STORAGE_KEYS = {
-  RECENT_SESSIONS: 'schematiq_recent_sessions',
-  USER_PREFERENCES: 'schematiq_user_preferences',
-  TABLE_SETTINGS: 'schematiq_table_settings'
-} as const;
 
 // LLM Model Definitions
 export * from './llmModels';

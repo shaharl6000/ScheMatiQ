@@ -62,25 +62,13 @@ class TableBuilder:
         self._stopped = False  # Track if we stopped early
         self._skipped_documents: List[SkippedDocument] = []
 
-    def get_suggested_values(self, threshold: int = 2) -> Dict[str, Dict[str, Any]]:
-        """Get suggested values that meet the threshold from PaperProcessor."""
-        return self.paper_processor.get_suggested_values(threshold)
-
     def get_all_suggested_values(self) -> Dict[str, Dict[str, Any]]:
         """Get all suggested values regardless of threshold."""
         return self.paper_processor.get_all_suggested_values()
 
-    def get_skipped_documents(self) -> List[str]:
-        """Document stems skipped due to no observation units (names only, backward compatible)."""
-        return [entry.document for entry in self._skipped_documents]
-
     def get_skipped_documents_with_reasons(self) -> List[Dict[str, str]]:
         """Skipped documents with human-readable reasons (often LLM ``notes``)."""
         return [entry.to_dict for entry in self._skipped_documents]
-
-    def clear_skipped_documents(self) -> None:
-        """Clear the list of skipped documents."""
-        self._skipped_documents = []
 
     def _report_skipped_documents_summary(self, output_path: Optional[Path]) -> None:
         """Report summary of documents skipped due to no observation units found.
@@ -743,157 +731,6 @@ class TableBuilder:
             # running ones finish their current call.
             executor.shutdown(wait=True, cancel_futures=True)
 
-    def _process_row_one_by_one_multi_dirs(self, current_row: dict, papers: list[Path],
-                                          doc_to_source: dict, schema: Schema,
-                                          retrieval_k: int, max_new_tokens: int,
-                                          existing_rows: dict, processed_papers: set) -> None:
-        """Process row one column at a time (multi-directory version).
-
-        For each column, try each paper until we find a value.
-        Papers are NOT marked as 'processed' here - that tracking is for resume logic,
-        not for skipping papers within a single row's extraction.
-        """
-        row_name = current_row.get("_row_name")
-
-        for column in schema.columns:
-            # Check for stop request
-            if self.should_stop and self.should_stop():
-                print("🛑 Stop requested during column processing")
-                self._stopped = True
-                return
-
-            # Handle both dict and Column object formats
-            if isinstance(column, dict):
-                column_name = column.get('column') or column.get('name')
-            else:
-                column_name = column.name
-
-            if column_name in current_row:
-                continue
-
-            for paper in papers:
-                # Check for stop request
-                if self.should_stop and self.should_stop():
-                    print("🛑 Stop requested during paper processing")
-                    self._stopped = True
-                    return
-                # Note: Don't skip based on processed_papers here - we need to try
-                # each paper for EACH column, not skip after first column extraction
-
-                try:
-                    paper_text = paper.read_text(encoding="utf-8", errors="ignore")
-                    # Create a single-column schema for this extraction
-                    single_column_schema = Schema(
-                        query=schema.query,
-                        columns=[column],
-                        max_keys=1
-                    )
-                    result = self.paper_processor.extract_values_for_paper(
-                        paper.stem, paper_text, single_column_schema,
-                        max_new_tokens, mode="one_by_one", retrieval_k=retrieval_k,
-                        row_name=row_name
-                    )
-                    # Check stop after extraction returns
-                    if self.should_stop and self.should_stop():
-                        self._stopped = True
-                        return
-                    if result and column_name in result:
-                        current_row.update(result)
-                        break  # Found value for this column, move to next column
-                except Exception as e:
-                    print(f"⚠️  Error processing {paper.name} for column {column_name}: {e}")
-
-        # Mark all papers as processed AFTER extracting all columns for this row
-        for paper in papers:
-            processed_papers.add(paper)
-    
-    def _process_row_all_multi_dirs(self, current_row: dict, papers: list[Path],
-                                   doc_to_source: dict, schema: Schema,
-                                   retrieval_k: int, max_new_tokens: int,
-                                   max_workers: int, existing_rows: dict,
-                                   processed_papers: set) -> None:
-        """Process row with all columns at once (multi-directory version)."""
-        unprocessed_papers = [p for p in papers if p not in processed_papers]
-        row_name = current_row.get("_row_name")
-
-        if max_workers > 1 and len(unprocessed_papers) > 1:
-            # Parallel processing
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_paper = {
-                    executor.submit(
-                        contextvars.copy_context().run,
-                        self._extract_values_from_paper_file,
-                        paper, schema, retrieval_k, max_new_tokens, row_name
-                    ): paper for paper in unprocessed_papers
-                }
-
-                for future in concurrent.futures.as_completed(future_to_paper):
-                    # Check for stop request
-                    if self.should_stop and self.should_stop():
-                        print("🛑 Stop requested - cancelling pending futures")
-                        self._stopped = True
-                        # Cancel any pending futures
-                        for pending_future in future_to_paper:
-                            pending_future.cancel()
-                        return
-
-                    paper = future_to_paper[future]
-                    try:
-                        result = future.result()
-                        if result:
-                            # Merge result into current row
-                            for key, value in result.items():
-                                if key not in current_row:
-                                    current_row[key] = value
-                            processed_papers.add(paper)
-                    except Exception as e:
-                        print(f"⚠️  Error processing {paper.name}: {e}")
-        else:
-            # Sequential processing
-            for paper in unprocessed_papers:
-                # Check for stop request
-                if self.should_stop and self.should_stop():
-                    print("🛑 Stop requested during sequential processing")
-                    self._stopped = True
-                    return
-
-                try:
-                    result = self._extract_values_from_paper_file(
-                        paper, schema, retrieval_k, max_new_tokens, row_name
-                    )
-                    # Check stop after extraction returns
-                    if self.should_stop and self.should_stop():
-                        self._stopped = True
-                        return
-                    if result:
-                        # Merge result into current row
-                        for key, value in result.items():
-                            if key not in current_row:
-                                current_row[key] = value
-                        processed_papers.add(paper)
-                except Exception as e:
-                    print(f"⚠️  Error processing {paper.name}: {e}")
-    
-    def _extract_values_from_paper_file(self, paper_path: Path, schema: Schema,
-                                       retrieval_k: int, max_new_tokens: int,
-                                       row_name: str = None) -> dict:
-        """Helper method to extract values from a paper file."""
-        try:
-            paper_text = paper_path.read_text(encoding="utf-8", errors="ignore")
-            paper_title = paper_path.stem
-            # Derive row_name if not provided
-            if row_name is None:
-                row_name = self.row_manager.extract_row_name_from_filename(paper_path.name)
-            return self.paper_processor.extract_values_for_paper(
-                paper_title, paper_text, schema, max_new_tokens,
-                mode="all", retrieval_k=retrieval_k,
-                row_name=row_name
-            )
-        except Exception as e:
-            print(f"⚠️  Error reading or processing {paper_path.name}: {e}")
-            return {}
-    
     def build_table_jsonl(self,
                          schema_path: Path,
                          docs_directory: Path,

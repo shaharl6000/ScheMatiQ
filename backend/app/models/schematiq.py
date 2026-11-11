@@ -98,13 +98,6 @@ class ScheMatiQStatus(BaseModel):
     llm_stats: Optional[Dict[str, Any]] = None
     schema_only: bool = False  # True when value extraction was deliberately skipped
 
-class ScheMatiQProgress(BaseModel):
-    """Detailed progress information."""
-    step_name: str
-    step_progress: float = Field(ge=0.0, le=1.0)
-    details: Dict[str, Any] = {}
-    timestamp: str
-
 
 class PhaseEstimate(BaseModel):
     """Cost estimate for a single phase (schema discovery or value extraction)."""

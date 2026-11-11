@@ -299,22 +299,6 @@ class StorageInterface(ABC):
             return None
         return json.loads(data.decode("utf-8"))
 
-    # =================
-    # URL Generation
-    # =================
-
-    def get_public_url(self, bucket: str, path: str) -> Optional[str]:
-        """Get a public URL for a file (if supported).
-
-        Args:
-            bucket: Storage bucket name
-            path: Path within the bucket
-
-        Returns:
-            Public URL string, or None if not supported
-        """
-        return None
-
     # =======================
     # Dataset Operations
     # =======================
