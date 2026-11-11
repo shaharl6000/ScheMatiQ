@@ -295,6 +295,11 @@ def _seed_flat_upload_session(sm: SessionManager, data_dir: Path) -> Visualizati
     rows = [
         {
             "_row_name": "doc_flat_1",
+            # Internal fields of a flat row: never exported as columns.
+            "_papers": ["doc_flat_1.txt"],
+            "_cell_status": {"schema_first": "edited"},
+            "_parent_document": "bundle.pdf",
+            "_row_index": 0,
             "zeta_extra": "extra, value",
             "alpha_extra": 'quoted "extra"',
             "Notes, misc": "misc remark",

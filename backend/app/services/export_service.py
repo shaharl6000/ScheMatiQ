@@ -254,6 +254,10 @@ def _order_upload_csv_columns(
     request order). All remaining columns — or all columns when ``column_order``
     is omitted — follow the canonical default order: metadata columns, schema
     columns, sorted extra columns, and ``_ungrounded_columns`` last.
+
+    Extra columns are data columns outside the schema. Internal fields of a
+    flat row (``_papers``, ``_cell_status``, ``_parent_document``,
+    ``_row_index``, ...) start with ``_`` and are left out unless requested.
     """
     column_names: List[str] = []
     seen: set[str] = set()
@@ -277,7 +281,7 @@ def _order_upload_csv_columns(
     for extra_col in sorted(
         col
         for col in available_columns
-        if col not in seen and col != UNGROUNDED_COLUMNS_FIELD
+        if col not in seen and not col.startswith("_")
     ):
         _add(extra_col)
 
