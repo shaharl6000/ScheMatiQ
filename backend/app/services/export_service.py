@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 _STANDARD_METADATA_COLUMNS = frozenset(
     {"_row_name", "row_name", "papers", "_unit_name", "_source_document"}
 )
+_UPLOAD_META_COLUMNS = ("_row_name", "_unit_name", "_source_document")
 
 
 def _sanitize_source_name(source: Optional[str], default: str) -> str:
@@ -207,6 +208,87 @@ def _write_rich_csv_comments(
 # ==================== Standard CSV Exports ====================
 
 
+def _parse_requested_columns(
+    column_order: str,
+    available_columns: set[str],
+) -> List[str]:
+    """Parse comma-separated ``column_order`` into deduplicated valid column names.
+
+    Supports column names that themselves contain commas (e.g. ``'Notes, misc'``)
+    by matching the longest comma-joined span present in ``available_columns``
+    before falling back to a single comma-delimited token.
+    """
+    parts = column_order.split(",")
+    has_comma_col = any("," in col for col in available_columns)
+    ordered: List[str] = []
+    seen: set[str] = set()
+    i = 0
+    while i < len(parts):
+        matched: Optional[str] = None
+        if has_comma_col:
+            for j in range(len(parts), i, -1):
+                candidate = ",".join(parts[i:j]).strip()
+                if candidate and candidate in available_columns:
+                    matched = candidate
+                    i = j
+                    break
+        if matched is None:
+            candidate = parts[i].strip()
+            if candidate and candidate in available_columns:
+                matched = candidate
+            i += 1
+        if matched is not None and matched not in seen:
+            seen.add(matched)
+            ordered.append(matched)
+    return ordered
+
+
+def _order_upload_csv_columns(
+    available_columns: set[str],
+    session: VisualizationSession,
+    column_order: Optional[str] = None,
+) -> List[str]:
+    """Return upload CSV columns in a deterministic order independent of hash seed.
+
+    Requested columns in ``column_order`` come first (deduplicated, preserving
+    request order). All remaining columns — or all columns when ``column_order``
+    is omitted — follow the canonical default order: metadata columns, schema
+    columns, sorted extra columns, and ``_ungrounded_columns`` last.
+
+    Extra columns are data columns outside the schema. Internal fields of a
+    flat row (``_papers``, ``_cell_status``, ``_parent_document``,
+    ``_row_index``, ...) start with ``_`` and are left out unless requested.
+    """
+    column_names: List[str] = []
+    seen: set[str] = set()
+
+    def _add(col_name: str) -> None:
+        if col_name in available_columns and col_name not in seen:
+            seen.add(col_name)
+            column_names.append(col_name)
+
+    if column_order:
+        for col_name in _parse_requested_columns(column_order, available_columns):
+            _add(col_name)
+
+    for meta_col in _UPLOAD_META_COLUMNS:
+        _add(meta_col)
+
+    for col in session.columns:
+        if col.name:
+            _add(col.name)
+
+    for extra_col in sorted(
+        col
+        for col in available_columns
+        if col not in seen and not col.startswith("_")
+    ):
+        _add(extra_col)
+
+    _add(UNGROUNDED_COLUMNS_FIELD)
+    return column_names
+
+
 def export_upload_csv(
     session: VisualizationSession,
     data_file: Path,
@@ -265,34 +347,19 @@ def export_upload_csv(
                 flat_row[key] = _flatten_cell_value(value)
         rows.append(flat_row)
 
-    if rows:
-        all_keys = set()
-        for row in rows:
-            all_keys.update(row.keys())
-        for row in rows:
-            for col in all_keys:
-                if col not in row:
-                    row[col] = ""
-
     if not rows:
         raise HTTPException(status_code=404, detail="No data to export")
 
-    available_columns = set(rows[0].keys())
-    if column_order:
-        requested_order = [col.strip() for col in column_order.split(",")]
-        column_names = [col for col in requested_order if col in available_columns]
-        remaining = [col for col in available_columns if col not in column_names]
-        column_names.extend(remaining)
-    else:
-        column_names = []
-        for meta_col in ["_row_name", "_unit_name", "_source_document"]:
-            if meta_col in available_columns:
-                column_names.append(meta_col)
-        for col in session.columns:
-            if col.name in available_columns and col.name not in column_names:
-                column_names.append(col.name)
-        if UNGROUNDED_COLUMNS_FIELD in available_columns:
-            column_names.append(UNGROUNDED_COLUMNS_FIELD)
+    all_keys: set[str] = set()
+    for row in rows:
+        all_keys.update(row.keys())
+    sorted_keys = sorted(all_keys)
+    for row in rows:
+        for col in sorted_keys:
+            if col not in row:
+                row[col] = ""
+
+    column_names = _order_upload_csv_columns(all_keys, session, column_order)
 
     content = _write_display_header_csv(column_names, rows)
     safe_name = _sanitize_source_name(session.metadata.source, "uploaded_data")
@@ -318,9 +385,9 @@ def export_schematiq_csv(
         has_source_document = any(row.source_document for row in data.rows)
 
         if column_order:
-            requested_order = [col.strip() for col in column_order.split(",")]
-            column_names = [col for col in requested_order if col in schema_col_names]
-            remaining = [col for col in schema_col_names if col not in column_names]
+            column_names = _parse_requested_columns(column_order, schema_col_names)
+            column_set = set(column_names)
+            remaining = [col for col in schema_col_names if col not in column_set]
             column_names.extend(sorted(remaining))
         else:
             column_names = [col.name for col in session.columns if col.name]
