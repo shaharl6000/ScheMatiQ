@@ -1,7 +1,7 @@
 // Side-panel chat UI for inspecting and editing the project via workspace tools.
 // Parent: Workspace (index.tsx).
 
-import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type ChangeEvent, type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, Bot, Check, FileText, Loader2, Paperclip, Square, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -114,6 +114,10 @@ export function ChatPanel({
   onClose: () => void;
 }) {
   const [messages, setMessages] = useState<WorkspaceMessage[]>([INITIAL_WELCOME_MESSAGE]);
+  // Grouped once per messages change, so renders from other state (typing in
+  // the input, busy flags) pass the same logs arrays and memo(ToolActivityGroup)
+  // can skip them.
+  const renderItems = useMemo(() => groupChatMessages(messages), [messages]);
   const [input, setInput] = useState('');
   // The chat turn lifecycle (busy flag + abort wiring) lives in its own hook so
   // Stop can cancel the in-flight request and every handler shares one busy
@@ -934,7 +938,7 @@ export function ChatPanel({
       )}
 
       <div className="workspace-chat-messages" ref={messagesRef}>
-        {groupChatMessages(messages).map((item) =>
+        {renderItems.map((item) =>
           item.kind === 'tool_group' ? (
             <ToolActivityGroup key={item.id} logs={item.logs} />
           ) : (
