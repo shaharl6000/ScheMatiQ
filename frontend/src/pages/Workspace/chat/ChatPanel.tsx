@@ -84,6 +84,13 @@ function groupChatMessages(messages: WorkspaceMessage[]): ChatRenderItem[] {
   return items;
 }
 
+const INITIAL_WELCOME_MESSAGE: WorkspaceMessage = {
+  id: 'hello',
+  role: 'assistant',
+  content:
+    'Ask me to inspect or edit this project. I use workspace tools to read schema and data before making changes. Type /tools to list available tools.',
+};
+
 export function ChatPanel({
   sessionId,
   sessionMode,
@@ -102,14 +109,7 @@ export function ChatPanel({
   onRegisterCancelPending?: (cancel: (() => Promise<boolean>) | null) => void;
   onClose: () => void;
 }) {
-  const [messages, setMessages] = useState<WorkspaceMessage[]>([
-    {
-      id: 'hello',
-      role: 'assistant',
-      content:
-        'Ask me to inspect or edit this project. I use workspace tools to read schema and data before making changes. Type /tools to list available tools.',
-    },
-  ]);
+  const [messages, setMessages] = useState<WorkspaceMessage[]>([INITIAL_WELCOME_MESSAGE]);
   const [input, setInput] = useState('');
   // The chat turn lifecycle (busy flag + abort wiring) lives in its own hook so
   // Stop can cancel the in-flight request and every handler shares one busy
@@ -142,6 +142,7 @@ export function ChatPanel({
   // adaptive slice per animation frame so the UI advances at a steady cadence.
   const activeStreamRef = useRef<ActiveChatStream | null>(null);
   const streamFrameRef = useRef<number | null>(null);
+  const previousSessionIdRef = useRef<string | undefined>(sessionId);
 
   useEffect(() => {
     const container = messagesRef.current;
@@ -164,6 +165,24 @@ export function ChatPanel({
   // seed. Runs once per session id; keeps the seed when there is no history, and
   // never overwrites a conversation the user has already started this session.
   useEffect(() => {
+    if (previousSessionIdRef.current !== sessionId) {
+      previousSessionIdRef.current = sessionId;
+      stop();
+      if (streamFrameRef.current != null) {
+        window.cancelAnimationFrame(streamFrameRef.current);
+        streamFrameRef.current = null;
+      }
+      activeStreamRef.current = null;
+      conversationStartedRef.current = false;
+      suppressStreamRef.current = false;
+      historyLoadedForRef.current = null;
+      setMessages([INITIAL_WELCOME_MESSAGE]);
+      setChatId(null);
+      setPendingAction(null);
+      setFillRunning(null);
+      setReextractionRunning(null);
+      setReferenceError(null);
+    }
     if (!sessionId) return;
     if (historyLoadedForRef.current === sessionId) return;
     historyLoadedForRef.current = sessionId;
@@ -183,7 +202,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, stop]);
 
   const loadTools = useCallback(async () => {
     const tools = await chatAPI.getTools(sessionId, sessionMode);
