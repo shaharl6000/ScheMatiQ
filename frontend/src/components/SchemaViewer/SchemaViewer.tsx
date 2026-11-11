@@ -84,6 +84,7 @@ import ColumnDialog from '../SchemaEditor/ColumnDialog';
 import MergeDialog from '../SchemaEditor/MergeDialog';
 import ReextractionDialog from '../SchemaEditor/ReextractionDialog';
 import ContinueDiscoveryDialog from '../SchemaEditor/ContinueDiscoveryDialog';
+import { type ContinueDiscoveryLifecycleEvent } from '../SchemaEditor/continueDiscoveryStateGuard';
 import LLMConfigDisplay from '../LLMConfigDisplay';
 import SchemaColumnDetailPanel from './SchemaColumnDetailPanel';
 import ObservationUnitEditModal from './ObservationUnitEditModal';
@@ -109,6 +110,7 @@ interface SchemaViewerProps {
   processingColumns?: Set<string>;
   onColumnsChange?: (columns: ColumnInfo[]) => void;
   onReextractionStarted?: (columns: string[], operationId?: string) => void;
+  onContinueDiscoveryLifecycleEvent?: (event: ContinueDiscoveryLifecycleEvent) => void;
   websocketManager?: any;
   llmConfig?: any;
   observationUnit?: ObservationUnitInfo;
@@ -125,6 +127,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   processingColumns,
   onColumnsChange,
   onReextractionStarted,
+  onContinueDiscoveryLifecycleEvent,
   websocketManager,
   llmConfig,
   observationUnit,
@@ -2285,6 +2288,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         onSuccess={handleContinueDiscoverySuccess}
         onError={handleContinueDiscoveryError}
         onExtractionStarted={onReextractionStarted}
+        onLifecycleEvent={onContinueDiscoveryLifecycleEvent}
       />
 
       {readonly && (
