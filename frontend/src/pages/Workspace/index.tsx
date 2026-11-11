@@ -776,14 +776,22 @@ function Workspace() {
     // Reset session-scoped view/data so a freshly imported/loaded session
     // never renders the previous session's sheet, schema, or rows.
     setActiveSheet('data');
+    setSessionMode(requestedMode);
     setData(emptyData);
     setSchema(null);
     setStatus(null);
     setSession(null);
+    setDocuments(null);
+    setConfig(null);
+    setCostEstimate(null);
     setDataView('by_document');
     setUnitData(emptyData);
+    setSheetSelection(null);
+    setGroundingHighlights(null);
+    setSelectedFigures(null);
     // The undo stack belongs to the session we are leaving.
     editHistory.clear();
+    reextractionSnapshotRef.current = null;
     // Drop refresh bookkeeping tied to the session we are leaving, so a pending
     // re-check cannot apply the previous session's rows to the new one.
     dataRowCountRef.current = 0;
@@ -794,7 +802,7 @@ function Workspace() {
     dataRetryAttemptRef.current = 0;
     clearDataRetryTimer();
     setDataLoadError(null);
-  }, [clearDataRetryTimer, clearEmptyRecheck, editHistory, sessionId]);
+  }, [clearDataRetryTimer, clearEmptyRecheck, editHistory, requestedMode, sessionId]);
 
   useEffect(() => clearEmptyRecheck, [clearEmptyRecheck]);
 
@@ -1642,6 +1650,7 @@ function Workspace() {
               }}
             >
               <ScheMatiQMonitor
+                key={sessionId}
                 sessionId={sessionId}
                 canRunPipeline={canRunPipeline}
                 importedSummary={canRunPipeline ? undefined : importedSummary}
@@ -1677,6 +1686,7 @@ function Workspace() {
 
         <div className="workspace-chat-pane" data-hidden={isChatHidden} data-manual-close={isChatCollapsed}>
           <ChatPanel
+            key={sessionId ?? 'no-session'}
             sessionId={sessionId}
             sessionMode={sessionMode}
             status={status}
