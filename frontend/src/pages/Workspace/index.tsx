@@ -76,6 +76,7 @@ import { DataLoadErrorBanner } from './DataLoadErrorBanner';
 import { useEditHistory } from './hooks/useEditHistory';
 import {
   buildExportFilename,
+  chainDataCommittedCallbacks,
   dataEquals,
   diffPaginatedData,
   documentDisplayName,
@@ -271,6 +272,7 @@ function Workspace() {
   const dataRowCountRef = useRef(0);
   const unitDataRowCountRef = useRef(0);
   const emptyRecheckTimerRef = useRef<number | null>(null);
+  const emptyRecheckOnCommittedRef = useRef<((data: PaginatedData) => void) | undefined>(undefined);
   const refreshDataRef = useRef<((options?: RefreshDataOptions) => Promise<void>) | null>(null);
   // Surfaced 503 from the table-data endpoint: rows exist in storage but could
   // not be read. Everything else (network blips during background polls) stays
@@ -281,6 +283,7 @@ function Workspace() {
   const dataRetryAttemptRef = useRef(0);
 
   const clearEmptyRecheck = useCallback(() => {
+    emptyRecheckOnCommittedRef.current = undefined;
     if (emptyRecheckTimerRef.current == null) return;
     window.clearTimeout(emptyRecheckTimerRef.current);
     emptyRecheckTimerRef.current = null;
@@ -359,10 +362,16 @@ function Workspace() {
   // re-check and applied then. Nothing is committed on the skipped attempt, so
   // dataServerVersion is not bumped and no By Unit refetch is triggered either.
   const scheduleEmptyRecheck = useCallback((onCommitted?: (data: PaginatedData) => void) => {
+    emptyRecheckOnCommittedRef.current = chainDataCommittedCallbacks(
+      emptyRecheckOnCommittedRef.current,
+      onCommitted,
+    );
     if (emptyRecheckTimerRef.current != null) return;
     emptyRecheckTimerRef.current = window.setTimeout(() => {
       emptyRecheckTimerRef.current = null;
-      void refreshDataRef.current?.({ silent: true, acceptEmpty: true, onCommitted });
+      const chained = emptyRecheckOnCommittedRef.current;
+      emptyRecheckOnCommittedRef.current = undefined;
+      void refreshDataRef.current?.({ silent: true, acceptEmpty: true, onCommitted: chained });
     }, EMPTY_DATA_RECHECK_MS);
   }, []);
 
@@ -378,11 +387,10 @@ function Workspace() {
         // so an earlier caller (e.g. a reextraction's undo recorder) still
         // gets notified once the eventual commit happens -- chaining both if
         // this fetch brought its own callback too.
-        const pending = deferredDataRef.current?.onCommitted;
-        const incoming = opts?.onCommitted;
-        const onCommitted = !pending || pending === incoming
-          ? incoming ?? pending
-          : (data: PaginatedData) => { pending(data); incoming?.(data); };
+        const onCommitted = chainDataCommittedCallbacks(
+          deferredDataRef.current?.onCommitted,
+          opts?.onCommitted,
+        );
         deferredDataRef.current = { data: nextData, onCommitted };
         return;
       }
@@ -742,6 +750,7 @@ function Workspace() {
 
   useWorkspaceSocket({
     sessionId,
+    reextraction,
     refresh,
     refreshSilent,
     setActiveSheet,

@@ -6,7 +6,6 @@ Handles schema change detection, paper discovery, and selective re-extraction.
 import json
 import os
 import asyncio
-import hashlib
 import threading
 import uuid
 import logging
