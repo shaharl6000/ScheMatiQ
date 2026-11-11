@@ -6,7 +6,6 @@ Handles schema change detection, paper discovery, and selective re-extraction.
 import json
 import os
 import asyncio
-import hashlib
 import threading
 import uuid
 import logging
@@ -37,8 +36,6 @@ from schematiq.core.model_specs import ModelNames
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from app.services.session_documents import committed_docs_dir, pending_docs_dir
-
-SCHEMATIQ_AVAILABLE = True
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +243,8 @@ class ReextractionOperation:
         self.incrementally_merged_keys: Set[tuple] = set()
         # paper discovery snapshot for this operation (avoids redundant rescans)
         self.paper_discovery: Optional[Dict[str, Any]] = None
+        # Pre-validated LLM backend from start_reextraction (avoids resolving twice)
+        self.llm: Optional[Any] = None
         # Guards against leaking or double-releasing the concurrency slot: the
         # slot is released exactly once, whether by the running task's finally
         # or by stop_operation, whichever gets there first.
@@ -833,13 +832,26 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     len(session_document_filenames),
                 )
 
-        # Build paper to rows mapping (extract display name from tuple key)
-        paper_to_rows: Dict[str, List[str]] = {}
-        for paper in available:
-            paper_to_rows[paper] = [
-                rk[0] for rk, rk_papers in row_paper_mapping.items()
-                if paper in rk_papers
-            ]
+        def _invert_row_paper_mapping(
+            mapping: Dict[tuple, List[str]],
+        ) -> Dict[str, List[str]]:
+            inverted: Dict[str, List[str]] = {p: [] for p in available}
+            for p in missing:
+                inverted.setdefault(p, [])
+            for rk, rk_papers in mapping.items():
+                r_name = rk[0]
+                seen_in_row: Set[str] = set()
+                for paper in rk_papers:
+                    if paper in seen_in_row:
+                        continue
+                    seen_in_row.add(paper)
+                    inverted.setdefault(paper, []).append(r_name)
+            return inverted
+
+        # Build paper to rows mapping in a single O(|rows|) pass covering both
+        # available and missing papers (avoids O(|papers| * |rows|) scans and
+        # eliminates the second disk scan in precheck_document_availability).
+        paper_to_rows = _invert_row_paper_mapping(row_paper_mapping)
 
         rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
 
@@ -871,6 +883,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     except json.JSONDecodeError:
                                         continue
                 rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
+                paper_to_rows = _invert_row_paper_mapping(row_paper_mapping)
                 logger.debug(f"After backfill - rows_with_papers: {rows_with_papers}")
 
         return {
@@ -1551,9 +1564,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
         Returns:
             Dictionary with operation details
         """
-        if not SCHEMATIQ_AVAILABLE:
-            raise RuntimeError("ScheMatiQ components not available for re-extraction")
-
         session = self.session_manager.get_session(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")
@@ -1649,6 +1659,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         operation.only_empty_targets = only_empty_targets
         operation.total_documents = doc_count
         operation.paper_discovery = paper_discovery
+        operation.llm = llm
         with self._state_lock:
             self.active_operations[operation_id] = operation
 
@@ -1901,10 +1912,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
             with open(schema_file, 'w') as f:
                 json.dump(schema_data, f, indent=2)
 
-            # Setup LLM and retriever (use cached retriever for performance)
-            llm = self._get_llm_from_session(
-                operation.session_id, honor_user_llm_config=operation.honor_user_llm_config
-            )
+            # Setup LLM and retriever (reuse pre-validated LLM when available)
+            llm = operation.llm
+            if llm is None:
+                llm = self._get_llm_from_session(
+                    operation.session_id, honor_user_llm_config=operation.honor_user_llm_config
+                )
             retriever = self.get_cached_retriever()
 
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
@@ -2910,19 +2923,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
         (per-column stats, total_rows). Columns absent from the data are reported
         with zero fills rather than dropped, so the recap can still mention them.
         """
-        from app.services.pipeline.data_query import get_data as query_get_data
+        from app.services.pipeline.data_query import load_all_rows
         from app.services.chat.deps import WORK_DIR
 
-        rows: List[Dict[str, Any]] = []
-        page = 0
-        page_size = 200
-        while page < 500:  # hard cap: 100k rows, matches the chat tool
-            data = await query_get_data(session_id, WORK_DIR, page=page, page_size=page_size)
-            batch = [r.model_dump() for r in data.rows]
-            rows.extend(batch)
-            if len(batch) < page_size:
-                break
-            page += 1
+        rows = await load_all_rows(session_id, WORK_DIR, max_rows=100_000)
 
         total = len(rows)
         stats: List[Dict[str, Any]] = []
@@ -3080,61 +3084,66 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 "affected_rows": affected_rows
             })
 
-        # Format missing documents with affected rows
-        # For missing papers, we need to find which rows reference them
+        # Format missing documents with affected rows.
+        # discover_papers already populates paper_to_rows for missing papers in a
+        # single pass; fall back to scanning JSONL files only if a caller supplied
+        # a partial paper_discovery dict lacking entries for some missing papers.
+        missing_papers_list = discovery.get("missing_papers", [])
+        unresolved_missing = {p for p in missing_papers_list if p not in paper_to_rows}
+        fallback_missing_to_rows: Dict[str, List[str]] = {}
+
+        if unresolved_missing:
+            precheck_data_files = []
+            schematiq_extracted = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "extracted_data.jsonl"
+            if schematiq_extracted.exists():
+                precheck_data_files.append(schematiq_extracted)
+            if not precheck_data_files:
+                schematiq_data = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "data.jsonl"
+                if schematiq_data.exists():
+                    precheck_data_files.append(schematiq_data)
+            data_dir_file = Path(DEFAULT_DATA_DIR) / session_id / "data.jsonl"
+            if data_dir_file.exists() and data_dir_file not in precheck_data_files:
+                precheck_data_files.append(data_dir_file)
+
+            for data_file in precheck_data_files:
+                with open(data_file, 'r') as f:
+                    row_idx = 0
+                    for line in f:
+                        if line.strip():
+                            row_idx += 1
+                            try:
+                                row = json.loads(line)
+                                row_name = row_name_of(row) or f"row_{row_idx}"
+                                papers_raw = (
+                                    row.get('papers') or
+                                    row.get('_papers') or
+                                    row.get('Papers') or
+                                    row.get('data', {}).get('Papers') or
+                                    row.get('data', {}).get('papers') or
+                                    []
+                                )
+                                if isinstance(papers_raw, dict) and 'answer' in papers_raw:
+                                    papers_raw = papers_raw.get('answer', [])
+                                if isinstance(papers_raw, str):
+                                    papers = [papers_raw] if papers_raw else []
+                                elif isinstance(papers_raw, list):
+                                    papers = papers_raw
+                                else:
+                                    papers = []
+
+                                for paper in papers:
+                                    if paper in unresolved_missing:
+                                        fallback_missing_to_rows.setdefault(paper, []).append(row_name)
+                            except json.JSONDecodeError:
+                                continue
+
         missing_documents = []
-
-        # Find data files from all possible locations
-        precheck_data_files = []
-        schematiq_extracted = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "extracted_data.jsonl"
-        if schematiq_extracted.exists():
-            precheck_data_files.append(schematiq_extracted)
-        if not precheck_data_files:
-            schematiq_data = Path(DEFAULT_SCHEMATIQ_WORK_DIR) / session_id / "data.jsonl"
-            if schematiq_data.exists():
-                precheck_data_files.append(schematiq_data)
-        data_dir_file = Path(DEFAULT_DATA_DIR) / session_id / "data.jsonl"
-        if data_dir_file.exists() and data_dir_file not in precheck_data_files:
-            precheck_data_files.append(data_dir_file)
-
-        # Build a mapping from paper name to rows for missing papers
-        missing_paper_to_rows: Dict[str, List[str]] = {}
-        for data_file in precheck_data_files:
-            with open(data_file, 'r') as f:
-                row_idx = 0
-                for line in f:
-                    if line.strip():
-                        row_idx += 1
-                        try:
-                            row = json.loads(line)
-                            row_name = row_name_of(row) or f"row_{row_idx}"
-                            papers_raw = (
-                                row.get('papers') or
-                                row.get('_papers') or
-                                row.get('Papers') or
-                                row.get('data', {}).get('Papers') or
-                                row.get('data', {}).get('papers') or
-                                []
-                            )
-                            if isinstance(papers_raw, dict) and 'answer' in papers_raw:
-                                papers_raw = papers_raw.get('answer', [])
-                            if isinstance(papers_raw, str):
-                                papers = [papers_raw] if papers_raw else []
-                            elif isinstance(papers_raw, list):
-                                papers = papers_raw
-                            else:
-                                papers = []
-
-                            for paper in papers:
-                                if paper in discovery.get("missing_papers", []):
-                                    if paper not in missing_paper_to_rows:
-                                        missing_paper_to_rows[paper] = []
-                                    missing_paper_to_rows[paper].append(row_name)
-                        except json.JSONDecodeError:
-                            continue
-
-        for paper in discovery.get("missing_papers", []):
-            affected_rows = missing_paper_to_rows.get(paper, [])
+        for paper in missing_papers_list:
+            affected_rows = (
+                paper_to_rows[paper]
+                if paper in paper_to_rows
+                else fallback_missing_to_rows.get(paper, [])
+            )
             missing_documents.append({
                 "name": paper,
                 "status": "missing",

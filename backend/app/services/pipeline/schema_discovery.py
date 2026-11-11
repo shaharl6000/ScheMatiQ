@@ -207,14 +207,21 @@ async def run_schema_discovery(
         # overflows is skipped and recorded, rather than crashing discovery.
         ctx_window = schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192)
 
-        async def _run_generate(sub_docs):
+        async def _run_generate(
+            sub_docs,
+            _batch_docs=batch_docs,
+            _relevant_content=relevant_content,
+            _loop=loop,
+            _current_schema=current_schema,
+            _ctx_window=ctx_window,
+        ):
             # Re-select relevant content for this (possibly reduced) doc subset,
             # then generate the schema. On the full batch this reuses the passages
             # already computed above to avoid a redundant retrieval pass.
-            if sub_docs is batch_docs:
-                sub_content = relevant_content
+            if sub_docs is _batch_docs:
+                sub_content = _relevant_content
             else:
-                sub_content = await loop.run_in_executor(
+                sub_content = await _loop.run_in_executor(
                     schematiq_thread_pool,
                     functools.partial(
                         ScheMatiQ.select_relevant_content,
@@ -223,16 +230,16 @@ async def run_schema_discovery(
                         retriever=retriever,
                     )
                 )
-            result = await loop.run_in_executor(
+            result = await _loop.run_in_executor(
                 schematiq_thread_pool,
                 functools.partial(
                     ScheMatiQ.generate_schema,
                     passages=sub_content,
                     query=query,
                     max_keys_schema=schematiq_config.get("max_keys_schema", 100),
-                    current_schema=current_schema,
+                    current_schema=_current_schema,
                     llm=llm,
-                    context_window_size=ctx_window,
+                    context_window_size=_ctx_window,
                 )
             )
             return result[0] if isinstance(result, tuple) else result

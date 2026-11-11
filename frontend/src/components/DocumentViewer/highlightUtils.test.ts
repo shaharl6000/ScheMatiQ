@@ -94,4 +94,51 @@ describe('findHighlightRanges', () => {
     expect(findHighlightRanges(text, null)).toEqual([]);
     expect(findHighlightRanges(text, [])).toEqual([]);
   });
+
+  it('produces identical sorted ranges across multiple normalized and ellipsis-split excerpts while lowercasing the document at most once', () => {
+    const richDoc = [
+      'Section 1.   The \u201cbaseline\u201d architecture   achieved 71.2% F1   on dev.',
+      'Intermediate paragraph with recombina-\ntion rates and T-cell counts.',
+      'Section 2.   Our proposed\u2014hybrid model reached   89.7% F1   on test, outperforming prior work significantly.',
+    ].join('\n\n');
+
+    const excerpts = [
+      { text: '"baseline" architecture achieved 71.2% F1 ... proposed-hybrid model reached 89.7% F1' },
+      { text: 'recombination rates and T-cell counts' },
+      { text: 'Our proposed-hybrid model reached 89.7% F1 on test, outperforming divergent tail wording here' },
+    ];
+
+    const expectedUnmerged = [
+      findHighlightRange(richDoc, '"baseline" architecture achieved 71.2% F1'),
+      findHighlightRange(richDoc, 'proposed-hybrid model reached 89.7% F1'),
+      findHighlightRange(richDoc, 'recombination rates and T-cell counts'),
+      findHighlightRange(
+        richDoc,
+        'Our proposed-hybrid model reached 89.7% F1 on test, outperforming divergent tail wording here',
+      ),
+    ].filter((r): r is [number, number] => r !== null);
+
+    expect(expectedUnmerged).toHaveLength(4);
+
+    // Compute expected sorted + overlap-deduped ranges from individual calls
+    const sorted = [...expectedUnmerged].sort((a, b) => a[0] - b[0]);
+    const expected: [number, number][] = [];
+    let lastEnd = -1;
+    for (const [s, e] of sorted) {
+      if (s >= lastEnd) {
+        expected.push([s, e]);
+        lastEnd = e;
+      }
+    }
+
+    const toLowerSpy = jest.spyOn(String.prototype, 'toLowerCase');
+    try {
+      const actual = findHighlightRanges(richDoc, excerpts);
+      expect(actual).toEqual(expected);
+      const docLowerCalls = toLowerSpy.mock.instances.filter((inst) => String(inst) === richDoc).length;
+      expect(docLowerCalls).toBe(1);
+    } finally {
+      toLowerSpy.mockRestore();
+    }
+  });
 });

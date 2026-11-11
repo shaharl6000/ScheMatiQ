@@ -76,9 +76,11 @@ import { DataLoadErrorBanner } from './DataLoadErrorBanner';
 import { useEditHistory } from './hooks/useEditHistory';
 import {
   buildExportFilename,
+  chainDataCommittedCallbacks,
   dataEquals,
   diffPaginatedData,
   documentDisplayName,
+  formatWorkspaceChromeStatus,
   patchDataCell,
   schemaFromLoadSession,
   selectionArea,
@@ -152,6 +154,16 @@ function Workspace() {
   const activeSearchTermRef = useRef<string | null>(null);
   const [activeSheet, setActiveSheet] = useState<SheetId>('data');
   const [sessionMode, setSessionMode] = useState<WorkspaceSessionMode>(requestedMode);
+  // Mirror sessionMode in a ref so refresh() can read and flip the active mode
+  // inline (load -> schematiq promotion, schematiq -> load fallback, or route
+  // query-param switches) without closing over sessionMode in its useCallback
+  // dependencies — which previously re-created refresh and triggered a second
+  // full refresh() right after the inline fetch had already completed.
+  const sessionModeRef = useRef<WorkspaceSessionMode>(requestedMode);
+  const updateSessionMode = useCallback((next: WorkspaceSessionMode) => {
+    sessionModeRef.current = next;
+    setSessionMode(next);
+  }, []);
   const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -260,6 +272,7 @@ function Workspace() {
   const dataRowCountRef = useRef(0);
   const unitDataRowCountRef = useRef(0);
   const emptyRecheckTimerRef = useRef<number | null>(null);
+  const emptyRecheckOnCommittedRef = useRef<((data: PaginatedData) => void) | undefined>(undefined);
   const refreshDataRef = useRef<((options?: RefreshDataOptions) => Promise<void>) | null>(null);
   // Surfaced 503 from the table-data endpoint: rows exist in storage but could
   // not be read. Everything else (network blips during background polls) stays
@@ -270,6 +283,7 @@ function Workspace() {
   const dataRetryAttemptRef = useRef(0);
 
   const clearEmptyRecheck = useCallback(() => {
+    emptyRecheckOnCommittedRef.current = undefined;
     if (emptyRecheckTimerRef.current == null) return;
     window.clearTimeout(emptyRecheckTimerRef.current);
     emptyRecheckTimerRef.current = null;
@@ -348,10 +362,16 @@ function Workspace() {
   // re-check and applied then. Nothing is committed on the skipped attempt, so
   // dataServerVersion is not bumped and no By Unit refetch is triggered either.
   const scheduleEmptyRecheck = useCallback((onCommitted?: (data: PaginatedData) => void) => {
+    emptyRecheckOnCommittedRef.current = chainDataCommittedCallbacks(
+      emptyRecheckOnCommittedRef.current,
+      onCommitted,
+    );
     if (emptyRecheckTimerRef.current != null) return;
     emptyRecheckTimerRef.current = window.setTimeout(() => {
       emptyRecheckTimerRef.current = null;
-      void refreshDataRef.current?.({ silent: true, acceptEmpty: true, onCommitted });
+      const chained = emptyRecheckOnCommittedRef.current;
+      emptyRecheckOnCommittedRef.current = undefined;
+      void refreshDataRef.current?.({ silent: true, acceptEmpty: true, onCommitted: chained });
     }, EMPTY_DATA_RECHECK_MS);
   }, []);
 
@@ -367,11 +387,10 @@ function Workspace() {
         // so an earlier caller (e.g. a reextraction's undo recorder) still
         // gets notified once the eventual commit happens -- chaining both if
         // this fetch brought its own callback too.
-        const pending = deferredDataRef.current?.onCommitted;
-        const incoming = opts?.onCommitted;
-        const onCommitted = !pending || pending === incoming
-          ? incoming ?? pending
-          : (data: PaginatedData) => { pending(data); incoming?.(data); };
+        const onCommitted = chainDataCommittedCallbacks(
+          deferredDataRef.current?.onCommitted,
+          opts?.onCommitted,
+        );
         deferredDataRef.current = { data: nextData, onCommitted };
         return;
       }
@@ -565,7 +584,7 @@ function Workspace() {
         // imported (UPLOAD) session. A SCHEMATIQ session whose status call
         // failed (a transient 500/timeout) keeps its mode; demoting it made
         // refresh promote it back on the next pass, ping-ponging between modes.
-        if (loadSession.type !== 'schematiq') setSessionMode('load');
+        if (loadSession.type !== 'schematiq') updateSessionMode('load');
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
         setSession(loadSession);
@@ -579,7 +598,7 @@ function Workspace() {
     };
 
     try {
-      if (sessionMode === 'load') {
+      if (sessionModeRef.current === 'load') {
         const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
         if (!loadSession) {
           setSessionMissing(true);
@@ -593,7 +612,7 @@ function Workspace() {
         // dir — read it as a SCHEMATIQ session from here on instead of
         // rendering a stale/empty load-mode view.
         if (loadSession.type === 'schematiq') {
-          setSessionMode('schematiq');
+          updateSessionMode('schematiq');
           await fetchAsSchematiq();
           return;
         }
@@ -616,7 +635,7 @@ function Workspace() {
         setLoading(false);
       }
     }
-  }, [applyData, noteDataFetchError, noteDataFetchSuccess, sessionId, sessionMode]);
+  }, [applyData, noteDataFetchError, noteDataFetchSuccess, sessionId, updateSessionMode]);
 
   const {
     addDocsFiles,
@@ -731,6 +750,7 @@ function Workspace() {
 
   useWorkspaceSocket({
     sessionId,
+    reextraction,
     refresh,
     refreshSilent,
     setActiveSheet,
@@ -743,8 +763,8 @@ function Workspace() {
 
   useEffect(() => {
     setProjectDialogOpen(!sessionId);
-    setSessionMode(requestedMode);
-  }, [requestedMode, sessionId]);
+    updateSessionMode(requestedMode);
+  }, [requestedMode, sessionId, updateSessionMode]);
 
   // Record every project opened in this browser so the New Project dialog can
   // offer a per-browser "recent projects" list. There is no server-side user
@@ -776,11 +796,11 @@ function Workspace() {
     // Reset session-scoped view/data so a freshly imported/loaded session
     // never renders the previous session's sheet, schema, or rows.
     setActiveSheet('data');
-    setSessionMode(requestedMode);
     setData(emptyData);
     setSchema(null);
     setStatus(null);
     setSession(null);
+    setSessionMissing(false);
     setDocuments(null);
     setConfig(null);
     setCostEstimate(null);
@@ -802,7 +822,7 @@ function Workspace() {
     dataRetryAttemptRef.current = 0;
     clearDataRetryTimer();
     setDataLoadError(null);
-  }, [clearDataRetryTimer, clearEmptyRecheck, editHistory, requestedMode, sessionId]);
+  }, [clearDataRetryTimer, clearEmptyRecheck, editHistory, sessionId]);
 
   useEffect(() => clearEmptyRecheck, [clearEmptyRecheck]);
 
@@ -922,8 +942,9 @@ function Workspace() {
   }, [activeSheet, sessionId]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh, sessionId]);
+    sessionModeRef.current = requestedMode;
+    void refresh();
+  }, [refresh, requestedMode, sessionId]);
 
   const estimateCurrentCost = useCallback(async () => {
     if (!sessionId) return;
@@ -1173,7 +1194,7 @@ function Workspace() {
     try {
       const upload = await loadAPI.uploadFile(file);
       await loadAPI.parseFile(upload.session_id);
-      setSessionMode('load');
+      updateSessionMode('load');
       setActiveSheet('data');
       toast({
         title: 'Project imported',
@@ -1190,7 +1211,7 @@ function Workspace() {
       setImportingProject(false);
       if (importInputRef.current) importInputRef.current.value = '';
     }
-  }, [navigate, toast]);
+  }, [navigate, toast, updateSessionMode]);
 
   const progressPercent = Math.round((status?.progress || 0) * 100);
   const topbarQuestion = schema?.query || config?.query || '';
@@ -1202,39 +1223,19 @@ function Workspace() {
     return ['completed', 'schema_extracted', 'stopped', 'error', 'failed'].includes(rawStatus);
   }, [status?.status]);
 
-  const chromeStatus = useMemo(() => {
-    if (!sessionId) return 'No project open';
-    if (loading) return 'Loading…';
-
-    const rawStatus = status?.status || '';
-    const isDone = rawStatus === 'completed' || rawStatus === 'schema_extracted' || rawStatus === 'stopped';
-    const isFailed = rawStatus === 'error' || rawStatus === 'failed';
-
-    if (sessionMissing) return 'Project not found';
-    if (isFailed) return 'Extraction failed';
-
-    // Still working: surface a live, human label instead of the raw status key.
-    if (!isDone) {
-      // An UPLOAD-type session only ever reaches status='processing' via
-      // /load/rediscover (see useReextraction) — a plain import never sets
-      // this status. Label it distinctly so "Rediscover schema" doesn't
-      // misleadingly read as "Importing…" for the run's whole duration.
-      if (sessionMode === 'load') {
-        return rawStatus === 'processing' ? 'Rediscovering schema…' : 'Importing…';
-      }
-      return 'Extracting…';
-    }
-
-    // Done: replace the status word (which just repeats what the visible table
-    // already shows) with useful context — where the data came from + its size.
-    const source = sessionMode === 'load' ? 'Imported file' : 'Extracted from documents';
-    const rowCount = data.total_count;
-    const colCount = status?.columns_discovered ?? schema?.schema.length ?? 0;
-    const parts = [source];
-    if (rowCount > 0) parts.push(`${rowCount} ${rowCount === 1 ? 'row' : 'rows'}`);
-    if (colCount > 0) parts.push(`${colCount} ${colCount === 1 ? 'column' : 'columns'}`);
-    return parts.join(' · ');
-  }, [sessionId, loading, status, sessionMode, data.total_count, schema]);
+  const chromeStatus = useMemo(
+    () =>
+      formatWorkspaceChromeStatus({
+        sessionId,
+        loading,
+        sessionMissing,
+        status,
+        sessionMode,
+        rowCount: data.total_count,
+        schema,
+      }),
+    [sessionId, loading, sessionMissing, status, sessionMode, data.total_count, schema],
+  );
   // Below the stacked breakpoint the panes sit one above the other and the
   // divider is display:none, so a chat width measured in pixels no longer says
   // anything about whether a pane is collapsed. Left live, the default 380px
