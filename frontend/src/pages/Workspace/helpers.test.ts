@@ -20,6 +20,7 @@ jest.mock(
 );
 
 import {
+  chainDataCommittedCallbacks,
   consumeSchemaSpareRowForCreate,
   createEmptySchemaSpareRowState,
   diffPaginatedData,
@@ -251,6 +252,59 @@ describe('schemaSpareRowState lifecycle', () => {
       auto_expand_threshold: '4',
     });
     expect(hasSchemaSpareRowDraft(rolledBack)).toBe(true);
+  });
+});
+
+describe('chainDataCommittedCallbacks', () => {
+  const sampleData: PaginatedData = {
+    rows: [{ row_name: 'r1', data: { colA: { answer: 'val', excerpts: [] } } }],
+    total_count: 1,
+    page: 0,
+    page_size: 50,
+    has_more: false,
+  };
+
+  it('returns undefined when both pending and incoming are undefined', () => {
+    expect(chainDataCommittedCallbacks(undefined, undefined)).toBeUndefined();
+  });
+
+  it('returns pending when incoming is undefined', () => {
+    const pending = jest.fn();
+    expect(chainDataCommittedCallbacks(pending, undefined)).toBe(pending);
+  });
+
+  it('returns incoming when pending is undefined', () => {
+    const incoming = jest.fn();
+    expect(chainDataCommittedCallbacks(undefined, incoming)).toBe(incoming);
+  });
+
+  it('deduplicates when pending === incoming so it is invoked only once', () => {
+    const same = jest.fn();
+    const chained = chainDataCommittedCallbacks(same, same);
+    expect(chained).toBe(same);
+    chained!(sampleData);
+    expect(same).toHaveBeenCalledTimes(1);
+    expect(same).toHaveBeenCalledWith(sampleData);
+  });
+
+  it('invokes two distinct callbacks in order (pending, incoming) with committed PaginatedData', () => {
+    const order: string[] = [];
+    const pending = jest.fn((data: PaginatedData) => {
+      order.push(`pending:${data.total_count}`);
+    });
+    const incoming = jest.fn((data: PaginatedData) => {
+      order.push(`incoming:${data.total_count}`);
+    });
+
+    const chained = chainDataCommittedCallbacks(pending, incoming);
+    expect(chained).toBeDefined();
+    chained!(sampleData);
+
+    expect(pending).toHaveBeenCalledTimes(1);
+    expect(pending).toHaveBeenCalledWith(sampleData);
+    expect(incoming).toHaveBeenCalledTimes(1);
+    expect(incoming).toHaveBeenCalledWith(sampleData);
+    expect(order).toEqual(['pending:1', 'incoming:1']);
   });
 });
 

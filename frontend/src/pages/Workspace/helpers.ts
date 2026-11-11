@@ -421,6 +421,18 @@ export function dataEquals(a: PaginatedData, b: PaginatedData): boolean {
   return JSON.stringify(a.rows) === JSON.stringify(b.rows);
 }
 
+export function chainDataCommittedCallbacks(
+  pending?: (data: PaginatedData) => void,
+  incoming?: (data: PaginatedData) => void,
+): ((data: PaginatedData) => void) | undefined {
+  if (!pending || pending === incoming) return incoming ?? pending;
+  if (!incoming) return pending;
+  return (data: PaginatedData) => {
+    pending(data);
+    incoming(data);
+  };
+}
+
 export function formatFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
