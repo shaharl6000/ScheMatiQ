@@ -149,7 +149,6 @@ export function ChatPanel({
   // adaptive slice per animation frame so the UI advances at a steady cadence.
   const activeStreamRef = useRef<ActiveChatStream | null>(null);
   const streamFrameRef = useRef<number | null>(null);
-  const previousSessionIdRef = useRef<string | undefined>(sessionId);
   const settledReextractOpIdRef = useRef<string | null>(null);
   const activeReextractOpIdRef = useRef<string | null>(null);
   const activeReextractSessionRef = useRef<string | undefined>(undefined);
@@ -175,27 +174,6 @@ export function ChatPanel({
   // seed. Runs once per session id; keeps the seed when there is no history, and
   // never overwrites a conversation the user has already started this session.
   useEffect(() => {
-    if (previousSessionIdRef.current !== sessionId) {
-      previousSessionIdRef.current = sessionId;
-      stop();
-      if (streamFrameRef.current != null) {
-        window.cancelAnimationFrame(streamFrameRef.current);
-        streamFrameRef.current = null;
-      }
-      activeStreamRef.current = null;
-      conversationStartedRef.current = false;
-      suppressStreamRef.current = false;
-      historyLoadedForRef.current = null;
-      setMessages([INITIAL_WELCOME_MESSAGE]);
-      setChatId(null);
-      setPendingAction(null);
-      setFillRunning(null);
-      setReextractionRunning(null);
-      settledReextractOpIdRef.current = null;
-      activeReextractOpIdRef.current = null;
-      activeReextractSessionRef.current = undefined;
-      setReferenceError(null);
-    }
     if (!sessionId) return;
     if (historyLoadedForRef.current === sessionId) return;
     historyLoadedForRef.current = sessionId;
@@ -215,7 +193,20 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [sessionId, stop]);
+  }, [sessionId]);
+
+  // The parent remounts this panel per session (key={sessionId}). On unmount,
+  // abort the in-flight turn and stop the stream repaint so nothing from the
+  // previous project keeps running.
+  useEffect(() => {
+    return () => {
+      stop();
+      if (streamFrameRef.current != null) {
+        window.cancelAnimationFrame(streamFrameRef.current);
+        streamFrameRef.current = null;
+      }
+    };
+  }, [stop]);
 
   const loadTools = useCallback(async () => {
     const tools = await chatAPI.getTools(sessionId, sessionMode);

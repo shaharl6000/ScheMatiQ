@@ -2269,9 +2269,10 @@ class PaperProcessor:
             all_cleaned, fallback_text, f"{paper_title} - {unit_name}"
         )
 
-        # Align to the FULL schema so the row shape is unchanged; columns not
-        # extracted this run stay absent/empty and the merge guard leaves their
-        # existing table values untouched.
+        # Map extracted keys onto the schema's column names. This only renames
+        # keys; it does not add columns, so the row holds only the columns
+        # extracted this run. The merge guard leaves every other column's
+        # existing table value untouched.
         return align_extraction_keys_to_schema(
             all_cleaned, [c.name for c in schema.columns]
         )

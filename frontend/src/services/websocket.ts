@@ -108,7 +108,12 @@ class WebSocketService {
   // callers that already hold a reference (e.g. a mount effect) and only want
   // to guarantee connectivity before kicking off background work.
   ensureConnected(sessionId: string, endpoint: 'progress' | 'logs' = 'progress') {
-    if (this.socket) {
+    const key = `${endpoint}/${sessionId}`;
+    if (this.activeKey && this.activeKey !== key) {
+      // A socket (or reconnect backoff) for another session is not this one.
+      debug.log('WebSocket switching active connection', this.activeKey, '->', key);
+      this.closeSocket();
+    } else if (this.socket) {
       return;
     }
     if (this.refCount === 0) {
