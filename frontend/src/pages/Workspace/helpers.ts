@@ -670,17 +670,12 @@ export function describeRequestError(
   };
 }
 
-export type SchemaSpareRowField =
-  | 'definition'
-  | 'rationale'
-  | 'allowed_values'
-  | 'auto_expand_threshold';
+export type SchemaSpareRowField = 'definition' | 'rationale' | 'allowed_values';
 
 export const SCHEMA_SPARE_ROW_FIELDS: readonly SchemaSpareRowField[] = [
   'definition',
   'rationale',
   'allowed_values',
-  'auto_expand_threshold',
 ];
 
 export interface SchemaSpareRowState {
@@ -695,7 +690,6 @@ export function createEmptySchemaSpareRowState(): SchemaSpareRowState {
       definition: '',
       rationale: '',
       allowed_values: '',
-      auto_expand_threshold: '',
     },
     creatingColumnName: null,
     queuedEdits: {},
@@ -746,7 +740,6 @@ export function consumeSchemaSpareRowForCreate(
     rationale?: string;
     allowed_values?: string[];
   };
-  autoExpandThreshold?: number;
 } | null {
   const name = String(rawName ?? '').trim();
   if (!name) return null;
@@ -759,12 +752,6 @@ export function consumeSchemaSpareRowForCreate(
   const definition = readMerged('definition').trim();
   const rationale = readMerged('rationale').trim();
   const allowedValues = parseAllowedValues(readMerged('allowed_values'));
-  const rawThreshold = readMerged('auto_expand_threshold').trim();
-  const parsedThreshold = rawThreshold !== '' ? Number(rawThreshold) : NaN;
-  const autoExpandThreshold =
-    Number.isFinite(parsedThreshold) && parsedThreshold !== 0
-      ? parsedThreshold
-      : undefined;
 
   return {
     nextState: {
@@ -772,7 +759,6 @@ export function consumeSchemaSpareRowForCreate(
         definition: '',
         rationale: '',
         allowed_values: '',
-        auto_expand_threshold: '',
       },
       creatingColumnName: name,
       queuedEdits: {},
@@ -784,7 +770,6 @@ export function consumeSchemaSpareRowForCreate(
       allowed_values:
         allowedValues && allowedValues.length > 0 ? allowedValues : undefined,
     },
-    autoExpandThreshold,
   };
 }
 
@@ -807,7 +792,6 @@ export function rollbackSchemaSpareRowCreate(
     rationale?: string;
     allowed_values?: string[];
   },
-  autoExpandThreshold?: number,
 ): SchemaSpareRowState {
   const baseDraft: Record<SchemaSpareRowField, string> = {
     definition: failedPayload.definition || '',
@@ -815,16 +799,12 @@ export function rollbackSchemaSpareRowCreate(
     allowed_values: Array.isArray(failedPayload.allowed_values)
       ? failedPayload.allowed_values.join(', ')
       : '',
-    auto_expand_threshold:
-      autoExpandThreshold !== undefined ? String(autoExpandThreshold) : '',
   };
   return {
     draft: {
       definition: state.queuedEdits.definition ?? baseDraft.definition,
       rationale: state.queuedEdits.rationale ?? baseDraft.rationale,
       allowed_values: state.queuedEdits.allowed_values ?? baseDraft.allowed_values,
-      auto_expand_threshold:
-        state.queuedEdits.auto_expand_threshold ?? baseDraft.auto_expand_threshold,
     },
     creatingColumnName: null,
     queuedEdits: {},

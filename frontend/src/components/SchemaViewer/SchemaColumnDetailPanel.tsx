@@ -149,26 +149,6 @@ const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({
                 </div>
               )}
 
-              {/* Pending Values */}
-              {column.pending_values && column.pending_values.length > 0 && !readonly && (
-                <div className="p-3 bg-amber-50 dark:bg-amber-950 rounded-md border border-amber-200 dark:border-amber-800">
-                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-2 flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" />
-                    New Values Detected ({column.pending_values.length})
-                  </p>
-                  <div className="space-y-1">
-                    {column.pending_values.map((pv, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-xs">
-                        <span className="font-medium">{pv.value}</span>
-                        <span className="text-amber-600 dark:text-amber-400">
-                          {pv.document_count} doc{pv.document_count > 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Missing metadata warning */}
               {sessionType === 'load' && (!column.definition || !column.rationale) && (
                 <div className="p-2 bg-yellow-50 dark:bg-yellow-950 rounded-md border border-yellow-200 dark:border-yellow-800">

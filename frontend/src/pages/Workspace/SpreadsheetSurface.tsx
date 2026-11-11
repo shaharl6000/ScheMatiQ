@@ -958,7 +958,6 @@ export function SpreadsheetSurface({
       definition: column.definition || '',
       rationale: column.rationale || '',
       allowed_values: Array.isArray(column.allowed_values) ? column.allowed_values.join(', ') : '',
-      auto_expand_threshold: column.auto_expand_threshold ?? '',
     }));
   }, [schemaColumns]);
 
@@ -1053,12 +1052,6 @@ export function SpreadsheetSurface({
             label: 'allowed_values',
             width: 260,
             headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.allowed_values,
-          },
-          {
-            key: 'auto_expand_threshold',
-            label: 'auto_expand_threshold',
-            width: 150,
-            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.auto_expand_threshold,
           },
         ],
       };
@@ -1442,7 +1435,7 @@ export function SpreadsheetSurface({
 
       if (activeSheet === 'schema') {
         const existing = schemaColumns[rowIndex];
-        const editable = ['name', 'definition', 'rationale', 'allowed_values', 'auto_expand_threshold'];
+        const editable = ['name', 'definition', 'rationale', 'allowed_values'];
         if (!editable.includes(key)) continue;
 
         if (!existing && key === 'name' && String(newValue || '').trim()) {
@@ -1480,18 +1473,9 @@ export function SpreadsheetSurface({
                 editReq.allowed_values = parseAllowedValues(finished.queuedEdits.allowed_values) ?? [];
                 hasEditReq = true;
               }
-              const queuedThresholdRaw = finished.queuedEdits.auto_expand_threshold;
-              const thresholdToApply =
-                queuedThresholdRaw !== undefined
-                  ? Number(queuedThresholdRaw) || 0
-                  : consumed.autoExpandThreshold;
-
               try {
                 if (hasEditReq) {
                   await schemaAPI.editColumn(sessionId, editReq as any);
-                }
-                if (thresholdToApply !== undefined) {
-                  await schemaAPI.setAutoExpandThreshold(sessionId, createdName, thresholdToApply);
                 }
               } catch {
                 /* best-effort follow-up flush; onRefresh below syncs canonical state */
@@ -1505,7 +1489,6 @@ export function SpreadsheetSurface({
               schemaSpareRowRef.current = rollbackSchemaSpareRowCreate(
                 schemaSpareRowRef.current,
                 consumed.addColumnPayload,
-                consumed.autoExpandThreshold,
               );
               toast({
                 title: 'Column add failed',
@@ -1528,23 +1511,6 @@ export function SpreadsheetSurface({
           continue;
         }
 
-        if (key === 'auto_expand_threshold') {
-          schemaAPI.setAutoExpandThreshold(sessionId, existing.name, Number(newValue) || 0)
-            .then(() => {
-              toast({ title: 'Schema threshold updated', description: existing.name });
-              onEditFollowUp('schema', [existing.name]);
-              onRefresh();
-            })
-            .catch((err: any) => {
-              toast({
-                title: 'Threshold update failed',
-                description: err?.response?.data?.detail || err?.message || 'Could not update threshold',
-                variant: 'destructive',
-              });
-              onRefresh();
-            });
-          continue;
-        }
 
         const request: any = { old_name: existing.name, reprocess: false };
         if (key === 'name') request.new_name = String(newValue || '').trim();

@@ -189,7 +189,6 @@ describe('schemaSpareRowState lifecycle', () => {
     state = recordSchemaSpareRowEdit(state, 'definition', 'Patient age at baseline');
     state = recordSchemaSpareRowEdit(state, 'rationale', 'Needed for subgroup analysis');
     state = recordSchemaSpareRowEdit(state, 'allowed_values', 'adult, pediatric');
-    state = recordSchemaSpareRowEdit(state, 'auto_expand_threshold', '3');
     expect(hasSchemaSpareRowDraft(state)).toBe(true);
 
     // Simulate a background refresh having wiped the live DOM row (readLiveCell returns '')
@@ -201,7 +200,6 @@ describe('schemaSpareRowState lifecycle', () => {
       rationale: 'Needed for subgroup analysis',
       allowed_values: ['adult', 'pediatric'],
     });
-    expect(consumed!.autoExpandThreshold).toBe(3);
     expect(consumed!.nextState.creatingColumnName).toBe('age_group');
     expect(hasSchemaSpareRowDraft(consumed!.nextState)).toBe(false);
   });
@@ -230,7 +228,6 @@ describe('schemaSpareRowState lifecycle', () => {
     state = recordSchemaSpareRowEdit(state, 'definition', 'Initial definition');
     state = recordSchemaSpareRowEdit(state, 'rationale', 'Initial rationale');
     state = recordSchemaSpareRowEdit(state, 'allowed_values', 'yes, no');
-    state = recordSchemaSpareRowEdit(state, 'auto_expand_threshold', '4');
 
     const consumed = consumeSchemaSpareRowForCreate(state, 'outcome');
     expect(consumed).not.toBeNull();
@@ -239,18 +236,13 @@ describe('schemaSpareRowState lifecycle', () => {
     // User also edited rationale while addColumn was in flight before it failed
     state = recordSchemaSpareRowEdit(state, 'rationale', 'Updated rationale while in flight');
 
-    const rolledBack = rollbackSchemaSpareRowCreate(
-      state,
-      consumed!.addColumnPayload,
-      consumed!.autoExpandThreshold,
-    );
+    const rolledBack = rollbackSchemaSpareRowCreate(state, consumed!.addColumnPayload);
     expect(rolledBack.creatingColumnName).toBeNull();
     expect(rolledBack.queuedEdits).toEqual({});
     expect(rolledBack.draft).toEqual({
       definition: 'Initial definition',
       rationale: 'Updated rationale while in flight',
       allowed_values: 'yes, no',
-      auto_expand_threshold: '4',
     });
     expect(hasSchemaSpareRowDraft(rolledBack)).toBe(true);
   });
