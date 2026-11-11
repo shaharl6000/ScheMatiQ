@@ -103,6 +103,19 @@ describe('webSocketService reference counting', () => {
     expect(webSocketService.isConnected()).toBe(false);
   });
 
+  it('ensureConnected() for another session replaces the open socket', () => {
+    webSocketService.connect('session-1', 'progress');
+    const first = MockWebSocket.instances[0];
+    first.simulateOpen();
+
+    webSocketService.ensureConnected('session-2', 'progress');
+
+    expect(first.closeCalls).toHaveLength(1);
+    expect(first.closeCalls[0].code).toBe(1000);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(MockWebSocket.instances[1].url).toContain('/progress/session-2');
+  });
+
   it('reconnects after an abnormal close without changing the reference count', () => {
     jest.useFakeTimers();
     try {

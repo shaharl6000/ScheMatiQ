@@ -57,7 +57,7 @@ export function isContinueDiscoveryActive(
 
 /**
  * Extract the number of newly discovered columns from a `continue_discovery_completed`
- * WebSocket payload, treating explicit `no_new_columns` flags or missing/empty arrays as 0.
+ * WebSocket payload (`new_columns`), treating a missing or empty array as 0.
  */
 export function extractDiscoveredColumnCount(
   data?: Record<string, unknown> | null,
@@ -65,19 +65,7 @@ export function extractDiscoveredColumnCount(
   if (!data) {
     return 0;
   }
-  if (data.no_new_columns === true || data.status === 'no_new_columns') {
-    return 0;
-  }
-  if (Array.isArray(data.new_columns)) {
-    return data.new_columns.length;
-  }
-  if (Array.isArray(data.discovered_columns)) {
-    return data.discovered_columns.length;
-  }
-  if (typeof data.new_column_count === 'number') {
-    return Math.max(0, data.new_column_count);
-  }
-  return 0;
+  return Array.isArray(data.new_columns) ? data.new_columns.length : 0;
 }
 
 /**
@@ -108,8 +96,6 @@ export function continueDiscoveryEventFromWebSocket(
       return { type: 'extraction_started', operationId };
     case 'incremental_extraction_completed':
       return { type: 'extraction_completed' };
-    case 'incremental_extraction_stopped':
-      return { type: 'extraction_stopped' };
     case 'incremental_extraction_failed':
       return { type: 'extraction_failed' };
     default:

@@ -40,23 +40,17 @@ describe('continueDiscoveryStateGuard', () => {
     expect(isContinueDiscoveryActive(completedZero)).toBe(false);
   });
 
-  it('clears on explicit no_new_columns status or flag even if arrays are omitted', () => {
+  it('clears when the completion payload has no new_columns', () => {
     const started = reduceContinueDiscoveryState(
       INITIAL_CONTINUE_DISCOVERY_STATE,
       { type: 'discovery_started', operationId: 'op-none', fromDialog: true },
     );
 
-    const byStatus = applyWs(started, 'continue_discovery_completed', {
-      status: 'no_new_columns',
+    const missing = applyWs(started, 'continue_discovery_completed', {
+      operation_id: 'op-none',
     });
-    expect(isContinueDiscoveryActive(byStatus)).toBe(false);
-
-    const byFlag = applyWs(started, 'continue_discovery_completed', {
-      no_new_columns: true,
-      new_columns: [{ name: 'ignored' }],
-    });
-    expect(isContinueDiscoveryActive(byFlag)).toBe(false);
-    expect(extractDiscoveredColumnCount({ discovered_columns: [{ name: 'c1' }] })).toBe(1);
+    expect(isContinueDiscoveryActive(missing)).toBe(false);
+    expect(extractDiscoveredColumnCount({ new_columns: [{ name: 'c1' }] })).toBe(1);
     expect(extractDiscoveredColumnCount(null)).toBe(0);
   });
 
@@ -182,14 +176,6 @@ describe('continueDiscoveryStateGuard', () => {
     expect(
       isContinueDiscoveryActive(
         applyWs(afterDialogClosed, 'incremental_extraction_completed', {
-          operation_id: 'op-ext',
-        }),
-      ),
-    ).toBe(false);
-
-    expect(
-      isContinueDiscoveryActive(
-        applyWs(extracting, 'incremental_extraction_stopped', {
           operation_id: 'op-ext',
         }),
       ),
