@@ -5,11 +5,9 @@ import {
   FileValidationResult,
   ScheMatiQConfig,
   ScheMatiQStatus,
-  SchemaExtractionResult,
   DocumentUploadResult,
   CloudDocumentAddResult,
   DocumentProcessingResult,
-  ProcessingStatus,
   SchemaData,
   EditColumnRequest,
   AddColumnRequest,
@@ -19,7 +17,6 @@ import {
   ReprocessingStatus,
   SchemaValidationResult as SchemaValidationResultType,
   SchemaChangeStatus,
-  PaperDiscoveryResult,
   ReextractionRequest,
   ReextractionResponse,
   ReextractionOperationStatus,
@@ -247,18 +244,6 @@ export const loadAPI = {
     return response.data;
   },
 
-  deleteSession: async (sessionId: string): Promise<void> => {
-    await api.delete(`/load/sessions/${sessionId}`);
-  },
-
-  // Enhanced load workflow methods
-  extractSchema: async (sessionId: string, query?: string): Promise<SchemaExtractionResult> => {
-    const response = await api.post(`/load/extract-schema/${sessionId}`, null, {
-      params: { query: query || '' }
-    });
-    return response.data;
-  },
-
   addDocuments: async (sessionId: string, files: File[], bypassLimit = false): Promise<DocumentUploadResult> => {
     const formData = new FormData();
     files.forEach(file => {
@@ -323,11 +308,6 @@ export const loadAPI = {
     return response.data;
   },
 
-  getProcessingStatus: async (sessionId: string): Promise<ProcessingStatus> => {
-    const response = await api.get(`/load/processing-status/${sessionId}`);
-    return response.data;
-  },
-
   stopProcessing: async (sessionId: string): Promise<{
     status: string;
     message: string;
@@ -337,13 +317,6 @@ export const loadAPI = {
     data_rows_saved?: number;
   }> => {
     const response = await api.post(`/load/stop-processing/${sessionId}`);
-    return response.data;
-  },
-
-  exportData: async (sessionId: string): Promise<Blob> => {
-    const response = await api.get(`/load/export/${sessionId}`, {
-      responseType: 'blob'
-    });
     return response.data;
   },
 };
@@ -405,11 +378,6 @@ export const schematiqAPI = {
     message: string;
   }> => {
     const response = await api.post(`/schematiq/stop/${sessionId}`);
-    return response.data;
-  },
-
-  getDirectories: async (): Promise<{ value: string; label: string }[]> => {
-    const response = await api.get('/schematiq/directories');
     return response.data;
   },
 
@@ -580,17 +548,6 @@ export const cloudAPI = {
     return response.data;
   },
 
-  // List files in a dataset
-  getDatasetFiles: async (datasetName: string): Promise<{
-    name: string;
-    path: string;
-    size: number;
-    content_type?: string;
-  }[]> => {
-    const response = await api.get(`/cloud/datasets/${encodeURIComponent(datasetName)}/files`);
-    return response.data;
-  },
-
   // List available templates
   getTemplates: async (): Promise<{
     name: string;
@@ -601,19 +558,6 @@ export const cloudAPI = {
     column_count?: number;
   }[]> => {
     const response = await api.get('/cloud/templates');
-    return response.data;
-  },
-
-  // Get template info
-  getTemplate: async (templateName: string): Promise<{
-    name: string;
-    path: string;
-    file_type: string;
-    description?: string;
-    row_count?: number;
-    column_count?: number;
-  }> => {
-    const response = await api.get(`/cloud/templates/${encodeURIComponent(templateName)}`);
     return response.data;
   },
 
@@ -671,42 +615,6 @@ export const cloudAPI = {
     const response = await api.get('/cloud/initial-schemas');
     return response.data;
   },
-
-  // Get specific initial schema
-  getInitialSchema: async (schemaName: string): Promise<{
-    name: string;
-    path: string;
-    file_type: string;
-    columns_count: number;
-    preview: string;
-    columns: {
-      name: string;
-      definition: string;
-      rationale: string;
-      allowed_values?: string[];
-    }[];
-  }> => {
-    const response = await api.get(`/cloud/initial-schemas/${encodeURIComponent(schemaName)}`);
-    return response.data;
-  },
-
-  // Upload a new initial schema file
-  uploadInitialSchema: async (file: File): Promise<{
-    status: string;
-    name: string;
-    path: string;
-    columns_count: number;
-  }> => {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const response = await api.post('/cloud/initial-schemas/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  },
 };
 
 // Schema editing API
@@ -743,16 +651,6 @@ export const schemaAPI = {
 
   validateSchema: async (sessionId: string): Promise<SchemaValidationResultType> => {
     const response = await api.get(`/schema/validation/${sessionId}`);
-    return response.data;
-  },
-
-  backupSchema: async (sessionId: string): Promise<{ success: boolean; backup_id: string; backup_path: string; created_at: string; includes_data: boolean; }> => {
-    const response = await api.post(`/schema/backup/${sessionId}`);
-    return response.data;
-  },
-
-  restoreSchema: async (sessionId: string, backupId: string): Promise<SchemaEditResponse> => {
-    const response = await api.post(`/schema/restore/${sessionId}`, { backup_id: backupId });
     return response.data;
   },
 
@@ -825,11 +723,6 @@ export const schemaAPI = {
     return response.data;
   },
 
-  discoverPapers: async (sessionId: string): Promise<PaperDiscoveryResult> => {
-    const response = await api.get(`/schema/discover-papers/${sessionId}`);
-    return response.data;
-  },
-
   startReextraction: async (sessionId: string, request: ReextractionRequest): Promise<ReextractionResponse> => {
     const response = await api.post(`/schema/reextract/${sessionId}`, request);
     return response.data;
@@ -852,15 +745,6 @@ export const schemaAPI = {
 
   captureBaseline: async (sessionId: string): Promise<{ status: string; message: string; column_count: number }> => {
     const response = await api.post(`/schema/capture-baseline/${sessionId}`);
-    return response.data;
-  },
-
-  uploadMissingPapers: async (sessionId: string, files: File[]): Promise<{ status: string; message: string; uploaded_files: string[] }> => {
-    const formData = new FormData();
-    files.forEach(file => formData.append('files', file));
-    const response = await api.post(`/schema/upload-missing-papers/${sessionId}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
     return response.data;
   },
 

@@ -45,8 +45,11 @@ from app.services.session_documents import (
     pending_docs_dir,
     link_document_artifacts_into_view,
 )
-
-SCHEMATIQ_AVAILABLE = True
+from app.services.column_stats import (
+    compute_column_stats,
+    compute_completeness_percentage,
+    count_unique_documents,
+)
 
 # Source-document extensions recognized when document_source == "original".
 # The detector (get_available_documents) and the loader (_prepare_documents)
@@ -332,7 +335,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         actual_column_count = len(non_excerpt_columns)
         logger.debug(f"Non-excerpt columns for statistics: {actual_column_count} (total with excerpts: {len(unique_columns)})")
 
-        from app.services.data_utils import collect_all_data_rows, normalize_row_data
+        from app.services.data_utils import collect_all_data_rows
 
         data_rows = collect_all_data_rows(session_id)
 
@@ -395,74 +398,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
             logger.debug(f"After cleanup - {len(existing_evolution.snapshots)} snapshots")
 
-        # Helper function to check if a value is valid (non-null)
-        def is_valid_value(value):
-            if value is None:
-                return False
-            if isinstance(value, dict):
-                answer = value.get("answer")
-                if answer is None or answer == "None" or answer == "" or answer == "[]":
-                    return False
-                if isinstance(answer, str) and answer.strip().lower() in ["not found", "n/a", "none", "unknown"]:
-                    return False
-                return True
-            if isinstance(value, str) and value.strip().lower() in ["not found", "n/a", "none", "unknown", ""]:
-                return False
-            return value != "None" and value != "" and value != "[]"
-
-        # Compute statistics for each column (excluding _excerpt columns)
-        columns = []
-        for col in non_excerpt_columns:
-            non_null_count = 0
-            unique_values = set()
-
-            for row in data_rows:
-                row_data = normalize_row_data(row)
-
-                if col.name in row_data:
-                    value = row_data[col.name]
-                    if is_valid_value(value):
-                        non_null_count += 1
-                    # Count unique values by answer only (not excerpt) to avoid inflating count
-                    canonical = value.get("answer") if isinstance(value, dict) else value
-                    try:
-                        unique_values.add(json.dumps(canonical, sort_keys=True))
-                    except (TypeError, ValueError):
-                        unique_values.add(str(canonical))
-
-            unique_count = len(unique_values)
-
-            col_info = ColumnInfo(
-                name=col.name,
-                definition=col.definition,
-                rationale=col.rationale,
-                data_type="object",
-                non_null_count=non_null_count,
-                unique_count=unique_count,
-                source_document=col.source_document,
-                discovery_iteration=col.discovery_iteration,
-                allowed_values=col.allowed_values,
-                auto_expand_threshold=col.auto_expand_threshold
-            )
-            columns.append(col_info)
-
-        # Calculate overall completeness
-        total_cells = len(data_rows) * len(columns)
-        non_null_cells = sum(col.non_null_count or 0 for col in columns)
-        completeness = (non_null_cells / total_cells * 100) if total_cells > 0 else 0.0
-
-        if math.isnan(completeness) or math.isinf(completeness):
-            completeness = 0.0
-
-        # Count unique documents from papers field
-        unique_documents = set()
-        for row in data_rows:
-            papers = row.get('papers', row.get('_papers', []))
-            if isinstance(papers, list):
-                unique_documents.update(papers)
-            elif isinstance(papers, str) and papers:
-                unique_documents.add(papers)
-        total_documents = len(unique_documents) if unique_documents else len(data_rows)
+        columns = compute_column_stats(non_excerpt_columns, data_rows)
+        completeness = compute_completeness_percentage(len(data_rows), columns)
+        total_documents = count_unique_documents(data_rows)
 
         # Import model for type checking
         from app.models.session import DataStatistics
@@ -888,9 +826,6 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         Returns:
             Dictionary with operation details
         """
-        if not SCHEMATIQ_AVAILABLE:
-            raise RuntimeError("ScheMatiQ components not available")
-
         session = self.session_manager.get_session(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")

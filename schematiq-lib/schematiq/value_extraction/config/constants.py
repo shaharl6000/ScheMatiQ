@@ -7,7 +7,6 @@ CACHE_EVICTION_BATCH = 100
 # Processing constants
 MIN_DOCUMENT_SIZE_FOR_SNIPPETS = 1000
 DEFAULT_RETRIEVAL_K = 8
-FALLBACK_EXPANDED_K_MULTIPLIER = 2
 MAX_SNIPPETS = 8
 
 # When True, skip retrieval and send the full document to the LLM, disabling
@@ -22,9 +21,3 @@ SAFETY_MARGIN_SINGLE_MODE = 256
 # Default processing settings
 DEFAULT_MAX_NEW_TOKENS = 8192
 DEFAULT_MAX_WORKERS = 3
-
-# LLM Backend defaults
-from schematiq.core.model_specs import ModelNames
-DEFAULT_GEMINI_MODEL = ModelNames.DEFAULT_VALUE_EXTRACTION
-DEFAULT_GEMINI_ROTATION_REQUESTS = 5
-EXHAUSTED_KEY_RESET_HOURS = 24  # RPD resets daily

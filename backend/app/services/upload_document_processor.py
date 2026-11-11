@@ -4,7 +4,6 @@ import json
 import asyncio
 import threading
 import time
-import math
 import os
 import logging
 from enum import Enum
@@ -14,18 +13,20 @@ from datetime import datetime
 
 # ScheMatiQ library imports
 from schematiq.value_extraction.main import build_table_jsonl
-from schematiq.core.model_specs import ModelNames
-from schematiq.core import utils
 
-SCHEMATIQ_AVAILABLE = True
-
-from app.models.session import SessionStatus, DataStatistics, ColumnInfo, VisualizationSession, SkippedDocumentInfo
+from app.models.session import SessionStatus, DataStatistics, VisualizationSession, SkippedDocumentInfo
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import schematiq_thread_pool, concurrency_limiter
+from app.services.column_stats import (
+    compute_column_stats,
+    compute_completeness_percentage,
+    count_unique_documents,
+)
 from app.services.data_utils import persist_session_data_file
-from app.core.config import DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEVELOPER_MODE, RELEASE_CONFIG, DEFAULT_DATA_DIR
+from app.services.pipeline.llm_factory import resolve_llm_for_session
+from app.core.config import DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEFAULT_DATA_DIR
 
 # Max seconds to wait for build_table_jsonl to observe should_stop() after user stop
 MAX_UPLOAD_EXTRACTION_STOP_WAIT = 120.0
@@ -148,9 +149,6 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         """Process uploaded documents using ScheMatiQ pipeline."""
         set_session_context(session_id)
 
-        if not SCHEMATIQ_AVAILABLE:
-            raise RuntimeError("ScheMatiQ components not available for document processing")
-
         self.mark_running(session_id)
 
         try:
@@ -193,21 +191,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # Build LLM and retriever
             await self.broadcast_progress(session_id, "Setting up AI models", 0.2, "processing_documents")
 
-            # Try to use preserved LLM configuration, fallback to defaults
-            backend_config = self._get_llm_config_for_extraction(current_schema, session_id)
-
-            # In release mode, override with locked LLM settings
-            if not DEVELOPER_MODE:
-                logger.debug(f"Release mode - overriding LLM config to {RELEASE_CONFIG['value_extraction_model']}")
-                backend_config = {
-                    "provider": RELEASE_CONFIG["llm_provider"],
-                    "model": RELEASE_CONFIG["value_extraction_model"],
-                    "temperature": RELEASE_CONFIG["llm_temperature"],
-                    "api_key": backend_config.get("api_key"),  # Preserve API key from user
-                    # max_output_tokens auto-detected from model_specs
-                }
-
-            llm = utils.build_llm(backend_config)
+            llm = self._get_llm_for_session(session_id, current_schema)
             logger.debug("LLM interface created successfully")
             
             # Use shared retriever singleton (avoids reloading model each time)
@@ -1119,62 +1103,14 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         
         return preview
     
-    def _get_llm_config_for_extraction(self, extracted_schema: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-        """Get LLM configuration for value extraction, prioritizing user selection."""
-        session_dir = Path(DEFAULT_DATA_DIR) / session_id
-        
-        # First priority: User-provided LLM configuration
-        user_config_file = session_dir / "user_llm_config.json"
-        if user_config_file.exists():
-            try:
-                with open(user_config_file) as f:
-                    user_config = json.load(f)
-                    logger.debug(f"Using user-selected LLM configuration for session {session_id}")
-                    return user_config
-            except Exception as e:
-                logger.debug(f"Could not load user LLM config: {e}")
-        
-        # Second priority: Preserved schema metadata LLM configuration
-        if "llm_configuration" in extracted_schema:
-            llm_config = extracted_schema["llm_configuration"]
-            
-            # Use value_extraction_backend if available, fallback to schema_creation_backend
-            if llm_config.get("value_extraction_backend"):
-                logger.debug(f"Using preserved value_extraction_backend for session {session_id}")
-                return llm_config["value_extraction_backend"]
-            elif llm_config.get("schema_creation_backend"):
-                logger.debug(f"Using preserved schema_creation_backend for extraction in session {session_id}")
-                return llm_config["schema_creation_backend"]
-        
-        # Third priority: Session-level ScheMatiQ config file
-        schematiq_config_file = session_dir / "schematiq_config.json"
-        if schematiq_config_file.exists():
-            try:
-                with open(schematiq_config_file) as f:
-                    schematiq_config = json.load(f)
-                    
-                # Use value_extraction_backend if available
-                if "value_extraction_backend" in schematiq_config:
-                    logger.debug(f"Using session ScheMatiQ value_extraction_backend for session {session_id}")
-                    return schematiq_config["value_extraction_backend"]
-                elif "schema_creation_backend" in schematiq_config:
-                    logger.debug(f"Using session ScheMatiQ schema_creation_backend for extraction in session {session_id}")
-                    return schematiq_config["schema_creation_backend"]
-                elif "backend" in schematiq_config:  # Legacy support
-                    logger.debug(f"Using legacy backend config for session {session_id}")
-                    return schematiq_config["backend"]
-            except Exception as e:
-                logger.debug(f"Could not load session ScheMatiQ config: {e}")
-        
-        # Fallback to default configuration
-        logger.debug(f"Using default LLM configuration for extraction in session {session_id}")
-        return {
-            "provider": "gemini",
-            "model": ModelNames.DEFAULT_VALUE_EXTRACTION,
-            "temperature": DEFAULT_TEMPERATURE,
-            # max_output_tokens auto-detected from model_specs
-        }
-    
+    def _get_llm_for_session(self, session_id: str, extracted_schema: Optional[Dict[str, Any]] = None):
+        """Resolve and build value-extraction LLM for the given session."""
+        return resolve_llm_for_session(
+            session_id,
+            session_manager=self.session_manager,
+            extracted_schema=extracted_schema,
+        )
+
     def _clean_system_files(self, directory: Path) -> None:
         """Remove system files like .DS_Store that shouldn't be processed as documents."""
         system_files = ['.DS_Store', '._.DS_Store', 'Thumbs.db', '.gitkeep']
@@ -1206,7 +1142,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         Returns:
             DataStatistics object or None if no data available
         """
-        from app.services.data_utils import collect_all_data_rows, normalize_row_data
+        from app.services.data_utils import collect_all_data_rows
 
         data_rows = collect_all_data_rows(session_id)
 
@@ -1218,77 +1154,9 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             logger.warning(f"Statistics: No columns defined in session {session_id}")
             return None
 
-        # Count unique documents from papers field
-        unique_documents = set()
-        for row in data_rows:
-            papers = row.get('papers', row.get('_papers', []))
-            if isinstance(papers, list):
-                unique_documents.update(papers)
-            elif isinstance(papers, str) and papers:
-                unique_documents.add(papers)
-        total_documents = len(unique_documents) if unique_documents else len(data_rows)
-
-        # Build column stats from session.columns + data
-        columns = []
-        for col in session.columns:
-            # Count non-null values for this column
-            def is_valid_value(value):
-                if value is None:
-                    return False
-                if isinstance(value, dict):
-                    answer = value.get("answer")
-                    if answer is None or answer == "None" or answer == "" or answer == "[]":
-                        return False
-                    # Also check for "not found" type values
-                    if isinstance(answer, str) and answer.strip().lower() in ["not found", "n/a", "none", "unknown"]:
-                        return False
-                    return True
-                # For non-dict values, check if it's not None or "None" string
-                if isinstance(value, str) and value.strip().lower() in ["not found", "n/a", "none", "unknown", ""]:
-                    return False
-                return value != "None" and value != "" and value != "[]"
-
-            non_null_count = 0
-            unique_values = set()
-
-            for row in data_rows:
-                row_data = normalize_row_data(row)
-
-                if col.name in row_data:
-                    value = row_data[col.name]
-                    if is_valid_value(value):
-                        non_null_count += 1
-                    # Count unique values by answer only (not excerpt) to avoid inflating count
-                    canonical = value.get("answer") if isinstance(value, dict) else value
-                    try:
-                        unique_values.add(json.dumps(canonical, sort_keys=True))
-                    except (TypeError, ValueError):
-                        unique_values.add(str(canonical))
-
-            unique_count = len(unique_values)
-
-            col_info = ColumnInfo(
-                name=col.name,
-                definition=col.definition,
-                rationale=col.rationale,
-                data_type="object",
-                non_null_count=non_null_count,
-                unique_count=unique_count,
-                source_document=col.source_document,
-                discovery_iteration=col.discovery_iteration,
-                allowed_values=col.allowed_values,
-                auto_expand_threshold=col.auto_expand_threshold
-            )
-            columns.append(col_info)
-
-        # Calculate overall completeness
-        total_cells = len(data_rows) * len(columns)
-        non_null_cells = sum(col.non_null_count or 0 for col in columns)
-        completeness = (non_null_cells / total_cells * 100) if total_cells > 0 else 0.0
-
-        # Ensure completeness is a valid number
-        if math.isnan(completeness) or math.isinf(completeness):
-            completeness = 0.0
+        total_documents = count_unique_documents(data_rows)
+        columns = compute_column_stats(session.columns, data_rows)
+        completeness = compute_completeness_percentage(len(data_rows), columns)
 
         stats = DataStatistics(
             total_rows=len(data_rows),

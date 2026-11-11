@@ -3,16 +3,13 @@
 import logging
 import uuid
 import asyncio
-import csv
-import io
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
 from typing import Any, List, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
-from fastapi.responses import StreamingResponse
 
 from app.models.session import VisualizationSession, SessionType, SessionStatus, SessionMetadata, FilterSortRequest
 from app.services.session_capabilities import has_live_pipeline
@@ -21,12 +18,11 @@ from app.services.pipeline.data_query import session_data_read_failed
 from app.services.data_editor import DataEditor
 from app.services import session_manager, concurrency_limiter
 from app.core.exceptions import CapacityExceededError
-from app.utils.csv_helpers import format_excerpt_for_csv
-from app.services.file_parser import format_column_header
-from app.services.grounding_flags import (
-    UNGROUNDED_COLUMNS_FIELD,
-    any_ungrounded,
-    ungrounded_columns,
+from app.services.export_service import (
+    export_complete_schematiq,
+    export_schematiq_csv,
+    export_schematiq_rich_csv_data,
+    export_schematiq_schema_json,
 )
 
 from schematiq.core.cost_estimator import estimate_from_config
@@ -37,7 +33,7 @@ router = APIRouter()
 # tools, the /load/rediscover route and app.main all bind this same instance, so
 # a run started from any entry point can be stopped and resumed from any other.
 from app.services.orchestration import schematiq_runner
-from app.services.session_documents import committed_docs_dir, pending_docs_dir
+from app.services.session_documents import pending_docs_dir
 # Create data editor instance
 data_editor = DataEditor()
 
@@ -751,98 +747,13 @@ async def export_schematiq_data(
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Get all data
-        data = await schematiq_runner.get_data(session_id, page=0, page_size=10000)  # Get all data
 
-        # Schema-only mode: no rows is valid, we'll export just the schema
-        is_schema_only = not data.rows
-        
-        # Build the set of schema column names (what the user sees in the UI)
-        schema_col_names = {col.name for col in session.columns if col.name}
-
-        output = io.StringIO()
-
-        if is_schema_only:
-            # Schema-only: just write column headers, no data
-            column_names = ['row_name']
-            for col in session.columns:
-                if col.name:
-                    column_names.append(col.name)
-        else:
-            # Detect which row-ID fields are present
-            has_row_name = any(row.row_name for row in data.rows)
-            has_unit_name = any(row.unit_name for row in data.rows)
-            has_source_document = any(row.source_document for row in data.rows)
-
-            # Build column order: row ID fields first, then schema columns
-            if column_order:
-                requested_order = [col.strip() for col in column_order.split(',')]
-                column_names = [col for col in requested_order if col in schema_col_names]
-                remaining = [col for col in schema_col_names if col not in column_names]
-                column_names.extend(sorted(remaining))
-            else:
-                column_names = []
-                for col in session.columns:
-                    if col.name:
-                        column_names.append(col.name)
-
-            # Prepend row-ID columns
-            id_cols = []
-            if has_row_name:
-                id_cols.append('row_name')
-            if has_unit_name:
-                id_cols.append('_unit_name')
-            if has_source_document:
-                id_cols.append('_source_document')
-            column_names = id_cols + column_names
-            # One extra column, only when some cell was kept without a
-            # supporting excerpt: which of the row's columns those are.
-            if any_ungrounded(row.data for row in data.rows):
-                column_names.append(UNGROUNDED_COLUMNS_FIELD)
-
-        # Write CSV with display headers (Title Case, matching UI)
-        display_headers = {c: format_column_header(c) for c in column_names}
-        writer = csv.DictWriter(output, fieldnames=column_names, extrasaction='ignore')
-        writer.writerow(display_headers)
-
-        # Write data rows — only schema columns + row IDs, answers only (no excerpts)
-        for row in data.rows:
-            csv_row = {}
-            if row.row_name:
-                csv_row['row_name'] = row.row_name
-            if row.unit_name:
-                csv_row['_unit_name'] = row.unit_name
-            if row.source_document:
-                csv_row['_source_document'] = row.source_document
-            for col_name, value in row.data.items():
-                if col_name not in schema_col_names:
-                    continue
-                if isinstance(value, dict) and 'answer' in value:
-                    csv_row[col_name] = value['answer']
-                elif isinstance(value, (list, dict)):
-                    csv_row[col_name] = str(value)
-                else:
-                    csv_row[col_name] = value
-            if UNGROUNDED_COLUMNS_FIELD in column_names:
-                csv_row[UNGROUNDED_COLUMNS_FIELD] = ungrounded_columns(row.data, column_names)
-            writer.writerow(csv_row)
-        
-        # Prepare response
-        output.seek(0)
-        content = output.getvalue()
-        
-        # Generate filename with datetime in user's timezone
-        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
-        timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"ScheMatiQ_{'schema_only_' if is_schema_only else ''}{timestamp}.csv"
-        
-        return StreamingResponse(
-            io.BytesIO(content.encode('utf-8')),
-            media_type='text/csv',
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        data = await schematiq_runner.get_data(session_id, page=0, page_size=10000)
+        return export_schematiq_csv(
+            session, data, column_order=column_order, tz_offset=tz_offset
         )
-        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -857,254 +768,13 @@ async def export_complete_schematiq_data(
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Get schema and data
-        schema = await schematiq_runner.get_schema(session_id)
+
         data = await schematiq_runner.get_data(session_id, page=0, page_size=10000)
-        
-        # Load ScheMatiQ configuration if available
-        session_dir = Path(DEFAULT_DATA_DIR) / session_id
-        schematiq_config_file = session_dir / "schematiq_config.json"
-        llm_configuration = None
-        
-        if schematiq_config_file.exists():
-            try:
-                with open(schematiq_config_file) as f:
-                    schematiq_config = json.load(f)
-                    llm_configuration = {
-                        "schema_creation_backend": schematiq_config.get("schema_creation_backend"),
-                        "value_extraction_backend": schematiq_config.get("value_extraction_backend")
-                    }
-            except Exception as e:
-                logger.warning(f"Could not load LLM configuration for complete export: {e}")
-        
-        # Prepare complete export data structure
-        export_data = {
-            "session_id": session_id,
-            "session_type": session.type.value,
-            "created": session.metadata.created.isoformat(),
-            "last_modified": session.metadata.last_modified.isoformat(),
-            "query": session.schema_query,
-            "schema": {
-                "columns": [
-                    {
-                        "name": col.name,
-                        # Additive metadata: the user's original typed label. Stays
-                        # separate from the canonical `name` (the data/schema key)
-                        # so it round-trips back on reimport without ever becoming
-                        # a header or data key.
-                        "display_name": col.display_name,
-                        "definition": col.definition or "",
-                        "rationale": col.rationale or "",
-                        "data_type": col.data_type,
-                        "source_document": col.source_document,
-                        "discovery_iteration": col.discovery_iteration,
-                        "allowed_values": col.allowed_values,
-                    }
-                    for col in session.columns
-                    if col.name and not col.name.lower().endswith('_excerpt')
-                ]
-            },
-            "metadata": {
-                "total_rows": data.total_count,
-                "total_columns": len([col for col in session.columns if not col.name.lower().endswith('_excerpt')]),
-                "source": session.metadata.source,
-                "schema_discovery_completed": session.metadata.schema_discovery_completed,
-                "total_documents": session.metadata.total_documents,
-                "processed_documents": session.metadata.processed_documents
-            },
-            "data": [
-                {
-                    "row_name": row.row_name,
-                    "papers": row.papers,
-                    "data": row.data,
-                    "_unit_name": row.unit_name,
-                    "_source_document": row.source_document,
-                    "_parent_document": row.parent_document,
-                }
-                for row in data.rows
-            ]
-        }
-
-        # Include schema evolution if available
-        if session.statistics and session.statistics.schema_evolution:
-            export_data["schema_evolution"] = session.statistics.schema_evolution.model_dump()
-
-        # Include skipped documents if available (parity with the GUI banner)
-        if session.statistics and session.statistics.skipped_documents:
-            export_data["metadata"]["skipped_documents"] = [
-                doc.model_dump() if hasattr(doc, "model_dump") else doc
-                for doc in session.statistics.skipped_documents
-            ]
-
-        # Include observation_unit if available
-        if session.observation_unit:
-            export_data["observation_unit"] = session.observation_unit.model_dump()
-
-        # Include LLM configuration if available
-        if llm_configuration and any(llm_configuration.values()):
-            export_data["llm_configuration"] = llm_configuration
-
-        # Handle different export formats
-        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
-        if format.lower() == "json":
-            # JSON format with complete metadata
-            content = json.dumps(export_data, indent=2, ensure_ascii=False, default=str)
-            timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
-            filename = f"ScheMatiQ_{timestamp}_complete.json"
-            
-            return StreamingResponse(
-                io.BytesIO(content.encode('utf-8')),
-                media_type='application/json',
-                headers={"Content-Disposition": f"attachment; filename={filename}"}
-            )
-            
-        elif format.lower() == "bundle":
-            # Self-contained project bundle: the round-trippable project.json plus
-            # the original source files, so a re-imported project can preview them.
-            import zipfile
-            from app.services.document_files import gather_source_documents
-
-            documents = await gather_source_documents(session, session_id)
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                zip_file.writestr(
-                    "project.json",
-                    json.dumps(export_data, indent=2, ensure_ascii=False, default=str),
-                )
-                for name, content in documents:
-                    safe = Path(name).name
-                    if safe:
-                        zip_file.writestr(f"documents/{safe}", content)
-
-            timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
-            filename = f"ScheMatiQ_{timestamp}_bundle.zip"
-            return StreamingResponse(
-                io.BytesIO(buf.getvalue()),
-                media_type="application/zip",
-                headers={"Content-Disposition": f"attachment; filename={filename}"},
-            )
-
-        elif format.lower() == "zip":
-            # ZIP package with separate files
-            import zipfile
-            import tempfile
-            
-            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                with zipfile.ZipFile(tmp_file.name, 'w') as zip_file:
-                    # Add schema file
-                    schema_data = {
-                        "query": export_data["query"],
-                        "schema": [
-                            {
-                                "name": col["name"],
-                                "definition": col["definition"],
-                                "rationale": col["rationale"]
-                            }
-                            for col in export_data["schema"]["columns"]
-                        ]
-                    }
-                    
-                    # Include LLM configuration if available
-                    if llm_configuration and any(llm_configuration.values()):
-                        schema_data["llm_configuration"] = llm_configuration
-                    
-                    zip_file.writestr("schema.json", json.dumps(schema_data, indent=2))
-                    
-                    # Add separate column metadata CSV for easy reference
-                    metadata_output = io.StringIO()
-                    metadata_writer = csv.writer(metadata_output)
-                    metadata_writer.writerow(["Column Name", "Definition", "Rationale", "Data Type"])
-                    
-                    for col in export_data["schema"]["columns"]:
-                        metadata_writer.writerow([
-                            col["name"],
-                            col["definition"],
-                            col["rationale"],
-                            col.get("data_type", "text")
-                        ])
-                    
-                    # Add special columns documentation
-                    metadata_writer.writerow(["row_name", "Identifier for this data row", "Standard ScheMatiQ metadata field", "text"])
-                    metadata_writer.writerow(["papers", "Source documents used for extraction", "Standard ScheMatiQ metadata field", "text"])
-                    metadata_writer.writerow(["{column}_excerpt", "Supporting evidence from documents", "Generated for each ScheMatiQ data column", "text"])
-                    
-                    zip_file.writestr("column_metadata.csv", metadata_output.getvalue())
-                    
-                    # Add data file as CSV with ScheMatiQ format handling
-                    if export_data["data"]:
-                        output = io.StringIO()
-                        
-                        # Determine all column names including excerpt columns
-                        all_columns = set()
-                        for row in export_data["data"]:
-                            if row["row_name"]:
-                                all_columns.add('row_name')
-                            if row["papers"]:
-                                all_columns.add('papers')
-                            for col_name in row["data"].keys():
-                                all_columns.add(col_name)
-                                # Add excerpt column for ScheMatiQ data
-                                if isinstance(row["data"][col_name], dict) and 'excerpts' in row["data"][col_name]:
-                                    all_columns.add(f"{col_name}_excerpt")
-                        
-                        column_names = sorted(list(all_columns))
-                        writer = csv.DictWriter(output, fieldnames=column_names)
-                        writer.writeheader()
-                        
-                        # Write data rows with ScheMatiQ format handling
-                        for row in export_data["data"]:
-                            csv_row = {}
-                            
-                            # Add standard columns
-                            if row["row_name"]:
-                                csv_row['row_name'] = row["row_name"]
-                            if row["papers"]:
-                                csv_row['papers'] = '; '.join(row["papers"]) if isinstance(row["papers"], list) else str(row["papers"])
-                            
-                            # Process data columns
-                            for col_name, value in row["data"].items():
-                                if isinstance(value, dict) and 'answer' in value:
-                                    # ScheMatiQ format: extract answer and excerpts
-                                    csv_row[col_name] = value['answer']
-                                    if 'excerpts' in value and value['excerpts']:
-                                        excerpt_col = f"{col_name}_excerpt"
-                                        if isinstance(value['excerpts'], list):
-                                            csv_row[excerpt_col] = ' | '.join(format_excerpt_for_csv(ex) for ex in value['excerpts'])
-                                        else:
-                                            csv_row[excerpt_col] = str(value['excerpts'])
-                                else:
-                                    # Regular data
-                                    if isinstance(value, (list, dict)):
-                                        csv_row[col_name] = str(value)
-                                    else:
-                                        csv_row[col_name] = value
-                            
-                            writer.writerow(csv_row)
-                        
-                        zip_file.writestr("data.csv", output.getvalue())
-                    
-                    # Add metadata file
-                    zip_file.writestr("metadata.json", json.dumps(export_data["metadata"], indent=2, default=str))
-                
-                # Read and return zip file
-                with open(tmp_file.name, 'rb') as f:
-                    zip_content = f.read()
-                
-                # Clean up temp file
-                Path(tmp_file.name).unlink()
-
-                timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
-                filename = f"ScheMatiQ_{timestamp}_complete.zip"
-                return StreamingResponse(
-                    io.BytesIO(zip_content),
-                    media_type='application/zip',
-                    headers={"Content-Disposition": f"attachment; filename={filename}"}
-                )
-                
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported format. Use 'json' or 'zip'")
-        
+        return await export_complete_schematiq(
+            session, session_id, data, format=format, tz_offset=tz_offset
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Exception in export_complete_schematiq_data: {e}")
         import traceback
@@ -1121,136 +791,13 @@ async def export_schematiq_rich_csv(
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Get all data
+
         data = await schematiq_runner.get_data(session_id, page=0, page_size=10000)
-        
-        if not data.rows:
-            raise HTTPException(status_code=404, detail="No data to export")
-        
-        # Prepare metadata-rich CSV
-        output = io.StringIO()
-        
-        # Create extended column set with metadata
-        base_columns = set()
-        for row in data.rows:
-            if row.row_name:
-                base_columns.add('row_name')
-            if row.papers:
-                base_columns.add('papers')
-            # Include observation unit fields if present
-            if row.unit_name:
-                base_columns.add('_unit_name')
-            if row.source_document:
-                base_columns.add('_source_document')
-            for col_name in row.data.keys():
-                base_columns.add(col_name)
-                # Add excerpt column for ScheMatiQ data
-                if isinstance(row.data[col_name], dict) and 'excerpts' in row.data[col_name]:
-                    base_columns.add(f"{col_name}_excerpt")
-        
-        # A "<col>_grounded" column per data column, only when some cell was
-        # kept without a supporting excerpt (see grounding_flags).
-        has_ungrounded = any_ungrounded(row.data for row in data.rows)
-
-        # Build enhanced column list with metadata columns
-        enhanced_columns = []
-        for col_name in sorted(base_columns):
-            enhanced_columns.append(col_name)
-            # Add metadata columns for schema columns (not for standard or excerpt columns)
-            if (col_name not in ['row_name', 'papers', '_unit_name', '_source_document'] and
-                not col_name.endswith('_excerpt')):
-                enhanced_columns.append(f"{col_name}_definition")
-                enhanced_columns.append(f"{col_name}_rationale")
-                enhanced_columns.append(f"{col_name}_allowed_values")
-                if has_ungrounded:
-                    enhanced_columns.append(f"{col_name}_grounded")
-        
-        writer = csv.DictWriter(output, fieldnames=enhanced_columns)
-        
-        # Write metadata header rows first
-        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
-        output.write("# Metadata-Rich CSV Export\n")
-        output.write(f"# Generated: {user_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        output.write(f"# Session ID: {session_id}\n")
-        output.write(f"# Query: {session.schema_query or 'N/A'}\n")
-        # Include observation_unit if available
-        if session.observation_unit:
-            obs_unit_json = json.dumps(session.observation_unit.model_dump())
-            output.write(f"# Observation Unit: {obs_unit_json}\n")
-        output.write("# Format: Each data column has corresponding _definition and _rationale columns\n")
-        output.write("#\n")
-        
-        # Write CSV headers
-        writer.writeheader()
-        
-        # Create column metadata lookup
-        column_metadata = {}
-        for col in session.columns:
-            if col.name:
-                column_metadata[col.name] = {
-                    'definition': col.definition or '',
-                    'rationale': col.rationale or '',
-                    'allowed_values': ', '.join(col.allowed_values) if col.allowed_values else ''
-                }
-
-        # Write data rows with metadata
-        for row in data.rows:
-            csv_row = {}
-
-            # Add standard columns
-            if row.row_name:
-                csv_row['row_name'] = row.row_name
-            if row.papers:
-                csv_row['papers'] = '; '.join(row.papers) if isinstance(row.papers, list) else str(row.papers)
-            # Add observation unit fields
-            if row.unit_name:
-                csv_row['_unit_name'] = row.unit_name
-            if row.source_document:
-                csv_row['_source_document'] = row.source_document
-
-            # Process data columns with metadata
-            for col_name, value in row.data.items():
-                if isinstance(value, dict) and 'answer' in value:
-                    # ScheMatiQ format: extract answer and excerpts
-                    csv_row[col_name] = value['answer']
-                    if has_ungrounded and value['answer'] not in (None, ''):
-                        csv_row[f"{col_name}_grounded"] = 'false' if value.get('_ungrounded') else 'true'
-                    if 'excerpts' in value and value['excerpts']:
-                        excerpt_col = f"{col_name}_excerpt"
-                        if isinstance(value['excerpts'], list):
-                            csv_row[excerpt_col] = ' | '.join(format_excerpt_for_csv(ex) for ex in value['excerpts'])
-                        else:
-                            csv_row[excerpt_col] = str(value['excerpts'])
-                else:
-                    # Regular data
-                    if isinstance(value, (list, dict)):
-                        csv_row[col_name] = str(value)
-                    else:
-                        csv_row[col_name] = value
-
-                # Add metadata columns for this data column
-                if col_name in column_metadata:
-                    csv_row[f"{col_name}_definition"] = column_metadata[col_name]['definition']
-                    csv_row[f"{col_name}_rationale"] = column_metadata[col_name]['rationale']
-                    csv_row[f"{col_name}_allowed_values"] = column_metadata[col_name]['allowed_values']
-
-            writer.writerow(csv_row)
-        
-        # Prepare response
-        output.seek(0)
-        content = output.getvalue()
-        
-        # Generate filename with datetime in user's timezone
-        timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"ScheMatiQ_{timestamp}_rich.csv"
-        
-        return StreamingResponse(
-            io.BytesIO(content.encode('utf-8')),
-            media_type='text/csv',
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        return export_schematiq_rich_csv_data(
+            session, session_id, data, tz_offset=tz_offset
         )
-        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1264,81 +811,10 @@ async def export_schematiq_schema_only(
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Load ScheMatiQ configuration if available
-        session_dir = Path(DEFAULT_DATA_DIR) / session_id
-        schematiq_config_file = session_dir / "schematiq_config.json"
-        llm_configuration = None
-        
-        if schematiq_config_file.exists():
-            try:
-                with open(schematiq_config_file) as f:
-                    schematiq_config = json.load(f)
-                    llm_configuration = {
-                        "schema_creation_backend": schematiq_config.get("schema_creation_backend"),
-                        "value_extraction_backend": schematiq_config.get("value_extraction_backend")
-                    }
-            except Exception as e:
-                logger.warning(f"Could not load LLM configuration: {e}")
 
-        # Create ScheMatiQ schema export
-        schema_columns = []
-        for col in session.columns:
-            if col.name and not col.name.lower().endswith('_excerpt'):
-                col_export = {
-                    "name": col.name,
-                    "definition": col.definition or "",
-                    "rationale": col.rationale or "",
-                    "source_document": col.source_document,
-                    "discovery_iteration": col.discovery_iteration
-                }
-                # Additive metadata: preserve the user's original typed label so it
-                # round-trips on reimport. The canonical `name` stays the schema key.
-                if col.display_name:
-                    col_export["display_name"] = col.display_name
-                if col.allowed_values:
-                    col_export["allowed_values"] = col.allowed_values
-                schema_columns.append(col_export)
-
-        schema_export = {
-            "query": session.schema_query or "",
-            "schema": schema_columns,
-            "metadata": {
-                "session_id": session_id,
-                "session_type": session.type.value,
-                "created": session.metadata.created.isoformat(),
-                "source": session.metadata.source,
-                "total_columns": len([col for col in session.columns if not col.name.lower().endswith('_excerpt')]),
-                "schema_discovery_completed": session.metadata.schema_discovery_completed,
-                "export_timestamp": datetime.now().isoformat()
-            }
-        }
-
-        # Include schema evolution if available
-        if session.statistics and session.statistics.schema_evolution:
-            schema_export["schema_evolution"] = session.statistics.schema_evolution.model_dump()
-
-        # Include LLM configuration if available
-        if llm_configuration and any(llm_configuration.values()):
-            schema_export["llm_configuration"] = llm_configuration
-
-        # Include observation_unit if available
-        if session.observation_unit:
-            schema_export["observation_unit"] = session.observation_unit.model_dump()
-
-        content = json.dumps(schema_export, indent=2, ensure_ascii=False, default=str)
-
-        # Generate filename with datetime in user's timezone
-        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
-        timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"ScheMatiQ_{timestamp}_schema.json"
-        
-        return StreamingResponse(
-            io.BytesIO(content.encode('utf-8')),
-            media_type='application/json',
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
-        
+        return export_schematiq_schema_json(session, session_id, tz_offset=tz_offset)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Exception in export_schematiq_schema_only: {e}")
         raise HTTPException(status_code=500, detail=str(e))

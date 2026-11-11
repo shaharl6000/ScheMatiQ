@@ -20,25 +20,6 @@ from app.core.config import (
 
 logger = logging.getLogger(__name__)
 
-# Column headers for the summary sheet (must match append_row order)
-# A-N: session data + feedback in a single row
-HEADER_ROW = [
-    "Timestamp",
-    "Session ID",
-    "Query",
-    "Doc Count",
-    "Column Count",
-    "Row Count",
-    "Completeness %",
-    "Observation Unit",
-    "Trigger Source",
-    "Drive File ID",
-    "Rating",
-    "Comment",
-    "LLM Calls",  # Total LLM API calls made during this session
-    "Data Saved",  # Yes/No — whether session data was archived to Drive
-]
-
 # LLM usage tracking lives in a separate spreadsheet (GOOGLE_SHEETS_LLM_USAGE_ID)
 LLM_USAGE_HEADER = ["Timestamp", "Session ID", "LLM Calls", "Per Stage"]
 

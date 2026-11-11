@@ -2,6 +2,58 @@
  * Utility functions for detecting and handling empty/null values in DataTable
  */
 
+import { CellStatus, CellValue, DataRow } from '../../../types';
+
+// Cell status background colors for enrichment provenance tracking
+const CELL_STATUS_STYLES: Record<CellStatus, string> = {
+  no_change: '',
+  novel_nes: 'border-l-2 border-l-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20',
+  enriched: 'border-l-2 border-l-blue-400 bg-blue-50/40 dark:bg-blue-950/20',
+  inferred: 'border-l-2 border-l-amber-400 bg-amber-50/40 dark:bg-amber-950/20',
+  external_source: 'border-l-2 border-l-purple-400 bg-purple-50/40 dark:bg-purple-950/20',
+  schematiq_original: '',
+  schematiq_expanded: 'border-l-2 border-l-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20',
+};
+
+/**
+ * Get cell value for a column, handling special columns (_row_name, _papers).
+ */
+export function getCellValue(row: DataRow, columnName: string): CellValue {
+  if (columnName === '_row_name') {
+    return row.row_name;
+  }
+  if (columnName === '_papers') {
+    return row.papers;
+  }
+  return row.data[columnName];
+}
+
+/**
+ * Extract the editable string value from a CellValue.
+ * Handles ScheMatiQ objects with 'answer' field, arrays, etc.
+ */
+export function getEditableValue(value: CellValue): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object' && 'answer' in value) {
+    const answer = (value as { answer: unknown }).answer;
+    if (answer === null || answer === undefined) return '';
+    return extractDisplayValue(answer);
+  }
+  if (Array.isArray(value)) return value.join(', ');
+  return extractDisplayValue(value);
+}
+
+/**
+ * Maps _cell_status values to Tailwind background/border classes.
+ */
+export function getCellStatusClass(row: DataRow, column: string): string {
+  const status = row._cell_status?.[column];
+  if (!status) return '';
+  return CELL_STATUS_STYLES[status] || '';
+}
+
 /**
  * Determines if a value should be considered "empty" or "not found"
  * This is the single source of truth for empty value detection across the DataTable

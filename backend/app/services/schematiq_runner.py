@@ -630,11 +630,6 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             f"Timed out waiting for session {session_id} to stop before resume"
         )
 
-    async def resume_qbsd(self, session_id: str, acquire_slot: bool = False):
-        """Resume ScheMatiQ after observation unit review or post-edit rediscovery."""
-        await self.prepare_resume(session_id)
-        await self.run_schematiq(session_id)
-
     async def _execute_schematiq(self, session_id: str, config: ScheMatiQConfig):
         """Execute the ScheMatiQ pipeline — orchestrates pipeline modules."""
         schematiq_start_time = time.time()

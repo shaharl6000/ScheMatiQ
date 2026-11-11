@@ -12,7 +12,6 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
-from app.models.session import SessionStatus
 from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
 

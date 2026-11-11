@@ -91,12 +91,6 @@ async def _get_datasets_cached() -> List[DatasetInfo]:
     return datasets
 
 
-def invalidate_datasets_cache() -> None:
-    """Drop the cached dataset listing, e.g. after a dataset is uploaded."""
-    global _datasets_cache
-    _datasets_cache = None
-
-
 @router.get("/datasets", response_model=List[DatasetResponse])
 async def list_datasets():
     """List available datasets (document collections).
@@ -258,14 +252,6 @@ async def list_cloud_documents():
 # ==================
 # Initial Schema Endpoints
 # ==================
-
-class InitialSchemaColumnResponse(BaseModel):
-    """Response model for a column in an initial schema."""
-    name: str
-    definition: str
-    rationale: str
-    allowed_values: Optional[List[str]] = None
-
 
 class InitialSchemaResponse(BaseModel):
     """Response model for initial schema information."""

@@ -51,36 +51,13 @@ class WebSocketBroadcasterMixin:
         error_details: Dict[str, Any] = None
     ):
         """Broadcast error message via WebSocket."""
-        data = {
-            "session_id": session_id,
-            "error_message": error_message,
-            "timestamp": datetime.now().isoformat()
-        }
-        if error_details:
-            data.update(error_details)
-        
-        await self.websocket_manager.broadcast_error(session_id, error_message)
-    
-    async def broadcast_status_update(
-        self, 
-        session_id: str, 
-        status: str, 
-        message: str = None,
-        additional_data: Dict[str, Any] = None
-    ):
-        """Broadcast general status update via WebSocket."""
-        data = {
-            "session_id": session_id,
-            "status": status,
-            "timestamp": datetime.now().isoformat()
-        }
-        if message:
-            data["message"] = message
-        if additional_data:
-            data.update(additional_data)
-        
-        await self.websocket_manager.broadcast_progress(session_id, data)
-    
+        if error_details is not None:
+            await self.websocket_manager.broadcast_error(
+                session_id, error_message, error_details=error_details
+            )
+        else:
+            await self.websocket_manager.broadcast_error(session_id, error_message)
+
     async def broadcast_step_progress(
         self,
         session_id: str,
@@ -110,15 +87,7 @@ class WebSocketBroadcasterMixin:
             data["details"] = details
 
         await self.websocket_manager.broadcast_progress(session_id, data)
-    
-    async def broadcast_schema_completed(
-        self, 
-        session_id: str, 
-        schema_data: Dict[str, Any]
-    ):
-        """Broadcast schema completion event via WebSocket."""
-        await self.websocket_manager.broadcast_schema_completed(session_id, schema_data)
-    
+
     async def broadcast_row_completed(
         self,
         session_id: str,

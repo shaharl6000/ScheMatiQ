@@ -178,43 +178,6 @@ class SessionManager:
         )
         return True
 
-    def finalize_creation(self, session_id: str, llm_model: str = "", llm_provider: str = "") -> bool:
-        """
-        Finalize ScheMatiQ creation by capturing immutable creation metadata.
-        Call this when ScheMatiQ schema discovery or loading completes.
-
-        Args:
-            session_id: The session ID
-            llm_model: The LLM model used for schema creation
-            llm_provider: The LLM provider (e.g., "gemini", "openai")
-
-        Returns:
-            True if creation was finalized successfully, False otherwise.
-        """
-        session = self.get_session(session_id)
-        if not session:
-            return False
-
-        # Only finalize if not already finalized
-        if session.creation_metadata is not None:
-            logger.debug(f"Session {session_id} already has creation metadata, skipping finalize")
-            return True
-
-        # Create immutable creation metadata
-        session.creation_metadata = CreationMetadata(
-            created_at=session.metadata.created,
-            creation_query=session.schema_query or "",
-            llm_model=llm_model,
-            llm_provider=llm_provider,
-            iterations_count=len(session.statistics.schema_evolution.snapshots) if session.statistics and session.statistics.schema_evolution else 0,
-            final_schema_size=len([c for c in session.columns if not c.name.lower().endswith('_excerpt')]),
-            convergence_achieved=(session.status == SessionStatus.COMPLETED)
-        )
-
-        self.update_session(session)
-        logger.debug(f"Finalized creation for session {session_id}")
-        return True
-
     def migrate_session(self, session: VisualizationSession) -> VisualizationSession:
         """
         Migrate a loaded session to include new fields if missing.
