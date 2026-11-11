@@ -543,11 +543,79 @@ class LLMInterface(ABC):
         return get_max_output_tokens(self._provider, model, task=task)
 
 
+class _OpenAICompatibleChatMixin:
+    """Shared chat-completions generation + retry loop for OpenAI-compatible SDKs."""
+
+    def generate(
+        self,
+        prompt: Union[str, List[Dict[str, str]]],
+        **kwargs,
+    ) -> str:
+        """
+        Args
+        ----
+        prompt : str | list[dict]
+            • str  – plain prompt → wrapped as [{'role':'user', 'content': prompt}]
+            • list – already‑formatted chat messages (role/content pairs)
+        """
+        prompt_len = sum(
+            len(m.get("content", ""))
+            for m in (prompt if isinstance(prompt, list) else [{"content": prompt}])
+        )
+
+        params = {**self._default_args, **kwargs}
+
+        if isinstance(prompt, list):
+            params["messages"] = prompt
+        else:
+            params["messages"] = [{"role": "user", "content": prompt}]
+
+        max_retries = LLM_MAX_RETRIES
+        last_exception = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                resp = self._client.chat.completions.create(**params)
+                content = resp.choices[0].message.content.strip()
+
+                LLMCallTracker.get_instance().increment(
+                    model=self.model,
+                    prompt_length=prompt_len,
+                    completion_length=len(content),
+                    **_openai_usage(resp),
+                )
+                return content
+            except Exception as e:
+                error_str = str(e)
+                last_exception = e
+
+                if _is_rate_limit_error(e) and not _is_quota_exhausted_error(e):
+                    if attempt < max_retries:
+                        wait_time = _extract_wait_time(e)
+                        print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"❌ Rate limit error after {max_retries} retries: {error_str}")
+                elif _is_retryable_server_error(e):
+                    if attempt < max_retries:
+                        wait_time = 10 + random.randint(5, 15)
+                        print(f"🔄 Transient provider error (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"❌ Transient provider error after {max_retries} retries: {error_str}")
+                else:
+                    break
+
+        raise last_exception
+
+
 ##############################################################################
 # 1. Together AI implementation                                              #
 ##############################################################################
 
-class TogetherLLM(LLMInterface):
+class TogetherLLM(_OpenAICompatibleChatMixin, LLMInterface):
     """
      llm = TogetherLLM(model="meta-llama/Llama-3-8b-chat-hf")
      answer = llm.generate("What is the capital of France?")
@@ -587,81 +655,13 @@ class TogetherLLM(LLMInterface):
             max_tokens=self.max_output_tokens,  # Together API uses max_tokens
             temperature=temperature,
         )
-        # Removed API key printing for security
-
-
-    def generate(self,
-                 prompt: Union[str, List[Dict[str, str]]],
-                 **kwargs) -> str:
-        """
-        Args
-        ----
-        prompt : str | list[dict]
-            • str  – plain prompt → wrapped as [{'role':'user', 'content': prompt}]
-            • list – already‑formatted chat messages (role/content pairs)
-        """
-        # Calculate prompt length for tracking
-        prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
-
-        params = {**self._default_args, **kwargs}
-
-        # Detect format
-        if isinstance(prompt, list):
-            params["messages"] = prompt        # already chat‑style
-        else:
-            params["messages"] = [{"role": "user", "content": prompt}]
-
-        # Retry logic for rate limits
-        max_retries = LLM_MAX_RETRIES
-        last_exception = None
-        
-        for attempt in range(max_retries + 1):
-            try:
-                resp = self._client.chat.completions.create(**params)
-                content = resp.choices[0].message.content.strip()
-                
-                # Track LLM call after success, with provider-reported usage
-                LLMCallTracker.get_instance().increment(
-                    model=self.model, 
-                    prompt_length=prompt_len,
-                    completion_length=len(content),
-                    **_openai_usage(resp),
-                )
-                return content
-            except Exception as e:
-                error_str = str(e)
-                last_exception = e
-                
-                # Check if this is a retryable error
-                if _is_rate_limit_error(e) and not _is_quota_exhausted_error(e):
-                    if attempt < max_retries:
-                        wait_time = _extract_wait_time(e)
-                        print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        print(f"❌ Rate limit error after {max_retries} retries: {error_str}")
-                elif _is_retryable_server_error(e):
-                    if attempt < max_retries:
-                        wait_time = 10 + random.randint(5, 15)
-                        print(f"🔄 Transient provider error (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        print(f"❌ Transient provider error after {max_retries} retries: {error_str}")
-                else:
-                    # Not a retryable error, don't retry
-                    break
-        
-        # Re-raise the last exception
-        raise last_exception
 
 
 ##############################################################################
 # 2. OpenAI implementation                                                   #
 ##############################################################################
 
-class OpenAILLM(LLMInterface):
+class OpenAILLM(_OpenAICompatibleChatMixin, LLMInterface):
     """
      llm = OpenAILLM(model="gpt-4o-mini")
      answer = llm.generate("List three Israeli cities.")
@@ -701,72 +701,6 @@ class OpenAILLM(LLMInterface):
             max_tokens=self.max_output_tokens,  # OpenAI API uses max_tokens
             temperature=temperature,
         )
-
-    def generate(self,
-                 prompt: Union[str, List[Dict[str, str]]],
-                 **kwargs) -> str:
-        """
-        Args
-        ----
-        prompt : str | list[dict]
-            • str  – plain prompt → wrapped as [{'role':'user', 'content': prompt}]
-            • list – already‑formatted chat messages (role/content pairs)
-        """
-        # Calculate prompt length for tracking
-        prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
-
-        params = {**self._default_args, **kwargs}
-
-        # Detect format
-        if isinstance(prompt, list):
-            params["messages"] = prompt        # already chat‑style
-        else:
-            params["messages"] = [{"role": "user", "content": prompt}]
-
-        # Retry logic for rate limits and server overload
-        max_retries = LLM_MAX_RETRIES
-        last_exception = None
-        
-        for attempt in range(max_retries + 1):
-            try:
-                resp = self._client.chat.completions.create(**params)
-                content = resp.choices[0].message.content.strip()
-                
-                # Track LLM call after success, with provider-reported usage
-                LLMCallTracker.get_instance().increment(
-                    model=self.model, 
-                    prompt_length=prompt_len,
-                    completion_length=len(content),
-                    **_openai_usage(resp),
-                )
-                return content
-            except Exception as e:
-                error_str = str(e)
-                last_exception = e
-                
-                # Check if this is a retryable error
-                if _is_rate_limit_error(e) and not _is_quota_exhausted_error(e):
-                    if attempt < max_retries:
-                        wait_time = _extract_wait_time(e)
-                        print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        print(f"❌ Rate limit error after {max_retries} retries: {error_str}")
-                elif _is_retryable_server_error(e):
-                    if attempt < max_retries:
-                        wait_time = 10 + random.randint(5, 15)
-                        print(f"🔄 Transient provider error (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        print(f"❌ Transient provider error after {max_retries} retries: {error_str}")
-                else:
-                    # Not a retryable error, don't retry
-                    break
-        
-        # Re-raise the last exception
-        raise last_exception
 
 ##############################################################################
 # 3. HuggingFace Transformers implementation (with quantization)           #

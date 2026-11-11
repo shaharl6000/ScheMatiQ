@@ -18,8 +18,8 @@ from app.services.data_editor import DataEditor
 from app.services.observation_unit_manager import ObservationUnitManager
 from app.services.schema_manager import SchemaManager
 from app.services.orchestration import (
-    continue_discovery_service,
-    reextraction_service,
+    continue_discovery_service as continue_discovery_service,
+    reextraction_service as reextraction_service,
     schematiq_runner,
 )
 

@@ -80,8 +80,6 @@ UNIPROT_SCHEMA_COLUMNS = [
     ("alphafold_url", "AlphaFold predicted structure URL.", "string"),
 ]
 
-UNIPROT_COLUMNS = [c[0] for c in UNIPROT_SCHEMA_COLUMNS]
-
 
 # Keyword allowlist for observation-unit detection. Conservative by design:
 # matches entities UniProt can actually resolve.

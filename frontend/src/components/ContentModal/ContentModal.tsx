@@ -19,7 +19,7 @@ import {
 
 import { CellValue, ScheMatiQAnswerWithExcerpts, Excerpt, ExcerptWithSource } from '../../types';
 import { copyToClipboard } from '../../utils/clipboard';
-import { extractDisplayValue } from '../DataTable/utils/valueUtils';
+import { extractDisplayValue, getEditableValue, parsePythonString } from '../DataTable/utils/valueUtils';
 import { unitsAPI } from '../../services/api';
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
@@ -38,41 +38,6 @@ interface ContentModalProps {
   sessionId?: string;
 }
 
-/** Extract the editable string value from a CellValue. */
-function getEditableValue(value: CellValue): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (typeof value === 'object' && 'answer' in value) {
-    const answer = (value as { answer: unknown }).answer;
-    if (answer === null || answer === undefined) return '';
-    return extractDisplayValue(answer);
-  }
-  if (Array.isArray(value)) return value.join(', ');
-  return extractDisplayValue(value);
-}
-
-// Helper to parse Python-style dict/list strings to JSON
-const parsePythonString = (val: string): any => {
-  const trimmed = val.trim();
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return val;
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    try {
-      const jsonified = trimmed
-        .replace(/'/g, '"')
-        .replace(/None/g, 'null')
-        .replace(/True/g, 'true')
-        .replace(/False/g, 'false');
-      return JSON.parse(jsonified);
-    } catch {
-      return val;
-    }
-  }
-};
-
 // Parse excerpts to ensure they're in a consistent format
 const parseExcerptItem = (excerpt: Excerpt, index: number): ExcerptWithSource => {
   if (typeof excerpt === 'string') {
@@ -86,9 +51,10 @@ const parseExcerptItem = (excerpt: Excerpt, index: number): ExcerptWithSource =>
       return parsed as ExcerptWithSource;
     }
     if (typeof parsed === 'object' && parsed !== null && 'text' in parsed) {
+      const parsedObj = parsed as { text: string; source?: string };
       return {
-        text: parsed.text,
-        source: parsed.source || `Source ${index + 1}`
+        text: parsedObj.text,
+        source: parsedObj.source || `Source ${index + 1}`
       };
     }
     return { text: excerpt, source: `Source ${index + 1}` };

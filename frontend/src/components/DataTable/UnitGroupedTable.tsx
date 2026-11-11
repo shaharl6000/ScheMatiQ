@@ -68,6 +68,7 @@ import {
   buildColumnMetadata,
   parsePythonString,
   extractDisplayValue,
+  getCellStatusClass,
   getDefaultColumnOrder,
   buildExcerptMapping,
   parseExcerpts,
@@ -85,23 +86,6 @@ import TableOptionsMenu from './TableOptionsMenu';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
 import ExtractionProgressBar from './ExtractionProgressBar';
 import { useColumnResize, MIN_COLUMN_WIDTH, DEFAULT_COLUMN_WIDTH } from './hooks/useColumnResize';
-
-// Cell status background colors for enrichment provenance tracking
-const CELL_STATUS_STYLES: Record<CellStatus, string> = {
-  no_change: '',
-  novel_nes: 'border-l-2 border-l-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20',
-  enriched: 'border-l-2 border-l-blue-400 bg-blue-50/40 dark:bg-blue-950/20',
-  inferred: 'border-l-2 border-l-amber-400 bg-amber-50/40 dark:bg-amber-950/20',
-  external_source: 'border-l-2 border-l-purple-400 bg-purple-50/40 dark:bg-purple-950/20',
-  schematiq_original: '',
-  schematiq_expanded: 'border-l-2 border-l-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20',
-};
-
-function getCellStatusClass(row: DataRow, column: string): string {
-  const status = row._cell_status?.[column];
-  if (!status) return '';
-  return CELL_STATUS_STYLES[status] || '';
-}
 
 // Sortable column header for drag-and-drop reordering
 const SortableColumnHeader: React.FC<{

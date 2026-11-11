@@ -3,12 +3,6 @@
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
-class FileUploadRequest(BaseModel):
-    """Request model for file upload."""
-    filename: str
-    content_type: str
-    size: int
-
 class FileValidationResult(BaseModel):
     """Result of file validation."""
     is_valid: bool
@@ -24,13 +18,6 @@ class ColumnMappingRequest(BaseModel):
     session_id: str
     column_mappings: Dict[str, str]  # original_name -> new_name
     column_types: Dict[str, str]     # column_name -> data_type
-    
-class DataPreviewRequest(BaseModel):
-    """Request for data preview."""
-    session_id: str
-    page: int = Field(default=0, ge=0)
-    page_size: int = Field(default=50, ge=1, le=1000)
-    filters: Optional[Dict[str, Any]] = None
 
 class SchemaColumn(BaseModel):
     """Schema column definition from ScheMatiQ schema."""
@@ -40,14 +27,6 @@ class SchemaColumn(BaseModel):
     display_name: Optional[str] = None
     definition: Optional[str] = None
     rationale: Optional[str] = None
-
-class LLMBackendConfig(BaseModel):
-    """LLM backend configuration."""
-    provider: str
-    model: str
-    max_output_tokens: int
-    temperature: float
-    context_window_size: Optional[int] = None
 
 class ScheMatiQSchemaFormat(BaseModel):
     """ScheMatiQ schema file format."""
@@ -84,11 +63,3 @@ class CompatibilityCheck(BaseModel):
     compatibility_score: float = 0.0  # Percentage of matching columns
     detailed_errors: List[str] = []
     suggestions: List[str] = []
-
-class DualFileUploadResult(BaseModel):
-    """Result of dual file upload."""
-    session_id: str
-    schema_validation: SchemaValidationResult
-    data_validation: FileValidationResult
-    compatibility: CompatibilityCheck
-    requires_column_mapping: bool = False

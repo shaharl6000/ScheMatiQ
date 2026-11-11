@@ -5,7 +5,7 @@ import {
   ColumnDataType,
   ColumnMetadata,
 } from '../types/filters';
-import { isEmpty } from './valueUtils';
+import { getCellValue, isEmpty } from './valueUtils';
 
 /**
  * Apply all filter rules to a set of rows
@@ -22,19 +22,6 @@ export function applyFilters(rows: DataRow[], filterState: FilterState): DataRow
       return evaluateFilterRule(value, rule);
     });
   });
-}
-
-/**
- * Get cell value for a column, handling special columns
- */
-function getCellValue(row: DataRow, columnName: string): CellValue {
-  if (columnName === '_row_name') {
-    return row.row_name;
-  }
-  if (columnName === '_papers') {
-    return row.papers;
-  }
-  return row.data[columnName];
 }
 
 /**

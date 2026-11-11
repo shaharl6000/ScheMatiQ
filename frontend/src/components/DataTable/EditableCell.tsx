@@ -3,6 +3,9 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { Check, X, Pencil } from 'lucide-react';
 import { CellValue } from '../../types';
+import { getEditableValue } from './utils/valueUtils';
+
+export { getEditableValue };
 
 interface EditableCellProps {
   value: CellValue;
@@ -11,24 +14,6 @@ interface EditableCellProps {
   children: React.ReactNode;
   onSave: (rowName: string, column: string, value: string) => Promise<void>;
   disabled?: boolean;
-}
-
-/**
- * Extracts the editable string value from a CellValue.
- * Handles ScheMatiQ objects with 'answer' field, arrays, etc.
- */
-export function getEditableValue(value: CellValue): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (typeof value === 'object' && 'answer' in value) {
-    const answer = (value as { answer: unknown }).answer;
-    if (answer === null || answer === undefined) return '';
-    if (typeof answer === 'object') return JSON.stringify(answer);
-    return String(answer);
-  }
-  if (Array.isArray(value)) return value.join(', ');
-  return JSON.stringify(value);
 }
 
 /**

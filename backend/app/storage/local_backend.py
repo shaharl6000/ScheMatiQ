@@ -289,41 +289,6 @@ class LocalStorageBackend(StorageInterface):
             logger.error(f"Error loading session {session_id}: {e}")
             return None
 
-    def upload_file_sync(
-        self,
-        bucket: str,
-        path: str,
-        data: bytes,
-        content_type: Optional[str] = None
-    ) -> str:
-        """Synchronous version of upload_file for compatibility."""
-        try:
-            file_path = self._get_bucket_path(bucket, path)
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(file_path, 'wb') as f:
-                f.write(data)
-            return str(file_path)
-        except Exception as e:
-            logger.error(f"Error uploading file {bucket}/{path}: {e}")
-            raise
-
-    def download_file_sync(self, bucket: str, path: str) -> Optional[bytes]:
-        """Synchronous version of download_file for compatibility."""
-        file_path = self._get_bucket_path(bucket, path)
-        if not file_path.exists():
-            return None
-        try:
-            with open(file_path, 'rb') as f:
-                return f.read()
-        except Exception as e:
-            logger.error(f"Error downloading file {bucket}/{path}: {e}")
-            return None
-
-    def file_exists_sync(self, bucket: str, path: str) -> bool:
-        """Synchronous version of file_exists for compatibility."""
-        file_path = self._get_bucket_path(bucket, path)
-        return file_path.exists()
-
     def list_sessions_sync(self) -> List[str]:
         """Synchronous version of list_sessions."""
         try:
@@ -332,14 +297,6 @@ class LocalStorageBackend(StorageInterface):
         except Exception as e:
             logger.error(f"Error listing sessions: {e}")
             return []
-
-    def get_local_path(self, bucket: str, path: str) -> Path:
-        """Get the local filesystem path for a bucket/path.
-
-        This is useful for operations that need direct filesystem access,
-        such as passing paths to external libraries.
-        """
-        return self._get_bucket_path(bucket, path)
 
     # =======================
     # Dataset Operations

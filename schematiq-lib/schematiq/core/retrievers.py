@@ -10,8 +10,7 @@ Two retrieval strategies under a single interface:
 from abc import ABC, abstractmethod
 from typing import List, Optional, Sequence, Iterable, Any, Dict, Callable, Tuple
 from dataclasses import dataclass
-import copy
-import random
+import functools
 import re
 import json
 import hashlib
@@ -20,12 +19,17 @@ import torch
 import tiktoken
 
 from schematiq.core.model_specs import ModelNames
-_enc = tiktoken.encoding_for_model(ModelNames.TIKTOKEN_ENCODING_MODEL)
+
+
+@functools.lru_cache(maxsize=1)
+def _get_enc() -> tiktoken.Encoding:
+    return tiktoken.encoding_for_model(ModelNames.TIKTOKEN_ENCODING_MODEL)
+
+
 _SENT_SPLIT_RE = re.compile(r"(?<=[\.\?!])\s+")
 JSON_FENCE = re.compile(r"```json(.*?)```", re.S | re.I)
 FIRST_OBJ = re.compile(r"\{.*\}", re.S)
 DEFAULT_MAX_INPUT_TOKENS = 7800
-DEFAULT_TRUNCATE_WORDS   = 250
 TOGETHER_LIMIT = 8193
 SAFETY_MARGIN  = 512
 CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
@@ -125,7 +129,7 @@ def _sliding_windows(words: List[str], max_len: int, overlap: int) -> Iterable[L
 
 
 def _approx_tokens(txt: str) -> int:
-    return len(_enc.encode(txt))
+    return len(_get_enc().encode(txt))
 
 ##############################################################################
 # Abstract base                                                              #
@@ -311,37 +315,7 @@ class EmbeddingRetriever(Retriever):
             'embeddings': embeddings
         }
 
-    def clear_cache(self) -> None:
-        """Clear the embedding cache."""
-        self._embedding_cache.clear()
-
-
     # ---- Retriever API -------------------------------------------------- #
-    def _query_sentence_transformer(self, passages: List[str], question: str, k: Optional[int] = None) -> List[str]:
-        """Original method without caching - kept for backward compatibility."""
-        q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
-        p_embs = self.model.encode(
-            passages,
-            batch_size=self.batch_size,
-            show_progress_bar=False,
-        )
-
-        # Cosine similarity
-        q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
-        p_norm = p_embs / (
-            np.linalg.norm(p_embs, axis=1, keepdims=True) + 1e-8
-        )
-        sims = p_norm @ q_norm
-        chosen_k = self.k if k is None else k
-
-        if self.enable_dynamic_k:
-            num_above = int((sims > self.dynamic_k_threshold).sum())
-            chosen_k = max(self.dynamic_k_minimum, num_above)
-            print(f"---- chosen k = {chosen_k}, num_above: {num_above}, thresh: {self.dynamic_k_threshold} ----")
-
-        top = sims.argsort()[-chosen_k:][::-1]
-        return [passages[i] for i in top]
-
     def _query_sentence_transformer_with_cache(
         self,
         passages: List[str],
@@ -530,8 +504,8 @@ class PromptingRetrieverConfig:
     finalist_factor: float = 2.0  # keep top k*factor from each batch for final rerank
     mode: str = "sampled_rank"    # "rank" (single call) or "sampled_rank"
     overlap_words: int = 64
-    respect_structure: bool = True,
-    truncate_words_per_chunk: int = 512,
+    respect_structure: bool = True
+    truncate_words_per_chunk: int = 512
     max_input_tokens: int = 7000   #TODO: shahar to not truncate but split doc or something..
 
 class PromptingRetriever(Retriever):
@@ -669,8 +643,6 @@ class PromptingRetriever(Retriever):
             messages = self._build_messages(query, payload)
             raw = self._call_llm(messages)
             parsed = self._parse_rank_json(raw, len(cur_indices), offset=cur_indices[0], total_len=len(passages))
-            scored = [(d["i"], d["score"]) for d in parsed["ranked"]]
-
             scored = [(int(d["i"]), float(d["score"])) for d in parsed["ranked"]]
             keep = max(1, int(self.cfg.finalist_factor * self.cfg.k))
             finals.extend(sorted(scored, key=lambda x: x[1], reverse=True)[:keep])
@@ -747,75 +719,3 @@ class PromptingRetriever(Retriever):
             if 0 <= i < total:
                 scores[i] = s
         return scores
-
-
-
-def test_retriever_stability(
-    retriever: EmbeddingRetriever,
-    docs: Sequence[str],
-    question: str,
-    k: int = 5,
-    seed: int = 42,
-) -> None:
-    """
-    1. Computes cosine-similarity scores for *all* passages.
-    2. Prints the top-k and bottom-k passages.
-    3. Shuffles `docs` and re-runs the query.
-    4. Asserts that the same top-k passages are returned (order-agnostic).
-
-    Raises
-    ------
-    AssertionError
-        If shuffling causes a change in the retrieved top-k set.
-    """
-
-    # --- helper to get all passages + sims ------------------------------- #
-    passages = []
-    for d in docs:
-        passages.extend(retriever._improved_chunk(d))
-
-        if not passages:
-            print("⚠️  No passages produced from the documents.")
-            return
-
-        q_emb = retriever.model.encode([question], show_progress_bar=False)[0]
-        p_embs = retriever.model.encode(
-            passages, batch_size=retriever.batch_size, show_progress_bar=False
-        )
-
-        q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
-        p_norm = p_embs / (np.linalg.norm(p_embs, axis=1, keepdims=True) + 1e-8)
-        sims = p_norm @ q_norm
-
-        # --- top & bottom k --------------------------------------------------- #
-        top_idx = sims.argsort()[-k:][::-1]
-        bot_idx = sims.argsort()[:k]
-
-        top_passages = [passages[i] for i in top_idx]
-        bot_passages = [passages[i] for i in bot_idx]
-
-        # print("\n🏆 Top-{} passages:".format(k))
-        # print("\n---\n".join(top_passages))
-        #
-        # print("\n🪫 Bottom-{} passages:".format(k))
-        # print("\n---\n".join(bot_passages))
-
-        # --- shuffle docs & re-query ----------------------------------------- #
-        bot_and_top = top_passages + bot_passages
-        shuffled_docs = copy.copy(bot_and_top)
-        # print(f"num of shuffled_docs {len(shuffled_docs)}")
-        random.Random(seed).shuffle(shuffled_docs)
-        # print(f"query is: {question}")
-
-        top_after_shuffle = retriever.query(shuffled_docs, question, k=k)
-
-        # --- check stability -------------------------------------------------- #
-        if set(top_passages) == set(top_after_shuffle):
-            print("\n✅  Retrieval stable after shuffling.")
-        else:
-            print("\n❌  Top-{} passages changed after shuffling!".format(k))
-            diff_old = set(top_passages) - set(top_after_shuffle)
-            diff_new = set(top_after_shuffle) - set(top_passages)
-            print("   Lost after shuffle:", diff_old or "—")
-            print("   Gained after shuffle:", diff_new or "—")
-            raise AssertionError("Retriever is not order-invariant!")

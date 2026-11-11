@@ -3,7 +3,7 @@
 import json
 import asyncio
 import logging
-from typing import Dict, Set, Any, List
+from typing import Dict, Set, Any, List, Optional
 from fastapi import WebSocket
 from datetime import datetime
 
@@ -126,13 +126,20 @@ class WebSocketManager:
         for websocket in dead_connections:
             await self.remove_log_connection(session_id, websocket)
     
-    async def broadcast_error(self, session_id: str, error_message: str):
+    async def broadcast_error(
+        self,
+        session_id: str,
+        error_message: str,
+        error_details: Optional[Dict[str, Any]] = None,
+    ):
         """Broadcast error message to all connections."""
-        error_data = {
+        error_data: Dict[str, Any] = {
             "type": "error",
             "message": error_message,
             "timestamp": datetime.now().isoformat()
         }
+        if error_details:
+            error_data["details"] = error_details
 
         await self.broadcast_to_session(session_id, error_data)
         await self.broadcast_log(session_id, error_data)
@@ -176,28 +183,6 @@ class WebSocketManager:
         
         await self.broadcast_to_session(session_id, message)
     
-    async def broadcast_reprocessing_progress(self, session_id: str, progress_data: Dict[str, Any]):
-        """Broadcast reprocessing progress updates."""
-        message = {
-            "type": "reprocessing_progress",
-            "timestamp": datetime.now().isoformat(),
-            "session_id": session_id,
-            "data": progress_data
-        }
-        
-        await self.broadcast_to_session(session_id, message)
-    
-    async def broadcast_reprocessing_completed(self, session_id: str, completion_data: Dict[str, Any]):
-        """Broadcast reprocessing completion."""
-        message = {
-            "type": "reprocessing_completed",
-            "timestamp": datetime.now().isoformat(),
-            "session_id": session_id,
-            "data": completion_data
-        }
-        
-        await self.broadcast_to_session(session_id, message)
-    
     async def broadcast_to_session(self, session_id: str, message: Dict[str, Any]):
         """Generic method to broadcast a message to all connections for a session."""
         # Snapshot connections under lock
@@ -223,16 +208,6 @@ class WebSocketManager:
         # Remove dead connections
         for websocket in dead_connections:
             await self.remove_connection(session_id, websocket)
-    
-    async def broadcast_schema_completed(self, session_id: str, schema_data: Dict[str, Any]):
-        """Broadcast schema discovery completion."""
-        message = {
-            "type": "schema_completed",
-            "timestamp": datetime.now().isoformat(),
-            "data": schema_data
-        }
-
-        await self.broadcast_to_session(session_id, message)
     
     async def broadcast_row_completed(self, session_id: str, row_data: Dict[str, Any]):
         """Broadcast individual row completion during value extraction."""
@@ -263,10 +238,6 @@ class WebSocketManager:
     def get_connection_count(self, session_id: str) -> int:
         """Get number of active connections for a session."""
         return len(self.connections.get(session_id, set()))
-
-    def has_connections(self, session_id: str) -> bool:
-        """Check if session has any active connections."""
-        return session_id in self.connections and len(self.connections[session_id]) > 0
 
     async def buffer_or_broadcast_cell(self, session_id: str, message: Dict[str, Any]):
         """Broadcast cell event or buffer if no connections exist.
