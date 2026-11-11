@@ -60,6 +60,14 @@ import ViewModeToggle from '../components/ViewMode/ViewModeToggle';
 import { useUnits } from '../hooks/useUnits';
 import TableFeedbackWidget from '../components/TableFeedbackWidget/TableFeedbackWidget';
 import { VisualizeGuideDialog } from '../components/VisualizeGuideDialog/VisualizeGuideDialog';
+import {
+  INITIAL_CONTINUE_DISCOVERY_STATE,
+  continueDiscoveryEventFromWebSocket,
+  isContinueDiscoveryActive,
+  reduceContinueDiscoveryState,
+  type ContinueDiscoveryActivityState,
+  type ContinueDiscoveryLifecycleEvent,
+} from '../components/SchemaEditor/continueDiscoveryStateGuard';
 
 const Visualize = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -171,7 +179,36 @@ const Visualize = () => {
   const [isStoppingReextraction, setIsStoppingReextraction] = useState(false);
 
   // Continue Discovery activity tracking (for navigation guard)
-  const [continueDiscoveryActive, setContinueDiscoveryActive] = useState(false);
+  const [continueDiscoveryState, setContinueDiscoveryState] =
+    useState<ContinueDiscoveryActivityState>(INITIAL_CONTINUE_DISCOVERY_STATE);
+  const continueDiscoveryActive = isContinueDiscoveryActive(continueDiscoveryState);
+
+  useEffect(() => {
+    setContinueDiscoveryState(INITIAL_CONTINUE_DISCOVERY_STATE);
+  }, [sessionId]);
+
+  const clearIncrementalExtractionUiState = useCallback(() => {
+    setProcessingColumns(new Set());
+    setCurrentColumn(null);
+    setCurrentDocumentProgress(null);
+    setStreamingCells(new Map());
+    setForceWebSocketConnect(false);
+  }, []);
+
+  const handleContinueDiscoveryLifecycleEvent = useCallback(
+    (event: ContinueDiscoveryLifecycleEvent) => {
+      setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, event));
+      if (
+        event.type === 'extraction_completed' ||
+        event.type === 'extraction_stopped' ||
+        event.type === 'extraction_failed' ||
+        event.type === 'discovery_stopped'
+      ) {
+        clearIncrementalExtractionUiState();
+      }
+    },
+    [clearIncrementalExtractionUiState],
+  );
 
   // Column order state
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -389,36 +426,62 @@ const Visualize = () => {
               break;
 
             // Continue Discovery events
-            case 'continue_discovery_started':
+            case 'continue_discovery_started': {
               debug.log('Continue discovery started:', message.data);
-              setContinueDiscoveryActive(true);
+              const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+              if (cdEvent) {
+                setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+              }
               break;
+            }
             case 'continue_discovery_progress':
               debug.log('Continue discovery progress:', message.data);
               break;
-            case 'continue_discovery_completed':
+            case 'continue_discovery_completed': {
               debug.log('Continue discovery completed:', message.data);
+              const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+              if (cdEvent) {
+                setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+              }
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
               queryClient.invalidateQueries(['documentList', sessionId]);
               refreshUnits();
               break;
-            case 'continue_discovery_stopped':
+            }
+            case 'continue_discovery_stopped': {
               debug.log('Continue discovery stopped:', message.data);
-              setContinueDiscoveryActive(false);
+              clearIncrementalExtractionUiState();
+              const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+              if (cdEvent) {
+                setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+              }
+              queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
-            case 'continue_discovery_failed':
+            }
+            case 'continue_discovery_failed': {
               debug.log('Continue discovery failed:', message.data);
-              setContinueDiscoveryActive(false);
+              const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+              if (cdEvent) {
+                setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+              }
               break;
-            case 'incremental_extraction_started':
+            }
+            case 'incremental_extraction_started': {
               // Initialize processing columns when incremental extraction starts
               if (message.data?.columns && Array.isArray(message.data.columns)) {
                 setProcessingColumns(new Set(message.data.columns));
               }
-              setContinueDiscoveryActive(true);
+              const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+              if (cdEvent) {
+                setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+              }
               break;
+            }
             case 'incremental_extraction_progress':
               if (message.data?.column) {
                 setCurrentColumn(message.data.column);
@@ -429,19 +492,44 @@ const Visualize = () => {
                 });
               }
               break;
-            case 'incremental_extraction_completed':
+            case 'incremental_extraction_completed': {
               debug.log('Incremental extraction completed:', message.data);
-              setProcessingColumns(new Set()); // Clear processing state
-              setCurrentColumn(null);          // Clear current column
-              setCurrentDocumentProgress(null); // Clear document progress
-              setStreamingCells(new Map());    // Clear streaming cells
-              setContinueDiscoveryActive(false);
+              clearIncrementalExtractionUiState();
+              const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+              if (cdEvent) {
+                setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+              }
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
               queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
               queryClient.invalidateQueries(['documentList', sessionId]);
               refreshUnits();
               break;
+            }
+            case 'incremental_extraction_stopped': {
+              debug.log('Incremental extraction stopped:', message.data);
+              clearIncrementalExtractionUiState();
+              const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+              if (cdEvent) {
+                setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+              }
+              queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
+              break;
+            }
+            case 'incremental_extraction_failed': {
+              debug.log('Incremental extraction failed:', message.data);
+              clearIncrementalExtractionUiState();
+              const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+              if (cdEvent) {
+                setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+              }
+              queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              break;
+            }
           }
         } catch (err) {
           console.error('Error parsing WebSocket message:', err);
@@ -778,37 +866,62 @@ const Visualize = () => {
                 break;
 
               // Continue Discovery events
-              case 'continue_discovery_started':
+              case 'continue_discovery_started': {
                 debug.log('Continue discovery started:', message.data);
-                setContinueDiscoveryActive(true);
+                const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+                if (cdEvent) {
+                  setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+                }
                 break;
+              }
               case 'continue_discovery_progress':
                 debug.log('Continue discovery progress:', message.data);
                 break;
-              case 'continue_discovery_completed':
+              case 'continue_discovery_completed': {
                 debug.log('Continue discovery completed:', message.data);
+                const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+                if (cdEvent) {
+                  setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+                }
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
                 queryClient.invalidateQueries(['documentList', sessionId]);
                 refreshUnits();
-                // Note: don't clear continueDiscoveryActive yet — extraction may follow
                 break;
-              case 'continue_discovery_stopped':
+              }
+              case 'continue_discovery_stopped': {
                 debug.log('Continue discovery stopped:', message.data);
-                setContinueDiscoveryActive(false);
+                clearIncrementalExtractionUiState();
+                const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+                if (cdEvent) {
+                  setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+                }
+                queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 break;
-              case 'continue_discovery_failed':
+              }
+              case 'continue_discovery_failed': {
                 debug.log('Continue discovery failed:', message.data);
-                setContinueDiscoveryActive(false);
+                const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+                if (cdEvent) {
+                  setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+                }
                 break;
-              case 'incremental_extraction_started':
+              }
+              case 'incremental_extraction_started': {
                 // Initialize processing columns when incremental extraction starts
                 if (message.data?.columns && Array.isArray(message.data.columns)) {
                   setProcessingColumns(new Set(message.data.columns));
                 }
-                setContinueDiscoveryActive(true);
+                const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+                if (cdEvent) {
+                  setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+                }
                 break;
+              }
               case 'incremental_extraction_progress':
                 if (message.data?.column) {
                   setCurrentColumn(message.data.column);
@@ -819,20 +932,44 @@ const Visualize = () => {
                   });
                 }
                 break;
-              case 'incremental_extraction_completed':
+              case 'incremental_extraction_completed': {
                 debug.log('Incremental extraction completed:', message.data);
-                setProcessingColumns(new Set()); // Clear processing state
-                setCurrentColumn(null);          // Clear current column
-                setCurrentDocumentProgress(null); // Clear document progress
-                setStreamingCells(new Map());    // Clear streaming cells
-                setForceWebSocketConnect(false); // Allow WebSocket to close
-                setContinueDiscoveryActive(false);
+                clearIncrementalExtractionUiState();
+                const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+                if (cdEvent) {
+                  setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+                }
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
                 queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
-              queryClient.invalidateQueries(['documentList', sessionId]);
+                queryClient.invalidateQueries(['documentList', sessionId]);
                 refreshUnits();
                 break;
+              }
+              case 'incremental_extraction_stopped': {
+                debug.log('Incremental extraction stopped:', message.data);
+                clearIncrementalExtractionUiState();
+                const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+                if (cdEvent) {
+                  setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+                }
+                queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
+                break;
+              }
+              case 'incremental_extraction_failed': {
+                debug.log('Incremental extraction failed:', message.data);
+                clearIncrementalExtractionUiState();
+                const cdEvent = continueDiscoveryEventFromWebSocket(message.type, message.data);
+                if (cdEvent) {
+                  setContinueDiscoveryState(prev => reduceContinueDiscoveryState(prev, cdEvent));
+                }
+                queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                break;
+              }
             }
           } catch (err) {
             console.error('Error parsing WebSocket message:', err);
@@ -866,6 +1003,7 @@ const Visualize = () => {
       (session?.status === 'processing' || session?.status === 'observation_unit_review');
 
     const shouldConnect = forceWebSocketConnect ||
+      continueDiscoveryActive ||
       session?.status === 'processing_documents' ||
       isSchematiqSessionActive;
 
@@ -881,7 +1019,7 @@ const Visualize = () => {
       // Only close if we're unmounting AND not in the middle of re-extraction
       // Check forceWebSocketConnect via closure - if still true, don't close
     };
-  }, [sessionId, mode, forceWebSocketConnect, session?.status, queryClient]);
+  }, [sessionId, mode, forceWebSocketConnect, continueDiscoveryActive, session?.status, queryClient, clearIncrementalExtractionUiState]);
 
   // Separate effect to close WebSocket when no longer needed
   useEffect(() => {
@@ -889,7 +1027,12 @@ const Visualize = () => {
       mode === 'schematiq' &&
       (session?.status === 'processing' || session?.status === 'observation_unit_review');
 
-    if (!forceWebSocketConnect && session?.status !== 'processing_documents' && !isSchematiqSessionActive) {
+    if (
+      !forceWebSocketConnect &&
+      !continueDiscoveryActive &&
+      session?.status !== 'processing_documents' &&
+      !isSchematiqSessionActive
+    ) {
       // No longer need WebSocket, close it
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         debug.log('Closing WebSocket - no longer needed');
@@ -897,7 +1040,86 @@ const Visualize = () => {
         wsRef.current = null;
       }
     }
-  }, [forceWebSocketConnect, session?.status, mode]);
+  }, [forceWebSocketConnect, continueDiscoveryActive, session?.status, mode]);
+
+  // Fallback status poll while Continue Discovery or its incremental extraction
+  // is running on the backend, ensuring navigation guards and column spinners
+  // always clear even if WebSocket events are missed or the dialog unmounts.
+  useEffect(() => {
+    const opId = continueDiscoveryState.operationId;
+    const isRunningBackendPhase =
+      continueDiscoveryState.phase === 'discovering' ||
+      continueDiscoveryState.phase === 'extracting';
+    if (!sessionId || !opId || !isRunningBackendPhase) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const { schemaAPI } = await import('../services/api');
+        const st = await schemaAPI.continueDiscovery.getStatus(sessionId, opId);
+        if (cancelled) return;
+
+        const isTerminalExtraction =
+          st.phase === 'extraction' &&
+          (st.status === 'completed' || st.status === 'failed' || st.status === 'stopped');
+        const isTerminalDiscovery =
+          st.status === 'failed' || st.status === 'stopped';
+        const isDiscoveryCompleted =
+          st.phase === 'discovery' && st.status === 'completed';
+
+        setContinueDiscoveryState(prev =>
+          reduceContinueDiscoveryState(prev, {
+            type: 'status_polled',
+            status: st.status,
+            phase: st.phase,
+            newColumnCount: st.new_columns?.length ?? 0,
+          }),
+        );
+
+        if (isTerminalExtraction || isTerminalDiscovery) {
+          clearIncrementalExtractionUiState();
+          queryClient.invalidateQueries(['session', sessionId, mode]);
+          queryClient.invalidateQueries(['data', sessionId, mode]);
+          queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+          queryClient.invalidateQueries(['documentList', sessionId]);
+          refreshUnits();
+        } else if (isDiscoveryCompleted) {
+          queryClient.invalidateQueries(['session', sessionId, mode]);
+          queryClient.invalidateQueries(['data', sessionId, mode]);
+          queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+          queryClient.invalidateQueries(['documentList', sessionId]);
+          refreshUnits();
+        }
+      } catch (err) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (!cancelled && status === 404) {
+          setContinueDiscoveryState(prev =>
+            reduceContinueDiscoveryState(prev, {
+              type: 'status_polled',
+              notFound: true,
+            }),
+          );
+          clearIncrementalExtractionUiState();
+          queryClient.invalidateQueries(['session', sessionId, mode]);
+          queryClient.invalidateQueries(['data', sessionId, mode]);
+          refreshUnits();
+        }
+      }
+    };
+
+    const intervalId = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [
+    continueDiscoveryState.operationId,
+    continueDiscoveryState.phase,
+    sessionId,
+    mode,
+    queryClient,
+    clearIncrementalExtractionUiState,
+  ]);
 
   // Fallback completion poll for re-extraction.
   // The progress bar normally clears on the 'reextraction_completed' WebSocket
@@ -1731,6 +1953,7 @@ const Visualize = () => {
                 refreshUnits();
               }}
               onReextractionStarted={handleReextractionStarted}
+              onContinueDiscoveryLifecycleEvent={handleContinueDiscoveryLifecycleEvent}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}
               observationUnit={session.observation_unit}
               onObservationUnitUpdate={() => {
