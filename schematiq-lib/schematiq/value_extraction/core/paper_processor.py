@@ -584,7 +584,7 @@ class PaperProcessor:
         self._active_figure_images = images
         self._active_figures_by_id = figures_by_id
         self._active_norm_captions_cache = (
-            id(figures_by_id),
+            figures_by_id,
             len(figures_by_id),
             [
                 (fid, norm_cap, _PreparedSource(norm_cap))
@@ -800,7 +800,7 @@ class PaperProcessor:
         if (
             isinstance(cache_entry, tuple)
             and len(cache_entry) == 3
-            and cache_entry[0] == id(figures_by_id)
+            and cache_entry[0] is figures_by_id
             and cache_entry[1] == len(figures_by_id)
         ):
             prepared_captions = cache_entry[2]
@@ -812,7 +812,7 @@ class PaperProcessor:
             ]
             try:
                 self._active_norm_captions_cache = (
-                    id(figures_by_id),
+                    figures_by_id,
                     len(figures_by_id),
                     prepared_captions,
                 )

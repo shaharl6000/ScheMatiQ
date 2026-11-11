@@ -51,11 +51,22 @@ def _get_bg_event_loop() -> asyncio.AbstractEventLoop:
 
 
 def _run_coro_sync(coro: Coroutine[Any, Any, _T]) -> _T:
-    """Run ``coro`` synchronously, reusing a persistent daemon event loop when already inside an active loop."""
+    """Run ``coro`` synchronously, reusing a persistent daemon event loop when already inside an active loop.
+
+    All such calls share one bridge thread, so they run one at a time. A
+    coroutine already running on the bridge loop must not call a *_sync method:
+    it would wait on its own thread forever, so that case raises instead.
+    """
     try:
-        asyncio.get_running_loop()
+        running = asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
+    if running is _bg_loop:
+        coro.close()
+        raise RuntimeError(
+            "Supabase *_sync method called from the sync bridge loop; "
+            "await the async method instead"
+        )
     return asyncio.run_coroutine_threadsafe(coro, _get_bg_event_loop()).result()
 
 
