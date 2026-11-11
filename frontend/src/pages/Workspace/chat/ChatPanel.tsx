@@ -84,6 +84,10 @@ function groupChatMessages(messages: WorkspaceMessage[]): ChatRenderItem[] {
   return items;
 }
 
+// How long a poll that already sees 'completed' waits for the WebSocket
+// completion event (which carries the model's recap) before settling.
+const REEXTRACT_RECAP_GRACE_MS = 30000;
+
 const INITIAL_WELCOME_MESSAGE: WorkspaceMessage = {
   id: 'hello',
   role: 'assistant',
@@ -573,6 +577,8 @@ export function ChatPanel({
   ]);
 
   const activeReextractOpId = reextractionRunning?.operationId;
+  // When the poll first saw the active operation as completed.
+  const pollCompletedAtRef = useRef<number | null>(null);
 
   // Fallback status polling while a chat-observed re-extraction is active: if
   // the WebSocket drops briefly and misses the terminal event (or the backend
@@ -584,6 +590,7 @@ export function ChatPanel({
     }
 
     let cancelled = false;
+    pollCompletedAtRef.current = null;
 
     const poll = async () => {
       try {
@@ -591,6 +598,18 @@ export function ChatPanel({
         if (cancelled || settledReextractOpIdRef.current === activeReextractOpId) return;
 
         if (st.status === 'completed') {
+          // The backend marks the run completed before it writes the model's
+          // recap and broadcasts reextraction_completed with it. While the
+          // socket is up, give that event time to arrive instead of settling
+          // with the generic line and dropping the recap.
+          const now = Date.now();
+          if (pollCompletedAtRef.current == null) pollCompletedAtRef.current = now;
+          if (
+            webSocketService.isConnected() &&
+            now - pollCompletedAtRef.current < REEXTRACT_RECAP_GRACE_MS
+          ) {
+            return;
+          }
           settledReextractOpIdRef.current = activeReextractOpId;
           setReextractionRunning(null);
           const names = st.columns?.length
