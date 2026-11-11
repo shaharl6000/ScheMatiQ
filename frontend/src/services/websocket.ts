@@ -69,10 +69,11 @@ class WebSocketService {
   connect(sessionId: string, endpoint: 'progress' | 'logs' = 'progress') {
     const key = `${endpoint}/${sessionId}`;
 
-    // Reuse the live socket for the same logical connection.
-    if (this.socket && this.activeKey === key) {
+    // Reuse the same logical connection (whether currently open, connecting, or
+    // waiting to reconnect after an abnormal close).
+    if (this.activeKey === key && this.refCount > 0) {
       this.refCount += 1;
-      if (this.socket.readyState === WebSocket.OPEN) {
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         // Notify the just-arrived subscriber. Deferred so that a handler added
         // in the same tick (some callers connect() before addMessageHandler())
         // is registered before this fires.
@@ -83,12 +84,17 @@ class WebSocketService {
             );
           }
         }, 0);
+      } else if (!this.socket && !this.reconnectTimeout) {
+        // Reconnect budget was exhausted while a previous holder stayed mounted;
+        // a fresh connect() revives the socket immediately.
+        this.reconnectAttempts = 0;
+        this.openSocket(sessionId, endpoint);
       }
       return;
     }
 
-    // Switching to a different session/endpoint, or no socket yet.
-    if (this.socket && this.activeKey !== key) {
+    // Switching to a different session/endpoint (even if currently in reconnect backoff).
+    if (this.activeKey && this.activeKey !== key) {
       // Not expected in current usage (single session, 'progress' endpoint only).
       debug.log('WebSocket switching active connection', this.activeKey, '->', key);
       this.closeSocket();
@@ -112,14 +118,23 @@ class WebSocketService {
   }
 
   private openSocket(sessionId: string, endpoint: 'progress' | 'logs') {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
     this.activeSessionId = sessionId;
     this.activeEndpoint = endpoint;
     this.activeKey = `${endpoint}/${sessionId}`;
 
     const wsUrl = `${this.baseUrl}/${endpoint}/${sessionId}`;
-    this.socket = new WebSocket(wsUrl);
+    const socket = new WebSocket(wsUrl);
+    this.socket = socket;
 
-    this.socket.onopen = () => {
+    socket.onopen = () => {
+      if (this.socket !== socket) {
+        return;
+      }
       debug.log('WebSocket connected');
       this.reconnectAttempts = 0;
 
@@ -132,7 +147,10 @@ class WebSocketService {
       this.startPingInterval();
     };
 
-    this.socket.onmessage = (event) => {
+    socket.onmessage = (event) => {
+      if (this.socket !== socket) {
+        return;
+      }
       try {
         const message: WebSocketMessage = JSON.parse(event.data);
 
@@ -147,7 +165,10 @@ class WebSocketService {
       }
     };
 
-    this.socket.onclose = (event) => {
+    socket.onclose = (event) => {
+      if (this.socket && this.socket !== socket) {
+        return;
+      }
       debug.log('WebSocket disconnected:', event.code, event.reason);
       this.socket = null;
 
@@ -168,7 +189,7 @@ class WebSocketService {
       }
     };
 
-    this.socket.onerror = (error) => {
+    socket.onerror = (error) => {
       console.error('WebSocket error:', error);
     };
   }
