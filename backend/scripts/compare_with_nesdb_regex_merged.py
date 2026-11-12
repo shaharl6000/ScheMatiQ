@@ -119,7 +119,6 @@ EXACT_HEADERS = {"alternative names": "alt_names", "sequence": "sequence", "unip
                  **{" ".join(re.sub(r"[^a-z0-9]+", " ", h).split()): f for h, f in HEAD_TO_FIELD.items()}}
 GREEK = {"α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon", "κ": "kappa", "λ": "lambda", "μ": "mu", "σ": "sigma"}
 STOPWORDS = {"the", "a", "an", "of", "and", "or", "in", "to", "with", "by", "for", "is", "was", "on", "at", "as", "protein"}
-AA_RE = re.compile(r"[ACDEFGHIKLMNPQRSTVWY]{6,}")
 THREE_LETTER = {"ala": "A", "arg": "R", "asn": "N", "asp": "D", "cys": "C", "gln": "Q", "glu": "E", "gly": "G",
                 "his": "H", "ile": "I", "leu": "L", "lys": "K", "met": "M", "phe": "F", "pro": "P", "ser": "S",
                 "thr": "T", "trp": "W", "tyr": "Y", "val": "V"}
@@ -139,8 +138,6 @@ GENERIC_ORGANISM_WORDS = {"virus", "cells", "cell", "strain", "mammal", "mammali
 # Whole numbers only, so a PMID or a longer number is not read as part of a residue range.
 RANGE_RE = re.compile(r"(?<!\d)(\d{1,4})\s*(?:-|–|—|to|\.\.)\s*(\d{1,4})(?!\d)")
 UNIPROT_RE = re.compile(r"\b([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})\b")
-# A peptide as written in a paper or a cell: upper case only, so words like "signal" don't count.
-PEPTIDE_RE = re.compile(r"[ACDEFGHIKLMNPQRSTVWY]{6,}")
 # NESdb fields that describe one NES rather than the protein: not comparable for a row about another NES.
 SIGNAL_FIELDS = {"signals", "secondary_structure", "other_residues", "mutations", "mutations_export", "mutations_crm1"}
 # NESdb takes these from UniProt, not from the paper.
@@ -328,6 +325,34 @@ def v2_mutation_set(text: str) -> set[tuple[str, str]]:
     return found
 
 
+AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
+# Greek letters spelled out in a mixed-case word mark a protein name ("STRADalpha", "TFIIAalpha").
+NAME_PART_RE = re.compile(r"alpha|beta|gamma|delta|kappa|sigma")
+# An upper-case word this long is a sequence, read in pieces around a stray letter ("...LDDEGGOVSYPSM").
+LONG_SEQUENCE = 15
+
+
+def find_peptides(value: str) -> list[str]:
+    """The peptides written in a value, upper case. A peptide is a whole word of 6+ letters, every one an amino-acid
+    letter - never part of a longer word, except a long upper-case sequence with a stray letter. Lower case marks an
+    ordinary word, so a lower-case or capitalised word ("signal", "terminal", "Mediates") is not a peptide; a
+    mixed-case word counts when at least 5 of its letters, and a third of them, are upper case, as papers write
+    non-consensus residues in lower case ("LDtLLdsLsL", "MtLgmIwtIiLr"), but not names like "RanGTP", "NetNES",
+    "STRADalpha" or a plural like "HNSCCs"."""
+    found = []
+    for word in re.findall(r"[A-Za-z]{6,}", value):
+        if not set(word.upper()) <= AMINO_ACIDS:
+            if word.isupper() and len(word) >= LONG_SEQUENCE:  # a sequence with a typo or an X, not an acronym
+                found += re.findall(r"[ACDEFGHIKLMNPQRSTVWY]{6,}", word)
+            continue
+        upper = sum(c.isupper() for c in word)
+        if upper < len(word) and (NAME_PART_RE.search(word) or (upper == len(word) - 1 and word.endswith("s"))):
+            continue
+        if upper == len(word) or (upper >= 5 and 3 * upper >= len(word)):
+            found.append(word.upper())
+    return found
+
+
 def residues(value: str) -> str:
     """The value as one run of residues when it is nothing but a peptide - spaced ("L V V L"), numbered
     ("L165AGKM169SNLVL174"), starred or in three-letter code ("Cys-Gly-Gln") - else ''."""
@@ -383,7 +408,7 @@ def signal_text(s: dict) -> str:
 def signal_hit(value: str, s: dict) -> str | None:
     """'sequence' if the value gives this NES's peptide, 'location' if only an overlapping residue range."""
     whole = residues(value)
-    for seq in [whole] if whole else AA_RE.findall(value.upper()):
+    for seq in [whole] if whole else find_peptides(value):
         if longest_common(seq, s["seq"].upper()) >= min(8, len(seq), len(s["seq"])):
             return "sequence"
     for start, end in RANGE_RE.findall(value):
@@ -394,13 +419,13 @@ def signal_hit(value: str, s: dict) -> str | None:
 
 def is_peptide(value: str) -> bool:
     """A short run of residues (an NES), as opposed to a whole protein sequence or no sequence."""
-    seq = residues(value) or "".join(AA_RE.findall(value.upper()))
+    seq = residues(value) or "".join(find_peptides(value))
     return 0 < len(seq) < 50
 
 
 def gives_signal(value: str) -> bool:
     """The value states some NES: a peptide or a residue range."""
-    return bool(residues(value) or PEPTIDE_RE.search(value) or RANGE_RE.search(value))
+    return bool(residues(value) or find_peptides(value) or RANGE_RE.search(value))
 
 
 
@@ -410,7 +435,7 @@ def cmp_sequence(value, entry, args):
         return "", None
     if is_peptide(value):  # an NES, not the whole protein
         return cmp_signals(value, entry, args)
-    seq = residues(value) or "".join(AA_RE.findall(value.upper()))
+    seq = residues(value) or "".join(find_peptides(value))
     return truth[:30] + "...", bool(seq) and (seq in truth or truth in seq)
 
 
@@ -892,7 +917,7 @@ def peptide_matches(pep: str, s: dict, protein: str) -> bool:
 
 def cell_peptides(value: str) -> list[str]:
     whole = residues(value)
-    return [whole] if whole else AA_RE.findall(value.upper())
+    return [whole] if whole else find_peptides(value)
 
 
 def cmp_signals(value, entry, args):
@@ -1185,7 +1210,7 @@ def row_peptides(values: list[str]) -> list[str]:
     found = []
     for v in values:
         whole = residues(v)
-        found += [whole] if whole else PEPTIDE_RE.findall(v)
+        found += [whole] if whole else find_peptides(v)
     return list(dict.fromkeys(p.upper() for p in found if len(p) >= 5))
 
 

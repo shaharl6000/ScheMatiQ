@@ -519,7 +519,7 @@ def peptide_matches(pep: str, s: dict, protein: str) -> bool:
 
 def cell_peptides(value: str) -> list[str]:
     whole = v2.residues(value)
-    return [whole] if whole else v2.AA_RE.findall(value.upper())
+    return [whole] if whole else v2.find_peptides(value)
 
 
 def cmp_signals(value, entry, args):

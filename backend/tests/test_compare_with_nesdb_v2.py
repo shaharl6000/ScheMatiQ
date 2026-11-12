@@ -177,3 +177,18 @@ def test_main_per_signal_and_row_classes(tmp_path):
     assert summary[("Rows", "CSV rows")] == "2"
     assert summary[("Per NESdb signal", "location")] == "1"
     assert summary[("Rows by NES match", cmp.OTHER_PROTEIN)] == "1"
+
+
+@pytest.mark.parametrize("value, peptides", [
+    ("signal at the C-terminal end", []),                      # lower-case words made of amino-acid letters
+    ("Terminal NES, confirmed by mutagenesis", []),            # capitalised word; never part of a word ("NFIRMED")
+    ("LMB-sensitive (RanGTP, NetNES)", []),                     # names with a few capitals
+    ("NES: LQLPPLERLTL (residues 37-47)", ["LQLPPLERLTL"]),
+    ("LDtLLdsLsL", ["LDTLLDSLSL"]),                             # non-consensus residues in lower case
+    ("MtLgmIwtIiLr", ["MTLGMIWTIILR"]),
+    ("STRADalpha binds HNSCCs", []),                            # a Greek letter spelled out; a plural acronym
+    ("TOPFLASH assay", []),                                     # an upper-case word with a non-residue letter
+    ("QDEGQESLEEELDVLVLDDEGGOVSYPSM", ["QDEGQESLEEELDVLVLDDEGG", "VSYPSM"]),  # a sequence with a typo
+])
+def test_find_peptides_reads_whole_peptide_words_only(value, peptides):
+    assert cmp.find_peptides(value) == peptides
