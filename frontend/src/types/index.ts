@@ -62,6 +62,7 @@ export interface ColumnInfo {
   source_document?: string;  // Document that first added this column
   discovery_iteration?: number;  // Iteration when this column was discovered
   allowed_values?: string[];  // Closed set of valid values for categorical columns
+  value_kind?: 'category' | 'identifier' | 'free_text' | 'number' | 'date' | null;  // What the column holds (schema discovery)
   auto_expand_threshold?: number;  // Auto-add new value if seen in N+ docs (-1 = disabled)
   pending_values?: PendingValue[];  // Values pending approval
 }

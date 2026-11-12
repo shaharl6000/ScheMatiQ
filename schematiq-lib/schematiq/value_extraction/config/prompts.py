@@ -29,6 +29,19 @@ _UNIT_ID_FORMAT_FIELDS = (
     else _UNIT_ID_FORMAT_FIELDS_WITH
 )
 
+# One wording for every categorical allowed_values instruction. "Not stated"
+# must mean the document never gives the fact. A real value that is absent
+# from the list is still an answer.
+CATEGORICAL_ALLOWED_VALUES_RULE = (
+    "Same meaning maps to the listed value. This includes case, abbreviations, and synonyms. "
+    "Never pick a listed value with a different meaning. "
+    "Null only when the document does not give the information. "
+    "If the document gives a value that is not in the list, write it as the document says. "
+    "This is expected, not an error. "
+    'Example: the list is ["cnn", "transformer"], the paper proposes a Mamba-based model, the answer is "mamba".'
+)
+_CATEGORICAL_RULE_SLOT = "@@CATEGORICAL_ALLOWED_VALUES_RULE@@"
+
 SYSTEM_PROMPT_VAL = """
 You are *ValueLLM*, a meticulous data curator.
 
@@ -55,10 +68,8 @@ extract answers **strictly from the paper**.
 ### Handling allowed_values (value constraints)
 When a column specifies `allowed_values`, follow these guidelines:
 
-**For categorical values** (list of options like ["yes", "no"]):
-- **Prefer matching**: Use the canonical allowed value when the content matches or relates closely
-- **Case flexibility**: Match regardless of capitalization (e.g., "YES" → "yes")
-- **Synonym mapping**: Map synonymous terms to the closest allowed value
+**For categorical values** (a list of labels, such as "yes" / "no"):
+- @@CATEGORICAL_ALLOWED_VALUES_RULE@@
 
 **For numeric constraints** (single-item like ["number"] or ["0-100"]):
 - **Extract clean numbers**: Output just the numeric value without units or symbols
@@ -69,21 +80,6 @@ When a column specifies `allowed_values`, follow these guidelines:
 **For date constraints** (single-item like ["date"] or ["date:iso"] or ["date:us"] or ["date:%Y-%m-%d"]):
 - **Extract the calendar date** found in the text (any common written or numeric form is fine)
 - **The system normalizes** to one consistent format per column; you do not need to match that format in your answer
-
-**When value doesn't match allowed_values**:
-If you find a value in the paper that doesn't match the provided allowed_values:
-- Still extract the actual value from the paper
-- Add `"suggested_for_allowed_values": true` to flag it for schema review
-- Example:
-  {
-    "model_type": {
-      "answer": "mamba",
-      "excerpts": ["We propose a novel Mamba-based architecture"],
-      "suggested_for_allowed_values": true
-    }
-  }
-
-**General rule**: If the paper contains relevant information that doesn't match constraints, you MAY still output the actual value found - the system will handle normalization
 
 ### Output (single or multi-column)
 {
@@ -111,7 +107,7 @@ If you find a value in the paper that doesn't match the provided allowed_values:
   }
 }
 
-# With allowed_values (closed set)
+# Same meaning as a listed value
 {
   "model_type": {
     "answer": "transformer",
@@ -151,6 +147,12 @@ are already filled, think about whether the current column realistically applies
   on that column; leave it empty for a text-backed answer, and never invent
   an id you weren't shown.
 
+### Handling allowed_values (value constraints)
+When a column specifies `allowed_values`:
+- For categorical values: @@CATEGORICAL_ALLOWED_VALUES_RULE@@
+- For numeric constraints (["number"] or ["0-100"]): extract clean numbers without % or units
+- For date constraints (["date"] or ["date:..."]): extract the date as written; normalization is automatic
+
 ### Output Format
 {
   "<column_name>": {
@@ -178,11 +180,9 @@ You are *ValueLLM*, extracting values **only if directly supported by the text**
 
 ### Handling allowed_values (value constraints)
 When a column specifies `allowed_values`:
-- For categorical values: prefer matching to an allowed value
+- For categorical values: @@CATEGORICAL_ALLOWED_VALUES_RULE@@
 - For numeric constraints (["number"] or ["0-100"]): extract clean numbers without % or units
 - For date constraints (["date"] or ["date:..."]): extract the date as written; normalization is automatic
-- If no exact match, you may still extract the actual value from the paper
-- Add `"suggested_for_allowed_values": true` when the value doesn't match allowed_values
 - Always provide supporting excerpts (text excerpts, or figure_refs for an image-backed answer)
 
 ### Output
@@ -475,6 +475,12 @@ extract answers **strictly from the provided passages** and **only for this unit
   that shared value; otherwise do not copy another unit's value onto this one.
 - Output **only JSON**, no prose, no markdown fences
 
+### Handling allowed_values (value constraints)
+When a requested column lists `allowed_values`:
+- For categorical values: @@CATEGORICAL_ALLOWED_VALUES_RULE@@
+- For numeric constraints (a single value such as "number" or "0-100"): extract clean numbers without % or units
+- For date constraints (a single value such as "date" or "date:..."): extract the date as written; normalization is automatic
+
 ### Output Format
 {{
   "<column_name>": {{
@@ -519,6 +525,18 @@ though it appears first and nearby. Assign each value to the unit the passage
 predicates it of, regardless of word order or proximity.
 """.strip()
 
+SYSTEM_PROMPT_VAL = SYSTEM_PROMPT_VAL.replace(
+    _CATEGORICAL_RULE_SLOT, CATEGORICAL_ALLOWED_VALUES_RULE
+)
+SYSTEM_PROMPT_VAL_REEXTRACT = SYSTEM_PROMPT_VAL_REEXTRACT.replace(
+    _CATEGORICAL_RULE_SLOT, CATEGORICAL_ALLOWED_VALUES_RULE
+)
+SYSTEM_PROMPT_VAL_STRICT = SYSTEM_PROMPT_VAL_STRICT.replace(
+    _CATEGORICAL_RULE_SLOT, CATEGORICAL_ALLOWED_VALUES_RULE
+)
+SYSTEM_PROMPT_VAL_WITH_UNIT = SYSTEM_PROMPT_VAL_WITH_UNIT.replace(
+    _CATEGORICAL_RULE_SLOT, CATEGORICAL_ALLOWED_VALUES_RULE
+)
 
 def build_val_with_unit_prompt(unit_name: Optional[str]) -> str:
     """Render SYSTEM_PROMPT_VAL_WITH_UNIT for one unit, or unit-neutral.

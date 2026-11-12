@@ -454,6 +454,7 @@ async def export_complete_upload(
                     "source_document": col.source_document,
                     "discovery_iteration": col.discovery_iteration,
                     "allowed_values": col.allowed_values,
+                    "value_kind": col.value_kind,
                 }
                 for col in session.columns
             ]
@@ -602,6 +603,7 @@ async def export_complete_schematiq(
                     "source_document": col.source_document,
                     "discovery_iteration": col.discovery_iteration,
                     "allowed_values": col.allowed_values,
+                    "value_kind": col.value_kind,
                 }
                 for col in session.columns
                 if col.name and not col.name.lower().endswith("_excerpt")
@@ -942,6 +944,8 @@ def _build_schema_only_payload(
                 col_export["display_name"] = col.display_name
             if col.allowed_values:
                 col_export["allowed_values"] = col.allowed_values
+            if col.value_kind:
+                col_export["value_kind"] = col.value_kind
             schema_columns.append(col_export)
 
     metadata: Dict[str, Any] = {

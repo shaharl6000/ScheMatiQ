@@ -79,6 +79,9 @@ class ColumnInfo(BaseModel):
     source_document: Optional[str] = None  # Document that first added this column
     discovery_iteration: Optional[int] = None  # Iteration when this column was discovered
     allowed_values: Optional[List[str]] = None  # Closed set of valid values for categorical columns
+    # What the column holds, from schema discovery: category | identifier |
+    # free_text | number | date. Only a category column has allowed_values.
+    value_kind: Optional[str] = None
     auto_expand_threshold: Optional[int] = 2  # Auto-add new value if seen in N+ docs (None/0 = disabled)
     pending_values: Optional[List[PendingValue]] = None  # Values pending approval
 

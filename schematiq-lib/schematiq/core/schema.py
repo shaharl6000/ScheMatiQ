@@ -97,6 +97,7 @@ class Column:
     source_document: Optional[str] = None      # Document that first added this column
     discovery_iteration: Optional[int] = None  # Iteration when this column was discovered
     allowed_values: Optional[List[str]] = None  # Closed set of valid values for categorical columns
+    value_kind: Optional[str] = None           # category | identifier | free_text | number | date (from discovery)
     auto_expand_threshold: Optional[int] = 2   # Auto-add new value if seen in N+ docs (None/0 = disabled)
     locked: bool = False                       # User-seeded column protected from prune/merge changes
 
@@ -109,6 +110,8 @@ class Column:
             result["discovery_iteration"] = self.discovery_iteration
         if self.allowed_values is not None:
             result["allowed_values"] = self.allowed_values
+        if self.value_kind is not None:
+            result["value_kind"] = self.value_kind
         if self.auto_expand_threshold is not None:
             result["auto_expand_threshold"] = self.auto_expand_threshold
         if self.locked:
@@ -132,6 +135,7 @@ class Column:
             source_document=data.get("source_document"),
             discovery_iteration=data.get("discovery_iteration"),
             allowed_values=data.get("allowed_values"),
+            value_kind=data.get("value_kind"),
             auto_expand_threshold=data.get("auto_expand_threshold"),
             locked=data.get("locked", False),
         )
@@ -246,8 +250,17 @@ class Schema:
                 existing = combined[key]
                 if len(cand.rationale) > len(existing.rationale):
                     existing.rationale = cand.rationale
-                # Merge allowed_values (union)
-                if cand.allowed_values:
+                if existing.value_kind is None and cand.value_kind is not None:
+                    existing.value_kind = cand.value_kind
+                # Merge allowed_values (union). A list the user set on a
+                # locked column is kept as is, and a column whose values are
+                # not categories (a name, an ID, free text) never gets one.
+                not_categorical = existing.value_kind in ("identifier", "free_text")
+                if (
+                    cand.allowed_values
+                    and not (existing.locked and existing.allowed_values)
+                    and not not_categorical
+                ):
                     existing_av = existing.allowed_values or []
                     merged_av = list(dict.fromkeys(existing_av + cand.allowed_values))  # Preserve order, dedupe
                     merged_av = [v for v in merged_av if v is not None]  # Filter nulls from LLM output
@@ -332,9 +345,6 @@ class Schema:
             }
             if col.allowed_values is not None:
                 col_dict["allowed_values"] = col.allowed_values
-            # Include auto_expand_threshold for LLM awareness
-            if col.auto_expand_threshold is not None:
-                col_dict["auto_expand_threshold"] = col.auto_expand_threshold
             if col.locked:
                 col_dict["locked"] = True
             result.append(col_dict)
