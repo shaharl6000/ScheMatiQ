@@ -17,8 +17,8 @@ export const SCHEMA_COLUMN_HEADER_TOOLTIPS = {
     'Why this column exists. Optional context for collaborators; it is not used during extraction.',
   allowed_values:
     'Optional limits: categories (yes/no), numbers, ranges, or one saved date style per column. Leave empty for plain text.',
-  auto_expand_threshold:
-    'Automatically add new values to allowed_values when they appear in at least this many documents. Set to -1 to disable auto-expansion.',
+  value_kind:
+    'What the column holds, set by schema discovery: category, identifier, free_text, number, or date. Only a category column gets a list of allowed values.',
 } as const;
 
 export const SCHEMA_COLUMN_HEADER_INFO_ICON =

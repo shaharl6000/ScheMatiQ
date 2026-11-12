@@ -32,6 +32,8 @@ import {
   recordSchemaSpareRowEdit,
   rollbackSchemaSpareRowCreate,
   selectedCellScope,
+  categoryAllowedKeys,
+  isOffListValue,
 } from './helpers';
 import type { SheetColumn } from './types';
 import type { ColumnInfo, DataRow, PaginatedData, ScheMatiQStatus, SchemaData } from '@/types';
@@ -190,7 +192,6 @@ describe('schemaSpareRowState lifecycle', () => {
     state = recordSchemaSpareRowEdit(state, 'definition', 'Patient age at baseline');
     state = recordSchemaSpareRowEdit(state, 'rationale', 'Needed for subgroup analysis');
     state = recordSchemaSpareRowEdit(state, 'allowed_values', 'adult, pediatric');
-    state = recordSchemaSpareRowEdit(state, 'auto_expand_threshold', '3');
     expect(hasSchemaSpareRowDraft(state)).toBe(true);
 
     // Simulate a background refresh having wiped the live DOM row (readLiveCell returns '')
@@ -202,7 +203,6 @@ describe('schemaSpareRowState lifecycle', () => {
       rationale: 'Needed for subgroup analysis',
       allowed_values: ['adult', 'pediatric'],
     });
-    expect(consumed!.autoExpandThreshold).toBe(3);
     expect(consumed!.nextState.creatingColumnName).toBe('age_group');
     expect(hasSchemaSpareRowDraft(consumed!.nextState)).toBe(false);
   });
@@ -231,7 +231,6 @@ describe('schemaSpareRowState lifecycle', () => {
     state = recordSchemaSpareRowEdit(state, 'definition', 'Initial definition');
     state = recordSchemaSpareRowEdit(state, 'rationale', 'Initial rationale');
     state = recordSchemaSpareRowEdit(state, 'allowed_values', 'yes, no');
-    state = recordSchemaSpareRowEdit(state, 'auto_expand_threshold', '4');
 
     const consumed = consumeSchemaSpareRowForCreate(state, 'outcome');
     expect(consumed).not.toBeNull();
@@ -240,18 +239,13 @@ describe('schemaSpareRowState lifecycle', () => {
     // User also edited rationale while addColumn was in flight before it failed
     state = recordSchemaSpareRowEdit(state, 'rationale', 'Updated rationale while in flight');
 
-    const rolledBack = rollbackSchemaSpareRowCreate(
-      state,
-      consumed!.addColumnPayload,
-      consumed!.autoExpandThreshold,
-    );
+    const rolledBack = rollbackSchemaSpareRowCreate(state, consumed!.addColumnPayload);
     expect(rolledBack.creatingColumnName).toBeNull();
     expect(rolledBack.queuedEdits).toEqual({});
     expect(rolledBack.draft).toEqual({
       definition: 'Initial definition',
       rationale: 'Updated rationale while in flight',
       allowed_values: 'yes, no',
-      auto_expand_threshold: '4',
     });
     expect(hasSchemaSpareRowDraft(rolledBack)).toBe(true);
   });
@@ -462,3 +456,35 @@ describe('dataEquals', () => {
   });
 });
 
+
+describe('off-list values in category columns', () => {
+  it('checks only category columns', () => {
+    expect(categoryAllowedKeys({ allowed_values: ['district', 'appeals'], value_kind: 'category' })).not.toBeNull();
+    expect(categoryAllowedKeys({ allowed_values: ['a', 'b'], value_kind: 'identifier' })).toBeNull();
+    expect(categoryAllowedKeys({ allowed_values: ['a', 'b'], value_kind: 'free_text' })).toBeNull();
+    expect(categoryAllowedKeys({ allowed_values: ['number'], value_kind: 'number' })).toBeNull();
+    expect(categoryAllowedKeys({ allowed_values: null, value_kind: 'category' })).toBeNull();
+    // Older columns without value_kind: a list of 2+ values is a category,
+    // a single value is a constraint ("number", "date").
+    expect(categoryAllowedKeys({ allowed_values: ['yes', 'no'] })).not.toBeNull();
+    expect(categoryAllowedKeys({ allowed_values: ['date'] })).toBeNull();
+  });
+
+  it('flags values outside the list, ignoring case, spaces and end punctuation', () => {
+    const keys = categoryAllowedKeys({ allowed_values: ['District', 'Appeals', 'Supreme Court'], value_kind: 'category' })!;
+    expect(isOffListValue('district', keys)).toBe(false);
+    expect(isOffListValue('  Supreme   court. ', keys)).toBe(false);
+    expect(isOffListValue({ answer: 'Appeals', excerpts: [] }, keys)).toBe(false);
+    expect(isOffListValue('Bankruptcy court', keys)).toBe(true);
+    expect(isOffListValue({ answer: 'Tax court' }, keys)).toBe(true);
+    expect(isOffListValue(['district', 'Claims court'], keys)).toBe(true);
+  });
+
+  it('never flags an empty cell', () => {
+    const keys = categoryAllowedKeys({ allowed_values: ['yes', 'no'], value_kind: 'category' })!;
+    expect(isOffListValue(null, keys)).toBe(false);
+    expect(isOffListValue(undefined, keys)).toBe(false);
+    expect(isOffListValue('', keys)).toBe(false);
+    expect(isOffListValue({ answer: null, _confirmed_empty: true }, keys)).toBe(false);
+  });
+});

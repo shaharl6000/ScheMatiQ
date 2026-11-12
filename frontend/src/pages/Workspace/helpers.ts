@@ -671,17 +671,12 @@ export function describeRequestError(
   };
 }
 
-export type SchemaSpareRowField =
-  | 'definition'
-  | 'rationale'
-  | 'allowed_values'
-  | 'auto_expand_threshold';
+export type SchemaSpareRowField = 'definition' | 'rationale' | 'allowed_values';
 
 export const SCHEMA_SPARE_ROW_FIELDS: readonly SchemaSpareRowField[] = [
   'definition',
   'rationale',
   'allowed_values',
-  'auto_expand_threshold',
 ];
 
 export interface SchemaSpareRowState {
@@ -696,7 +691,6 @@ export function createEmptySchemaSpareRowState(): SchemaSpareRowState {
       definition: '',
       rationale: '',
       allowed_values: '',
-      auto_expand_threshold: '',
     },
     creatingColumnName: null,
     queuedEdits: {},
@@ -747,7 +741,6 @@ export function consumeSchemaSpareRowForCreate(
     rationale?: string;
     allowed_values?: string[];
   };
-  autoExpandThreshold?: number;
 } | null {
   const name = String(rawName ?? '').trim();
   if (!name) return null;
@@ -760,12 +753,6 @@ export function consumeSchemaSpareRowForCreate(
   const definition = readMerged('definition').trim();
   const rationale = readMerged('rationale').trim();
   const allowedValues = parseAllowedValues(readMerged('allowed_values'));
-  const rawThreshold = readMerged('auto_expand_threshold').trim();
-  const parsedThreshold = rawThreshold !== '' ? Number(rawThreshold) : NaN;
-  const autoExpandThreshold =
-    Number.isFinite(parsedThreshold) && parsedThreshold !== 0
-      ? parsedThreshold
-      : undefined;
 
   return {
     nextState: {
@@ -773,7 +760,6 @@ export function consumeSchemaSpareRowForCreate(
         definition: '',
         rationale: '',
         allowed_values: '',
-        auto_expand_threshold: '',
       },
       creatingColumnName: name,
       queuedEdits: {},
@@ -785,7 +771,6 @@ export function consumeSchemaSpareRowForCreate(
       allowed_values:
         allowedValues && allowedValues.length > 0 ? allowedValues : undefined,
     },
-    autoExpandThreshold,
   };
 }
 
@@ -808,7 +793,6 @@ export function rollbackSchemaSpareRowCreate(
     rationale?: string;
     allowed_values?: string[];
   },
-  autoExpandThreshold?: number,
 ): SchemaSpareRowState {
   const baseDraft: Record<SchemaSpareRowField, string> = {
     definition: failedPayload.definition || '',
@@ -816,19 +800,66 @@ export function rollbackSchemaSpareRowCreate(
     allowed_values: Array.isArray(failedPayload.allowed_values)
       ? failedPayload.allowed_values.join(', ')
       : '',
-    auto_expand_threshold:
-      autoExpandThreshold !== undefined ? String(autoExpandThreshold) : '',
   };
   return {
     draft: {
       definition: state.queuedEdits.definition ?? baseDraft.definition,
       rationale: state.queuedEdits.rationale ?? baseDraft.rationale,
       allowed_values: state.queuedEdits.allowed_values ?? baseDraft.allowed_values,
-      auto_expand_threshold:
-        state.queuedEdits.auto_expand_threshold ?? baseDraft.auto_expand_threshold,
     },
     creatingColumnName: null,
     queuedEdits: {},
   };
+}
+
+// --- Values outside a category column's allowed_values ---------------------
+
+const NON_CATEGORY_KINDS = new Set(['identifier', 'free_text', 'number', 'date']);
+
+function offListKey(value: string): string {
+  let text = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  // Sentence punctuation the model adds after a label ("Yes." -> "yes").
+  text = text.replace(/[.,;:!?]+$/, '').trim();
+  return text;
+}
+
+/**
+ * The allowed values to check a data column against, or null when the column
+ * is not a category. Only a category holds a closed list: an identifier,
+ * free_text, number, or date column never gets an off-list mark. Older
+ * columns without value_kind count as a category when they list 2+ values
+ * (a single value is a constraint such as "number" or "date", not a list).
+ */
+export function categoryAllowedKeys(column: {
+  allowed_values?: string[] | null;
+  value_kind?: string | null;
+}): Set<string> | null {
+  const values = Array.isArray(column.allowed_values) ? column.allowed_values : [];
+  const kind = column.value_kind ?? null;
+  if (kind && NON_CATEGORY_KINDS.has(kind)) return null;
+  if (kind !== 'category' && values.length < 2) return null;
+  const keys = new Set(values.map((v) => offListKey(String(v))).filter(Boolean));
+  return keys.size > 0 ? keys : null;
+}
+
+function cellAnswer(value: unknown): unknown {
+  if (value && typeof value === 'object' && !Array.isArray(value) && 'answer' in (value as object)) {
+    return (value as { answer?: unknown }).answer;
+  }
+  return value;
+}
+
+/**
+ * Whether a data cell holds a value that is not in the column's list. Empty
+ * cells are not off-list. A list answer is off-list when any item is.
+ */
+export function isOffListValue(value: unknown, allowedKeys: Set<string>): boolean {
+  const answer = cellAnswer(value);
+  const items = Array.isArray(answer) ? answer : [answer];
+  return items.some((item) => {
+    if (item === null || item === undefined) return false;
+    const key = offListKey(String(item));
+    return key !== '' && !allowedKeys.has(key);
+  });
 }
 

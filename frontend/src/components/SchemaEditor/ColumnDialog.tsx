@@ -70,8 +70,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
     definition: '',
     rationale: '',
     new_name: '',
-    allowed_values: [] as string[],
-    auto_expand_threshold: 2
+    allowed_values: [] as string[]
   });
   const [newAllowedValue, setNewAllowedValue] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -87,8 +86,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           definition: column.definition || '',
           rationale: column.rationale || '',
           new_name: column.name,
-          allowed_values: column.allowed_values || [],
-          auto_expand_threshold: column.auto_expand_threshold ?? 2
+          allowed_values: column.allowed_values || []
         });
         // Auto-expand constraints section if column has allowed values
         setConstraintsOpen(!!(column.allowed_values && column.allowed_values.length > 0));
@@ -98,8 +96,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           definition: '',
           rationale: '',
           new_name: '',
-          allowed_values: [],
-          auto_expand_threshold: 2
+          allowed_values: []
         });
         setConstraintsOpen(false);
       }
@@ -213,7 +210,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({
       ...prev,
-      [field]: field === 'auto_expand_threshold' ? parseInt(value) || 0 : value
+      [field]: value
     }));
 
     if (errors[field]) {
@@ -523,41 +520,6 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
                   </Button>
                 </div>
 
-                {/* Auto-expand threshold for schema evolution */}
-                {formData.allowed_values.length > 0 && (
-                  <div className="p-3 bg-muted/50 rounded-md">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1">
-                        <Label htmlFor="auto_expand" className="text-sm">
-                          Auto-expand threshold
-                        </Label>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
-                          <TooltipContent side="right" className="max-w-xs">
-                            <p>Automatically add new values to allowed_values when they appear in at least this many documents. Set to -1 to disable auto-expansion.</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          id="auto_expand"
-                          type="number"
-                          min={-1}
-                          max={10}
-                          value={formData.auto_expand_threshold}
-                          onChange={(e) => handleChange('auto_expand_threshold', e.target.value)}
-                          disabled={loading}
-                          className="w-16 h-8 text-center"
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          {formData.auto_expand_threshold <= 0 ? 'Disabled' : `${formData.auto_expand_threshold}+ docs`}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
