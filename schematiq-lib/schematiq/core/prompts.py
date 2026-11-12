@@ -236,10 +236,21 @@ Return valid JSON only:
       "name": "snake_case_name",
       "definition": "One-sentence definition",
       "rationale": "Why this is important for answering the query",
+      "value_kind": "category" | "identifier" | "free_text" | "number" | "date",
       "allowed_values": ["val1", "val2"] | ["0-100"] | null
     }}
   ]
 }}
+
+### value_kind
+Decide what the column holds before writing allowed_values:
+- category: a closed set whose full list is known from the query and general knowledge of the domain, not only from the documents you saw (a yes/no answer, a study design, a model family). Names can be a category when the full set is small and known (countries, languages, the planets).
+- identifier: a value from a large open pool, such as names of people in general, cases, papers, proteins, or specific policies, a citation, or an ID. The rest of the corpus will keep bringing values you have not seen, so no list can be complete, even if some values repeat in your sample.
+- free_text: a description, summary, quote, or reason in the document's own words.
+- number: a count, amount, or measurement.
+- date: a date or year.
+Test: the documents you see are a small sample of the corpus. Would the rest of the corpus bring values that are not in your list? If no, it is a category. If yes, it is an identifier or free_text, and allowed_values is null.
+Only a category column gets a list of categories. An identifier or free_text column always has allowed_values null. A number column may have ["number"] or ["min-max"].
 
 ### allowed_values
 Use a categorical list only for short labels shared by many documents, such as ["yes", "no"] or ["cnn", "rnn", "transformer"].
@@ -337,10 +348,21 @@ Return valid JSON only:
       "name": "snake_case_name",
       "definition": "One-sentence definition",
       "rationale": "Why this column captures important document information",
+      "value_kind": "category" | "identifier" | "free_text" | "number" | "date",
       "allowed_values": ["val1", "val2"] | ["0-100"] | null
     }}
   ]
 }}
+
+### value_kind
+Decide what the column holds before writing allowed_values:
+- category: a closed set whose full list is known from the query and general knowledge of the domain, not only from the documents you saw (a yes/no answer, a study design, a model family). Names can be a category when the full set is small and known (countries, languages, the planets).
+- identifier: a value from a large open pool, such as names of people in general, cases, papers, proteins, or specific policies, a citation, or an ID. The rest of the corpus will keep bringing values you have not seen, so no list can be complete, even if some values repeat in your sample.
+- free_text: a description, summary, quote, or reason in the document's own words.
+- number: a count, amount, or measurement.
+- date: a date or year.
+Test: the documents you see are a small sample of the corpus. Would the rest of the corpus bring values that are not in your list? If no, it is a category. If yes, it is an identifier or free_text, and allowed_values is null.
+Only a category column gets a list of categories. An identifier or free_text column always has allowed_values null. A number column may have ["number"] or ["min-max"].
 
 ### allowed_values
 Use a categorical list only for short labels shared by many documents, such as ["yes", "no"] or ["cnn", "rnn", "transformer"].
@@ -409,10 +431,21 @@ Return valid JSON only:
       "name": "snake_case_name",
       "definition": "One-sentence definition of what this column captures",
       "rationale": "Why this column helps answer the query",
+      "value_kind": "category" | "identifier" | "free_text" | "number" | "date",
       "allowed_values": ["val1", "val2"] | ["0-100"] | null
     }}
   ]
 }}
+
+### value_kind
+Decide what the column holds before writing allowed_values:
+- category: a closed set whose full list is known from the query and general knowledge of the domain, not only from the documents you saw (a yes/no answer, a study design, a model family). Names can be a category when the full set is small and known (countries, languages, the planets).
+- identifier: a value from a large open pool, such as names of people in general, cases, papers, proteins, or specific policies, a citation, or an ID. The rest of the corpus will keep bringing values you have not seen, so no list can be complete, even if some values repeat in your sample.
+- free_text: a description, summary, quote, or reason in the document's own words.
+- number: a count, amount, or measurement.
+- date: a date or year.
+Test: the documents you see are a small sample of the corpus. Would the rest of the corpus bring values that are not in your list? If no, it is a category. If yes, it is an identifier or free_text, and allowed_values is null.
+Only a category column gets a list of categories. An identifier or free_text column always has allowed_values null. A number column may have ["number"] or ["min-max"].
 
 ### allowed_values
 Use a categorical list only for short labels shared by many documents, such as ["yes", "no"] or ["cnn", "rnn", "transformer"].
@@ -682,6 +715,7 @@ You are *SchemaLLM*, a schema designer. The user has pre-defined a set of column
 ### How to fill each field
 - **definition**: one or two sentences describing precisely what this column captures, phrased so it can be answered at the level of a single observation unit instance. Be concrete and extraction-oriented.
 - **rationale**: one sentence explaining why this column is relevant to the research query.
+- **value_kind**: category (a closed set whose full list is known from the query and general knowledge, not only from the documents seen), identifier (a value from an open set: a name of a person, case, paper, protein, or specific policy, a citation, an ID; the rest of the corpus keeps adding values), free_text (a description or reason), number, or date.
 - **allowed_values**: include a categorical list ONLY for short labels shared by many documents. Omit it for an answer that belongs to one document, such as a title, a name, or a finding. Do not guess open-ended values, and do not add values to a list that already exists.
 
 Use the research query and observation unit as primary context. Use the document passages as supporting evidence for phrasing and for plausible allowed_values, but do not let incidental passage content narrow a column that should stay general.
@@ -694,7 +728,8 @@ Return ONLY a JSON object, no prose, no markdown fences:
       "name": "<unchanged column name>",
       "definition": "<filled or unchanged>",
       "rationale": "<filled or unchanged>",
-      "allowed_values": ["..."]   // optional, omit if not categorical
+      "value_kind": "category | identifier | free_text | number | date",
+      "allowed_values": ["..."]   // optional, only when value_kind is category
     }
   ]
 }
