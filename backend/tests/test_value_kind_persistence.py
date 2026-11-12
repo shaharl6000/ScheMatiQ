@@ -110,3 +110,27 @@ def test_schema_export_and_import_keep_value_kind(tmp_path):
     imported = {c.name: c.value_kind for c in parsed["columns"]}
     assert imported["judge_name"] == "identifier"
     assert imported["court_level"] == "category"
+
+
+def test_partial_schema_written_during_discovery_keeps_value_kind(tmp_path):
+    # While discovery runs, session.columns is empty and get_schema serves this
+    # file, so it must carry value_kind like the final save does.
+    from app.services.pipeline.schema_discovery import _save_partial_schema
+
+    schema = Schema(
+        query="q",
+        columns=[
+            Column(name="judge_name", definition="d", rationale="r", value_kind="identifier"),
+            Column(name="court_level", definition="d", rationale="r",
+                   allowed_values=["district", "appeals"], value_kind="category"),
+        ],
+        max_keys=10,
+    )
+
+    _save_partial_schema(schema, "q", tmp_path)
+
+    saved = json.loads((tmp_path / "discovered_schema.json").read_text())
+    assert {c["name"]: c.get("value_kind") for c in saved["schema"]} == {
+        "judge_name": "identifier",
+        "court_level": "category",
+    }
