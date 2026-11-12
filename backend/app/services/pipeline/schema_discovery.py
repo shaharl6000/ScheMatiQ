@@ -533,6 +533,11 @@ def _save_partial_schema(schema: Schema, query: str, session_dir: Path) -> None:
         # get_schema falls back to this file) and only fills in once discovery
         # completes and get_schema starts serving from session.columns.
         frontend_col["auto_expand_threshold"] = col_dict.get("auto_expand_threshold")
+        # Same for value_kind: without it the Schema tab shows no kind while
+        # discovery runs, and fills it in only once get_schema switches to
+        # session.columns.
+        if col_dict.get("value_kind"):
+            frontend_col["value_kind"] = col_dict["value_kind"]
         frontend_schema.append(frontend_col)
     partial_schema_data = {"query": query, "schema": frontend_schema}
     if schema.observation_unit:
