@@ -24,6 +24,7 @@ import {
   consumeSchemaSpareRowForCreate,
   createEmptySchemaSpareRowState,
   dataEquals,
+  dataRowFormatIds,
   diffPaginatedData,
   emptyCellScope,
   finishSchemaSpareRowCreate,
@@ -486,5 +487,30 @@ describe('off-list values in category columns', () => {
     expect(isOffListValue(undefined, keys)).toBe(false);
     expect(isOffListValue('', keys)).toBe(false);
     expect(isOffListValue({ answer: null, _confirmed_empty: true }, keys)).toBe(false);
+  });
+});
+
+describe('dataRowFormatIds', () => {
+  const row = (fields: Partial<DataRow>): DataRow => ({ data: {}, ...fields });
+
+  it('keys rows by unit name and source document, independent of position', () => {
+    const a = row({ row_name: 'Judge A', _source_document: 'doc1.txt' });
+    const b = row({ row_name: 'Judge B', _source_document: 'doc2.txt' });
+    const forward = dataRowFormatIds([a, b]);
+    const reversed = dataRowFormatIds([b, a]);
+    expect(forward[0]).toBe(reversed[1]);
+    expect(forward[1]).toBe(reversed[0]);
+  });
+
+  it('disambiguates repeated name/document pairs', () => {
+    const ids = dataRowFormatIds([
+      row({ row_name: 'X', papers: ['p.txt'] }),
+      row({ row_name: 'X', papers: ['p.txt'] }),
+    ]);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it('falls back to _row_index when a row has no name or document', () => {
+    expect(dataRowFormatIds([row({ _row_index: 7 })])).toEqual(['#7']);
   });
 });

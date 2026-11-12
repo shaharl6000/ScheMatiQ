@@ -1577,3 +1577,78 @@
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
 }
+
+/* Cell legend popover (CellLegend.tsx). Samples mirror the grid markers above. */
+.workspace-legend-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.workspace-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workspace-legend-item {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  align-items: start;
+  gap: 0.625rem;
+  font-size: 0.75rem;
+  line-height: 1.1rem;
+}
+
+.workspace-legend-sample {
+  position: relative;
+  display: inline-block;
+  padding: 0.125rem 0.875rem 0.125rem 0.375rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.workspace-legend-grounded::after,
+.workspace-legend-ungrounded::after {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 10px;
+  line-height: 1;
+  color: hsl(var(--muted-foreground));
+}
+
+.workspace-legend-grounded::after {
+  content: '›';
+}
+
+.workspace-legend-ungrounded {
+  font-style: italic;
+  color: hsl(var(--muted-foreground));
+}
+
+.workspace-legend-ungrounded::after {
+  content: '?';
+  font-style: normal;
+  font-weight: 600;
+}
+
+.workspace-legend-empty {
+  font-style: italic;
+  color: hsl(var(--muted-foreground));
+}
+
+.workspace-legend-off-list {
+  text-decoration: underline dashed hsl(var(--muted-foreground));
+  text-underline-offset: 3px;
+}
+
+.workspace-legend-note {
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}

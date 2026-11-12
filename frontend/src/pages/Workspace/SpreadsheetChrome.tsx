@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
+import { CellLegend } from './CellLegend';
 import { TABLE_FONT_OPTIONS, TABLE_FONT_SIZE_OPTIONS, WORKSPACE_MENUS } from './constants';
 import type {
   TableDisplayOptions,
@@ -329,6 +330,7 @@ export function SpreadsheetChrome({
         <button className="workspace-toolbar-icon" type="button" onClick={onSearch} title="Find in workspace">
           <Search className="h-3.5 w-3.5" />
         </button>
+        <CellLegend />
 
         <span className="workspace-toolbar-spacer" />
 
