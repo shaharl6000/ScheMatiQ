@@ -219,10 +219,10 @@ async def test_value_extraction_in_progress_uses_local_file_without_storage_down
 
 
 @pytest.mark.asyncio
-async def test_completed_schema_only_skips_until_deferred_extraction_persists_rows(
+async def test_completed_schema_only_negative_caches_until_deferred_extraction_persists_rows(
     isolated_env,
 ):
-    """Completed schema-only sessions skip downloads, then hydrate after deferred extraction."""
+    """Completed schema-only sessions check storage once per TTL, then hydrate after deferred extraction."""
     work_dir, data_dir, sessions, storage = isolated_env
     sid = "sess-schema-only"
     sessions[sid] = _make_session(
@@ -233,14 +233,18 @@ async def test_completed_schema_only_skips_until_deferred_extraction_persists_ro
         statistics=_zero_row_stats(),
     )
 
-    # Repeated polls after schema-only completion make 0 storage calls.
+    # The first poll checks storage; repeated polls within the TTL hit the negative cache.
+    page = await get_data(sid, work_dir=work_dir)
+    assert page.total_count == 0
+    first_poll_calls = len(storage.download_calls)
+    assert first_poll_calls > 0
     for _ in range(10):
         page = await get_data(sid, work_dir=work_dir)
         rows = await load_all_rows(sid, work_dir=work_dir)
         assert page.total_count == 0
         assert rows == []
 
-    assert storage.download_calls == []
+    assert len(storage.download_calls) == first_poll_calls
 
     # Simulate deferred extraction writing 5 rows, persisting to storage, and updating stats.
     local_extracted = work_dir / sid / "extracted_data.jsonl"
@@ -409,3 +413,24 @@ async def test_download_exception_is_not_negative_cached(isolated_env):
     assert await ensure_session_data_file_local(sid, target, storage=custom_storage) is True
     assert target.exists()
     assert len(custom_storage.download_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_completed_session_with_stale_zero_counter_still_hydrates(isolated_env):
+    """Rows persisted before the row counter was updated (e.g. a crash in between) are not hidden."""
+    work_dir, data_dir, sessions, storage = isolated_env
+    sid = "sess-stale-counter"
+    sessions[sid] = _make_session(
+        sid,
+        session_type=SessionType.SCHEMATIQ,
+        status=SessionStatus.COMPLETED,
+        schema_discovery_completed=True,
+        statistics=_zero_row_stats(),
+    )
+    storage.files[f"data/{sid}/extracted_data.jsonl"] = _jsonl_bytes(
+        [{"_row_name": "Row 0", "_papers": ["doc0.txt"], "Title": {"answer": "Paper 0"}}]
+    )
+
+    page = await get_data(sid, work_dir=work_dir)
+    assert page.total_count == 1
+    assert (work_dir / sid / "extracted_data.jsonl").exists()

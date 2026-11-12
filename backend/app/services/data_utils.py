@@ -365,13 +365,13 @@ def _session_may_have_stored_data(session_id: str, *, _session=None) -> bool:
     """Return False when session state proves no remote data JSONL can exist yet.
 
     Avoids issuing ``storage.download_file("data", ...)`` (which returns
-    ``400 Not Found`` from Supabase) on every poll while schema discovery runs,
-    while value extraction is still running locally, or after a schema-only run
-    finishes with zero rows.
+    ``400 Not Found`` from Supabase) on every poll while schema discovery runs
+    or while value extraction is still running locally.
     """
     session = _session if _session is not None else _lookup_session(session_id)
     if session is None:
-        # Unregistered session ID (e.g. unit tests using bare IDs) -> allow lookup.
+        # Unknown session (lookup failed, deleted, or a bare ID in tests): we
+        # cannot prove there is no data, so allow the storage lookup.
         return True
 
     if _session_has_recorded_rows(session):
@@ -394,14 +394,11 @@ def _session_may_have_stored_data(session_id: str, *, _session=None) -> bool:
             # Live pipeline runs only upload extracted_data.jsonl when the run
             # finishes or stops; any in-flight rows live on local disk.
             return False
-        statistics = getattr(session, "statistics", None)
-        if (
-            status == SessionStatus.COMPLETED
-            and statistics is not None
-            and (getattr(statistics, "total_rows", 0) or 0) == 0
-        ):
-            return False
 
+    # Settled sessions without recorded rows (e.g. a completed schema-only run)
+    # still check storage: a zero row counter is not proof that no rows were
+    # persisted, and skipping here would hide them for good. The negative
+    # cache in ensure_session_data_file_local keeps repeated polls cheap.
     return True
 
 
