@@ -23,6 +23,7 @@ import {
   chainDataCommittedCallbacks,
   consumeSchemaSpareRowForCreate,
   createEmptySchemaSpareRowState,
+  dataEquals,
   diffPaginatedData,
   emptyCellScope,
   finishSchemaSpareRowCreate,
@@ -441,6 +442,23 @@ describe('chainDataCommittedCallbacks', () => {
     expect(incoming).toHaveBeenCalledTimes(1);
     expect(incoming).toHaveBeenCalledWith(sampleData);
     expect(order).toEqual(['pending:1', 'incoming:1']);
+  });
+});
+
+describe('dataEquals', () => {
+  const emptyPage: PaginatedData = {
+    rows: [],
+    total_count: 0,
+    page: 0,
+    page_size: 500,
+    has_more: false,
+  };
+
+  it('distinguishes emptyData from a zero-row page with data_missing: true', () => {
+    expect(dataEquals(emptyPage, { ...emptyPage })).toBe(true);
+    expect(dataEquals(emptyPage, { ...emptyPage, data_missing: false })).toBe(true);
+    expect(dataEquals(emptyPage, { ...emptyPage, data_missing: true })).toBe(false);
+    expect(dataEquals({ ...emptyPage, data_missing: true }, { ...emptyPage, data_missing: true })).toBe(true);
   });
 });
 
