@@ -812,3 +812,54 @@ export function rollbackSchemaSpareRowCreate(
   };
 }
 
+// --- Values outside a category column's allowed_values ---------------------
+
+const NON_CATEGORY_KINDS = new Set(['identifier', 'free_text', 'number', 'date']);
+
+function offListKey(value: string): string {
+  let text = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  // Sentence punctuation the model adds after a label ("Yes." -> "yes").
+  text = text.replace(/[.,;:!?]+$/, '').trim();
+  return text;
+}
+
+/**
+ * The allowed values to check a data column against, or null when the column
+ * is not a category. Only a category holds a closed list: an identifier,
+ * free_text, number, or date column never gets an off-list mark. Older
+ * columns without value_kind count as a category when they list 2+ values
+ * (a single value is a constraint such as "number" or "date", not a list).
+ */
+export function categoryAllowedKeys(column: {
+  allowed_values?: string[] | null;
+  value_kind?: string | null;
+}): Set<string> | null {
+  const values = Array.isArray(column.allowed_values) ? column.allowed_values : [];
+  const kind = column.value_kind ?? null;
+  if (kind && NON_CATEGORY_KINDS.has(kind)) return null;
+  if (kind !== 'category' && values.length < 2) return null;
+  const keys = new Set(values.map((v) => offListKey(String(v))).filter(Boolean));
+  return keys.size > 0 ? keys : null;
+}
+
+function cellAnswer(value: unknown): unknown {
+  if (value && typeof value === 'object' && !Array.isArray(value) && 'answer' in (value as object)) {
+    return (value as { answer?: unknown }).answer;
+  }
+  return value;
+}
+
+/**
+ * Whether a data cell holds a value that is not in the column's list. Empty
+ * cells are not off-list. A list answer is off-list when any item is.
+ */
+export function isOffListValue(value: unknown, allowedKeys: Set<string>): boolean {
+  const answer = cellAnswer(value);
+  const items = Array.isArray(answer) ? answer : [answer];
+  return items.some((item) => {
+    if (item === null || item === undefined) return false;
+    const key = offListKey(String(item));
+    return key !== '' && !allowedKeys.has(key);
+  });
+}
+

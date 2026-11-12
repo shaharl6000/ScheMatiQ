@@ -48,6 +48,8 @@ import {
   schemaColumnKeysForCols,
   selectedCellScope,
   selectedColumnIndices,
+  categoryAllowedKeys,
+  isOffListValue,
 } from './helpers';
 import type {
   CellFormatMap,
@@ -80,6 +82,8 @@ const sanitizeCellHtml = (content: string): string => DOMPurify.sanitize(content
 
 const UNGROUNDED_CELL_TOOLTIP =
   'No supporting quote found in the document. This value may come from inference or general knowledge.';
+const OFF_LIST_CELL_TOOLTIP =
+  "Not in this column's allowed values. Add it to the list in the Schema sheet, or edit the cell.";
 
 export function SpreadsheetSurface({
   activeSheet,
@@ -407,7 +411,7 @@ export function SpreadsheetSurface({
   useEffect(() => {
     // Header info icons, plus data cells kept without a supporting excerpt
     // (td.cell-ungrounded, set in cellsCallback), which explain their marker.
-    const INFO_SELECTOR = '.workspace-hot .workspace-col-header-info, .workspace-hot td.cell-ungrounded';
+    const INFO_SELECTOR = '.workspace-hot .workspace-col-header-info, .workspace-hot td.cell-ungrounded, .workspace-hot td.cell-off-list';
     const tooltip = document.createElement('div');
     tooltip.className = 'workspace-hot-tooltip';
     tooltip.setAttribute('role', 'tooltip');
@@ -440,7 +444,8 @@ export function SpreadsheetSurface({
 
     const show = (icon: HTMLElement) => {
       const text = icon.getAttribute('data-tooltip')
-        ?? (icon.matches('td.cell-ungrounded') ? UNGROUNDED_CELL_TOOLTIP : null);
+        ?? (icon.matches('td.cell-ungrounded') ? UNGROUNDED_CELL_TOOLTIP : null)
+        ?? (icon.matches('td.cell-off-list') ? OFF_LIST_CELL_TOOLTIP : null);
       if (!text) return;
       activeIcon = icon;
       tooltip.textContent = text;
@@ -593,6 +598,26 @@ export function SpreadsheetSurface({
       return perColumn;
     });
   }, [data.rows]);
+
+  // Per-cell "off-list" flags: a value in a category column that is not in the
+  // column's allowed_values. With #548 extraction keeps such answers instead of
+  // forcing them into the list, so they are shown for review here.
+  const dataOffList = useMemo(() => {
+    const allowedByColumn = new Map<string, Set<string>>();
+    for (const column of schemaColumns) {
+      const keys = categoryAllowedKeys(column);
+      if (keys) allowedByColumn.set(column.name, keys);
+    }
+    return data.rows.map((row) => {
+      const perColumn: Record<string, boolean> = {};
+      if (allowedByColumn.size === 0) return perColumn;
+      const rowData = row.data || {};
+      allowedByColumn.forEach((keys, name) => {
+        if (isOffListValue(rowData[name], keys)) perColumn[name] = true;
+      });
+      return perColumn;
+    });
+  }, [data.rows, schemaColumns]);
 
   // --- Grouped cell merging (By Unit / By Document) ------------------------
   // Mirror the classic flow's grouped views: the leftmost grouping column
@@ -955,6 +980,7 @@ export function SpreadsheetSurface({
       definition: column.definition || '',
       rationale: column.rationale || '',
       allowed_values: Array.isArray(column.allowed_values) ? column.allowed_values.join(', ') : '',
+      value_kind: column.value_kind || '',
     }));
   }, [schemaColumns]);
 
@@ -1050,6 +1076,13 @@ export function SpreadsheetSurface({
             width: 260,
             headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.allowed_values,
           },
+          {
+            key: 'value_kind',
+            label: 'value_kind',
+            width: 120,
+            readOnly: true,
+            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.value_kind,
+          },
         ],
       };
     }
@@ -1116,8 +1149,11 @@ export function SpreadsheetSurface({
     if (activeSheet === 'data' && column && dataUngrounded[row]?.[column.key]) {
       props.className = [props.className, 'cell-ungrounded'].filter(Boolean).join(' ');
     }
+    if (activeSheet === 'data' && column && dataOffList[row]?.[column.key]) {
+      props.className = [props.className, 'cell-off-list'].filter(Boolean).join(' ');
+    }
     return props;
-  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataUngrounded, sheet]);
+  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataUngrounded, sheet]);
 
   const prevFormatVersionRef = useRef(formatVersion);
 

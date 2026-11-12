@@ -1113,6 +1113,13 @@
   pointer-events: none;
 }
 
+/* A category column's value that is not in its allowed_values. Marked by a
+   dashed underline, not by color alone; hovering explains it. */
+.workspace-hot .handsontable td.cell-off-list {
+  text-decoration: underline dashed hsl(var(--muted-foreground));
+  text-underline-offset: 3px;
+}
+
 /* Value kept without a supporting excerpt in the document (_ungrounded).
    Marked by italics plus a corner symbol, not by color alone; hovering the
    cell shows the explanation (see INFO_SELECTOR in SpreadsheetSurface). */
