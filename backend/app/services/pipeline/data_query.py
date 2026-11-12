@@ -431,6 +431,26 @@ async def load_all_rows(
     return rows
 
 
+def _session_had_rows(session_id: str) -> bool:
+    """Whether the session's saved statistics show extracted rows.
+
+    Statistics are computed after value extraction and saved with the session,
+    so they survive a redeploy that wipes the work dir. A schema-only run, or a
+    run stopped before extraction, has none (or zero rows). When the session
+    cannot be read, assume it had rows so a real loss is still reported.
+    """
+    try:
+        from app.services import session_manager
+
+        session = session_manager.get_session(session_id)
+    except Exception:  # pragma: no cover - defensive: storage unavailable
+        return True
+    if session is None:
+        return True
+    stats = session.statistics
+    return bool(stats and (stats.total_rows or 0) > 0)
+
+
 async def get_data(
     session_id: str,
     work_dir: Path,
@@ -451,18 +471,20 @@ async def get_data(
     )
 
     if not data_files:
-        # Nothing resolved from the work dir, the data dir, or storage. For a
-        # session still extracting this is normal; for a completed one the data
-        # is gone, and returning a plain empty page made the two identical to
-        # every caller. Flag it, and say so in the log.
-        logger.warning(
-            "No data file resolved for session %s; returning an empty page with data_missing set",
-            session_id,
-        )
+        # Nothing resolved from the work dir, the data dir, or storage. That is
+        # normal before value extraction (still running, stopped during schema
+        # discovery, or a schema-only run). Only a session that once had rows
+        # has lost its data, so only that one is flagged.
+        data_missing = _session_had_rows(session_id)
+        if data_missing:
+            logger.warning(
+                "No data file resolved for session %s, which had rows; returning an empty page with data_missing set",
+                session_id,
+            )
         return PaginatedData(
             rows=[], total_count=0, filtered_count=None,
             page=page, page_size=page_size, has_more=False,
-            data_missing=True,
+            data_missing=data_missing,
         )
 
     from app.services.data_utils import row_dedup_key
