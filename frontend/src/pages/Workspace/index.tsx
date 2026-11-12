@@ -73,6 +73,7 @@ import {
   cellFormatKey,
 } from './constants';
 import { DataLoadErrorBanner } from './DataLoadErrorBanner';
+import { DataMissingBanner } from './DataMissingBanner';
 import { useEditHistory } from './hooks/useEditHistory';
 import {
   buildExportFilename,
@@ -1223,6 +1224,20 @@ function Workspace() {
     return ['completed', 'schema_extracted', 'stopped', 'error', 'failed'].includes(rawStatus);
   }, [status?.status]);
 
+  const allExtractableColumns = useMemo(
+    () =>
+      (schema?.schema ?? [])
+        .map((col) => col.name)
+        .filter((name): name is string => Boolean(name) && !name.toLowerCase().endsWith('_excerpt')),
+    [schema?.schema],
+  );
+  const isDataMissing =
+    Boolean(sessionId) &&
+    !sessionMissing &&
+    Boolean(data?.data_missing) &&
+    extractionSettled &&
+    !reextraction;
+
   const chromeStatus = useMemo(
     () =>
       formatWorkspaceChromeStatus({
@@ -1395,7 +1410,6 @@ function Workspace() {
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}
         sessionMissing={sessionMissing}
-        dataMissing={Boolean(data?.data_missing) && extractionSettled}
         compactRows={compactRows}
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
@@ -1514,6 +1528,13 @@ function Workspace() {
               </Button>
               <span style={{ flex: 1 }} />
             </div>
+          )}
+          {activeSheet === 'data' && isDataMissing && (
+            <DataMissingBanner
+              busy={rerunStarting}
+              canRerun={allExtractableColumns.length > 0}
+              onRerun={() => requestReextraction(allExtractableColumns)}
+            />
           )}
           {activeSheet === 'data' && skippedDocuments.length > 0 && (
             <div style={{ flex: '0 0 auto', padding: '0 8px' }}>

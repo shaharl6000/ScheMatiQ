@@ -77,7 +77,7 @@ const MissingDocumentsSection: React.FC<MissingDocumentsSectionProps> = ({
   const totalAvailable = local_documents.length + cloud_documents.length;
 
   // All documents available - show success
-  if (!hasMissingDocs) {
+  if (!hasMissingDocs && can_proceed) {
     return (
       <Alert className="border-green-200 bg-green-50 dark:bg-green-950/20">
         <CheckCircle2 className="h-4 w-4 text-green-600" />
@@ -92,6 +92,65 @@ const MissingDocumentsSection: React.FC<MissingDocumentsSectionProps> = ({
       </Alert>
     );
   }
+
+  const uploadCard = (
+    <Card className="p-3 space-y-3">
+      <div className="flex items-center gap-2">
+        <Upload className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Upload missing documents</span>
+      </div>
+
+      <input
+        type="file"
+        multiple
+        accept=".txt,.md,.pdf"
+        onChange={handleFileChange}
+        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
+      />
+
+      {uploadedFiles.length > 0 && (
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">
+            {uploadedFiles.length} file{uploadedFiles.length !== 1 ? 's' : ''} selected
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearUploadedFiles}
+              disabled={isUploading}
+            >
+              Clear
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleUploadAndRecheck}
+              disabled={isUploading}
+              className="gap-1"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-3 w-3" />
+                  Upload & Re-check
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {uploadError && (
+        <Alert variant="destructive" className="py-2">
+          <AlertDescription className="text-xs">{uploadError}</AlertDescription>
+        </Alert>
+      )}
+    </Card>
+  );
 
   // Collapsible missing docs list + upload section (shared between "all missing" and "some missing")
   const missingDocsCollapsible = (
@@ -132,62 +191,7 @@ const MissingDocumentsSection: React.FC<MissingDocumentsSectionProps> = ({
           </Card>
 
           {/* Upload section */}
-          <Card className="p-3 space-y-3">
-            <div className="flex items-center gap-2">
-              <Upload className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Upload missing documents</span>
-            </div>
-
-            <input
-              type="file"
-              multiple
-              accept=".txt,.md,.pdf"
-              onChange={handleFileChange}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
-            />
-
-            {uploadedFiles.length > 0 && (
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">
-                  {uploadedFiles.length} file{uploadedFiles.length !== 1 ? 's' : ''} selected
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={clearUploadedFiles}
-                    disabled={isUploading}
-                  >
-                    Clear
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleUploadAndRecheck}
-                    disabled={isUploading}
-                    className="gap-1"
-                  >
-                    {isUploading ? (
-                      <>
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Uploading...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="h-3 w-3" />
-                        Upload & Re-check
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {uploadError && (
-              <Alert variant="destructive" className="py-2">
-                <AlertDescription className="text-xs">{uploadError}</AlertDescription>
-              </Alert>
-            )}
-          </Card>
+          {uploadCard}
         </CollapsibleContent>
     </Collapsible>
   );
@@ -200,7 +204,9 @@ const MissingDocumentsSection: React.FC<MissingDocumentsSectionProps> = ({
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
             <p className="font-medium">
-              All {missing_documents.length} source document{missing_documents.length !== 1 ? 's are' : ' is'} missing.
+              {hasMissingDocs
+                ? `All ${missing_documents.length} source document${missing_documents.length !== 1 ? 's are' : ' is'} missing.`
+                : 'No source documents are available on the server.'}
             </p>
             <p className="text-sm mt-1">
               Upload the original documents to enable re-extraction.
@@ -208,7 +214,7 @@ const MissingDocumentsSection: React.FC<MissingDocumentsSectionProps> = ({
           </AlertDescription>
         </Alert>
 
-        {missingDocsCollapsible}
+        {hasMissingDocs ? missingDocsCollapsible : uploadCard}
       </div>
     );
   }
