@@ -1,22 +1,11 @@
 """JSON response parsing and validation for LLM outputs."""
 
-import difflib
 import json
 import re
 from datetime import datetime
 from typing import Dict, Any, List, Tuple, Optional
 
 from dateutil import parser as date_parser
-
-# Numbers inside a value, with digit-group separators kept together
-# ("1,000", "86.4", "3:21").
-_NUMBER_RE = re.compile(r"\d+(?:[.,:/]\d+)*")
-
-
-def _numbers(text: str) -> set:
-    """Return the numbers in *text*, with thousands commas removed."""
-    return {m.group().replace(",", "") for m in _NUMBER_RE.finditer(text)}
-
 
 def _flatten_answer(answer: Any) -> str:
     """Convert a non-string answer (dict/list) to a clean readable string.
@@ -49,6 +38,110 @@ def _flatten_answer(answer: Any) -> str:
             return '; '.join(parts)
         return ', '.join(str(v) for v in answer)
     return str(answer)
+
+
+def is_categorical_allowed_values(allowed_values: Optional[List[str]]) -> bool:
+    """True when allowed_values is a list of labels, not a type or range constraint.
+
+    A single item that is ``number``, ``date`` / ``date:...``, or a numeric
+    range such as ``0-100`` is a constraint. Every other non-empty list is
+    categorical, including a one-label list such as ``["yes"]``.
+    """
+    if not allowed_values:
+        return False
+    if len(allowed_values) != 1:
+        return True
+    token = str(allowed_values[0]).strip().lower()
+    if token == "number" or token == "date" or token.startswith("date:"):
+        return False
+    if parse_numeric_range(token) is not None:
+        return False
+    return True
+
+
+def parse_numeric_range(constraint: str) -> Optional[Tuple[float, float]]:
+    """
+    Parse a numeric range constraint like "0-100" or "0.0-1.0".
+    Returns (min_val, max_val) or None if not a valid range.
+    """
+    constraint = constraint.strip()
+    if "-" not in constraint:
+        return None
+
+    # Handle negative numbers by checking if it starts with a negative
+    # For ranges like "-10-10", we need to be careful
+    parts = constraint.split("-")
+
+    # Simple case: "0-100" -> ["0", "100"]
+    if len(parts) == 2 and parts[0] and parts[1]:
+        try:
+            return float(parts[0]), float(parts[1])
+        except ValueError:
+            return None
+
+    # Handle negative start: "-10-10" -> ["", "10", "10"]
+    if len(parts) == 3 and not parts[0]:
+        try:
+            return -float(parts[1]), float(parts[2])
+        except ValueError:
+            return None
+
+    return None
+
+
+# Sentence punctuation and quotes a model adds around a label. Signs and
+# symbols that carry meaning ("ER+", "ER-", "C++", "-1", "C#") are not here.
+# Sentence punctuation a model adds after a label. Only stripped from the end,
+# so ".5" keeps its leading point. Signs and symbols that carry meaning
+# ("ER+", "ER-", "C++", "-1", "H1'") are not here.
+_TRAILING_PUNCTUATION = ".,;:!?"
+
+# Wrappers removed only as a pair around the whole value, so an unpaired quote
+# or prime ("H1'") stays.
+_WRAPPERS = ("()", "[]", '""', "''", "\u201c\u201d", "\u2018\u2019")
+
+
+def _case_key(value: str) -> str:
+    """Fold case and whitespace runs only."""
+    return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def _whitespace_key(value: str) -> str:
+    """Fold case and whitespace runs; drop spaces next to "." or ",".
+
+    ``"766 F. Supp. 3d 266"`` and ``"766 F.Supp.3d 266"`` get the same key.
+    Spaces between words stay, so ``"not able"`` and ``"notable"`` differ, and
+    so do spaces between digits, so ``"1, 234"`` and ``"1,234"`` differ.
+    """
+    text = _case_key(value)
+
+    def drop(match: "re.Match") -> str:
+        before = text[match.start() - 1]
+        after = text[match.end()] if match.end() < len(text) else ""
+        if before.isdigit() and after.isdigit():
+            return match.group(0)
+        return match.group(1)
+
+    return re.sub(r"(?<=\S) ?([.,]) ?(?=\S)", drop, text)
+
+
+def categorical_match_key(value: str) -> str:
+    """Fold case, whitespace, sentence punctuation at the end, and quotes or
+    brackets around the whole value.
+
+    ``"Yes."``, ``"(yes)"`` and ``"  yes "`` all become ``"yes"``. Signs stay, so
+    ``"ER+"`` and ``"ER-"`` stay distinct, and so do ``"Type 1"`` and
+    ``"Type 2"``.
+    """
+    text = _whitespace_key(value)
+    while text:
+        stripped = text.rstrip(_TRAILING_PUNCTUATION).strip()
+        if len(stripped) > 1 and stripped[0] + stripped[-1] in _WRAPPERS:
+            stripped = stripped[1:-1].strip()
+        if stripped == text:
+            break
+        text = stripped
+    return text
 
 
 class JSONResponseParser:
@@ -137,8 +230,8 @@ class JSONResponseParser:
                 entry: Dict[str, Any] = {
                     "answer": answer, "excerpts": excerpts, "figure_refs": figure_refs,
                 }
-                if val.get("suggested_for_allowed_values"):
-                    entry["suggested_for_allowed_values"] = True
+                # suggested_for_allowed_values is ignored. A stored flag on an
+                # old cell, or one the model still emits, does not change the answer.
                 norm[col] = entry
             else:
                 norm[col] = {"answer": str(val), "excerpts": [], "figure_refs": []}
@@ -153,33 +246,7 @@ class JSONResponseParser:
         return bool(self.placeholder_re.search(answer.strip()))
 
     def _parse_numeric_range(self, constraint: str) -> Optional[Tuple[float, float]]:
-        """
-        Parse a numeric range constraint like "0-100" or "0.0-1.0".
-        Returns (min_val, max_val) or None if not a valid range.
-        """
-        constraint = constraint.strip()
-        if "-" not in constraint:
-            return None
-
-        # Handle negative numbers by checking if it starts with a negative
-        # For ranges like "-10-10", we need to be careful
-        parts = constraint.split("-")
-
-        # Simple case: "0-100" -> ["0", "100"]
-        if len(parts) == 2 and parts[0] and parts[1]:
-            try:
-                return float(parts[0]), float(parts[1])
-            except ValueError:
-                return None
-
-        # Handle negative start: "-10-10" -> ["", "10", "10"]
-        if len(parts) == 3 and not parts[0]:
-            try:
-                return -float(parts[1]), float(parts[2])
-            except ValueError:
-                return None
-
-        return None
+        return parse_numeric_range(constraint)
 
     def _strftime_format_from_date_constraint(self, raw_constraint: str) -> Optional[str]:
         """
@@ -225,18 +292,17 @@ class JSONResponseParser:
         threshold: float = 0.8
     ) -> Tuple[str, bool, Optional[str]]:
         """
-        Normalize extracted answer to closest allowed value using soft matching.
+        Normalize an extracted answer against allowed_values.
         Returns (normalized_answer, was_matched, unmatched_original).
 
-        - unmatched_original: Set to the original answer when it didn't match (for schema evolution tracking)
+        ``unmatched_original`` is set for a date, number, or range value that
+        could not be parsed. A categorical value that does not match is kept
+        as written and ``unmatched_original`` stays None.
 
-        Soft enforcement strategy:
         1. Date constraints (single-item "date" / "date:...") -> parse and format
         2. Numeric constraints (single-item "number" or min-max range)
-        3. Case-insensitive exact match -> return allowed value
-        4. Fuzzy match above threshold -> return allowed value (only among
-           allowed values with the same numbers as the answer)
-        5. No match -> keep original answer and flag for schema evolution
+        3. Categorical: match ignoring case, extra whitespace, and punctuation
+           at the ends. Otherwise keep the original answer.
         """
         if not allowed_values or not answer:
             return answer, False, None
@@ -285,32 +351,19 @@ class JSONResponseParser:
                 except ValueError:
                     return answer, False, answer  # Can't parse, flag for review
 
-        # Categorical matching: case-insensitive exact match
-        answer_lower = answer.lower().strip()
-        for av in allowed_values:
-            if av.lower().strip() == answer_lower:
-                return av, True, None
-
-        # Fuzzy matching using difflib. Only values with the same numbers are
-        # candidates: character similarity treats "2025 WL 1325305" and
-        # "2025 WL 1825431" (or "phase 2" and "phase 3") as near-duplicates,
-        # but a different number is a different value, not a spelling variant.
-        answer_numbers = _numbers(answer_lower)
-        best_match: Optional[str] = None
-        best_ratio: float = 0.0
-        for av in allowed_values:
-            if _numbers(av.lower()) != answer_numbers:
+        # Categorical matching: case and whitespace first, then sentence
+        # punctuation at the ends. Abbreviations and synonyms are the model's
+        # job. A different string stays as written and is not recorded as a
+        # suggestion. ``threshold`` stays in the signature for existing callers.
+        for key_fn in (_case_key, categorical_match_key):
+            answer_key = key_fn(answer)
+            if not answer_key:
                 continue
-            ratio = difflib.SequenceMatcher(None, answer_lower, av.lower()).ratio()
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_match = av
+            for av in allowed_values:
+                if key_fn(av) == answer_key:
+                    return av, True, None
 
-        if best_ratio >= threshold and best_match is not None:
-            return best_match, True, None
-
-        # No match - keep original (soft enforcement) and flag for schema evolution
-        return answer, False, answer
+        return answer, False, None
 
     def postprocess(
         self,
@@ -350,9 +403,6 @@ class JSONResponseParser:
                 out[col] = {"answer": "", "excerpts": [], "_confirmed_empty": True}
                 continue
 
-            # Check if LLM flagged this as a suggested new value
-            suggested_for_allowed = entry.get("suggested_for_allowed_values", False)
-
             # A figure_refs citation counts as "they gave evidence" the same
             # way a text excerpt does — an image-backed answer legitimately
             # has no text excerpt, and shouldn't be treated as an unsupported
@@ -380,17 +430,14 @@ class JSONResponseParser:
             if normalized:
                 out[col]["normalized_to_allowed"] = True
 
-            # Track unmatched values for schema evolution. Only for a column
-            # that already has allowed_values: a suggestion can extend a closed
-            # set, never turn an open column (names, citations, ids) into one.
-            # The model may set suggested_for_allowed_values on any column,
-            # because the response schema offers it for every column.
-            if has_allowed_values and (unmatched_original is not None or suggested_for_allowed):
-                value_to_track = unmatched_original or ans
+            # Date/number/range failures still report the original text.
+            # A categorical value that is not in the list stays in the cell
+            # and is not recorded as a suggestion.
+            if unmatched_original is not None:
                 if col not in unmatched_values:
                     unmatched_values[col] = []
-                if value_to_track not in unmatched_values[col]:
-                    unmatched_values[col].append(value_to_track)
-                out[col]["unmatched_value"] = value_to_track
+                if unmatched_original not in unmatched_values[col]:
+                    unmatched_values[col].append(unmatched_original)
+                out[col]["unmatched_value"] = unmatched_original
 
         return out, unmatched_values

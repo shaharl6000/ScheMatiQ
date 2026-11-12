@@ -46,7 +46,7 @@ class UnitIdentificationParser:
     """
 
     # Suspicious keys that indicate value extraction format
-    VALUE_EXTRACTION_KEYS = {"answer", "excerpts", "normalized_to_allowed", "suggested_for_allowed_values"}
+    VALUE_EXTRACTION_KEYS = {"answer", "excerpts", "normalized_to_allowed"}
 
     # Suspicious unit names that indicate format confusion
     SUSPICIOUS_UNIT_NAMES = {"answer", "excerpts", "confidence", "relevant_passages", "observation_units"}

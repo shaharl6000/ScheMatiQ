@@ -1143,6 +1143,8 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             }
             if col_dict.get("allowed_values"):
                 frontend_col["allowed_values"] = col_dict["allowed_values"]
+            if col_dict.get("value_kind"):
+                frontend_col["value_kind"] = col_dict["value_kind"]
             # Keep the persisted file consistent with the session.columns
             # model_dump path in get_schema, which always carries this field.
             frontend_col["auto_expand_threshold"] = col_dict.get("auto_expand_threshold")
@@ -1182,6 +1184,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 source_document=col.source_document,
                 discovery_iteration=col.discovery_iteration,
                 allowed_values=[v for v in col.allowed_values if v is not None] if col.allowed_values else None,
+                value_kind=getattr(col, 'value_kind', None),
                 auto_expand_threshold=getattr(col, 'auto_expand_threshold', 2)
             )
             schema_columns.append(col_info)

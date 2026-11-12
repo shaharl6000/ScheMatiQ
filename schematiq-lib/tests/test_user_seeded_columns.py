@@ -549,3 +549,25 @@ class TestNoSeedRegression:
         )
         assert result == cols
         assert llm.generate.call_count == 0
+
+class TestMergeAllowedValues:
+    def _merge(self, locked):
+        base = Schema(
+            query="q",
+            columns=[Column(name="court", rationale="r", definition="d",
+                            allowed_values=["supreme"], locked=locked)],
+            max_keys=10,
+        )
+        proposal = Schema(
+            query="q",
+            columns=[Column(name="court", rationale="r", definition="d",
+                            allowed_values=["district"])],
+            max_keys=10,
+        )
+        return next(c for c in base.merge(proposal).columns if c.name == "court")
+
+    def test_user_set_list_is_kept(self):
+        assert self._merge(locked=True).allowed_values == ["supreme"]
+
+    def test_discovered_list_still_grows(self):
+        assert self._merge(locked=False).allowed_values == ["supreme", "district"]

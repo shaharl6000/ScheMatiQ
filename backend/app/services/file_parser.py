@@ -740,6 +740,7 @@ class FileParser:
                                     "definition": col_def.get("definition", ""),
                                     "rationale": col_def.get("rationale", ""),
                                     "allowed_values": col_def.get("allowed_values"),
+                                    "value_kind": col_def.get("value_kind"),
                                     "data_type": col_def.get("data_type"),
                                     "source_document": col_def.get("source_document"),
                                     "discovery_iteration": col_def.get("discovery_iteration"),
@@ -812,6 +813,7 @@ class FileParser:
                     definition=meta.get("definition", ""),
                     rationale=meta.get("rationale", ""),
                     allowed_values=meta.get("allowed_values"),
+                    value_kind=meta.get("value_kind"),
                     source_document=meta.get("source_document"),
                     discovery_iteration=meta.get("discovery_iteration"),
                 )
@@ -835,7 +837,8 @@ class FileParser:
                     )),
                     definition=meta.get("definition", ""),
                     rationale=meta.get("rationale", ""),
-                    allowed_values=meta.get("allowed_values")
+                    allowed_values=meta.get("allowed_values"),
+                    value_kind=meta.get("value_kind"),
                 )
                 columns.append(col_info)
         elif 'data' in sample_row and isinstance(sample_row.get('data'), dict):
@@ -858,7 +861,8 @@ class FileParser:
                     )),
                     definition=meta.get("definition", ""),
                     rationale=meta.get("rationale", ""),
-                    allowed_values=meta.get("allowed_values")
+                    allowed_values=meta.get("allowed_values"),
+                    value_kind=meta.get("value_kind"),
                 )
                 columns.append(col_info)
         else:
@@ -896,7 +900,8 @@ class FileParser:
                     )),
                     definition=meta.get("definition", ""),
                     rationale=meta.get("rationale", ""),
-                    allowed_values=meta.get("allowed_values")
+                    allowed_values=meta.get("allowed_values"),
+                    value_kind=meta.get("value_kind"),
                 )
                 columns.append(col_info)
 

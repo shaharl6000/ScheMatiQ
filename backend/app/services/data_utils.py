@@ -2,9 +2,11 @@
 
 import json
 import logging
+import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
+from app.models.session import SessionStatus, SessionType
 from schematiq.value_extraction.utils.schema_builder import sanitize_column_name
 
 logger = logging.getLogger(__name__)
@@ -315,6 +317,91 @@ async def session_has_stored_data(
     return False
 
 
+_MISSING_DATA_CACHE_TTL_SECONDS = 30.0
+_missing_session_data_cache: Dict[Tuple[str, str], float] = {}
+
+
+def clear_missing_session_data_cache(session_id: Optional[str] = None) -> None:
+    """Clear cached missing-data lookups (all sessions when *session_id* is None)."""
+    if session_id is None:
+        _missing_session_data_cache.clear()
+        return
+    stale_keys = [
+        key for key in _missing_session_data_cache if key[0] == session_id
+    ]
+    for key in stale_keys:
+        _missing_session_data_cache.pop(key, None)
+
+
+def _lookup_session(session_id: str):
+    """Best-effort session lookup; returns ``None`` if unavailable or missing."""
+    try:
+        from app.services import session_manager
+
+        return session_manager.get_session(session_id)
+    except Exception:
+        return None
+
+
+def _session_has_recorded_rows(session) -> bool:
+    """Return True if *session* records persisted rows from any workflow."""
+    if session is None:
+        return False
+    statistics = getattr(session, "statistics", None)
+    if statistics is not None and (getattr(statistics, "total_rows", 0) or 0) > 0:
+        return True
+    metadata = getattr(session, "metadata", None)
+    if metadata is not None:
+        if (getattr(metadata, "additional_rows_added", 0) or 0) > 0:
+            return True
+        if (getattr(metadata, "row_count", 0) or 0) > 0:
+            return True
+        if (getattr(metadata, "original_row_count", 0) or 0) > 0:
+            return True
+    return False
+
+
+def _session_may_have_stored_data(session_id: str, *, _session=None) -> bool:
+    """Return False when session state proves no remote data JSONL can exist yet.
+
+    Avoids issuing ``storage.download_file("data", ...)`` (which returns
+    ``400 Not Found`` from Supabase) on every poll while schema discovery runs
+    or while value extraction is still running locally.
+    """
+    session = _session if _session is not None else _lookup_session(session_id)
+    if session is None:
+        # Unknown session (lookup failed, deleted, or a bare ID in tests): we
+        # cannot prove there is no data, so allow the storage lookup.
+        return True
+
+    if _session_has_recorded_rows(session):
+        return True
+
+    status = getattr(session, "status", None)
+    if status == SessionStatus.CREATED:
+        return False
+
+    if getattr(session, "type", None) == SessionType.SCHEMATIQ:
+        metadata = getattr(session, "metadata", None)
+        schema_discovery_completed = (
+            bool(getattr(metadata, "schema_discovery_completed", False))
+            if metadata is not None
+            else False
+        )
+        if not schema_discovery_completed:
+            return False
+        if status in (SessionStatus.SCHEMA_READY, SessionStatus.PROCESSING):
+            # Live pipeline runs only upload extracted_data.jsonl when the run
+            # finishes or stops; any in-flight rows live on local disk.
+            return False
+
+    # Settled sessions without recorded rows (e.g. a completed schema-only run)
+    # still check storage: a zero row counter is not proof that no rows were
+    # persisted, and skipping here would hide them for good. The negative
+    # cache in ensure_session_data_file_local keeps repeated polls cheap.
+    return True
+
+
 async def resolve_session_data_files(
     session_id: str,
     work_dir: Path = None,
@@ -326,15 +413,19 @@ async def resolve_session_data_files(
         work_dir = get_schematiq_work_dir()
     if data_dir is None:
         data_dir = get_data_dir()
-    if storage is None:
-        from app.storage import get_storage
-
-        storage = get_storage()
 
     # Prefer any on-disk session data (including dev.sh instance dirs) before hydrating.
     existing = enumerate_session_data_files(session_id)
     if existing:
         return existing
+
+    if not _session_may_have_stored_data(session_id):
+        return enumerate_session_data_files(session_id, work_dir=work_dir, data_dir=data_dir)
+
+    if storage is None:
+        from app.storage import get_storage
+
+        storage = get_storage()
 
     for path in session_data_file_candidates(session_id, work_dir, data_dir):
         if not path.exists():
@@ -390,11 +481,28 @@ async def ensure_session_data_file_local(
 ) -> bool:
     """Ensure a data JSONL file exists locally, hydrating from storage when needed."""
     if local_path.exists():
+        clear_missing_session_data_cache(session_id)
         return True
 
     storage_path = storage_path_for_data_file(local_path, session_id)
     if not storage_path:
         return False
+
+    session = _lookup_session(session_id)
+    if not _session_may_have_stored_data(session_id, _session=session):
+        return False
+
+    # Never negative-cache unregistered IDs (unit tests) or sessions that
+    # previously recorded rows (where download_file -> None may be a transient
+    # storage outage and DataLoadErrorBanner retries must hit storage immediately).
+    can_negative_cache = session is not None and not _session_has_recorded_rows(session)
+    cache_key = (session_id, storage_path)
+    if can_negative_cache:
+        expires_at = _missing_session_data_cache.get(cache_key)
+        if expires_at is not None:
+            if time.monotonic() < expires_at:
+                return False
+            _missing_session_data_cache.pop(cache_key, None)
 
     if storage is None:
         from app.storage import get_storage
@@ -413,8 +521,13 @@ async def ensure_session_data_file_local(
         return False
 
     if not data:
+        if can_negative_cache:
+            _missing_session_data_cache[cache_key] = (
+                time.monotonic() + _MISSING_DATA_CACHE_TTL_SECONDS
+            )
         return False
 
+    clear_missing_session_data_cache(session_id)
     local_path.parent.mkdir(parents=True, exist_ok=True)
     local_path.write_bytes(data)
     logger.info(
@@ -438,6 +551,8 @@ async def purge_session_data_file(
     tell a file wiped by a redeploy (hydrate) from one deleted on purpose for
     a re-run (do not hydrate). Callers that clear local artifacts must clear
     the storage object too, or the stale rows come straight back."""
+    clear_missing_session_data_cache(session_id)
+
     storage_path = storage_path_for_data_file(local_path, session_id)
     if not storage_path:
         return
@@ -457,6 +572,7 @@ async def purge_session_data_file(
             exc,
         )
     else:
+        clear_missing_session_data_cache(session_id)
         logger.info(
             "Purged storage data/%s for session %s", storage_path, session_id
         )
@@ -470,6 +586,8 @@ async def persist_session_data_file(
     """Write a data JSONL file back to the active storage backend."""
     if not local_path.exists():
         return
+
+    clear_missing_session_data_cache(session_id)
 
     storage_path = storage_path_for_data_file(local_path, session_id)
     if not storage_path:
@@ -496,6 +614,8 @@ async def persist_session_data_file(
             session_id,
             exc,
         )
+    else:
+        clear_missing_session_data_cache(session_id)
 
 
 def rename_column_keys_in_row(row: dict, old_name: str, new_name: str) -> bool:

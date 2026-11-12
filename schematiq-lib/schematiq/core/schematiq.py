@@ -42,6 +42,91 @@ from schematiq.core.prompts import (
 # Controlled generation response schemas (Gemini only)                     #
 ##############################################################################
 
+# What a column holds, as schema discovery reports it. Only a category column
+# gets a list of allowed values; the others are open by nature.
+VALUE_KINDS = ("category", "identifier", "free_text", "number", "date")
+_VALUE_KIND_ALIASES = {
+    "categorical": "category",
+    "categories": "category",
+    "enum": "category",
+    "boolean": "category",
+    "id": "identifier",
+    "name": "identifier",
+    "free-form": "free_text",
+    "freeform": "free_text",
+    "free form": "free_text",
+    "text": "free_text",
+    "numeric": "number",
+    "integer": "number",
+    "float": "number",
+    "datetime": "date",
+}
+
+
+def normalize_value_kind(raw: Any) -> Optional[str]:
+    """Map a value_kind from the model to one of VALUE_KINDS, or None."""
+    if not isinstance(raw, str):
+        return None
+    kind = raw.strip().lower()
+    kind = _VALUE_KIND_ALIASES.get(kind, kind).replace("-", "_").replace(" ", "_")
+    return kind if kind in VALUE_KINDS else None
+
+
+# A single allowed value that is a constraint, not a category.
+_NUMBER_CONSTRAINT_RE = re.compile(
+    r"^(number|-?(\d+(\.\d*)?|\.\d+)\s*-\s*-?(\d+(\.\d*)?|\.\d+))$", re.IGNORECASE
+)
+_DATE_CONSTRAINT_RE = re.compile(r"^date(:.*)?$", re.IGNORECASE)
+
+
+def sanitize_discovered_allowed_values(
+    values: Any,
+    column_name: Optional[str] = None,
+    value_kind: Optional[str] = None,
+) -> Optional[List[str]]:
+    """Keep allowed_values only where they describe a closed set or a constraint.
+
+    Discovery sees one or a few documents, so a model often fills
+    allowed_values with what it saw: a judge's name, a case name, a citation,
+    a description of the value, or the string "null". Extraction would then
+    treat that column as a category and pull every document toward those
+    values. The rule depends on what the column holds (``value_kind``), not on
+    its name:
+    - identifier / free_text: no list;
+    - number: only a numeric constraint ("number", "0-100");
+    - date: only a date constraint ("date", "date:us");
+    - category, or kind unknown: a real list. A single value that is not a
+      constraint is never a category, so it is dropped too.
+    """
+    if not values:
+        return None
+    if isinstance(values, str):
+        values = [values]
+    cleaned = [str(v).strip() for v in values if v is not None and str(v).strip()]
+    if not cleaned:
+        return None
+    kind = normalize_value_kind(value_kind)
+    single = cleaned[0] if len(cleaned) == 1 else None
+    is_number_constraint = single is not None and bool(_NUMBER_CONSTRAINT_RE.match(single))
+    is_date_constraint = single is not None and bool(_DATE_CONSTRAINT_RE.match(single))
+
+    if kind in ("identifier", "free_text"):
+        keep = False
+    elif kind == "number":
+        keep = is_number_constraint
+    elif kind == "date":
+        keep = is_date_constraint
+    else:
+        keep = len(cleaned) > 1 or is_number_constraint or is_date_constraint
+    if not keep:
+        logging.getLogger(__name__).info(
+            "Discovery: dropping allowed_values %r for column %r (value_kind=%s)",
+            cleaned[:3], column_name, kind,
+        )
+        return None
+    return cleaned
+
+
 SCHEMA_DISCOVERY_RESPONSE_SCHEMA = {
     "type": "OBJECT",
     "properties": {
@@ -54,27 +139,16 @@ SCHEMA_DISCOVERY_RESPONSE_SCHEMA = {
                     "name": {"type": "STRING"},
                     "definition": {"type": "STRING"},
                     "rationale": {"type": "STRING"},
+                    "value_kind": {"type": "STRING", "enum": list(VALUE_KINDS)},
                     "allowed_values": {
                         "type": "ARRAY",
                         "items": {"type": "STRING"},
                     },
                 },
+                # The kind is generated before allowed_values, so the list
+                # follows the decision about what the column holds.
+                "propertyOrdering": ["name", "definition", "rationale", "value_kind", "allowed_values"],
                 "required": ["name", "definition"],
-            },
-        },
-        "suggested_value_additions": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "column_name": {"type": "STRING"},
-                    "new_values": {
-                        "type": "ARRAY",
-                        "items": {"type": "STRING"},
-                    },
-                    "reason": {"type": "STRING"},
-                },
-                "required": ["column_name", "new_values"],
             },
         },
     },
@@ -215,7 +289,8 @@ def _parse_schema_from_llm(raw_text: str,
                         name=_clean_column_name(c["name"]),
                         definition=c.get("definition", ""),
                         rationale=c.get("rationale", ""),
-                        allowed_values=[v for v in c.get("allowed_values") if v is not None] or None if c.get("allowed_values") else None
+                        value_kind=normalize_value_kind(c.get("value_kind")),
+                        allowed_values=sanitize_discovered_allowed_values(c.get("allowed_values"), c.get("name"), c.get("value_kind"))
                     )
                     for c in columns_data
                 ]
@@ -228,7 +303,8 @@ def _parse_schema_from_llm(raw_text: str,
                     name=_clean_column_name(c["name"]),
                     definition=c.get("definition", ""),
                     rationale=c.get("rationale", ""),
-                    allowed_values=[v for v in c.get("allowed_values") if v is not None] or None if c.get("allowed_values") else None
+                    value_kind=normalize_value_kind(c.get("value_kind")),
+                    allowed_values=sanitize_discovered_allowed_values(c.get("allowed_values"), c.get("name"), c.get("value_kind"))
                 )
                 for c in payload
             ]
@@ -520,11 +596,38 @@ def generate_schema(
         llm_response, query=query or "", max_keys_schema=max_keys_schema
     )
 
+    _drop_unit_name_lists(schema, observation_unit)
+
     # In QUERY_ONLY mode, there are no documents to assess helpfulness
     if mode == SchemaMode.QUERY_ONLY:
         document_helpful = True  # Not applicable, default to True
 
     return schema, document_helpful, suggested_value_additions, mode
+
+
+def _drop_unit_name_lists(schema: Schema, observation_unit: Optional[ObservationUnit]) -> None:
+    """A list that contains the observation unit's own example names is a list of
+    units (the judges, papers, or proteins the rows are about), not categories.
+
+    Such a column names the row's item, so it is an identifier: clear its list.
+    This catches it even when the model calls it a category because the same
+    names recur across documents.
+    """
+    if observation_unit is None or not observation_unit.example_names:
+        return
+    examples = {str(n).strip().lower() for n in observation_unit.example_names if str(n).strip()}
+    if not examples:
+        return
+    for col in schema.columns:
+        if col.locked or not col.allowed_values:
+            continue
+        if any(str(v).strip().lower() in examples for v in col.allowed_values):
+            logging.getLogger(__name__).info(
+                "Discovery: column %r lists observation-unit names %r; treating it as an identifier",
+                col.name, col.allowed_values[:3],
+            )
+            col.allowed_values = None
+            col.value_kind = "identifier"
 
 
 def _is_partial(col: Column) -> bool:
@@ -616,8 +719,12 @@ def complete_partial_columns(
             col.definition = item["definition"]
         if not col.rationale and item.get("rationale"):
             col.rationale = item["rationale"]
+        if col.value_kind is None:
+            col.value_kind = normalize_value_kind(item.get("value_kind"))
         if col.allowed_values is None and item.get("allowed_values"):
-            avs = [v for v in item["allowed_values"] if v]
+            avs = sanitize_discovered_allowed_values(
+                item["allowed_values"], col.name, col.value_kind
+            )
             if avs:
                 col.allowed_values = avs
 
@@ -873,7 +980,10 @@ def discover_schema(
                 )
             completion_done = True
 
-            proposed, document_helpful, suggested_value_additions, _ = generate_schema(
+            # suggested_value_additions is parsed and ignored. During discovery,
+            # merge can still add labels from later documents to a discovered
+            # column's list; a list the user set (locked column) is kept as is.
+            proposed, document_helpful, _suggested_value_additions, _ = generate_schema(
                 passages, query, max_keys_schema, schema, llm, context_window_size,
                 observation_unit=observation_unit
             )
@@ -904,29 +1014,6 @@ def discover_schema(
             continue
         consecutive_failed_batches = 0
 
-        # Apply suggested value additions to existing schema columns
-        if suggested_value_additions:
-            for suggestion in suggested_value_additions:
-                col_name = suggestion.get("column_name", "")
-                new_values = suggestion.get("new_values", [])
-                reason = suggestion.get("reason", "")
-                if col_name and new_values:
-                    # Find the column in the current schema and add new values
-                    for col in schema.columns:
-                        if col.name.lower() == col_name.lower() and col.allowed_values is not None:
-                            # Only add values that don't already exist
-                            existing_lower = {v.lower() for v in col.allowed_values}
-                            added = []
-                            for val in new_values:
-                                if val.lower() not in existing_lower:
-                                    col.allowed_values.append(val)
-                                    existing_lower.add(val.lower())
-                                    added.append(val)
-                            if added:
-                                logging.info("Iteration %d — Added values %s to column '%s': %s",
-                                           it, added, col_name, reason)
-                            break
-
         # Tag proposed columns with source document info BEFORE merging
         # Use first document in batch as source (representative)
         source_doc = batch_filenames[0] if batch_filenames else "unknown"
@@ -935,7 +1022,7 @@ def discover_schema(
             col.discovery_iteration = it
 
         # Track document contributions
-        if document_helpful and (len(proposed.columns) > 0 or suggested_value_additions):
+        if document_helpful and len(proposed.columns) > 0:
             contributing_files.extend(batch_filenames)
             logging.info("Iteration %d — Helpful documents: %s", it, batch_filenames)
         else:

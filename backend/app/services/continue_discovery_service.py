@@ -759,7 +759,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     name=col.name,
                     definition=col.definition or "",
                     rationale=col.rationale or "",
-                    allowed_values=col.allowed_values
+                    allowed_values=col.allowed_values,
+                    value_kind=getattr(col, "value_kind", None),
                 )
                 schematiq_columns.append(schematiq_col)
 
@@ -786,6 +787,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     "definition": col.definition or "",
                     "rationale": col.rationale or "",
                     "allowed_values": col.allowed_values,
+                    "value_kind": getattr(col, "value_kind", None),
                     "source_document": getattr(col, 'source_document', None),
                     "discovery_iteration": getattr(col, 'discovery_iteration', None)
                 })
@@ -1189,6 +1191,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         definition=col_data.get("definition", ""),
                         rationale=col_data.get("rationale", ""),
                         allowed_values=col_data.get("allowed_values"),
+                        value_kind=col_data.get("value_kind"),
                         source_document=col_data.get("source_document"),
                         discovery_iteration=col_data.get("discovery_iteration")
                     )
@@ -1412,6 +1415,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 definition=col_data.get("definition", ""),
                 rationale=col_data.get("rationale", ""),
                 allowed_values=col_data.get("allowed_values"),
+                value_kind=col_data.get("value_kind"),
                 source_document=col_data.get("source_document"),
                 discovery_iteration=col_data.get("discovery_iteration")
             )

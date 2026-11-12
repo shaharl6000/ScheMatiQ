@@ -415,6 +415,7 @@ export function dataEquals(a: PaginatedData, b: PaginatedData): boolean {
   if (
     a.total_count !== b.total_count
     || a.filtered_count !== b.filtered_count
+    || Boolean(a.data_missing) !== Boolean(b.data_missing)
     || a.rows.length !== b.rows.length
   ) {
     return false;

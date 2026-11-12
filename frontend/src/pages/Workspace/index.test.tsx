@@ -15,6 +15,8 @@ const mockSchematiqGetData = jest.fn();
 const mockLoadGetSession = jest.fn();
 const mockLoadGetData = jest.fn();
 const mockUnitsGetDocuments = jest.fn();
+const mockSchemaPrecheckDocuments = jest.fn();
+const mockSchemaStartReextraction = jest.fn();
 
 jest.mock('@/components/ui/use-toast', () => ({
   useToast: () => ({ toast: mockToast }),
@@ -51,7 +53,11 @@ jest.mock('@/services/api', () => ({
     attachSourceDocuments: jest.fn(),
     getFigureContentUrl: jest.fn(),
   },
-  schemaAPI: {},
+  schemaAPI: {
+    precheckDocuments: (...args: unknown[]) => mockSchemaPrecheckDocuments(...args),
+    startReextraction: (...args: unknown[]) => mockSchemaStartReextraction(...args),
+    stopReextraction: jest.fn(),
+  },
   describeSkippedAttachments: jest.fn(() => ''),
 }));
 
@@ -70,6 +76,7 @@ jest.mock('@/utils/recentProjects', () => ({
 }));
 
 let latestSilentRefresh: (() => void) | null = null;
+let latestEditFollowUp: ((kind: 'schema' | 'unit', columns?: string[]) => void) | null = null;
 
 jest.mock('./SpreadsheetChrome', () => ({
   SpreadsheetChrome: (props: { sessionStatus: string }) => (
@@ -78,9 +85,21 @@ jest.mock('./SpreadsheetChrome', () => ({
 }));
 
 jest.mock('./SpreadsheetSurface', () => ({
-  SpreadsheetSurface: (props: { onRefresh: () => void; sessionMissing?: boolean }) => {
+  SpreadsheetSurface: (props: {
+    onRefresh: () => void;
+    onEditFollowUp?: (kind: 'schema' | 'unit', columns?: string[]) => void;
+    sessionMissing?: boolean;
+    activeSheet?: string;
+  }) => {
     latestSilentRefresh = props.onRefresh;
-    return <div data-testid="surface" data-session-missing={String(Boolean(props.sessionMissing))} />;
+    latestEditFollowUp = props.onEditFollowUp ?? null;
+    return (
+      <div
+        data-testid="surface"
+        data-session-missing={String(Boolean(props.sessionMissing))}
+        data-active-sheet={props.activeSheet ?? ''}
+      />
+    );
   },
 }));
 
@@ -227,6 +246,7 @@ describe('Workspace sessionMode refresh & chromeStatus', () => {
     });
     jest.clearAllMocks();
     latestSilentRefresh = null;
+    latestEditFollowUp = null;
     navigateFn = null;
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -390,5 +410,123 @@ describe('Workspace sessionMode refresh & chromeStatus', () => {
 
     expect(container.querySelector('[data-testid="chrome-status"]')?.textContent).toBe('Project not found');
     expect(container.querySelector('[data-testid="surface"]')?.getAttribute('data-session-missing')).toBe('true');
+  });
+
+  it('shows DataMissingBanner over the data sheet, keeps the schema sheet usable, and re-runs extraction for all schema columns', async () => {
+    const emptyMissingPage: PaginatedData = {
+      rows: [],
+      total_count: 0,
+      page: 0,
+      page_size: 500,
+      has_more: false,
+      data_missing: true,
+    };
+    mockSchematiqGetStatus.mockResolvedValue(mkSchematiqStatus('s-missing'));
+    mockSchematiqGetSchema.mockResolvedValue({
+      query: 'Test query',
+      schema: [
+        { name: 'col1', definition: 'Col 1' },
+        { name: 'col2', definition: 'Col 2' },
+        { name: 'col1_excerpt', definition: 'Excerpt' },
+      ],
+    });
+    mockSchematiqGetData.mockResolvedValue(emptyMissingPage);
+    mockLoadGetSession.mockResolvedValue({
+      ...mkSession('s-missing', 'schematiq'),
+      columns: [
+        { name: 'col1', definition: 'Col 1' },
+        { name: 'col2', definition: 'Col 2' },
+      ],
+    });
+    mockSchemaPrecheckDocuments.mockResolvedValue({
+      total_documents: 2,
+      local_documents: [
+        { name: 'doc1.txt', status: 'local', affected_rows: [] },
+        { name: 'doc2.txt', status: 'local', affected_rows: [] },
+      ],
+      cloud_documents: [],
+      missing_documents: [],
+      can_proceed: true,
+      total_rows: 0,
+      rows_with_missing_docs: 0,
+    });
+    mockSchemaStartReextraction.mockResolvedValue({
+      status: 'started',
+      operation_id: 'op-rebuild',
+      columns: ['col1', 'col2'],
+      estimated_papers: 2,
+      rows_to_process: 2,
+      missing_papers: [],
+    });
+
+    await mountAt('/workspace/s-missing');
+
+    // 1. SpreadsheetSurface stays mounted on the Data sheet and DataMissingBanner renders above it.
+    const surface = container.querySelector('[data-testid="surface"]');
+    expect(surface).not.toBeNull();
+    expect(surface?.getAttribute('data-active-sheet')).toBe('data');
+    expect(surface?.getAttribute('data-session-missing')).toBe('false');
+
+    const banner = container.querySelector('[data-testid="data-missing-banner"]');
+    expect(banner).not.toBeNull();
+    expect(banner?.textContent).toContain('Extracted data is no longer in storage');
+    expect(banner?.textContent).toContain('Re-run extraction');
+
+    // 2. Switching to the Schema sheet hides DataMissingBanner while keeping SpreadsheetSurface mounted on 'schema'.
+    const tabs = Array.from(container.querySelectorAll<HTMLButtonElement>('.workspace-sheet-tab'));
+    const schemaTab = tabs.find((btn) => btn.textContent?.trim() === 'Schema');
+    const dataTab = tabs.find((btn) => btn.textContent?.trim() === 'Data');
+    expect(schemaTab).toBeDefined();
+    expect(dataTab).toBeDefined();
+
+    await act(async () => {
+      schemaTab?.click();
+      await flushPromises();
+    });
+
+    expect(container.querySelector('[data-testid="data-missing-banner"]')).toBeNull();
+    expect(container.querySelector('[data-testid="surface"]')?.getAttribute('data-active-sheet')).toBe('schema');
+
+    // Simulate editing a single column on the Schema sheet before returning to Data.
+    await act(async () => {
+      latestEditFollowUp?.('schema', ['col2']);
+      dataTab?.click();
+      await flushPromises();
+    });
+
+    const bannerAfterReturn = container.querySelector('[data-testid="data-missing-banner"]');
+    expect(bannerAfterReturn).not.toBeNull();
+
+    // 3. Clicking "Re-run extraction" opens the confirm dialog targeting ALL non-excerpt schema columns.
+    const rerunBtn = bannerAfterReturn?.querySelector('button');
+    expect(rerunBtn).not.toBeNull();
+
+    await act(async () => {
+      rerunBtn?.click();
+      await flushPromises();
+    });
+
+    expect(mockSchemaPrecheckDocuments).toHaveBeenCalledWith('s-missing', {
+      operation_type: 'reextraction',
+    });
+    expect(document.body.textContent).toContain('Re-extract values?');
+    expect(document.body.textContent).toContain('Re-extract 2 column(s): col1, col2.');
+
+    const confirmBtn = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find(
+      (btn) => btn.textContent?.trim() === 'Confirm',
+    );
+    expect(confirmBtn).toBeDefined();
+    expect(confirmBtn?.disabled).toBe(false);
+
+    await act(async () => {
+      confirmBtn?.click();
+      await flushPromises();
+    });
+
+    expect(mockSchemaStartReextraction).toHaveBeenCalledWith('s-missing', {
+      columns: ['col1', 'col2'],
+    });
+    // Once re-extraction is running, the data-missing banner hides.
+    expect(container.querySelector('[data-testid="data-missing-banner"]')).toBeNull();
   });
 });
