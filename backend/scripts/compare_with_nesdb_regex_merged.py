@@ -74,7 +74,7 @@ import re
 import statistics
 import sys
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from difflib import SequenceMatcher
 from pathlib import Path
 from urllib.parse import urljoin
@@ -934,7 +934,7 @@ def find_entries(csv_name: str, by_name: dict, entries: list[dict], threshold: f
     exact = by_name.get(norm(csv_name))
     if exact:
         return exact, 1.0
-    scored = [(name_score(csv_name, e), e) for e in entries]
+    scored = [(match_score(csv_name, e), e) for e in entries]
     best = max((s for s, _ in scored), default=0.0)
     if best < threshold:
         return [], best
@@ -947,6 +947,54 @@ def same_name(a: str, b: str) -> bool:
     if not a or not b:
         return False
     return a.replace(" ", "") == b.replace(" ", "") or f" {a} " in f" {b} " or f" {b} " in f" {a} "
+
+
+ROMAN_MEMBER_RE = re.compile(r"(ii|iii|iv)([a-z])?")  # "II", "IIa", "IV"; a lone I or V stays a letter
+GREEK_LETTER = {"alpha": "a", "beta": "b", "gamma": "g", "delta": "d", "epsilon": "e", "zeta": "z", "eta": "h",
+                "theta": "q", "iota": "i", "kappa": "k", "lambda": "l", "mu": "m", "sigma": "s"}
+
+
+def member_marks(name: str) -> Counter:
+    """The numbers and single letters in a name, which pick one member of a family: Roman numerals read as
+    numbers and Greek letters as their Latin letter ('DNA topoisomerase IIa' and 'topoisomerase II alpha' -> 2, a;
+    'Cyclin B1' -> b, 1)."""
+    marks = Counter()
+    for word in norm(name).split():
+        roman = ROMAN_MEMBER_RE.fullmatch(word)
+        if roman:
+            marks[ROMAN[roman.group(1)]] += 1
+            if roman.group(2):
+                marks[GREEK_LETTER.get(roman.group(2), roman.group(2))] += 1
+            continue
+        for part in re.findall(r"[a-z]+|\d+", word):
+            part = GREEK_LETTER.get(part, part)
+            if part.isdigit():
+                marks[part.lstrip("0") or "0"] += 1
+            elif len(part) == 1:
+                marks[part] += 1
+    return marks
+
+
+def member_clash(a: str, b: str) -> bool:
+    """The two names pick different members of one family: each has a number or letter the other lacks
+    (Akt3 / Akt1, SOX8 / SOX9, Cyclin B2 / Cyclin B1, MRTF-B / MRTF-A, B56 epsilon / B56 alpha)."""
+    ours, theirs = member_marks(a), member_marks(b)
+    return bool(ours - theirs) and bool(theirs - ours)
+
+
+def match_score(csv_name: str, entry: dict) -> float:
+    """name_score for matching a row to an entry: spelling similarity only counts against the entry's names that
+    do not name another member of the family, so Akt3 is not matched to Akt1 at 0.75 nor SOX8 to SOX9 at 0.96."""
+    target = norm(csv_name)
+    if not target:
+        return 0.0
+    best = 0.0
+    for n in entry_names(entry):
+        if n == target:
+            return 1.0
+        if not member_clash(target, n):
+            best = max(best, SequenceMatcher(None, target, n).ratio())
+    return best
 
 
 def row_names(row: dict, cols: dict) -> list[str]:
@@ -965,7 +1013,7 @@ def names_agree(names: list[str], entry: dict, args) -> bool:
     entry_raw = [entry.get("full_name", ""), entry.get("name", "")] + re.split(r"[,;]", entry.get("alt_names", ""))
     entry_compact = set().union(*(compact_name(n) for n in entry_raw if has_value(n))) - {""}
     entry_words = [sorted(norm(n).split()) for n in entry_names(entry)]
-    return any(name_score(n, entry) >= args.name_threshold - 0.1 or any(same_name(n, en) for en in entry_names(entry))
+    return any(match_score(n, entry) >= args.name_threshold - 0.1 or any(same_name(n, en) for en in entry_names(entry))
                or compact_name(n) & entry_compact or sorted(norm(n).split()) in entry_words
                for n in names)
 
@@ -987,7 +1035,7 @@ def match_row(row: dict, cols: dict, by_pmid: dict, by_name: dict, entries: list
             prefix_hit = same_name(prefix.replace("_", " "), entry.get("name", "")) or \
                 any(same_name(prefix, n) for n in entry_names(entry))
             for n in names:
-                score = name_score(n, entry)
+                score = match_score(n, entry)
                 if score >= args.name_threshold - 0.1 or any(same_name(n, en) for en in entry_names(entry)) \
                         or (prefix_hit and same_name(n, prefix)):
                     scored.append((max(score, 0.9), entry))
