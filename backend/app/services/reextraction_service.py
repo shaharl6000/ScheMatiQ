@@ -827,44 +827,72 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 if doc_name not in local_papers:
                     local_papers.append(doc_name)
 
-            if session_cloud_dataset:
+            # Only the documents this session actually used are candidates.
+            # A cloud dataset folder can hold far more files than the user
+            # picked (add-cloud-documents downloads request.files only), so
+            # never treat the whole folder as the session's documents.
+            recorded_docs: List[str] = []
+            if session.metadata:
+                recorded_docs = [
+                    name
+                    for name in dict.fromkeys(
+                        list(session.metadata.uploaded_documents or [])
+                        + list((session.metadata.document_metadata or {}).keys())
+                    )
+                    if name
+                ]
+
+            # Recorded names can be the original upload (paper.pdf) or the
+            # converted display name (paper.txt); both refer to one document.
+            unresolved_docs: List[str] = []
+            seen_stems: Set[str] = set()
+            for doc_name in recorded_docs:
+                stem = Path(doc_name).stem
+                if stem in seen_stems:
+                    continue
+                seen_stems.add(stem)
+                if (
+                    doc_name in local_files
+                    or f"{stem}.txt" in local_files
+                    or stem in local_files
+                ):
+                    continue
+                unresolved_docs.append(doc_name)
+
+            folder_files: Set[str] = set()
+            clean_cloud_dataset = None
+            if unresolved_docs and session_cloud_dataset:
                 clean_cloud_dataset = (
                     session_cloud_dataset.replace("datasets/", "", 1)
                     if session_cloud_dataset.startswith("datasets/")
                     else session_cloud_dataset
                 )
                 try:
-                    folder_files = await storage.list_folder_files(
-                        "datasets", clean_cloud_dataset
+                    folder_files = set(
+                        await storage.list_folder_files("datasets", clean_cloud_dataset)
+                        or set()
                     )
                 except Exception as e:
                     logger.debug(
                         "Error listing Supabase folder %s: %s", clean_cloud_dataset, e
                     )
                     folder_files = set()
-                for fname in sorted(folder_files or set()):
-                    if not fname or fname.startswith("."):
-                        continue
-                    if fname not in local_files and Path(fname).stem not in local_files:
-                        cloud_papers[fname] = f"{clean_cloud_dataset}/{fname}"
-            elif session.metadata:
-                recorded_docs = list(
-                    dict.fromkeys(
-                        list(session.metadata.uploaded_documents or [])
-                        + list((session.metadata.document_metadata or {}).keys())
-                    )
+
+            folder_by_stem: Dict[str, str] = {}
+            for fname in sorted(folder_files):
+                if fname and not fname.startswith("."):
+                    folder_by_stem.setdefault(Path(fname).stem, fname)
+
+            for doc_name in unresolved_docs:
+                cloud_name = (
+                    doc_name
+                    if doc_name in folder_files
+                    else folder_by_stem.get(Path(doc_name).stem)
                 )
-                for doc_name in recorded_docs:
-                    if not doc_name:
-                        continue
-                    stem = Path(doc_name).stem
-                    if (
-                        doc_name not in local_files
-                        and f"{stem}.txt" not in local_files
-                        and stem not in local_files
-                        and doc_name not in missing
-                    ):
-                        missing.append(doc_name)
+                if cloud_name and clean_cloud_dataset:
+                    cloud_papers[cloud_name] = f"{clean_cloud_dataset}/{cloud_name}"
+                elif doc_name not in missing:
+                    missing.append(doc_name)
 
             available = list(dict.fromkeys(local_papers + list(cloud_papers.keys())))
             logger.debug(

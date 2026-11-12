@@ -88,10 +88,14 @@ def isolated_dirs(tmp_path, monkeypatch):
 async def test_precheck_discovers_cloud_dataset_when_data_files_missing(
     isolated_dirs, monkeypatch
 ):
-    """When data_files == [] and local disk is empty, cloud_dataset files are discovered."""
+    """When data_files == [] and local disk is empty, recorded cloud docs are discovered."""
     _work_dir, _data_dir = isolated_dirs
     session_id = "sess-cloud-missing-data"
-    session = _make_session(session_id, cloud_dataset="my_dataset")
+    session = _make_session(
+        session_id,
+        cloud_dataset="my_dataset",
+        uploaded_documents=["doc1.txt", "doc2.txt"],
+    )
 
     storage = MockDatasetStorage({"my_dataset": {"doc1.txt", "doc2.txt"}})
     monkeypatch.setattr(
@@ -106,14 +110,105 @@ async def test_precheck_discovers_cloud_dataset_when_data_files_missing(
     assert availability["total_documents"] == 2
     assert availability["local_documents"] == []
     assert availability["missing_documents"] == []
-    assert [d["name"] for d in availability["cloud_documents"]] == [
+    assert sorted(d["name"] for d in availability["cloud_documents"]) == [
         "doc1.txt",
         "doc2.txt",
     ]
-    assert [d["cloud_path"] for d in availability["cloud_documents"]] == [
+    assert sorted(d["cloud_path"] for d in availability["cloud_documents"]) == [
         "my_dataset/doc1.txt",
         "my_dataset/doc2.txt",
     ]
+
+
+def _big_dataset_storage() -> MockDatasetStorage:
+    files = {f"other_{i}.txt" for i in range(50)} | {"picked_a.pdf", "picked_b.txt"}
+    return MockDatasetStorage({"big_dataset": files})
+
+
+@pytest.mark.asyncio
+async def test_discover_papers_uses_only_picked_cloud_docs_after_redeploy(
+    isolated_dirs, monkeypatch
+):
+    """A cloud subset session re-runs on its own docs, not the whole dataset folder."""
+    session_id = "sess-cloud-subset"
+    session = _make_session(
+        session_id,
+        cloud_dataset="big_dataset",
+        # picked_a.pdf was recorded under its converted display name.
+        uploaded_documents=["picked_a.txt", "picked_b.txt"],
+    )
+    storage = _big_dataset_storage()
+    monkeypatch.setattr("app.services.reextraction_service.get_storage", lambda: storage)
+
+    discovery = await _make_service(session).discover_papers(session_id)
+
+    assert discovery["cloud_papers"] == {
+        "picked_a.pdf": "big_dataset/picked_a.pdf",
+        "picked_b.txt": "big_dataset/picked_b.txt",
+    }
+    assert discovery["missing_papers"] == []
+
+
+@pytest.mark.asyncio
+async def test_discover_papers_does_not_add_cloud_docs_when_picked_docs_are_local(
+    isolated_dirs, monkeypatch
+):
+    """First extraction of a cloud subset session uses local docs only."""
+    _work_dir, data_dir = isolated_dirs
+    session_id = "sess-cloud-subset-local"
+    docs_dir = data_dir / session_id / "documents"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "picked_a.txt").write_text("a", encoding="utf-8")
+    (docs_dir / "picked_b.txt").write_text("b", encoding="utf-8")
+    session = _make_session(
+        session_id,
+        cloud_dataset="big_dataset",
+        uploaded_documents=["picked_a.txt", "picked_b.txt"],
+    )
+    storage = _big_dataset_storage()
+    monkeypatch.setattr("app.services.reextraction_service.get_storage", lambda: storage)
+
+    discovery = await _make_service(session).discover_papers(session_id)
+
+    assert sorted(discovery["local_papers"]) == ["picked_a.txt", "picked_b.txt"]
+    assert discovery["cloud_papers"] == {}
+    assert discovery["missing_papers"] == []
+
+
+@pytest.mark.asyncio
+async def test_discover_papers_marks_picked_doc_missing_when_not_in_cloud(
+    isolated_dirs, monkeypatch
+):
+    """A recorded doc absent from disk and from the dataset folder is reported missing."""
+    session_id = "sess-cloud-subset-gone"
+    session = _make_session(
+        session_id,
+        cloud_dataset="big_dataset",
+        uploaded_documents=["picked_b.txt", "removed.txt"],
+    )
+    storage = _big_dataset_storage()
+    monkeypatch.setattr("app.services.reextraction_service.get_storage", lambda: storage)
+
+    discovery = await _make_service(session).discover_papers(session_id)
+
+    assert discovery["cloud_papers"] == {"picked_b.txt": "big_dataset/picked_b.txt"}
+    assert discovery["missing_papers"] == ["removed.txt"]
+
+
+@pytest.mark.asyncio
+async def test_discover_papers_ignores_dataset_folder_without_recorded_docs(
+    isolated_dirs, monkeypatch
+):
+    """With no record of which docs were used, never fall back to the whole folder."""
+    session_id = "sess-cloud-unrecorded"
+    session = _make_session(session_id, cloud_dataset="big_dataset")
+    storage = _big_dataset_storage()
+    monkeypatch.setattr("app.services.reextraction_service.get_storage", lambda: storage)
+
+    discovery = await _make_service(session).discover_papers(session_id)
+
+    assert discovery["cloud_papers"] == {}
+    assert discovery["available_papers"] == []
 
 
 @pytest.mark.asyncio
