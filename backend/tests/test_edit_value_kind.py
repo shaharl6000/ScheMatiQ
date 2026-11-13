@@ -61,6 +61,21 @@ def test_category_to_identifier_clears_the_list(client):
     assert col.allowed_values is None
 
 
+def test_number_and_date_get_their_constraint_so_extraction_enforces_them(client):
+    http, sessions = client
+    assert _edit(http, "judge_name", "number").status_code == 200
+    assert _col(sessions, "judge_name").allowed_values == ["number"]
+    assert _edit(http, "judge_name", "date").status_code == 200
+    assert _col(sessions, "judge_name").allowed_values == ["date"]
+
+
+def test_existing_range_is_kept_when_set_to_number(client):
+    http, sessions = client
+    _col(sessions, "damages").allowed_values = ["0-100"]
+    assert _edit(http, "damages", "number").status_code == 200
+    assert _col(sessions, "damages").allowed_values == ["0-100"]
+
+
 def test_identifier_to_category_keeps_the_column_and_sets_the_kind(client):
     http, sessions = client
     assert _edit(http, "judge_name", "category").status_code == 200
@@ -75,10 +90,10 @@ def test_number_keeps_its_constraint(client):
     assert _col(sessions, "damages").allowed_values == ["number"]
 
 
-def test_category_list_becomes_constraint_free_when_set_to_number(client):
+def test_category_list_is_replaced_by_the_number_constraint(client):
     http, sessions = client
     assert _edit(http, "court_level", "number").status_code == 200
-    assert _col(sessions, "court_level").allowed_values is None
+    assert _col(sessions, "court_level").allowed_values == ["number"]
 
 
 def test_empty_value_clears_the_kind_and_keeps_the_list(client):

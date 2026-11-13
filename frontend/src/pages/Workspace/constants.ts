@@ -18,7 +18,7 @@ export const SCHEMA_COLUMN_HEADER_TOOLTIPS = {
   allowed_values:
     'Optional limits: categories (yes/no), numbers, ranges, or one saved date style per column. Leave empty for plain text.',
   value_kind:
-    'What the column holds: category, identifier, free_text, number, or date. Set by schema discovery; you can change it. Only a category keeps a list of allowed values, so changing to identifier or free_text clears the list.',
+    'What the column holds: category, identifier, free_text, number, or date. Set by schema discovery; you can change it. Only a category keeps a list of allowed values. number and date set the matching constraint in allowed_values, which extraction enforces. identifier and free_text clear the list.',
 } as const;
 
 export const SCHEMA_COLUMN_HEADER_INFO_ICON =

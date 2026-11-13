@@ -102,8 +102,13 @@ def _apply_value_kind(col, raw_kind: str) -> None:
     """Set a column's value_kind from a user edit and keep allowed_values consistent.
 
     Only a category holds a list of allowed values. Changing to identifier or
-    free_text clears the list; number and date keep only a constraint
-    ("number", "0-100", "date:us"); category keeps the list as it is.
+    free_text clears the list; category keeps the list as it is.
+
+    number and date are enforced through allowed_values: extraction shows the
+    constraint to the model and the parser normalizes answers to it (numbers
+    cleaned, ranges clamped, dates reformatted). So a number or date column
+    keeps an existing constraint ("0-100", "date:us") and otherwise gets the
+    plain one, ["number"] or ["date"].
     """
     from schematiq.core.schematiq import (
         VALUE_KINDS,
@@ -123,6 +128,8 @@ def _apply_value_kind(col, raw_kind: str) -> None:
     col.value_kind = kind
     if kind != "category" and col.allowed_values:
         col.allowed_values = sanitize_discovered_allowed_values(col.allowed_values, col.name, kind)
+    if kind in ("number", "date") and not col.allowed_values:
+        col.allowed_values = [kind]
 
 
 @router.put("/edit-column/{session_id}")
