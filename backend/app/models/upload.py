@@ -1,7 +1,7 @@
 """Upload-specific models."""
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 class FileValidationResult(BaseModel):
     """Result of file validation."""
@@ -18,48 +18,3 @@ class ColumnMappingRequest(BaseModel):
     session_id: str
     column_mappings: Dict[str, str]  # original_name -> new_name
     column_types: Dict[str, str]     # column_name -> data_type
-
-class SchemaColumn(BaseModel):
-    """Schema column definition from ScheMatiQ schema."""
-    name: str
-    # Original user-typed label, additive metadata that round-trips alongside the
-    # canonical `name`. Never used as a schema/data key.
-    display_name: Optional[str] = None
-    definition: Optional[str] = None
-    rationale: Optional[str] = None
-
-class ScheMatiQSchemaFormat(BaseModel):
-    """ScheMatiQ schema file format."""
-
-    model_config = {"populate_by_name": True, "serialize_by_alias": True}
-
-    query: Optional[str] = None
-    docs_path: Optional[str] = None
-    backend: Optional[Dict[str, Any]] = None  # Legacy single backend support
-    retriever: Optional[Dict[str, Any]] = None
-    columns: List[SchemaColumn] = Field(..., alias="schema")
-    llm_configuration: Optional[Dict[str, Any]] = None  # New dual LLM config
-
-class SchemaValidationResult(BaseModel):
-    """Result of schema file validation."""
-
-    model_config = {"populate_by_name": True, "serialize_by_alias": True}
-
-    is_valid: bool
-    errors: List[str] = []
-    warnings: List[str] = []
-    detected_columns: List[str] = []
-    query: Optional[str] = None
-    columns: Optional[List[SchemaColumn]] = Field(default=None, alias="schema")
-
-class CompatibilityCheck(BaseModel):
-    """Result of schema-data compatibility check."""
-    is_compatible: bool
-    matching_columns: List[str] = []
-    missing_in_data: List[str] = []  # Columns in schema but not in data
-    extra_in_data: List[str] = []    # Columns in data but not in schema
-    schema_count: int = 0
-    data_count: int = 0
-    compatibility_score: float = 0.0  # Percentage of matching columns
-    detailed_errors: List[str] = []
-    suggestions: List[str] = []
