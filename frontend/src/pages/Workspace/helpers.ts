@@ -270,6 +270,24 @@ export function selectedCellScope(
   };
 }
 
+/**
+ * Stable per-row ids for Data-sheet cell formatting: unit name plus source
+ * document, with an occurrence suffix when the same pair repeats. Grid
+ * position is not used, so a format follows its row through sorting and
+ * filtering.
+ */
+export function dataRowFormatIds(rows: ReadonlyArray<DataRow>): string[] {
+  const seen = new Map<string, number>();
+  return rows.map((row) => {
+    const name = row.row_name || row._unit_name || '';
+    const doc = row._source_document || row._parent_document || row.papers?.[0] || '';
+    const base = !name && !doc && row._row_index != null ? `#${row._row_index}` : `${name}|${doc}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count === 0 ? base : `${base}~${count}`;
+  });
+}
+
 export const getCellFormatClasses = (format?: CellFormat) => {
   if (!format) return '';
   return [

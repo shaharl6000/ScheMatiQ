@@ -70,7 +70,8 @@ import {
   emptyData,
   EMPTY_DATA_RECHECK_MS,
   SHEETS,
-  cellFormatKey,
+  LEGACY_CELL_FORMATS_STORAGE_KEY,
+  cellFormatsStorageKey,
 } from './constants';
 import { DataLoadErrorBanner } from './DataLoadErrorBanner';
 import { DataMissingBanner } from './DataMissingBanner';
@@ -202,16 +203,13 @@ function Workspace() {
       align: 'left',
     };
   });
-  const [cellFormats, setCellFormats] = useState<CellFormatMap>(() => {
-    try {
-      const saved = localStorage.getItem('workspace.cellFormats');
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Ignore malformed local cell formatting preferences.
-    }
-    return {};
-  });
+  // Per-project cell formatting (bold, italic, ...), loaded when the session
+  // changes. See cellFormatsStorageKey.
+  const [cellFormats, setCellFormats] = useState<CellFormatMap>({});
   const [formatVersion, setFormatVersion] = useState(0);
+  // Resolves a visual (selected) cell to its stable format key. Set by
+  // SpreadsheetSurface, which owns the grid's row identity.
+  const cellFormatKeyRef = useRef<((visualRow: number, visualCol: number) => string | null) | null>(null);
   // Undo/redo stack for reversible edits (formatting + cell-value edits),
   // following the Command pattern; each entry owns its inverse and forward.
   const editHistory = useEditHistory();
@@ -960,6 +958,20 @@ function Workspace() {
     setCostEstimate(estimate);
   }, [sessionId, sessionMode, toast]);
 
+  useEffect(() => {
+    let next: CellFormatMap = {};
+    try {
+      localStorage.removeItem(LEGACY_CELL_FORMATS_STORAGE_KEY);
+      const saved = sessionId ? localStorage.getItem(cellFormatsStorageKey(sessionId)) : null;
+      const parsed = saved ? JSON.parse(saved) : null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) next = parsed;
+    } catch {
+      // Ignore malformed or unavailable local formatting.
+    }
+    setCellFormats(next);
+    setFormatVersion((current) => current + 1);
+  }, [sessionId]);
+
   const updateTableDisplay = useCallback((next: TableDisplayOptions) => {
     setTableDisplay(next);
     localStorage.setItem('workspace.tableDisplay', JSON.stringify(next));
@@ -1030,22 +1042,34 @@ function Workspace() {
     // the event handler, not inside a setState updater, so there is no
     // double-run in StrictMode). The patches target only the touched keys, so
     // undo/redo in LIFO order restore exactly what this command changed.
+    const keyFor = cellFormatKeyRef.current;
+    if (!keyFor) return;
+    const storageKey = sessionId ? cellFormatsStorageKey(sessionId) : null;
+    const persist = (formats: CellFormatMap) => {
+      if (!storageKey) return;
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(formats));
+      } catch {
+        // localStorage unavailable (private mode / quota): formats stay in memory.
+      }
+    };
     const [nextFormats, forwardPatches, inversePatches] = produceWithPatches(cellFormats, (draft) => {
       for (let row = activeSelection.fromRow; row <= activeSelection.toRow; row += 1) {
         for (let col = activeSelection.fromCol; col <= activeSelection.toCol; col += 1) {
-          const key = cellFormatKey(activeSheet, row, col);
+          const key = keyFor(row, col);
+          if (!key) continue;
           draft[key] = { ...draft[key], ...patch };
         }
       }
     });
     setCellFormats(nextFormats);
-    localStorage.setItem('workspace.cellFormats', JSON.stringify(nextFormats));
+    persist(nextFormats);
     setFormatVersion((current) => current + 1);
 
     const applyFormatPatches = (patches: typeof forwardPatches) => {
       setCellFormats((cur) => {
         const nextValue = applyPatches(cur, patches);
-        localStorage.setItem('workspace.cellFormats', JSON.stringify(nextValue));
+        persist(nextValue);
         return nextValue;
       });
       setFormatVersion((current) => current + 1);
@@ -1054,11 +1078,12 @@ function Workspace() {
       undo: () => applyFormatPatches(inversePatches),
       redo: () => applyFormatPatches(forwardPatches),
     });
-  }, [activeSheet, cellFormats, editHistory, sheetSelection, tableDisplay, updateTableDisplay]);
+  }, [activeSheet, cellFormats, editHistory, sessionId, sheetSelection, tableDisplay, updateTableDisplay]);
 
   const selectedDisplayOptions = useMemo(() => {
     if (!sheetSelection || sheetSelection.sheet !== activeSheet) return tableDisplay;
-    const selectedFormat = cellFormats[cellFormatKey(activeSheet, sheetSelection.fromRow, sheetSelection.fromCol)];
+    const key = cellFormatKeyRef.current?.(sheetSelection.fromRow, sheetSelection.fromCol);
+    const selectedFormat = key ? cellFormats[key] : undefined;
     return { ...tableDisplay, ...selectedFormat };
   }, [activeSheet, cellFormats, sheetSelection, tableDisplay]);
 
@@ -1407,6 +1432,7 @@ function Workspace() {
         onFillEmptyCells={fillEmptyCells}
         onRetryWrongCells={retryWrongCells}
         applyCellUpdatesRef={applyCellUpdatesRef}
+        cellFormatKeyRef={cellFormatKeyRef}
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}
         sessionMissing={sessionMissing}

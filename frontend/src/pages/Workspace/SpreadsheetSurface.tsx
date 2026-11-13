@@ -34,6 +34,7 @@ import {
   SCHEMA_SPARE_ROW_FIELDS,
   consumeSchemaSpareRowForCreate,
   createEmptySchemaSpareRowState,
+  dataRowFormatIds,
   documentDisplayName,
   emptyCellScope,
   finishSchemaSpareRowCreate,
@@ -84,6 +85,8 @@ const UNGROUNDED_CELL_TOOLTIP =
   'No supporting quote found in the document. This value may come from inference or general knowledge.';
 const OFF_LIST_CELL_TOOLTIP =
   "Not in this column's allowed values. Add it to the list in the Schema sheet, or edit the cell.";
+const CONFIRMED_EMPTY_CELL_TOOLTIP =
+  'The model checked the document and found no value for this cell.';
 
 export function SpreadsheetSurface({
   activeSheet,
@@ -112,6 +115,7 @@ export function SpreadsheetSurface({
   onRedo,
   onRecordEdit,
   applyCellUpdatesRef,
+  cellFormatKeyRef,
   onNewProject,
   onImportProject,
   sessionMissing,
@@ -198,6 +202,10 @@ export function SpreadsheetSurface({
   // (optimistic patch + persist + refresh), so a bulk server-side rewrite
   // (re-extraction, fill-empty-cells) can be undone/redone through it too.
   applyCellUpdatesRef?: MutableRefObject<((updates: CellUpdate[]) => void) | null>;
+  // Filled with a resolver from a visual (selection) cell to its stable
+  // cell-format key, so the parent formats the cell the user sees even when
+  // the grid is sorted or filtered.
+  cellFormatKeyRef?: MutableRefObject<((visualRow: number, visualCol: number) => string | null) | null>;
   // Empty-state actions. Closing the New Project dialog previously left the
   // workbook as a dead end whose only way forward was the File menu, which is
   // itself unreachable on narrow viewports.
@@ -411,7 +419,7 @@ export function SpreadsheetSurface({
   useEffect(() => {
     // Header info icons, plus data cells kept without a supporting excerpt
     // (td.cell-ungrounded, set in cellsCallback), which explain their marker.
-    const INFO_SELECTOR = '.workspace-hot .workspace-col-header-info, .workspace-hot td.cell-ungrounded, .workspace-hot td.cell-off-list';
+    const INFO_SELECTOR = '.workspace-hot .workspace-col-header-info, .workspace-hot td.cell-ungrounded, .workspace-hot td.cell-off-list, .workspace-hot td.cell-confirmed-empty';
     const tooltip = document.createElement('div');
     tooltip.className = 'workspace-hot-tooltip';
     tooltip.setAttribute('role', 'tooltip');
@@ -445,7 +453,8 @@ export function SpreadsheetSurface({
     const show = (icon: HTMLElement) => {
       const text = icon.getAttribute('data-tooltip')
         ?? (icon.matches('td.cell-ungrounded') ? UNGROUNDED_CELL_TOOLTIP : null)
-        ?? (icon.matches('td.cell-off-list') ? OFF_LIST_CELL_TOOLTIP : null);
+        ?? (icon.matches('td.cell-off-list') ? OFF_LIST_CELL_TOOLTIP : null)
+        ?? (icon.matches('td.cell-confirmed-empty') ? CONFIRMED_EMPTY_CELL_TOOLTIP : null);
       if (!text) return;
       activeIcon = icon;
       tooltip.textContent = text;
@@ -1130,6 +1139,31 @@ export function SpreadsheetSurface({
     };
   }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel, schemaColumns, dataView, renderGroupCell]);
 
+  // Stable ids for Data-sheet rows (physical index -> id), used to key cell
+  // formats so they follow the row, not its position in the grid.
+  const dataRowIds = useMemo(() => dataRowFormatIds(data.rows), [data.rows]);
+
+  // Format key for a physical cell. Data rows use their stable id; the small
+  // Schema and Observation Unit sheets keep their row index.
+  const formatKeyAt = useCallback((physicalRow: number, physicalCol: number): string | null => {
+    const column = sheet.columns[physicalCol];
+    if (!column) return null;
+    const rowId = activeSheet === 'data' ? dataRowIds[physicalRow] : String(physicalRow);
+    if (rowId === undefined) return null;
+    return cellFormatKey(activeSheet, rowId, column.key);
+  }, [activeSheet, dataRowIds, sheet.columns]);
+
+  useEffect(() => {
+    if (!cellFormatKeyRef) return;
+    cellFormatKeyRef.current = (visualRow: number, visualCol: number) => {
+      const hot = hotTableRef.current?.hotInstance;
+      const physicalRow = hot && typeof hot.toPhysicalRow === 'function' ? hot.toPhysicalRow(visualRow) : visualRow;
+      const physicalCol = hot && typeof hot.toPhysicalColumn === 'function' ? hot.toPhysicalColumn(visualCol) : visualCol;
+      if (physicalRow == null || physicalRow < 0 || physicalCol == null || physicalCol < 0) return null;
+      return formatKeyAt(physicalRow, physicalCol);
+    };
+  }, [cellFormatKeyRef, formatKeyAt, hotTableRef]);
+
   const cellsCallback = useCallback((row: number, col: number) => {
     const props: { readOnly?: boolean; className?: string } = {};
     const column = sheet.columns[col];
@@ -1138,7 +1172,8 @@ export function SpreadsheetSurface({
       const field = String(sheet.rows[row]?.field || '');
       props.readOnly = !EDITABLE_OBSERVATION_UNIT_FIELDS.has(field);
     }
-    const formatClasses = getCellFormatClasses(cellFormats[cellFormatKey(activeSheet, row, col)]);
+    const formatKey = formatKeyAt(row, col);
+    const formatClasses = formatKey ? getCellFormatClasses(cellFormats[formatKey]) : '';
     if (formatClasses) props.className = formatClasses;
     if (activeSheet === 'data' && column && dataGrounding[row]?.[column.key]) {
       props.className = [props.className, 'has-grounding'].filter(Boolean).join(' ');
@@ -1153,7 +1188,7 @@ export function SpreadsheetSurface({
       props.className = [props.className, 'cell-off-list'].filter(Boolean).join(' ');
     }
     return props;
-  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataUngrounded, sheet]);
+  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataUngrounded, formatKeyAt, sheet]);
 
   const prevFormatVersionRef = useRef(formatVersion);
 

@@ -35,7 +35,14 @@ export const OBSERVATION_UNIT_FIELD_TOOLTIPS: Record<string, string> = {
   example_names:
     'Optional sample row names that illustrate the unit and guide extraction. They are not stored as data.',
 };
-export const cellFormatKey = (sheet: SheetId, row: number, col: number) => `${sheet}:${row}:${col}`;
+// Cell formats are keyed by a stable row id and the column key, not by grid
+// position, so a format stays on its cell through sorting, filtering,
+// regrouping and column changes.
+export const cellFormatKey = (sheet: SheetId, rowId: string, columnKey: string) => `${sheet}:${rowId}:${columnKey}`;
+// Cell formats are stored per project. The legacy global key mixed formats
+// across projects and was indexed by row position; it is removed on load.
+export const LEGACY_CELL_FORMATS_STORAGE_KEY = 'workspace.cellFormats';
+export const cellFormatsStorageKey = (sessionId: string) => `workspace.cellFormats.${sessionId}`;
 export const SHEETS: Array<{ id: SheetId; label: string; group: 'structure' | 'analysis' }> = [
   { id: 'data', label: 'Data', group: 'structure' },
   { id: 'unit', label: 'Observation Unit', group: 'structure' },
