@@ -3,6 +3,8 @@
 Categorical matching is exact up to case, whitespace, and punctuation at the
 ends (#548); anything else is kept as written."""
 
+import pytest
+
 from schematiq.value_extraction.core.json_parser import JSONResponseParser
 
 CITATIONS = [
@@ -94,3 +96,29 @@ def test_leading_decimal_range_is_a_numeric_constraint():
 
     assert is_categorical_allowed_values([".5-1"]) is False
     assert is_categorical_allowed_values(["covid-19"]) is True
+
+
+@pytest.mark.parametrize(
+    "answer, expected",
+    [
+        ("1,234", "1234"),
+        ("$5,000", "5000"),
+        ("12,345,678.9", "12345678.9"),
+        ("\u20aa 3,000", "3000"),
+        ("45%", "45"),
+        ("-2,500", "-2500"),
+    ],
+)
+def test_number_constraint_cleans_separators_and_currency(answer, expected):
+    out, matched, unmatched = _norm(answer, ["number"])
+    assert (out, matched, unmatched) == (expected, True, None)
+
+
+@pytest.mark.parametrize("answer", ["1,5", "about twelve"])
+def test_number_constraint_flags_what_it_cannot_read(answer):
+    out, matched, unmatched = _norm(answer, ["number"])
+    assert (out, matched, unmatched) == (answer, False, answer)
+
+
+def test_range_constraint_reads_thousands_before_clamping():
+    assert _norm("1,500", ["0-100"])[:2] == ("100.0", True)

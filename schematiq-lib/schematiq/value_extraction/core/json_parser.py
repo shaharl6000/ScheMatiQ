@@ -144,6 +144,25 @@ def categorical_match_key(value: str) -> str:
     return text
 
 
+# A number with comma thousands separators: "1,234", "12,345,678.9".
+_THOUSANDS_RE = re.compile(r"^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$")
+
+
+def _clean_number(answer: str) -> str:
+    """Strip what commonly wraps a number so it parses: spaces, a leading
+    currency sign, a trailing percent sign, and comma thousands separators.
+
+    Only the exact thousands pattern loses its commas, so "1,5" (a decimal comma
+    or a list) is left alone and is flagged for review rather than misread.
+    """
+    text = answer.strip()
+    text = text.lstrip("$\u20ac\u00a3\u20aa").strip()  # $ EUR GBP ILS
+    text = text.rstrip("%").strip()
+    if _THOUSANDS_RE.match(text):
+        text = text.replace(",", "")
+    return text
+
+
 class JSONResponseParser:
     """Handles parsing and validation of LLM JSON responses."""
 
@@ -326,8 +345,7 @@ class JSONResponseParser:
 
             # Type constraint: "number" - accepts any numeric value
             if constraint == "number":
-                # Clean the answer (remove common suffixes like %, etc.)
-                clean_answer = answer.strip().rstrip("%").strip()
+                clean_answer = _clean_number(answer)
                 try:
                     float(clean_answer)  # Validates it's numeric
                     return clean_answer, True, None  # Return cleaned value
@@ -338,8 +356,7 @@ class JSONResponseParser:
             range_vals = self._parse_numeric_range(constraint)
             if range_vals is not None:
                 min_val, max_val = range_vals
-                # Clean the answer (remove common suffixes like %, etc.)
-                clean_answer = answer.strip().rstrip("%").strip()
+                clean_answer = _clean_number(answer)
                 try:
                     num_answer = float(clean_answer)
                     # Clamp to range (soft enforcement)
