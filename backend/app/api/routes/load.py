@@ -447,14 +447,6 @@ async def get_session(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
     return session
 
-@router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
-    """Delete a session and its data."""
-    success = session_manager.delete_session(session_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return {"message": "Session deleted successfully"}
-
 @router.get("/export/{session_id}")
 async def export_upload_data(
     session_id: str,
