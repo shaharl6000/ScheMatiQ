@@ -43,6 +43,9 @@ class ColumnEditRequest(BaseModel):
     definition: Optional[str] = None
     rationale: Optional[str] = None
     allowed_values: Optional[List[str]] = None  # Closed set of valid values
+    # What the column holds: category | identifier | free_text | number | date.
+    # "" clears it. Only a category keeps a list of allowed values.
+    value_kind: Optional[str] = None
     reprocess: bool = True
 
 class ColumnAddRequest(BaseModel):
@@ -95,6 +98,33 @@ class ReprocessingStatusResponse(BaseModel):
     estimated_time_remaining: Optional[int] = None
     start_time: Optional[str] = None
 
+def _apply_value_kind(col, raw_kind: str) -> None:
+    """Set a column's value_kind from a user edit and keep allowed_values consistent.
+
+    Only a category holds a list of allowed values. Changing to identifier or
+    free_text clears the list; number and date keep only a constraint
+    ("number", "0-100", "date:us"); category keeps the list as it is.
+    """
+    from schematiq.core.schematiq import (
+        VALUE_KINDS,
+        normalize_value_kind,
+        sanitize_discovered_allowed_values,
+    )
+
+    if not raw_kind.strip():
+        col.value_kind = None
+        return
+    kind = normalize_value_kind(raw_kind)
+    if kind is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"value_kind must be one of {', '.join(VALUE_KINDS)}",
+        )
+    col.value_kind = kind
+    if kind != "category" and col.allowed_values:
+        col.allowed_values = sanitize_discovered_allowed_values(col.allowed_values, col.name, kind)
+
+
 @router.put("/edit-column/{session_id}")
 async def edit_column(
     session_id: str,
@@ -141,6 +171,8 @@ async def edit_column(
                 if edit_request.allowed_values is not None:
                     # Empty list means clear allowed_values, otherwise set the list
                     col.allowed_values = edit_request.allowed_values if edit_request.allowed_values else None
+                if edit_request.value_kind is not None:
+                    _apply_value_kind(col, edit_request.value_kind)
                 column_found = True
                 break
 
@@ -157,6 +189,7 @@ async def edit_column(
                 "definition_changed": edit_request.definition is not None,
                 "rationale_changed": edit_request.rationale is not None,
                 "allowed_values_changed": edit_request.allowed_values is not None,
+                "value_kind_changed": edit_request.value_kind is not None,
             }
         )
         session.modification_history.append(modification)

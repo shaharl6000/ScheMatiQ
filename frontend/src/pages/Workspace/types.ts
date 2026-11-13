@@ -58,6 +58,9 @@ export type SheetColumn = {
   width?: number;
   readOnly?: boolean;
   headerTooltip?: string;
+  // Optional dropdown editor: the cell picks one of `source`.
+  type?: 'dropdown';
+  source?: string[];
   // Optional Handsontable cell renderer (used for the observation-unit `field`
   // column, where the meaningful concepts live in the rows rather than the
   // headers). Typed loosely to avoid importing Handsontable's renderer types.

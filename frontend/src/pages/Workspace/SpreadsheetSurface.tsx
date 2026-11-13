@@ -83,6 +83,7 @@ const sanitizeCellHtml = (content: string): string => DOMPurify.sanitize(content
 
 const UNGROUNDED_CELL_TOOLTIP =
   'No supporting quote found in the document. This value may come from inference or general knowledge.';
+const VALUE_KIND_OPTIONS = ['category', 'identifier', 'free_text', 'number', 'date'] as const;
 const OFF_LIST_CELL_TOOLTIP =
   "Not in this column's allowed values. Add it to the list in the Schema sheet, or edit the cell.";
 const CONFIRMED_EMPTY_CELL_TOOLTIP =
@@ -1089,7 +1090,8 @@ export function SpreadsheetSurface({
             key: 'value_kind',
             label: 'value_kind',
             width: 120,
-            readOnly: true,
+            type: 'dropdown',
+            source: [...VALUE_KIND_OPTIONS],
             headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.value_kind,
           },
         ],
@@ -1172,6 +1174,11 @@ export function SpreadsheetSurface({
       const field = String(sheet.rows[row]?.field || '');
       props.readOnly = !EDITABLE_OBSERVATION_UNIT_FIELDS.has(field);
     }
+    // A new column (the spare row) gets its kind from the next discovery or an
+    // edit after it exists; its value_kind cell is not editable yet.
+    if (activeSheet === 'schema' && column?.key === 'value_kind' && !schemaColumns[row]) {
+      props.readOnly = true;
+    }
     const formatKey = formatKeyAt(row, col);
     const formatClasses = formatKey ? getCellFormatClasses(cellFormats[formatKey]) : '';
     if (formatClasses) props.className = formatClasses;
@@ -1188,7 +1195,7 @@ export function SpreadsheetSurface({
       props.className = [props.className, 'cell-off-list'].filter(Boolean).join(' ');
     }
     return props;
-  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataUngrounded, formatKeyAt, sheet]);
+  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataUngrounded, formatKeyAt, schemaColumns, sheet]);
 
   const prevFormatVersionRef = useRef(formatVersion);
 
@@ -1503,7 +1510,7 @@ export function SpreadsheetSurface({
 
       if (activeSheet === 'schema') {
         const existing = schemaColumns[rowIndex];
-        const editable = ['name', 'definition', 'rationale', 'allowed_values'];
+        const editable = ['name', 'definition', 'rationale', 'allowed_values', 'value_kind'];
         if (!editable.includes(key)) continue;
 
         if (!existing && key === 'name' && String(newValue || '').trim()) {
@@ -1588,6 +1595,12 @@ export function SpreadsheetSurface({
           // Emptying the cell intentionally clears allowed_values; send [] so the
           // backend distinguishes "cleared" from "unchanged" (undefined is dropped by axios).
           request.allowed_values = parseAllowedValues(newValue) ?? [];
+        }
+        if (key === 'value_kind') {
+          // "" clears the kind. The backend keeps allowed_values consistent with
+          // the new kind (only a category keeps a list); the follow-up below
+          // offers to re-extract the column.
+          request.value_kind = String(newValue || '');
         }
 
         const affectedColumn = key === 'name' ? String(newValue || '').trim() : existing.name;
@@ -2155,6 +2168,9 @@ export function SpreadsheetSurface({
           readOnly: column.readOnly,
           width: column.width,
           ...(column.renderer ? { renderer: column.renderer } : {}),
+          ...(column.type === 'dropdown'
+            ? { type: 'dropdown', source: column.source, strict: true, allowInvalid: false }
+            : {}),
         }))}
         colHeaders={sheet.columns.map(formatSheetColHeader)}
         rowHeaders
