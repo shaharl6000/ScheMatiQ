@@ -128,6 +128,15 @@ export const LLM_MODELS: LLMModelDefinition[] = [
     contextWindow: 1000000,
   },
   {
+    id: 'gemini-4-hydrogen',
+    provider: 'gemini',
+    label: 'Gemini 4 Hydrogen',
+    description: 'Fast Gemini 4 model, successor to 3.8 Flash',
+    cost: 'medium',
+    speed: 'very_fast',
+    contextWindow: 1048576,
+  },
+  {
     id: 'gemini-3.5-flash',
     provider: 'gemini',
     label: 'Gemini 3.5 Flash',

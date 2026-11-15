@@ -60,6 +60,7 @@ class ModelNames:
     GEMINI_36_FLASH = "gemini-3.6-flash"
     GEMINI_37_FLASH = "gemini-3.7-flash"
     GEMINI_38_FLASH = "gemini-3.8-flash"
+    GEMINI_4_HYDROGEN = "gemini-4-hydrogen"
     GEMINI_31_PRO_PREVIEW = "gemini-3.1-pro-preview"
     GEMINI_15_FLASH = "gemini-1.5-flash"
 
@@ -129,6 +130,14 @@ MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
             1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
             supports_sampling_params=False,
             allowed_thinking_levels=("low", "medium", "high"),
+            fallback_thinking_level="medium",
+        ),
+        # Gemini 4 Hydrogen: 1M unified window, 64K default output cap.
+        # Levels low/medium/high (server default)/xhigh.
+        ModelNames.GEMINI_4_HYDROGEN: ModelSpec(
+            1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True,
+            supports_sampling_params=False,
+            allowed_thinking_levels=("low", "medium", "high", "xhigh"),
             fallback_thinking_level="medium",
         ),
         ModelNames.GEMINI_35_FLASH_LITE: ModelSpec(
