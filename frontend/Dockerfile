@@ -40,6 +40,11 @@ RUN printf 'server {\n\
     listen 8080;\n\
     root /usr/share/nginx/html;\n\
     index index.html;\n\
+    # Security headers (OWASP Secure Headers Project). always keeps them on error responses too.\n\
+    add_header X-Content-Type-Options "nosniff" always;\n\
+    add_header Content-Security-Policy "frame-ancestors \047none\047" always;\n\
+    add_header X-Frame-Options "DENY" always;\n\
+    add_header Referrer-Policy "no-referrer" always;\n\
     location / {\n\
         try_files $uri $uri/ /index.html;\n\
     }\n\
