@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <link rel="icon" type="image/png" href="%PUBLIC_URL%/icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Project URLs (/workspace/:sessionId) grant access, so never leak them via Referer. -->
+    <meta name="referrer" content="no-referrer" />
     <meta name="theme-color" content="#3b82f6" />
     <meta
       name="description"
