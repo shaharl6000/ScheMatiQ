@@ -92,6 +92,11 @@
             {"from": "2027-01-01", "input": 1.50, "output": 7.50, "cached_input": 0.15, "cache_storage_per_hour": 1.00}
           ]
         },
+        "gemini-4-hydrogen": {
+          "input": 1.50,
+          "output": 7.50,
+          "context_window": 1048576
+        },
         "gemini-3.5-flash-lite": {
           "input": 0.30,
           "output": 2.50,
