@@ -1662,6 +1662,25 @@ def main(argv=None):
     pr_rows = []
     print("\nPrecision / recall per column (cells NESdb has a value for; empty CSV cells count only against recall)")
     for col in mapping:
+        if mapping[col] in ("mutations", "mutations_export", "mutations_crm1"):
+            # Mutations are counted per mutation, per NES: the mutations all rows of the NES give, pooled.
+            # TRUE = a mutation NESdb lists for the NES, FALSE = one NESdb doesn't list, Empty = NESdb's
+            # mutations no row gave.
+            expected, given = {}, defaultdict(set)
+            for i, best in enumerate(row_results):
+                if not best or best[2][col][1] not in (True, False):
+                    continue
+                expected[best[1]["nes_id"]] = mutation_set(best[2][col][0])
+                given[best[1]["nes_id"]] |= mutation_set(rows[i][col])
+            tp = sum(len(given[n] & e) for n, e in expected.items())
+            fp = sum(len(given[n] - e) for n, e in expected.items())
+            missed = sum(len(e - given[n]) for n, e in expected.items())
+            pr_rows.append(["Column", col, mapping[col], tp, fp, missed, ratio(tp, tp + fp), ratio(tp, tp + missed),
+                            f1(tp, tp + fp, tp + missed),
+                            f"per mutation, over {len(expected)} NES (rows of an NES pooled); Empty = NESdb mutations missed", ""])
+            print(f"  {col}: precision {ratio(tp, tp + fp) or '-'}, recall {ratio(tp, tp + missed) or '-'}"
+                  f" (per mutation over {len(expected)} NES: TRUE {tp}, FALSE {fp}, missed {missed})")
+            continue
         tp = fp = empty = by_llm = 0
         for i, best in enumerate(row_results):
             if not best or best[2][col][1] not in (True, False):
