@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 from pathlib import Path
@@ -240,14 +241,14 @@ def test_embedding_retriever_respects_overlap_words_and_build_retriever_aliases(
 
     monkeypatch.setattr(embedding_model, "load_sentence_transformer", lambda *_a, **_kw: _FakeST())
 
-    # Long single-sentence text (> 128 words, since max_words_chunk = max(int(max_words/k), 128) >= 128)
+    # Explicit passage_words sets max_words_chunk directly (no division by k, no 128 floor)
     long_doc = " ".join(f"word{i}" for i in range(400))
 
     r_no_overlap = core_utils.build_retriever(
         {
             "type": "embedding",
             "model_name": "custom-model",
-            "passage_words": 256,
+            "passage_words": 128,
             "overlap": 0,
             "k": 2,
             "enable_dynamic_k": True,
@@ -257,24 +258,45 @@ def test_embedding_retriever_respects_overlap_words_and_build_retriever_aliases(
     )
     assert isinstance(r_no_overlap, EmbeddingRetriever)
     assert r_no_overlap.model_name == "custom-model"
-    assert r_no_overlap.max_words == 256
+    assert r_no_overlap.passage_words == 128
+    assert r_no_overlap.max_words_chunk == 128
     assert r_no_overlap.overlap_words == 0
     assert r_no_overlap.k == 2
     assert r_no_overlap.enable_dynamic_k is True
     assert r_no_overlap.dynamic_k_threshold == 0.7
     assert r_no_overlap.dynamic_k_minimum == 1
 
-    # Legacy passage_chars alias continues to map to max_words
-    r_legacy_alias = core_utils.build_retriever(
-        {"type": "embedding", "model_name": "custom-model", "passage_chars": 384, "k": 2}
+    # Values below 128 (e.g. 64) and large values (e.g. 256 with k=10) are honored directly
+    r_small = core_utils.build_retriever(
+        {"type": "embedding", "model_name": "custom-model", "passage_words": 64, "overlap": 0, "k": 10}
     )
-    assert r_legacy_alias.max_words == 384
+    assert r_small.passage_words == 64
+    assert r_small.max_words_chunk == 64
+
+    r_direct = core_utils.build_retriever(
+        {"type": "embedding", "model_name": "custom-model", "passage_words": 256, "k": 10}
+    )
+    assert r_direct.passage_words == 256
+    assert r_direct.max_words_chunk == 256
+
+    # Legacy max_words / passage_chars convert using max(int(value / k), 128)
+    r_legacy_budget = core_utils.build_retriever(
+        {"type": "embedding", "model_name": "custom-model", "max_words": 600, "k": 3}
+    )
+    assert r_legacy_budget.passage_words == 200
+    assert r_legacy_budget.max_words_chunk == 200
+
+    r_legacy_chars = core_utils.build_retriever(
+        {"type": "embedding", "model_name": "custom-model", "passage_chars": 512, "k": 15}
+    )
+    assert r_legacy_chars.passage_words == 128
+    assert r_legacy_chars.max_words_chunk == 128
 
     r_with_overlap = core_utils.build_retriever(
         {
             "type": "embedding",
             "model_name": "custom-model",
-            "passage_words": 256,
+            "passage_words": 128,
             "overlap": 96,
             "k": 2,
         }
@@ -283,29 +305,31 @@ def test_embedding_retriever_respects_overlap_words_and_build_retriever_aliases(
 
     r_no_overlap.preprocessor = None
     r_with_overlap.preprocessor = None
+    r_small.preprocessor = None
 
-    captured: Dict[str, List[int]] = {"no_overlap": [], "with_overlap": []}
+    captured: Dict[str, List[int]] = {"no_overlap": [], "with_overlap": [], "small": []}
     orig_chunk = EmbeddingRetriever._improved_chunk
 
-    def _spy_chunk_no(self, doc, **kw):
-        res = orig_chunk(self, doc, **kw)
-        captured["no_overlap"].append(len(res))
-        return res
+    def _spy(bucket: str):
+        def _fn(self, doc, **kw):
+            res = orig_chunk(self, doc, **kw)
+            captured[bucket].append(len(res))
+            return res
+        return _fn
 
-    def _spy_chunk_yes(self, doc, **kw):
-        res = orig_chunk(self, doc, **kw)
-        captured["with_overlap"].append(len(res))
-        return res
-
-    monkeypatch.setattr(r_no_overlap, "_improved_chunk", _spy_chunk_no.__get__(r_no_overlap))
-    monkeypatch.setattr(r_with_overlap, "_improved_chunk", _spy_chunk_yes.__get__(r_with_overlap))
+    monkeypatch.setattr(r_no_overlap, "_improved_chunk", _spy("no_overlap").__get__(r_no_overlap))
+    monkeypatch.setattr(r_with_overlap, "_improved_chunk", _spy("with_overlap").__get__(r_with_overlap))
+    monkeypatch.setattr(r_small, "_improved_chunk", _spy("small").__get__(r_small))
 
     r_no_overlap.query([long_doc], "query")
     r_with_overlap.query([long_doc], "query")
+    r_small.query([long_doc], "query")
 
     # 400 words in 128-word windows: step=128 -> 4 chunks; step=128-96=32 -> 13 chunks
+    # 400 words in 64-word windows: step=64 -> 7 chunks
     assert captured["no_overlap"] == [4]
     assert captured["with_overlap"] == [13]
+    assert captured["small"] == [7]
 
 
 def test_embedding_retriever_reuses_injected_model_without_loading(
@@ -318,7 +342,7 @@ def test_embedding_retriever_reuses_injected_model_without_loading(
     retriever = EmbeddingRetriever(
         model_name="all-MiniLM-L6-v2",
         k=7,
-        max_words=640,
+        passage_words=200,
         overlap_words=32,
         enable_preprocessing=False,
         model=shared_model,
@@ -326,4 +350,80 @@ def test_embedding_retriever_reuses_injected_model_without_loading(
     assert retriever.model is shared_model
     assert retriever.is_cross_encoder is False
     assert retriever.k == 7
+    assert retriever.passage_words == 200
+    assert retriever.max_words_chunk == 200
     load_spy.assert_not_called()
+
+
+def test_default_and_legacy_retriever_equivalence_with_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default passage_words=128 and legacy max(budget/k, 128) match origin/main passages."""
+
+    class _DeterministicFakeST:
+        device = "cpu"
+
+        def encode(self, texts, **_kwargs):
+            vecs = []
+            for t in texts:
+                digest = hashlib.sha256(t.encode("utf-8")).digest()
+                arr = np.frombuffer(digest, dtype=np.uint8).astype(np.float32)[:16] - 128.0
+                arr = arr / (np.linalg.norm(arr) + 1e-8)
+                vecs.append(arr)
+            return np.stack(vecs, axis=0)
+
+    monkeypatch.setattr(
+        embedding_model, "load_sentence_transformer", lambda *_a, **_kw: _DeterministicFakeST()
+    )
+
+    fixed_doc = "\n\n".join(
+        [
+            "# Introduction\n"
+            + " ".join(
+                f"intro_word_{i} clinical study cohort baseline." if i % 12 == 0 else f"intro_{i}"
+                for i in range(180)
+            ),
+            "# Methods\n"
+            + " ".join(
+                f"method_word_{i} randomized trial dosage protocol." if i % 10 == 0 else f"method_{i}"
+                for i in range(190)
+            ),
+            "# Results\n"
+            + " ".join(
+                f"result_word_{i} primary endpoint p_value outcome." if i % 11 == 0 else f"result_{i}"
+                for i in range(185)
+            ),
+        ]
+    )
+    question = "What was the primary endpoint outcome in the randomized trial?"
+
+    # 1. Default build_retriever({}) -> k=15, passage_words=128 matches main (max_words=512, k=15 -> 128)
+    r_default = core_utils.build_retriever({})
+    assert r_default.passage_words == 128
+    assert r_default.max_words_chunk == 128
+    default_passages = r_default.query([fixed_doc], question)
+    assert len(default_passages) == 13
+    assert (
+        hashlib.sha256(json.dumps(default_passages).encode("utf-8")).hexdigest()
+        == "8ae0a716dd64f7d88dc10c0a70935165a0866a84a837746e2c03e01cb096b8ca"
+    )
+
+    # 2. Legacy max_words=600 / passage_chars=600 with k=3 converts to 200 words/passage, matching main
+    r_legacy_mw = core_utils.build_retriever(
+        {"max_words": 600, "k": 3, "enable_dynamic_k": False}
+    )
+    r_legacy_pc = core_utils.build_retriever(
+        {"passage_chars": 600, "k": 3, "enable_dynamic_k": False}
+    )
+    r_direct_200 = core_utils.build_retriever(
+        {"passage_words": 200, "k": 3, "enable_dynamic_k": False}
+    )
+    legacy_mw_passages = r_legacy_mw.query([fixed_doc], question)
+    legacy_pc_passages = r_legacy_pc.query([fixed_doc], question)
+    direct_passages = r_direct_200.query([fixed_doc], question)
+    assert legacy_mw_passages == legacy_pc_passages == direct_passages
+    assert [len(p.split()) for p in legacy_mw_passages] == [51, 199, 53]
+    assert (
+        hashlib.sha256(json.dumps(legacy_mw_passages).encode("utf-8")).hexdigest()
+        == "db58df69f754cc21f7836ce6a00ae6dc6b7d16d5e589f403cf94fc7e123f204a"
+    )

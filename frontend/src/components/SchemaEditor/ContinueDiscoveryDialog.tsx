@@ -946,16 +946,17 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Passage Words</Label>
+                <Label className="text-xs">Passage size (words)</Label>
                 <Input
                   type="number"
                   value={retrieverConfig.passage_words}
                   onChange={(e) => setRetrieverConfig({...retrieverConfig, passage_words: e.target.value})}
-                  placeholder="512"
-                  min={128}
-                  max={2048}
+                  placeholder="128"
+                  min={64}
+                  max={1024}
                   className="h-8 text-sm"
                 />
+                <p className="text-xs text-muted-foreground">Words per chunk when splitting documents.</p>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Retrieval K</Label>

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
 import app.services as services_mod
@@ -42,6 +44,7 @@ class _FakeEmbeddingRetriever:
         self.model_name = kwargs.get("model_name", "all-MiniLM-L6-v2")
         self.model = kwargs.get("model", SimpleNamespace(model_name=self.model_name))
         self.k = kwargs.get("k")
+        self.passage_words = kwargs.get("passage_words")
         self.max_words = kwargs.get("max_words")
         self.overlap_words = kwargs.get("overlap_words")
         self.enable_dynamic_k = kwargs.get("enable_dynamic_k")
@@ -82,7 +85,7 @@ def test_get_shared_retriever_caches_per_config_and_forwards_all_fields(
     assert r_none.init_kwargs == {
         "model_name": "all-MiniLM-L6-v2",
         "k": 15,
-        "max_words": 512,
+        "passage_words": 128,
         "overlap_words": 64,
         "enable_dynamic_k": True,
         "dynamic_k_threshold": 0.65,
@@ -103,7 +106,7 @@ def test_get_shared_retriever_caches_per_config_and_forwards_all_fields(
 
     # Each differing parameter creates its own cached instance while repeating reuses it
     variants = [
-        {"passage_words": 1024},
+        {"passage_words": 256},
         {"overlap": 128},
         {"k": 20},
         {"enable_dynamic_k": False},
@@ -117,11 +120,16 @@ def test_get_shared_retriever_caches_per_config_and_forwards_all_fields(
         assert inst_a is not r_none
         assert len(created) == idx
 
-    # Legacy passage_chars / max_words / overlap_words aliases map cleanly to passage_words / overlap
-    r_words_target = services_mod.get_shared_retriever({"passage_words": 1024})
-    assert services_mod.get_shared_retriever({"max_words": 1024}) is r_words_target
-    assert services_mod.get_shared_retriever({"passage_chars": 1024}) is r_words_target
-    assert RetrieverConfig(passage_chars=768).passage_words == 768
+    # Legacy passage_chars / max_words / overlap_words convert using max(int(value / k), 128)
+    r_300_k4 = services_mod.get_shared_retriever({"passage_words": 300, "k": 4})
+    assert services_mod.get_shared_retriever({"max_words": 1200, "k": 4}) is r_300_k4
+    assert services_mod.get_shared_retriever({"passage_chars": 1200, "k": 4}) is r_300_k4
+    assert RetrieverConfig(passage_chars=1200, k=4).passage_words == 300
+    # Values at or below 128 * k floor at 128 (e.g. default budget 512 at k=15 -> 128)
+    assert RetrieverConfig(passage_chars=512, k=15).passage_words == 128
+    assert services_mod.get_shared_retriever({"passage_chars": 512}) is r_none
+    # Explicit passage_words below 128 is preserved (no forced 128 floor)
+    assert RetrieverConfig(passage_words=64).passage_words == 64
 
 
 def test_get_shared_retriever_rejects_non_embedding_type() -> None:
@@ -189,6 +197,79 @@ def test_shared_retriever_lru_bound_evicts_wrappers_without_reloading_model(
     assert r1_rebuilt.model is r4.model
     assert len(services_mod._shared_retrievers) == 3
     assert len(load_calls) == 1
+
+
+def test_get_shared_retriever_default_and_legacy_equivalence_with_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default get_shared_retriever() and saved legacy configs retrieve identical passages as main."""
+    from app.models.schematiq import LLMConfig, ScheMatiQConfig
+
+    class _DeterministicFakeST:
+        device = "cpu"
+
+        def encode(self, texts, **_kw):
+            vecs = []
+            for t in texts:
+                digest = hashlib.sha256(t.encode("utf-8")).digest()
+                arr = np.frombuffer(digest, dtype=np.uint8).astype(np.float32)[:16] - 128.0
+                arr = arr / (np.linalg.norm(arr) + 1e-8)
+                vecs.append(arr)
+            return np.stack(vecs, axis=0)
+
+    monkeypatch.setattr(
+        embedding_model, "load_sentence_transformer", lambda *_a, **_kw: _DeterministicFakeST()
+    )
+
+    fixed_doc = "\n\n".join(
+        [
+            "# Introduction\n"
+            + " ".join(
+                f"intro_word_{i} clinical study cohort baseline." if i % 12 == 0 else f"intro_{i}"
+                for i in range(180)
+            ),
+            "# Methods\n"
+            + " ".join(
+                f"method_word_{i} randomized trial dosage protocol." if i % 10 == 0 else f"method_{i}"
+                for i in range(190)
+            ),
+            "# Results\n"
+            + " ".join(
+                f"result_word_{i} primary endpoint p_value outcome." if i % 11 == 0 else f"result_{i}"
+                for i in range(185)
+            ),
+        ]
+    )
+    question = "What was the primary endpoint outcome in the randomized trial?"
+
+    # 1. Default get_shared_retriever() retrieves identical passages to main's shared retriever
+    r_default = services_mod.get_shared_retriever()
+    assert r_default.passage_words == 128
+    assert r_default.max_words_chunk == 128
+    default_passages = r_default.query([fixed_doc], question)
+    assert len(default_passages) == 3
+    assert (
+        hashlib.sha256(json.dumps(default_passages).encode("utf-8")).hexdigest()
+        == "2d76bc73dcfbdf524c1a6bf0d010597b1bbecbd98e049fcbaae9ae51ea096d1a"
+    )
+
+    # 2. Legacy saved ScheMatiQConfig with passage_chars=600, k=3 converts to passage_words=200
+    saved_cfg = ScheMatiQConfig(
+        query="q",
+        schema_creation_backend=LLMConfig(provider="openai", model="fake"),
+        value_extraction_backend=LLMConfig(provider="openai", model="fake"),
+        retriever={"passage_chars": 600, "k": 3, "enable_dynamic_k": False},
+        output_path="out.json",
+    )
+    assert saved_cfg.retriever is not None
+    assert saved_cfg.retriever.passage_words == 200
+    r_legacy = services_mod.get_shared_retriever(saved_cfg.retriever)
+    legacy_passages = r_legacy.query([fixed_doc], question)
+    assert [len(p.split()) for p in legacy_passages] == [51, 199, 53]
+    assert (
+        hashlib.sha256(json.dumps(legacy_passages).encode("utf-8")).hexdigest()
+        == "db58df69f754cc21f7836ce6a00ae6dc6b7d16d5e589f403cf94fc7e123f204a"
+    )
 
 
 @pytest.mark.asyncio

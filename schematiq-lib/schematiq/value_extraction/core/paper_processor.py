@@ -991,7 +991,7 @@ class PaperProcessor:
                 "type": "embedding",
                 "model_name": "all-MiniLM-L6-v2",  # Fast, lightweight model
                 "k": 8,  # Default retrieval count
-                "max_words": 512,
+                "passage_words": 128,
                 "batch_size": 32,
                 "enable_dynamic_k": True,
                 "dynamic_k_threshold": 0.65,

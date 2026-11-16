@@ -69,7 +69,7 @@ export interface AdvancedSettingsValue {
 /** Backend retriever defaults (mirror backend RetrieverConfig pydantic model). */
 export const RETRIEVER_DEFAULTS = {
   model_name: 'all-MiniLM-L6-v2',
-  passage_words: 512,
+  passage_words: 128,
   overlap: 64,
   k: 15,
   dynamic_k_threshold: 0.65,
@@ -465,14 +465,15 @@ export function AdvancedSettingsFields({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <Label className="text-xs">Passage Words</Label>
+                  <Label className="text-xs">Passage size (words)</Label>
                   <Input
                     type="number"
-                    min={128}
-                    max={2048}
+                    min={64}
+                    max={1024}
                     value={value.retrieverPassageWords}
                     onChange={(e) => onChange({ retrieverPassageWords: parseInt(e.target.value, 10) || RETRIEVER_DEFAULTS.passage_words })}
                   />
+                  <p className="text-xs text-muted-foreground">Words per chunk when splitting documents.</p>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Overlap</Label>

@@ -153,12 +153,11 @@ def _normalize_retriever_config(
         data = retriever_config.model_dump()
     elif isinstance(retriever_config, Mapping):
         raw = {k: v for k, v in retriever_config.items() if v is not None}
-        for alias in ("max_words", "passage_chars"):
-            if alias in raw and "passage_words" not in raw:
-                raw["passage_words"] = raw.pop(alias)
-        if "overlap_words" in raw and "overlap" not in raw:
-            raw["overlap"] = raw.pop("overlap_words")
-        allowed_fields = set(RetrieverConfig.model_fields)
+        allowed_fields = set(RetrieverConfig.model_fields) | {
+            "passage_chars",
+            "max_words",
+            "overlap_words",
+        }
         data = {k: v for k, v in raw.items() if k in allowed_fields}
     elif retriever_config is None:
         data = {}
@@ -222,7 +221,7 @@ def get_shared_retriever(
 
         logger.info(
             "[retriever] %s EmbeddingRetriever "
-            "(model=%s, k=%s, max_words=%s, overlap=%s, dynamic_k=%s)",
+            "(model=%s, k=%s, passage_words=%s, overlap=%s, dynamic_k=%s)",
             "Creating" if shared_model is not None else "Loading",
             cfg.model_name,
             cfg.k,
@@ -233,7 +232,7 @@ def get_shared_retriever(
         init_kwargs: Dict[str, Any] = {
             "model_name": cfg.model_name,
             "k": cfg.k,
-            "max_words": cfg.passage_words,
+            "passage_words": cfg.passage_words,
             "overlap_words": cfg.overlap,
             "enable_dynamic_k": cfg.enable_dynamic_k,
             "dynamic_k_threshold": cfg.dynamic_k_threshold,

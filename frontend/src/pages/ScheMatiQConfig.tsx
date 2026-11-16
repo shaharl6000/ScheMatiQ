@@ -75,6 +75,19 @@ const DEFAULT_CONFIG: ScheMatiQConfig = {
   skip_value_extraction: false,
 };
 
+function normalizeRestoredRetriever(ret?: RetrieverConfig): RetrieverConfig | undefined {
+  if (!ret) return undefined;
+  if (ret.passage_words === undefined && ret.passage_chars !== undefined) {
+    const { passage_chars, ...rest } = ret;
+    const effectiveK = Math.max(rest.k ?? RETRIEVER_DEFAULTS.k, 1);
+    return {
+      ...rest,
+      passage_words: Math.max(Math.trunc(passage_chars / effectiveK), 128),
+    };
+  }
+  return ret;
+}
+
 const ScheMatiQConfigPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -323,7 +336,7 @@ const ScheMatiQConfigPage = () => {
       skip_value_extraction: restoredConfig.skip_value_extraction ?? false,
       schema_creation_backend: restoredConfig.schema_creation_backend || prev.schema_creation_backend,
       value_extraction_backend: restoredConfig.value_extraction_backend || prev.value_extraction_backend,
-      retriever: restoredConfig.retriever || prev.retriever,
+      retriever: normalizeRestoredRetriever(restoredConfig.retriever) || prev.retriever,
       previous_session_id: state.previousSessionId,
     }));
 
@@ -472,7 +485,7 @@ const ScheMatiQConfigPage = () => {
     valueModel: config.value_extraction_backend.model,
     valueTemperature: config.value_extraction_backend.temperature,
     retrieverModelName: config.retriever?.model_name ?? RETRIEVER_DEFAULTS.model_name,
-    retrieverPassageWords: config.retriever?.passage_words ?? config.retriever?.passage_chars ?? RETRIEVER_DEFAULTS.passage_words,
+    retrieverPassageWords: normalizeRestoredRetriever(config.retriever)?.passage_words ?? RETRIEVER_DEFAULTS.passage_words,
     retrieverOverlap: config.retriever?.overlap ?? RETRIEVER_DEFAULTS.overlap,
     retrieverK: config.retriever?.k ?? RETRIEVER_DEFAULTS.k,
     retrieverDynamicK: config.retriever?.dynamic_k_threshold ?? RETRIEVER_DEFAULTS.dynamic_k_threshold,

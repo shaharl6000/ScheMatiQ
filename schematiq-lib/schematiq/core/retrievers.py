@@ -231,20 +231,27 @@ def _yield_word_slices(words: List[str], size: int) -> Iterable[str]:
             yield " ".join(piece)
 
 
+def legacy_budget_to_passage_words(budget: int, k: int) -> int:
+    """Convert a legacy total word budget (``max_words`` / ``passage_chars``) to per-passage words."""
+    return max(int(int(budget) / max(int(k), 1)), 128)
+
+
 class EmbeddingRetriever(Retriever):
     """
     Dense-vector retriever that chunks documents by **word count**, not characters.
-    Each passage contains up to `max_words` words (tries to fill the budget as
-    tightly as possible).
+    Each passage contains up to ``passage_words`` words directly. When only the
+    legacy ``max_words`` budget is passed, it is converted using the historical
+    ``max(int(max_words / k), 128)`` formula to preserve prior chunking.
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: int = 512, batch_size: int = 32, k: int = 3,
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: Optional[int] = None, batch_size: int = 32, k: int = 3,
                  device: Optional[str] = None, enable_dynamic_k: bool = False,
                  dynamic_k_threshold: float = 0.65, dynamic_k_minimum: int = 2,
                  enable_embedding_cache: bool = True, max_cache_size: int = 1000,
                  enable_preprocessing: bool = True,
                  overlap_words: int = 64,
-                 model: Optional[Any] = None):
+                 model: Optional[Any] = None,
+                 passage_words: Optional[int] = None):
         super().__init__()
         if model is None and SentenceTransformer is None:
             raise ImportError(
@@ -299,13 +306,21 @@ class EmbeddingRetriever(Retriever):
             from schematiq.core.embedding_model import load_sentence_transformer
 
             self.model = load_sentence_transformer(model_name, device=device)
-        self.max_words = max_words
-        self.overlap_words = overlap_words
-        self.max_words_chunk = max(int(max_words / self.k), 128)
 
+        if passage_words is not None:
+            resolved_passage_words = max(1, int(passage_words))
+        elif max_words is not None:
+            resolved_passage_words = legacy_budget_to_passage_words(max_words, self.k)
+        else:
+            resolved_passage_words = 128
+
+        self.passage_words = resolved_passage_words
+        self.max_words = max_words if max_words is not None else resolved_passage_words
+        self.overlap_words = overlap_words
+        self.max_words_chunk = resolved_passage_words
 
         print(f"-------Create EmbeddingRetriever, with model: {model_name}, k: {self.k}, "
-              f"max_words: {self.max_words}, batch_size: {self.batch_size}, "
+              f"passage_words: {self.passage_words}, batch_size: {self.batch_size}, "
               f"embedding_cache: {enable_embedding_cache}")
 
     def _compute_doc_hash(self, doc: str) -> str:
