@@ -33,7 +33,7 @@ from app.services.session_manager import SessionManager
 from app.storage.factory import reset_storage
 from app.storage.local_backend import LocalStorageBackend
 from schematiq.core import embedding_model, retrievers as retrievers_mod
-from schematiq.core.schema import Column, ObservationUnit, Schema
+from schematiq.core.schema import Column, ObservationUnit, Schema, SchemaEvolution
 
 
 class _FakeEmbeddingRetriever:
@@ -347,7 +347,7 @@ async def test_schematiq_runner_passes_retriever_config_to_get_shared_retriever(
                 columns=[Column(name="c1", definition="d", rationale="r")],
                 observation_unit=ObservationUnit(name="Doc", definition="One doc"),
             ),
-            SimpleNamespace(snapshots=[]),
+            SchemaEvolution(),
         )
 
     monkeypatch.setattr(runner_mod, "run_schema_discovery", _fake_discovery)
@@ -482,7 +482,7 @@ async def test_continue_discovery_forwards_retriever_config_and_skips_in_extract
         discover_retrievers.append(kwargs.get("retriever"))
         return (
             Schema(query="q", columns=[Column(name="c1", definition="d1", rationale="r1")]),
-            SimpleNamespace(snapshots=[]),
+            SchemaEvolution(),
         )
 
     monkeypatch.setattr(cd_mod, "discover_schema", _fake_discover_schema)
