@@ -55,7 +55,7 @@ export interface AdvancedSettingsValue {
   valueTemperature: number;
   // Retriever (developer mode)
   retrieverModelName: string;
-  retrieverPassageChars: number;
+  retrieverPassageWords: number;
   retrieverOverlap: number;
   retrieverK: number;
   retrieverDynamicK: number;
@@ -69,7 +69,7 @@ export interface AdvancedSettingsValue {
 /** Backend retriever defaults (mirror backend RetrieverConfig pydantic model). */
 export const RETRIEVER_DEFAULTS = {
   model_name: 'all-MiniLM-L6-v2',
-  passage_chars: 512,
+  passage_words: 128,
   overlap: 64,
   k: 15,
   dynamic_k_threshold: 0.65,
@@ -93,7 +93,7 @@ export const DEFAULT_ADVANCED_SETTINGS: AdvancedSettingsValue = {
   valueModel: DEFAULT_RELEASE_EXTRACTION_MODEL,
   valueTemperature: 0,
   retrieverModelName: RETRIEVER_DEFAULTS.model_name,
-  retrieverPassageChars: RETRIEVER_DEFAULTS.passage_chars,
+  retrieverPassageWords: RETRIEVER_DEFAULTS.passage_words,
   retrieverOverlap: RETRIEVER_DEFAULTS.overlap,
   retrieverK: RETRIEVER_DEFAULTS.k,
   retrieverDynamicK: RETRIEVER_DEFAULTS.dynamic_k_threshold,
@@ -106,7 +106,7 @@ export const DEFAULT_ADVANCED_SETTINGS: AdvancedSettingsValue = {
 export function retrieverIsCustomized(value: AdvancedSettingsValue): boolean {
   return (
     value.retrieverModelName !== RETRIEVER_DEFAULTS.model_name ||
-    value.retrieverPassageChars !== RETRIEVER_DEFAULTS.passage_chars ||
+    value.retrieverPassageWords !== RETRIEVER_DEFAULTS.passage_words ||
     value.retrieverOverlap !== RETRIEVER_DEFAULTS.overlap ||
     value.retrieverK !== RETRIEVER_DEFAULTS.k ||
     value.retrieverDynamicK !== RETRIEVER_DEFAULTS.dynamic_k_threshold
@@ -465,14 +465,15 @@ export function AdvancedSettingsFields({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <Label className="text-xs">Passage Chars</Label>
+                  <Label className="text-xs">Passage size (words)</Label>
                   <Input
                     type="number"
-                    min={128}
-                    max={2048}
-                    value={value.retrieverPassageChars}
-                    onChange={(e) => onChange({ retrieverPassageChars: parseInt(e.target.value, 10) || RETRIEVER_DEFAULTS.passage_chars })}
+                    min={64}
+                    max={1024}
+                    value={value.retrieverPassageWords}
+                    onChange={(e) => onChange({ retrieverPassageWords: parseInt(e.target.value, 10) || RETRIEVER_DEFAULTS.passage_words })}
                   />
+                  <p className="text-xs text-muted-foreground">Words per chunk when splitting documents.</p>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Overlap</Label>

@@ -155,7 +155,7 @@ def convert_config_to_schematiq_format(
             "type": "embedding",
             "model_name": config.retriever.model_name,
             "k": config.retriever.k,
-            "passage_chars": config.retriever.passage_chars,
+            "passage_words": config.retriever.passage_words,
             "overlap": config.retriever.overlap,
             "enable_dynamic_k": config.retriever.enable_dynamic_k,
             "dynamic_k_threshold": config.retriever.dynamic_k_threshold,

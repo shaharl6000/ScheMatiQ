@@ -13,7 +13,7 @@ from .core.paper_processor import (
     OnUnitRowWrittenCallback,
     OnWarningCallback,
 )
-from .config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
+from .config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS, DISABLE_RETRIEVER
 
 
 # Type alias for the should_stop callback
@@ -129,7 +129,7 @@ def main(cfg_path: Path) -> None:
     max_workers = cfg.get("max_workers", DEFAULT_MAX_WORKERS)
 
     llm = utils.build_llm(backend_cfg)
-    retriever = utils.build_retriever(retriever_cfg) if retriever_cfg is not None else None
+    retriever = utils.build_retriever(retriever_cfg) if (retriever_cfg is not None and not DISABLE_RETRIEVER) else None
 
     # Count documents across all directories
     total_docs_count = 0

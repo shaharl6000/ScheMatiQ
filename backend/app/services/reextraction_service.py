@@ -35,6 +35,7 @@ from schematiq.core.llm_backends import GeminiLLM
 from schematiq.core.model_specs import ModelNames
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
+from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
 from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 logger = logging.getLogger(__name__)
@@ -271,10 +272,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
         self._incremental_merge_locks: Dict[str, asyncio.Lock] = {}
 
     @staticmethod
-    def get_cached_retriever():
-        """Return the shared EmbeddingRetriever singleton."""
+    def get_cached_retriever(retriever_config: Optional[Dict[str, Any]] = None):
+        """Return a cached EmbeddingRetriever, or None when retrieval is disabled."""
+        if DISABLE_RETRIEVER:
+            return None
         from app.services import get_shared_retriever
-        return get_shared_retriever()
+        return get_shared_retriever(retriever_config)
 
     def is_stop_requested(self, operation_id: str) -> bool:
         """Check if stop was requested for an operation."""
@@ -1989,7 +1992,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 llm = self._get_llm_from_session(
                     operation.session_id, honor_user_llm_config=operation.honor_user_llm_config
                 )
-            retriever = self.get_cached_retriever()
+            retriever = None if DISABLE_RETRIEVER else self.get_cached_retriever()
 
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
 

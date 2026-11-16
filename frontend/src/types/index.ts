@@ -211,7 +211,9 @@ export interface LLMConfig {
 export interface RetrieverConfig {
   type: string;
   model_name: string;
-  passage_chars: number;
+  passage_words: number;
+  /** @deprecated Legacy saved-config alias for passage_words. */
+  passage_chars?: number;
   overlap: number;
   k: number;
   enable_dynamic_k: boolean;
@@ -836,7 +838,7 @@ export interface ContinueDiscoveryRequest {
   };
   retriever_config?: {
     model_name?: string;
-    passage_chars?: number;
+    passage_words?: number;
     k?: number;
     enable_dynamic_k?: boolean;
     dynamic_k_threshold?: number;

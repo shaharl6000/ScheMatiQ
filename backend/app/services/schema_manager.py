@@ -23,6 +23,7 @@ from app.services.pipeline.llm_factory import resolve_llm_for_session
 logger = logging.getLogger(__name__)
 
 # ScheMatiQ library imports
+from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
 from schematiq.value_extraction.main import build_table_jsonl
 from app.services.session_documents import committed_docs_dir
 
@@ -117,8 +118,11 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
             # Setup LLM and retriever for extraction
             llm = self._get_value_extraction_llm_from_session(session_id)
-            from app.services import get_shared_retriever
-            retriever = get_shared_retriever()
+            if DISABLE_RETRIEVER:
+                retriever = None
+            else:
+                from app.services import get_shared_retriever
+                retriever = get_shared_retriever()
 
             # Find documents directory
             docs_dir = committed_docs_dir(session_dir)
@@ -624,8 +628,11 @@ class SchemaManager(WebSocketBroadcasterMixin):
             
             # Setup LLM with enhanced parameters for schema-aware extraction
             llm = self._get_value_extraction_llm_from_session(session_id)
-            from app.services import get_shared_retriever
-            retriever = get_shared_retriever()
+            if DISABLE_RETRIEVER:
+                retriever = None
+            else:
+                from app.services import get_shared_retriever
+                retriever = get_shared_retriever()
 
             # Find documents directory
             docs_dir = committed_docs_dir(session_dir)
