@@ -19,6 +19,7 @@ from transformers import AutoTokenizer
 import torch
 import tiktoken
 
+from schematiq.core.embedding_model import serialize_if_mps
 from schematiq.core.model_specs import ModelNames
 
 
@@ -272,7 +273,8 @@ class EmbeddingRetriever(Retriever):
         self.enable_embedding_cache = enable_embedding_cache
         self.max_cache_size = max_cache_size
         self._embedding_cache: Dict[str, Dict[str, Any]] = {}
-        self._lock = threading.RLock()
+        self._cache_lock = threading.Lock()
+        self._mps_lock = threading.Lock()
 
         if "Qwen" in model_name:
             self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
@@ -302,12 +304,12 @@ class EmbeddingRetriever(Retriever):
 
     def _get_cached_embeddings(self, doc_hash: str) -> Optional[Dict[str, Any]]:
         """Get cached passages and embeddings for a document hash."""
-        with self._lock:
+        with self._cache_lock:
             return self._embedding_cache.get(doc_hash)
 
     def _cache_embeddings(self, doc_hash: str, passages: List[str], embeddings: Any) -> None:
         """Cache passages and embeddings for a document hash."""
-        with self._lock:
+        with self._cache_lock:
             # Simple LRU-like eviction: if cache is full, remove oldest entry
             if len(self._embedding_cache) >= self.max_cache_size:
                 # Remove the first (oldest) entry
@@ -334,8 +336,8 @@ class EmbeddingRetriever(Retriever):
         If cached_embeddings is provided, skip passage embedding computation.
         Otherwise compute embeddings and cache them if doc_hash is provided.
         """
-        # Serialize model.encode calls to avoid concurrent device (e.g. MPS) crashes.
-        with self._lock:
+        # Serialize model.encode calls only on MPS (CPU/CUDA run concurrently).
+        with serialize_if_mps(self.model, self._mps_lock):
             # 1. Encode query (always needed, but fast ~10ms)
             q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
 
@@ -349,9 +351,9 @@ class EmbeddingRetriever(Retriever):
                     batch_size=self.batch_size,
                     show_progress_bar=False,
                 )
-                # Cache for future queries on this document
-                if self.enable_embedding_cache and doc_hash is not None:
-                    self._cache_embeddings(doc_hash, passages, p_embs)
+        # Cache for future queries on this document
+        if cached_embeddings is None and self.enable_embedding_cache and doc_hash is not None:
+            self._cache_embeddings(doc_hash, passages, p_embs)
 
         # 3. Cosine similarity (fast ~50ms)
         q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
@@ -379,7 +381,7 @@ class EmbeddingRetriever(Retriever):
         for i in range(0, len(pairs), chunk):
             sub = pairs[i: i + chunk]
             # len(sub) may be smaller than chunk for the last slice
-            with self._lock:
+            with serialize_if_mps(self.model, self._mps_lock):
                 scores.extend(
                     self.model.predict(
                         sub,
