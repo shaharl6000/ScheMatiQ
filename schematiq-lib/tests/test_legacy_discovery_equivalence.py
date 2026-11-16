@@ -69,6 +69,8 @@ class FakeLegacyDiscoveryLLM(LLMInterface):
 
         if "ObservationUnitLLM" in system:
             self.calls.append({"stage": "observation_unit", "user": user})
+            if "DOC_BAD_OBS_UNIT" in user:
+                return "{not valid json"
             has_passages = "<PASSAGES>" in user
             return json.dumps(
                 {
@@ -372,6 +374,44 @@ def _collect_all(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Dict[str, A
         "evolution": evo_cap.to_dict(),
         "llm_call_stages": [c["stage"] for c in llm_cap.calls],
         "llm_call_count": len(llm_cap.calls),
+    }
+
+    # A3. CLI main() observation unit failure on batch 1 skips batch and retries on batch 2
+    results["cli_obs_unit_failure_retried_next_batch"] = _run_cli_scenario(
+        tmp_path,
+        monkeypatch,
+        scenario_name="cli_obs_unit_retry",
+        files=[
+            ("01_bad_unit.txt", "DOC_BAD_OBS_UNIT: Corrupt cover page."),
+            ("02_alpha.txt", "DOC_ALPHA: Ruling 101 granted asylum."),
+            ("03_beta.txt", "DOC_BETA: Heard at appellate court level."),
+        ],
+    )
+
+    # B5. Direct core.schematiq.discover_schema: observation unit failure on batch 1 skips batch and retries on batch 2
+    llm_obs_retry = FakeLegacyDiscoveryLLM()
+    schema_obs_retry, contrib_obs_retry, non_contrib_obs_retry, evo_obs_retry = sq.discover_schema(
+        query="What factors drive asylum appeal outcomes?",
+        documents=[
+            "DOC_BAD_OBS_UNIT: Corrupt cover page.",
+            "DOC_ALPHA: Ruling 101 granted asylum.",
+            "DOC_BETA: Heard at appellate court level.",
+        ],
+        filenames=["bad_unit.txt", "a.txt", "b.txt"],
+        max_keys_schema=15,
+        llm=llm_obs_retry,
+        retriever=None,
+        documents_batch_size=1,
+        context_window_size=16384,
+        max_iters=6,
+    )
+    results["core_obs_unit_failure_retried_next_batch"] = {
+        "schema": schema_obs_retry.to_full_dict(),
+        "contributing_files": contrib_obs_retry,
+        "non_contributing_files": non_contrib_obs_retry,
+        "evolution": evo_obs_retry.to_dict(),
+        "llm_call_stages": [c["stage"] for c in llm_obs_retry.calls],
+        "llm_call_count": len(llm_obs_retry.calls),
     }
 
     return results
