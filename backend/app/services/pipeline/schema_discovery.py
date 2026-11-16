@@ -1,20 +1,23 @@
-"""Schema discovery pipeline — iterative batch processing with convergence."""
+"""Backend async wrapper around ``schematiq.discovery.discover_schema``."""
 
 import asyncio
 import functools
+import inspect
 import json
 import logging
-from typing import Dict, Any, List, Callable, Optional
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
+from app.models.session import SchemaEvolution, SchemaSnapshot
 from app.services import schematiq_thread_pool
-from app.services.pipeline.batch_execution import generate_schema_with_split
-
-from schematiq.core import schematiq as ScheMatiQ
-from schematiq.core.schema import Schema, Column, ObservationUnit
 from schematiq.core.llm_backends import LLMInterface
-from schematiq import discover_observation_unit, ObservationUnitDiscoveryError
+from schematiq.core.schema import Schema, SchemaEvolution as LibSchemaEvolution
+from schematiq.discovery import (
+    DiscoveryConfig,
+    discover_schema,
+    load_initial_schema_from_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +34,7 @@ async def run_schema_discovery(
     ws_manager=None,
     work_dir: Optional[Path] = None,
 ):
-    """Run real schema discovery using ScheMatiQ pipeline.
+    """Run schema discovery in the worker thread pool via ``schematiq.discovery``.
 
     Args:
         session_id: Session identifier
@@ -48,473 +51,171 @@ async def run_schema_discovery(
     Returns:
         Tuple of (discovered_schema, schema_evolution)
     """
-    from app.models.session import SchemaEvolution, SchemaSnapshot
-
     query = schematiq_config["query"]
-    max_keys = schematiq_config.get("max_keys_schema", 100)
+    config = DiscoveryConfig.from_dict(schematiq_config)
+    loop = asyncio.get_running_loop()
 
-    # Initialize schema (inline schema takes priority over file path)
-    initial_schema = _load_initial_schema(schematiq_config, query, max_keys)
-    current_schema = initial_schema or Schema(query=query, columns=[], max_keys=max_keys)
+    def _run_on_loop(coro_fn, *args):
+        if coro_fn is None:
+            return None
 
-    convergence_threshold = schematiq_config.get("convergence_threshold") or 5
-    unchanged_count = 0
+        async def _invoke():
+            res = coro_fn(*args)
+            if inspect.isawaitable(res):
+                return await res
+            return res
 
-    from app.services.pipeline.batch_planner import plan_batches
+        return asyncio.run_coroutine_threadsafe(_invoke(), loop).result()
 
-    planned_batches = plan_batches(documents, filenames, schematiq_config)
-    batches = [pb.documents for pb in planned_batches]
-    filename_batches = [pb.filenames for pb in planned_batches]
+    batch_state: Dict[str, int] = {"iteration": 0, "max_iterations": 0}
 
-    strategy = (schematiq_config.get("batch_strategy") or "smart").lower()
-    logger.debug(
-        "Document batching (%s) - %d docs, %d batches", strategy, len(documents), len(batches)
+    def _on_progress(stage: str, fraction: float, info: Dict[str, Any]) -> None:
+        if isinstance(info, dict) and "iteration" in info:
+            batch_state["iteration"] = info["iteration"]
+            batch_state["max_iterations"] = info.get("max_iterations", 0)
+        _run_on_loop(
+            progress_callback,
+            stage,
+            fraction,
+            dict(info) if info is not None else {},
+        )
+
+    def _should_stop() -> bool:
+        if is_stop_requested is None:
+            return False
+        return bool(is_stop_requested(session_id))
+
+    def _on_snapshot(schema: Schema, lib_evolution: LibSchemaEvolution) -> None:
+        if work_dir:
+            _save_partial_schema(schema, query, work_dir / session_id)
+        if (
+            ws_manager
+            and lib_evolution.snapshots
+            and batch_state["iteration"] > 0
+            and lib_evolution.snapshots[-1].iteration == batch_state["iteration"]
+        ):
+            latest = lib_evolution.snapshots[-1]
+            _run_on_loop(
+                ws_manager.broadcast_to_session,
+                session_id,
+                {
+                    "type": "schema_progress",
+                    "timestamp": datetime.now().isoformat(),
+                    "data": {
+                        "columns_discovered": len(schema.columns),
+                        "iteration": latest.iteration,
+                        "max_iterations": batch_state["max_iterations"],
+                        "new_columns": list(latest.new_columns),
+                    },
+                },
+            )
+
+    def _on_warning(
+        level: str,
+        message: str,
+        skip_info: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if skip_info is not None and work_dir:
+            _log_skipped_batch(
+                work_dir,
+                session_id,
+                skip_info.get("filenames", []),
+                reason=skip_info.get("reason", "single_document_exceeds_token_limit"),
+                error=skip_info.get("error", ""),
+            )
+        if ws_manager:
+            _run_on_loop(
+                ws_manager.broadcast_log,
+                session_id,
+                {"level": level, "message": message},
+            )
+
+    discovered_schema, lib_evolution = await loop.run_in_executor(
+        schematiq_thread_pool,
+        functools.partial(
+            discover_schema,
+            documents=documents,
+            filenames=filenames,
+            query=query,
+            config=config,
+            llm=llm,
+            retriever=retriever,
+            on_progress=_on_progress,
+            should_stop=_should_stop,
+            on_snapshot=_on_snapshot,
+            on_warning=_on_warning,
+        ),
     )
 
-    evolution = SchemaEvolution(snapshots=[], column_sources={})
-    cumulative_docs = 0
-
-    # Record initial columns (if any) as iteration 0
-    if len(current_schema.columns) > 0:
-        initial_column_names = [col.name for col in current_schema.columns]
-        evolution.snapshots.append(SchemaSnapshot(
-            iteration=0,
-            documents_processed=["initial_schema"],
-            total_columns=len(current_schema.columns),
-            new_columns=initial_column_names,
-            cumulative_documents=0
-        ))
-        for col in current_schema.columns:
-            evolution.column_sources[col.name] = "initial_schema"
-
-    # Handle QUERY_ONLY mode
-    if not documents:
-        return await _run_query_only_discovery(
-            session_id, query, max_keys, schematiq_config, llm, current_schema,
-            evolution, progress_callback
-        )
-
-    # Tracks whether complete_partial_columns has already run for this discovery.
-    completion_done = False
-
-    # Handle pre-configured observation unit
-    pending_observation_unit_name = None
-    initial_obs_unit = schematiq_config.get("initial_observation_unit")
-    if initial_obs_unit:
-        if initial_obs_unit.get("definition"):
-            current_schema.observation_unit = ObservationUnit(
-                name=initial_obs_unit["name"],
-                definition=initial_obs_unit["definition"]
+    evolution = SchemaEvolution(
+        snapshots=[
+            SchemaSnapshot(
+                iteration=snap.iteration,
+                documents_processed=list(snap.documents_processed),
+                total_columns=snap.total_columns,
+                new_columns=list(snap.new_columns),
+                cumulative_documents=snap.cumulative_documents,
             )
-            logger.info("Using pre-configured observation unit: %s - %s", initial_obs_unit['name'], initial_obs_unit['definition'])
-        else:
-            pending_observation_unit_name = initial_obs_unit["name"]
-            logger.info("Observation unit name pre-configured: %s (definition will be discovered)", pending_observation_unit_name)
+            for snap in lib_evolution.snapshots
+        ],
+        column_sources=dict(lib_evolution.column_sources),
+    )
 
-    for iteration, (batch_docs, batch_names) in enumerate(zip(batches, filename_batches)):
-        if is_stop_requested(session_id):
-            logger.warning("Stop requested during schema discovery - saving partial schema with %d columns", len(current_schema.columns))
-            break
-
-        logger.debug("Schema discovery batch %d/%d (%d docs: %s)", iteration + 1, len(batches), len(batch_docs), batch_names)
-        await progress_callback(f"Schema Discovery: Batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs)", iteration / len(batches), {
-            "iteration": iteration + 1,
-            "max_iterations": len(batches),
-            "batch_docs": len(batch_docs),
-            "current_columns": len(current_schema.columns)
-        })
-
-        columns_before = {col.name.lower() for col in current_schema.columns}
-        cumulative_docs += len(batch_docs)
-
-        loop = asyncio.get_running_loop()
-        logger.debug("[%s] Offloading select_relevant_content to thread pool", session_id)
-        relevant_content = await loop.run_in_executor(
-            schematiq_thread_pool,
-            functools.partial(
-                ScheMatiQ.select_relevant_content,
-                docs=batch_docs,
-                query=query,
-                retriever=retriever,
-            )
-        )
-        logger.debug("Selected %d relevant passages from batch", len(relevant_content))
-
-        if is_stop_requested(session_id):
-            logger.warning("Stop requested after content retrieval - saving partial schema")
-            break
-
-        # Discover observation unit in first iteration (if not already set)
-        if iteration == 0 and (query or relevant_content) and not current_schema.observation_unit:
-            logger.info("Discovering observation unit from first batch...")
-            try:
-                logger.debug("[%s] Offloading discover_observation_unit to thread pool", session_id)
-                obs_unit = await loop.run_in_executor(
-                    schematiq_thread_pool,
-                    functools.partial(
-                        discover_observation_unit,
-                        query=query,
-                        passages=relevant_content,
-                        llm=llm,
-                        context_window_size=schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
-                        source_document=batch_names[0] if batch_names else None,
-                    )
-                )
-                if pending_observation_unit_name:
-                    logger.info("Overriding discovered name '%s' with pre-configured name '%s'", obs_unit.name, pending_observation_unit_name)
-                    obs_unit.name = pending_observation_unit_name
-                current_schema.observation_unit = obs_unit
-                logger.info("Observation unit set: %s - %s", obs_unit.name, obs_unit.definition)
-                if obs_unit.example_names:
-                    logger.info("   Examples: %s", obs_unit.example_names)
-            except ObservationUnitDiscoveryError as e:
-                logger.error("Observation unit discovery failed: %s", e)
-                raise RuntimeError(
-                    f"Failed to discover observation unit: {e}. "
-                    "Ensure documents contain extractable entities."
-                ) from e
-            except Exception as e:
-                logger.error("Unexpected error during observation unit discovery: %s", e)
-                raise RuntimeError(
-                    f"Observation unit discovery failed unexpectedly: {e}"
-                ) from e
-
-        if is_stop_requested(session_id):
-            logger.warning("Stop requested after observation unit discovery - saving partial schema")
-            break
-
-        # Complete any partial user-seeded columns once, with passages as supporting context.
-        if not completion_done and any(ScheMatiQ._is_partial(c) for c in current_schema.columns):
-            logger.info("Completing partial user-seeded columns (batch %d)", iteration + 1)
-            current_schema.columns = await loop.run_in_executor(
-                schematiq_thread_pool,
-                functools.partial(
-                    ScheMatiQ.complete_partial_columns,
-                    columns=current_schema.columns,
-                    query=query,
-                    observation_unit=current_schema.observation_unit,
-                    passages=relevant_content,
-                    llm=llm,
-                    context_window_size=schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
-                ),
-            )
-        completion_done = True
-
-        # Generate schema for this iteration.
-        # Wrapped in a split-aware runner: if the assembled prompt exceeds the
-        # model's token limit, the batch is split in half and each half retried
-        # (content selection re-runs per subset). A single document that still
-        # overflows is skipped and recorded, rather than crashing discovery.
-        ctx_window = schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192)
-
-        async def _run_generate(
-            sub_docs,
-            _batch_docs=batch_docs,
-            _relevant_content=relevant_content,
-            _loop=loop,
-            _current_schema=current_schema,
-            _ctx_window=ctx_window,
-        ):
-            # Re-select relevant content for this (possibly reduced) doc subset,
-            # then generate the schema. On the full batch this reuses the passages
-            # already computed above to avoid a redundant retrieval pass.
-            if sub_docs is _batch_docs:
-                sub_content = _relevant_content
-            else:
-                sub_content = await _loop.run_in_executor(
-                    schematiq_thread_pool,
-                    functools.partial(
-                        ScheMatiQ.select_relevant_content,
-                        docs=sub_docs,
-                        query=query,
-                        retriever=retriever,
-                    )
-                )
-            result = await _loop.run_in_executor(
-                schematiq_thread_pool,
-                functools.partial(
-                    ScheMatiQ.generate_schema,
-                    passages=sub_content,
-                    query=query,
-                    max_keys_schema=schematiq_config.get("max_keys_schema", 100),
-                    current_schema=_current_schema,
-                    llm=llm,
-                    context_window_size=_ctx_window,
-                )
-            )
-            return result[0] if isinstance(result, tuple) else result
-
-        async def _notify_split(level: str, message: str):
-            if ws_manager:
-                await ws_manager.broadcast_log(session_id, {"level": level, "message": message})
-
-        try:
-            new_schema = await generate_schema_with_split(
-                session_id=session_id,
-                batch_docs=batch_docs,
-                batch_names=batch_names,
-                run_generate=_run_generate,
-                is_stop_requested=is_stop_requested,
-                work_dir=work_dir,
-                notify=_notify_split,
-            )
-        except Exception as e:
-            logger.error("ERROR in generate_schema: %s", e)
-            raise
-
-        if new_schema is None:
-            # Entire batch was skipped (all documents exceeded the token limit
-            # even when isolated). Already logged and recorded as an artifact.
-            logger.warning(
-                "Batch %d/%d produced no schema (all documents skipped for token limits); continuing",
-                iteration + 1, len(batches),
-            )
-            continue
-
-        logger.debug("Generated schema with %d columns", len(new_schema.columns))
-
-        if is_stop_requested(session_id):
-            logger.warning("Stop requested after schema generation - saving partial schema")
-            break
-
-        # Merge with existing schema
-        logger.debug("[%s] Offloading schema merge to thread pool", session_id)
-        logger.debug("Current schema has %d columns", len(current_schema.columns))
-        logger.debug("New schema has %d columns", len(new_schema.columns))
-        try:
-            merged_schema = await loop.run_in_executor(
-                schematiq_thread_pool,
-                functools.partial(current_schema.merge, new_schema),
-            )
-            logger.debug("Merged schema has %d columns", len(merged_schema.columns))
-        except Exception as e:
-            logger.error("ERROR in schema merge: %s", e)
-            import traceback
-            traceback.print_exc()
-            raise
-
-        if is_stop_requested(session_id):
-            logger.warning("Stop requested after schema merge - saving partial schema")
-            # Promote the just-merged schema and persist it before breaking, so the
-            # returned schema includes this batch and the log message above is truthful.
-            current_schema = merged_schema
-            if work_dir:
-                _save_partial_schema(current_schema, query, work_dir / session_id)
-            break
-
-        # Identify NEW columns added in this iteration
-        columns_after = {col.name.lower() for col in merged_schema.columns}
-        new_column_names_lower = columns_after - columns_before
-        new_columns = [col.name for col in merged_schema.columns if col.name.lower() in new_column_names_lower]
-
-        batch_source = ", ".join(batch_names) if batch_names else f"batch_{iteration + 1}"
-        for col_name in new_columns:
-            if col_name not in evolution.column_sources:
-                evolution.column_sources[col_name] = batch_source
-
-        evolution.snapshots.append(SchemaSnapshot(
-            iteration=iteration + 1,
-            documents_processed=batch_names,
-            total_columns=len(merged_schema.columns),
-            new_columns=new_columns,
-            cumulative_documents=cumulative_docs
-        ))
-
-        logger.debug("Evolution - batch %d: %d new columns: %s", iteration + 1, len(new_columns), new_columns)
-
-        # Check convergence
-        logger.debug("[%s] Offloading evaluate_schema_convergence to thread pool", session_id)
-        converged = await loop.run_in_executor(
-            schematiq_thread_pool,
-            functools.partial(ScheMatiQ.evaluate_schema_convergence, current_schema, merged_schema),
-        )
-        if converged:
-            unchanged_count += 1
-            logger.debug("Schema unchanged (count: %d/%d)", unchanged_count, convergence_threshold)
-            if unchanged_count >= convergence_threshold:
-                logger.debug("Schema converged after %d batches", iteration + 1)
-                break
-        else:
-            unchanged_count = 0
-            logger.debug("Schema changed, continuing to next batch")
-
-        current_schema = merged_schema
-        logger.debug("Completed batch %d, moving to next", iteration + 1)
-
-        # Save partial schema to disk after each batch
-        if work_dir:
-            _save_partial_schema(current_schema, query, work_dir / session_id)
-
-        # Notify frontend about partial schema availability
-        if ws_manager:
-            await ws_manager.broadcast_to_session(session_id, {
-                "type": "schema_progress",
-                "timestamp": datetime.now().isoformat(),
-                "data": {
-                    "columns_discovered": len(current_schema.columns),
-                    "iteration": iteration + 1,
-                    "max_iterations": len(batches),
-                    "new_columns": new_columns,
-                }
-            })
-
-        await asyncio.sleep(0.1)
-
-    logger.debug("Schema discovery completed with %d columns after %d batches", len(current_schema.columns), len(evolution.snapshots))
-    logger.debug("Evolution tracking: %d snapshots, %d column sources", len(evolution.snapshots), len(evolution.column_sources))
-    return current_schema, evolution
+    return discovered_schema, evolution
 
 
-async def _run_query_only_discovery(
+def _load_initial_schema(
+    schematiq_config: Dict[str, Any], query: str, max_keys: int
+) -> Optional[Schema]:
+    """Load initial schema from inline config or file path."""
+    return load_initial_schema_from_config(
+        DiscoveryConfig.from_dict(schematiq_config), query, max_keys
+    )
+
+
+def _log_skipped_batch(
+    work_dir: Optional[Path],
     session_id: str,
-    query: str,
-    max_keys: int,
-    schematiq_config: Dict[str, Any],
-    llm: LLMInterface,
-    current_schema: Schema,
-    evolution,
-    progress_callback,
-):
-    """Handle QUERY_ONLY mode: generate schema from query without documents."""
-    from app.models.session import SchemaSnapshot
-
-    logger.debug("QUERY_ONLY mode - generating schema from query without documents")
-    await progress_callback("Schema Discovery: Planning from query", 0.5, {
-        "mode": "query_only",
-        "current_columns": len(current_schema.columns)
-    })
+    filenames: List[str],
+    reason: str,
+    error: str,
+) -> None:
+    """Append a skipped-batch record to a per-session JSON artifact."""
+    if not work_dir:
+        return
 
     try:
-        loop = asyncio.get_running_loop()
+        session_dir = work_dir / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+        skip_file = session_dir / "schema_discovery_skips.json"
 
-        obs_unit_config = schematiq_config.get("initial_observation_unit")
-        if obs_unit_config and obs_unit_config.get("name"):
-            observation_unit = ObservationUnit(
-                name=obs_unit_config["name"],
-                definition=obs_unit_config.get("definition", ""),
-                source_document="query_only",
-                discovery_iteration=1,
-            )
-            logger.info("[%s] QUERY_ONLY: using pre-configured observation unit: %s", session_id, observation_unit.name)
-        else:
-            logger.info("[%s] QUERY_ONLY: discovering observation unit from query", session_id)
-            observation_unit = await loop.run_in_executor(
-                schematiq_thread_pool,
-                functools.partial(
-                    discover_observation_unit,
-                    query=query,
-                    passages=None,
-                    llm=llm,
-                    source_document="query_only",
-                )
-            )
-            logger.info("[%s] QUERY_ONLY: discovered observation unit: %s", session_id, observation_unit.name if observation_unit else None)
+        records: List[Dict[str, Any]] = []
+        if skip_file.exists():
+            try:
+                with open(skip_file) as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, list):
+                        records = loaded
+            except Exception:
+                records = []
 
-        if observation_unit:
-            current_schema.observation_unit = observation_unit
+        records.append({
+            "timestamp": datetime.now().isoformat(),
+            "filenames": filenames,
+            "reason": reason,
+            "error": error[:2000],
+        })
 
-        # Complete any partial user-seeded columns before schema generation (QUERY_ONLY: no passages).
-        if any(ScheMatiQ._is_partial(c) for c in current_schema.columns):
-            logger.info("[%s] QUERY_ONLY: completing partial user-seeded columns", session_id)
-            current_schema.columns = await loop.run_in_executor(
-                schematiq_thread_pool,
-                functools.partial(
-                    ScheMatiQ.complete_partial_columns,
-                    columns=current_schema.columns,
-                    query=query,
-                    observation_unit=observation_unit,
-                    passages=[],
-                    llm=llm,
-                    context_window_size=schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
-                ),
-            )
-
-        logger.debug("[%s] Offloading QUERY_ONLY generate_schema to thread pool", session_id)
-        schema_result = await loop.run_in_executor(
-            schematiq_thread_pool,
-            functools.partial(
-                ScheMatiQ.generate_schema,
-                passages=[],
-                query=query,
-                max_keys_schema=schematiq_config.get("max_keys_schema", 100),
-                current_schema=current_schema,
-                llm=llm,
-                context_window_size=schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
-                observation_unit=observation_unit,
-            )
-        )
-        new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
-        logger.debug("QUERY_ONLY generated schema with %d columns", len(new_schema.columns))
-
-        if current_schema.columns:
-            logger.debug("[%s] Offloading QUERY_ONLY schema merge to thread pool", session_id)
-            merged_schema = await loop.run_in_executor(
-                schematiq_thread_pool,
-                functools.partial(current_schema.merge, new_schema),
-            )
-        else:
-            merged_schema = new_schema
-
-        if observation_unit and not merged_schema.observation_unit:
-            merged_schema.observation_unit = observation_unit
-
-        new_column_names = [col.name for col in merged_schema.columns
-                           if col.name not in {c.name for c in current_schema.columns}]
-
-        for col_name in new_column_names:
-            evolution.column_sources[col_name] = "query_only"
-
-        evolution.snapshots.append(SchemaSnapshot(
-            iteration=1,
-            documents_processed=["query_only"],
-            total_columns=len(merged_schema.columns),
-            new_columns=new_column_names,
-            cumulative_documents=0
-        ))
-
-        logger.debug("QUERY_ONLY mode completed with %d columns: %s", len(merged_schema.columns), [c.name for c in merged_schema.columns])
-        return merged_schema, evolution
-
+        with open(skip_file, "w") as f:
+            json.dump(records, f, indent=2)
+        logger.debug("Recorded skipped batch artifact (%d total) at %s", len(records), skip_file)
     except Exception as e:
-        logger.error("ERROR in QUERY_ONLY generate_schema: %s", e)
-        import traceback
-        traceback.print_exc()
-        raise
-
-
-def _load_initial_schema(schematiq_config: Dict[str, Any], query: str, max_keys: int) -> Optional[Schema]:
-    """Load initial schema from inline config or file path."""
-    if "initial_schema" in schematiq_config:
-        try:
-            columns = [Column.from_dict(col_data) for col_data in schematiq_config["initial_schema"]]
-            initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
-            logger.info("Loaded inline initial schema with %d columns", len(columns))
-            return initial_schema
-        except Exception as e:
-            logger.warning("Could not load inline initial schema: %s", e)
-
-    elif "initial_schema_path" in schematiq_config:
-        try:
-            with open(schematiq_config["initial_schema_path"]) as f:
-                initial_data = json.load(f)
-                if isinstance(initial_data, list):
-                    columns = [Column.from_dict(col_data) for col_data in initial_data]
-                    initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
-                elif isinstance(initial_data, dict) and "schema" in initial_data:
-                    columns = [Column.from_dict(col_data) for col_data in initial_data["schema"]]
-                    initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
-                else:
-                    return None
-            logger.info("Loaded initial schema from file with %d columns", len(columns))
-            return initial_schema
-        except Exception as e:
-            logger.warning("Could not load initial schema from file: %s", e)
-
-    return None
+        logger.warning("Could not write skipped-batch artifact: %s", e)
 
 
 def _save_partial_schema(schema: Schema, query: str, session_dir: Path) -> None:
     """Save partial schema to disk for stop resilience."""
+    session_dir.mkdir(parents=True, exist_ok=True)
     partial_schema_file = session_dir / "discovered_schema.json"
     frontend_schema = []
     for col in schema.columns:
@@ -522,26 +223,17 @@ def _save_partial_schema(schema: Schema, query: str, session_dir: Path) -> None:
         frontend_col = {
             "name": col_dict.get("column", col.name),
             "definition": col_dict.get("definition", ""),
-            "rationale": col_dict.get("explanation", col.rationale)
+            "rationale": col_dict.get("explanation", col.rationale),
         }
         if col_dict.get("allowed_values"):
             frontend_col["allowed_values"] = col_dict["allowed_values"]
-        # Mirror the session.columns model_dump path in get_schema: that branch
-        # always carries auto_expand_threshold, this file-served branch must too.
-        # Without it, the Schema tab's auto_expand_threshold column renders empty
-        # while discovery is still running (session.columns is not yet set, so
-        # get_schema falls back to this file) and only fills in once discovery
-        # completes and get_schema starts serving from session.columns.
         frontend_col["auto_expand_threshold"] = col_dict.get("auto_expand_threshold")
-        # Same for value_kind: without it the Schema tab shows no kind while
-        # discovery runs, and fills it in only once get_schema switches to
-        # session.columns.
         if col_dict.get("value_kind"):
             frontend_col["value_kind"] = col_dict["value_kind"]
         frontend_schema.append(frontend_col)
     partial_schema_data = {"query": query, "schema": frontend_schema}
     if schema.observation_unit:
         partial_schema_data["observation_unit"] = schema.observation_unit.to_dict()
-    with open(partial_schema_file, 'w') as f:
+    with open(partial_schema_file, "w") as f:
         json.dump(partial_schema_data, f, indent=2)
     logger.debug("Saved partial schema with %d columns", len(schema.columns))

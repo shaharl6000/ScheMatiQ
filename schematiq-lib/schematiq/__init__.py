@@ -40,9 +40,11 @@ from schematiq.core.schematiq import (
     ObservationUnitError,
     ObservationUnitDiscoveryError,
 )
+from schematiq.discovery import discover_schema, DiscoveryConfig
 
 __all__ = [
     "Column",
+    "DiscoveryConfig",
     "Schema",
     "SchemaSnapshot",
     "SchemaEvolution",
@@ -62,6 +64,7 @@ __all__ = [
     "PreprocessorConfig",
     "TableDetector",
     "discover_observation_unit",
+    "discover_schema",
     "ModelSpec",
     "get_model_spec",
     "MODEL_SPECS",

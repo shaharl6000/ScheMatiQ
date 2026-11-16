@@ -74,13 +74,32 @@ cd schematiq-lib && pip install -e .
 ```
 
 ```python
-from schematiq import GeminiLLM, EmbeddingRetriever, discover_observation_unit
+import json
+from pathlib import Path
 
-llm = GeminiLLM(model="gemini-3.8-flash")
-retriever = EmbeddingRetriever(k=8)
-documents = [open(f).read() for f in your_files]
+from schematiq import DiscoveryConfig, GeminiLLM, discover_schema
+from schematiq.value_extraction.main import build_table_jsonl
 
-observation_unit = discover_observation_unit(documents, "your research question", llm)
+docs_dir = Path("path/to/documents")
+doc_files = sorted(docs_dir.glob("*.txt"))
+documents = [p.read_text(encoding="utf-8") for p in doc_files]
+filenames = [p.name for p in doc_files]
+
+schema, _evolution = discover_schema(
+    documents=documents,
+    filenames=filenames,
+    query="your research question",
+    config=DiscoveryConfig(),
+    llm=GeminiLLM(model="gemini-3.8-flash"),
+)
+Path("schema.json").write_text(json.dumps(schema.to_full_dict(), indent=2), encoding="utf-8")
+
+build_table_jsonl(
+    schema_path=Path("schema.json"),
+    docs_directories=[docs_dir],
+    output_path=Path("table.jsonl"),
+    llm=GeminiLLM(model="gemini-3.5-flash-lite"),
+)
 ```
 
 See [Features > Core Library](#core-library-schematiq-lib) for the full API surface.
@@ -110,9 +129,8 @@ See [Features > Core Library](#core-library-schematiq-lib) for the full API surf
 - **Evaluation** — Schema and row-level evaluation against ground truth
 
 ```python
-from schematiq import Schema, Column, EmbeddingRetriever
+from schematiq import Schema, Column, DiscoveryConfig, EmbeddingRetriever, discover_schema
 from schematiq.core.llm_backends import GeminiLLM
-from schematiq.core import schematiq as ScheMatiQ
 from schematiq.value_extraction.main import build_table_jsonl
 ```
 
