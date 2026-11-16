@@ -472,7 +472,7 @@ const ScheMatiQConfigPage = () => {
     valueModel: config.value_extraction_backend.model,
     valueTemperature: config.value_extraction_backend.temperature,
     retrieverModelName: config.retriever?.model_name ?? RETRIEVER_DEFAULTS.model_name,
-    retrieverPassageChars: config.retriever?.passage_chars ?? RETRIEVER_DEFAULTS.passage_chars,
+    retrieverPassageWords: config.retriever?.passage_words ?? config.retriever?.passage_chars ?? RETRIEVER_DEFAULTS.passage_words,
     retrieverOverlap: config.retriever?.overlap ?? RETRIEVER_DEFAULTS.overlap,
     retrieverK: config.retriever?.k ?? RETRIEVER_DEFAULTS.k,
     retrieverDynamicK: config.retriever?.dynamic_k_threshold ?? RETRIEVER_DEFAULTS.dynamic_k_threshold,
@@ -499,7 +499,7 @@ const ScheMatiQConfigPage = () => {
     if (patch.valueModel !== undefined) handleValueBackendChange('model', patch.valueModel);
     if (patch.valueTemperature !== undefined) handleValueBackendChange('temperature', patch.valueTemperature);
     if (patch.retrieverModelName !== undefined) handleRetrieverChange('model_name', patch.retrieverModelName);
-    if (patch.retrieverPassageChars !== undefined) handleRetrieverChange('passage_chars', patch.retrieverPassageChars);
+    if (patch.retrieverPassageWords !== undefined) handleRetrieverChange('passage_words', patch.retrieverPassageWords);
     if (patch.retrieverOverlap !== undefined) handleRetrieverChange('overlap', patch.retrieverOverlap);
     if (patch.retrieverK !== undefined) handleRetrieverChange('k', patch.retrieverK);
     if (patch.retrieverDynamicK !== undefined) handleRetrieverChange('dynamic_k_threshold', patch.retrieverDynamicK);

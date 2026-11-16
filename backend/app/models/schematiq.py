@@ -1,7 +1,7 @@
 """ScheMatiQ-specific models."""
 
 from typing import List, Optional, Dict, Any, Union
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 class LLMConfig(BaseModel):
     """LLM backend configuration.
@@ -18,11 +18,14 @@ class LLMConfig(BaseModel):
 
 class RetrieverConfig(BaseModel):
     """Retriever configuration."""
-    model_config = {"protected_namespaces": ()}
+    model_config = ConfigDict(protected_namespaces=(), populate_by_name=True)
 
     type: str = "embedding"
     model_name: str = "all-MiniLM-L6-v2"
-    passage_chars: int = 512
+    passage_words: int = Field(
+        default=512,
+        validation_alias=AliasChoices("passage_words", "passage_chars", "max_words"),
+    )
     overlap: int = 64
     k: int = 15
     enable_dynamic_k: bool = True

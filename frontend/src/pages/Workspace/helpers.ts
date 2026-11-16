@@ -521,7 +521,7 @@ export function buildConfig(
     config.retriever = {
       type: 'embedding',
       model_name: advanced.retrieverModelName,
-      passage_chars: advanced.retrieverPassageChars,
+      passage_words: advanced.retrieverPassageWords,
       overlap: advanced.retrieverOverlap,
       k: advanced.retrieverK,
       enable_dynamic_k: true,

@@ -75,7 +75,7 @@ def test_get_shared_retriever_caches_per_config_and_forwards_all_fields(
     r_empty = services_mod.get_shared_retriever({})
     r_model = services_mod.get_shared_retriever(RetrieverConfig())
     r_partial = services_mod.get_shared_retriever(
-        {"model_name": "   ", "passage_chars": None, "k": 15, "unknown_key": "ignored"}
+        {"model_name": "   ", "passage_words": None, "k": 15, "unknown_key": "ignored"}
     )
     assert r_none is r_empty is r_model is r_partial
     assert len(created) == 1
@@ -103,7 +103,7 @@ def test_get_shared_retriever_caches_per_config_and_forwards_all_fields(
 
     # Each differing parameter creates its own cached instance while repeating reuses it
     variants = [
-        {"passage_chars": 1024},
+        {"passage_words": 1024},
         {"overlap": 128},
         {"k": 20},
         {"enable_dynamic_k": False},
@@ -117,9 +117,11 @@ def test_get_shared_retriever_caches_per_config_and_forwards_all_fields(
         assert inst_a is not r_none
         assert len(created) == idx
 
-    # max_words / overlap_words aliases map cleanly to passage_chars / overlap
-    r_alias = services_mod.get_shared_retriever({"max_words": 1024})
-    assert r_alias is services_mod.get_shared_retriever({"passage_chars": 1024})
+    # Legacy passage_chars / max_words / overlap_words aliases map cleanly to passage_words / overlap
+    r_words_target = services_mod.get_shared_retriever({"passage_words": 1024})
+    assert services_mod.get_shared_retriever({"max_words": 1024}) is r_words_target
+    assert services_mod.get_shared_retriever({"passage_chars": 1024}) is r_words_target
+    assert RetrieverConfig(passage_chars=768).passage_words == 768
 
 
 def test_get_shared_retriever_rejects_non_embedding_type() -> None:
@@ -278,7 +280,7 @@ async def test_schematiq_runner_passes_retriever_config_to_get_shared_retriever(
         value_extraction_backend=LLMConfig(provider="openai", model="fake"),
         retriever=RetrieverConfig(
             model_name="BAAI/bge-m3",
-            passage_chars=640,
+            passage_words=640,
             overlap=96,
             k=12,
             enable_dynamic_k=False,
@@ -293,7 +295,7 @@ async def test_schematiq_runner_passes_retriever_config_to_get_shared_retriever(
 
     assert len(captured_retriever_args) == 1
     assert captured_retriever_args[0]["model_name"] == "BAAI/bge-m3"
-    assert captured_retriever_args[0]["passage_chars"] == 640
+    assert captured_retriever_args[0]["passage_words"] == 640
     assert captured_retriever_args[0]["overlap"] == 96
     assert captured_retriever_args[0]["k"] == 12
     assert captured_retriever_args[0]["enable_dynamic_k"] is False

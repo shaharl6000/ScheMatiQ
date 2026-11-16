@@ -247,7 +247,7 @@ def test_embedding_retriever_respects_overlap_words_and_build_retriever_aliases(
         {
             "type": "embedding",
             "model_name": "custom-model",
-            "passage_chars": 256,
+            "passage_words": 256,
             "overlap": 0,
             "k": 2,
             "enable_dynamic_k": True,
@@ -264,11 +264,17 @@ def test_embedding_retriever_respects_overlap_words_and_build_retriever_aliases(
     assert r_no_overlap.dynamic_k_threshold == 0.7
     assert r_no_overlap.dynamic_k_minimum == 1
 
+    # Legacy passage_chars alias continues to map to max_words
+    r_legacy_alias = core_utils.build_retriever(
+        {"type": "embedding", "model_name": "custom-model", "passage_chars": 384, "k": 2}
+    )
+    assert r_legacy_alias.max_words == 384
+
     r_with_overlap = core_utils.build_retriever(
         {
             "type": "embedding",
             "model_name": "custom-model",
-            "passage_chars": 256,
+            "passage_words": 256,
             "overlap": 96,
             "k": 2,
         }

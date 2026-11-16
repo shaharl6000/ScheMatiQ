@@ -141,7 +141,7 @@
     "_comment": "These values are derived from measured prompts and observed outputs. Update if prompts change significantly.",
     
     "retrieval_passage_avg_tokens": 250,
-    "_retrieval_passage_note": "Based on default passage_chars=512 setting, ~250 tokens per passage",
+    "_retrieval_passage_note": "Based on default passage_words=512 setting, ~250 tokens per passage",
     
     "schema_discovery_avg_output_tokens": 300,
     "_schema_output_note": "Most batches return empty or 1-2 columns. Range: 50 (empty) to 1000+ (many columns)",

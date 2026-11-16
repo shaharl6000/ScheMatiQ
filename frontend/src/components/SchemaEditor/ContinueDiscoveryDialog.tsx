@@ -120,7 +120,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [showRetrieverConfig, setShowRetrieverConfig] = useState(false);
   const [retrieverConfig, setRetrieverConfig] = useState({
     model_name: '',
-    passage_chars: '',
+    passage_words: '',
     k: '',
     enable_dynamic_k: true,
     dynamic_k_threshold: '',
@@ -273,7 +273,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setShowRetrieverConfig(false);
       setRetrieverConfig({
         model_name: '',
-        passage_chars: '',
+        passage_words: '',
         k: '',
         enable_dynamic_k: true,
         dynamic_k_threshold: '',
@@ -381,7 +381,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       // Build retriever config only if user has configured any values
       const hasRetrieverConfig = showRetrieverConfig && (
         retrieverConfig.model_name ||
-        retrieverConfig.passage_chars ||
+        retrieverConfig.passage_words ||
         retrieverConfig.k ||
         retrieverConfig.dynamic_k_threshold ||
         retrieverConfig.dynamic_k_minimum
@@ -400,7 +400,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         },
         retriever_config: hasRetrieverConfig ? {
           model_name: retrieverConfig.model_name || undefined,
-          passage_chars: retrieverConfig.passage_chars ? parseInt(retrieverConfig.passage_chars) : undefined,
+          passage_words: retrieverConfig.passage_words ? parseInt(retrieverConfig.passage_words) : undefined,
           k: retrieverConfig.k ? parseInt(retrieverConfig.k) : undefined,
           enable_dynamic_k: retrieverConfig.enable_dynamic_k,
           dynamic_k_threshold: retrieverConfig.dynamic_k_threshold ? parseFloat(retrieverConfig.dynamic_k_threshold) : undefined,
@@ -946,11 +946,11 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Passage Characters</Label>
+                <Label className="text-xs">Passage Words</Label>
                 <Input
                   type="number"
-                  value={retrieverConfig.passage_chars}
-                  onChange={(e) => setRetrieverConfig({...retrieverConfig, passage_chars: e.target.value})}
+                  value={retrieverConfig.passage_words}
+                  onChange={(e) => setRetrieverConfig({...retrieverConfig, passage_words: e.target.value})}
                   placeholder="512"
                   min={128}
                   max={2048}

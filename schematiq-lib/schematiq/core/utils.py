@@ -90,6 +90,8 @@ def build_retriever(cfg: Dict[str, Any], llm_for_prompting: LLMInterface = None)
     if rtype == "embedding":
         max_words = cfg.get("max_words")
         if max_words is None:
+            max_words = cfg.get("passage_words")
+        if max_words is None:
             max_words = cfg.get("passage_chars", 512)
         overlap_words = cfg.get("overlap_words")
         if overlap_words is None:
