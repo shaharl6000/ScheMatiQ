@@ -52,6 +52,13 @@ _MAX_CONSECUTIVE_FAILED_BATCHES = 3
 # across the whole corpus. ``None`` in DiscoveryConfig means no limit.
 _DEFAULT_MAX_OBSERVATION_UNIT_ATTEMPTS = 3
 
+
+class _SubbatchRetrievalError(Exception):
+    """Marks a retrieval failure on a split sub-batch so batch_execution tags reason='retrieval_failed'."""
+
+    _skip_reason = "retrieval_failed"
+
+
 # Callback type aliases
 OnProgressCallback = Callable[[str, float, Dict[str, Any]], None]
 ShouldStopCallback = Callable[[], bool]
@@ -631,11 +638,16 @@ def discover_schema(
             if sub_docs is _batch_docs:
                 sub_content = _relevant_content
             else:
-                sub_content = ScheMatiQ.select_relevant_content(
-                    docs=sub_docs,
-                    query=query_str,
-                    retriever=retriever,
-                )
+                try:
+                    sub_content = ScheMatiQ.select_relevant_content(
+                        docs=sub_docs,
+                        query=query_str,
+                        retriever=retriever,
+                    )
+                except Exception as ret_exc:
+                    if should_abort_run(ret_exc):
+                        raise
+                    raise _SubbatchRetrievalError(str(ret_exc)) from ret_exc
             return ScheMatiQ.generate_schema(
                 passages=sub_content,
                 query=query_str,
@@ -648,7 +660,8 @@ def discover_schema(
 
         batch_contributing: List[str] = []
         batch_non_contributing: List[str] = []
-        batch_skipped_token_limit: List[List[str]] = []
+        batch_skipped_records: List[Tuple[str, List[str]]] = []
+        last_subbatch_llm_error: Optional[Exception] = None
 
         def _record_subbatch_outcome(
             sub_names: List[str],
@@ -656,12 +669,16 @@ def discover_schema(
             doc_helpful: bool,
             _iter_num: int = iteration + 1,
         ) -> None:
+            nonlocal consecutive_failed_batches
+            consecutive_failed_batches = 0
             if sub_schema is None:
                 batch_non_contributing.extend(sub_names)
-                batch_skipped_token_limit.append(list(sub_names))
+                batch_skipped_records.append(
+                    ("single_document_exceeds_token_limit", list(sub_names))
+                )
                 return
 
-            source_doc = sub_names[0] if sub_names else "unknown"
+            source_doc = ", ".join(sub_names) if sub_names else f"batch_{_iter_num}"
             for col in sub_schema.columns:
                 col.source_document = source_doc
                 col.discovery_iteration = _iter_num
@@ -670,6 +687,25 @@ def discover_schema(
                 batch_contributing.extend(sub_names)
             else:
                 batch_non_contributing.extend(sub_names)
+
+        def _record_subbatch_error(
+            sub_names: List[str],
+            exc: Exception,
+            reason: str,
+        ) -> None:
+            nonlocal consecutive_failed_batches, last_subbatch_llm_error
+            batch_non_contributing.extend(sub_names)
+            batch_skipped_records.append((reason, list(sub_names)))
+            if reason == "llm_call_failed":
+                last_subbatch_llm_error = exc
+                consecutive_failed_batches = (
+                    consecutive_failed_batches + 1 if is_outage_error(exc) else 0
+                )
+                if consecutive_failed_batches >= _MAX_CONSECUTIVE_FAILED_BATCHES:
+                    raise LLMRunAborted(
+                        f"Schema discovery stopped after {consecutive_failed_batches} "
+                        f"batches failed in a row. Last error: {exc}"
+                    ) from exc
 
         attempted_batches += 1
         stage_in_batch = "llm"
@@ -731,6 +767,7 @@ def discover_schema(
                 should_stop=stop_cb,
                 on_warning=warning_cb,
                 on_subbatch_outcome=_record_subbatch_outcome,
+                on_subbatch_error=_record_subbatch_error,
             )
         except Exception as exc:
             if should_abort_run(exc):
@@ -815,19 +852,30 @@ def discover_schema(
                         f"Observation unit discovery failed unexpectedly ({attempts_note}): {exc}"
                     ) from exc
             continue
-        consecutive_failed_batches = 0
 
         if new_schema is None:
             if stop_cb():
                 break
             evolution.non_contributing_files.extend(batch_non_contributing)
-            for skipped_names in batch_skipped_token_limit:
-                evolution.record_skipped_batch("single_document_exceeds_token_limit", skipped_names)
-            logger.warning(
-                "Batch %d/%d produced no schema (all documents skipped for token limits); continuing",
-                iteration + 1,
-                len(batches),
-            )
+            for skip_reason_rec, skipped_names in batch_skipped_records:
+                evolution.record_skipped_batch(skip_reason_rec, skipped_names)
+            if last_subbatch_llm_error is not None:
+                failed_batches += 1
+                last_batch_error = last_subbatch_llm_error
+                last_batch_stage = "llm"
+                evolution.add_snapshot(
+                    iteration=iteration + 1,
+                    documents=list(batch_names),
+                    total_columns=len(current_schema.columns),
+                    new_columns=[],
+                    cumulative_documents=cumulative_docs,
+                )
+            else:
+                logger.warning(
+                    "Batch %d/%d produced no schema (all documents skipped for token limits); continuing",
+                    iteration + 1,
+                    len(batches),
+                )
             continue
 
         logger.debug("Generated schema with %d columns", len(new_schema.columns))
@@ -838,8 +886,8 @@ def discover_schema(
 
         evolution.contributing_files.extend(batch_contributing)
         evolution.non_contributing_files.extend(batch_non_contributing)
-        for skipped_names in batch_skipped_token_limit:
-            evolution.record_skipped_batch("single_document_exceeds_token_limit", skipped_names)
+        for skip_reason_rec, skipped_names in batch_skipped_records:
+            evolution.record_skipped_batch(skip_reason_rec, skipped_names)
 
         # Merge with existing schema
         logger.debug("Current schema has %d columns", len(current_schema.columns))
@@ -866,9 +914,13 @@ def discover_schema(
             if col.name.lower() in new_column_names_lower
         ]
 
-        batch_source = ", ".join(batch_names) if batch_names else f"batch_{iteration + 1}"
-        for col_name in new_columns:
-            evolution.record_column_source(col_name, batch_source)
+        fallback_source = ", ".join(batch_names) if batch_names else f"batch_{iteration + 1}"
+        for col in merged_schema.columns:
+            if col.name.lower() in new_column_names_lower:
+                source_doc = col.source_document or fallback_source
+                if col.source_document is None:
+                    col.source_document = source_doc
+                evolution.record_column_source(col.name, source_doc)
 
         evolution.add_snapshot(
             iteration=iteration + 1,

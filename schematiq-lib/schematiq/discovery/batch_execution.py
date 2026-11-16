@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from schematiq.core.llm_backends import should_abort_run
 from schematiq.core.schema import Schema
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ def generate_schema_with_split(
     should_stop: Callable[[], bool],
     on_warning: Optional[Callable[[str, str, Optional[Dict[str, Any]]], None]] = None,
     on_subbatch_outcome: Optional[Callable[[List[str], Optional[Schema], bool], None]] = None,
+    on_subbatch_error: Optional[Callable[[List[str], Exception, str], None]] = None,
     _depth: int = 0,
 ) -> Optional[Schema]:
     """Run schema generation for a batch, splitting on token-limit failure.
@@ -79,6 +81,9 @@ def generate_schema_with_split(
             when a batch is split or a single document is skipped.
         on_subbatch_outcome: Optional callback ``(filenames, schema_or_none, document_helpful)``
             invoked for each resolved leaf batch (or skipped single document).
+        on_subbatch_error: Optional callback ``(filenames, error, reason)``
+            invoked when a split sub-batch (``_depth > 0``) fails with a non-abort
+            non-token-limit error and is skipped so sibling sub-batches can still contribute.
         _depth: Internal recursion depth.
 
     Returns:
@@ -103,8 +108,49 @@ def generate_schema_with_split(
     try:
         raw = run_generate(batch_docs)
     except Exception as e:
-        if not is_token_limit_error(e):
+        if should_abort_run(e):
             raise
+
+        if not is_token_limit_error(e):
+            if _depth == 0:
+                raise
+            reason = getattr(e, "_skip_reason", "llm_call_failed")
+            underlying_err: Exception = (
+                e.__cause__
+                if (reason == "retrieval_failed" and isinstance(e.__cause__, Exception))
+                else e
+            )
+            error_str = str(underlying_err)
+            logger.warning(
+                "Schema discovery skipped split sub-batch (%s): %s | error: %s",
+                reason,
+                batch_names,
+                error_str[:500],
+                exc_info=True,
+            )
+            skipped_label = ", ".join(batch_names) if batch_names else "split sub-batch"
+            if reason == "retrieval_failed":
+                warn_msg = (
+                    f"Skipped '{skipped_label}' during schema discovery due to retrieval error: {underlying_err}"
+                )
+            else:
+                warn_msg = (
+                    f"Skipped '{skipped_label}' during schema discovery because the LLM call failed: {underlying_err}"
+                )
+            _notify(
+                "warning",
+                warn_msg,
+                {
+                    "filenames": list(batch_names),
+                    "reason": reason,
+                    "error": error_str[:2000],
+                },
+            )
+            if on_subbatch_error is not None:
+                on_subbatch_error(list(batch_names), underlying_err, reason)
+            elif on_subbatch_outcome is not None:
+                on_subbatch_outcome(list(batch_names), None, False)
+            return None
 
         if len(batch_docs) <= 1:
             error_str = str(e)
@@ -151,6 +197,7 @@ def generate_schema_with_split(
             should_stop=should_stop,
             on_warning=on_warning,
             on_subbatch_outcome=on_subbatch_outcome,
+            on_subbatch_error=on_subbatch_error,
             _depth=_depth + 1,
         )
         right = generate_schema_with_split(
@@ -160,6 +207,7 @@ def generate_schema_with_split(
             should_stop=should_stop,
             on_warning=on_warning,
             on_subbatch_outcome=on_subbatch_outcome,
+            on_subbatch_error=on_subbatch_error,
             _depth=_depth + 1,
         )
 
