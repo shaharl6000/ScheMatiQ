@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any, Sequence
 import json
+import re
 import threading
 
 from sentence_transformers import util
@@ -32,6 +33,22 @@ def _get_emb_model():
             if _EMB_MODEL is None:
                 _EMB_MODEL = load_sentence_transformer(EMB_MODEL_NAME)
     return _EMB_MODEL
+
+
+_DIGIT_RUN = re.compile(r"\d+")
+
+
+def _numbers_conflict(name_a: str, name_b: str) -> bool:
+    """Return True when both names contain numbers and the numbers differ.
+
+    Embedding similarity cannot separate numbered columns: names such as
+    "justice_1" / "justice_2" or "lawyer_r1" / "lawyer_r2" score above
+    SIM_THRESHOLD, yet they are different columns. Numbers are compared as
+    integers, so "item_01" and "item_1" do not conflict.
+    """
+    nums_a = [int(n) for n in _DIGIT_RUN.findall(name_a)]
+    nums_b = [int(n) for n in _DIGIT_RUN.findall(name_b)]
+    return bool(nums_a) and bool(nums_b) and nums_a != nums_b
 
 
 def _embed(text: str):
@@ -258,14 +275,15 @@ class Schema:
             # 1) Exact match (case-insensitive)
             key = next((k for k in combined if k.lower() == cand.name.lower()), None)
 
-            # 2) Semantic match
+            # 2) Semantic match (never across names whose numbers differ)
             if key is None:
                 c_emb = _embed(cand.name)
                 key = next(
                     (
                         k
                         for k, e in combined_emb.items()
-                        if util.cos_sim(c_emb, e) >= SIM_THRESHOLD
+                        if not _numbers_conflict(cand.name, k)
+                        and util.cos_sim(c_emb, e) >= SIM_THRESHOLD
                     ),
                     None,
                 )
