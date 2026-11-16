@@ -12,6 +12,7 @@ from pathlib import Path
 from datetime import datetime
 
 # ScheMatiQ library imports
+from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
 from schematiq.value_extraction.main import build_table_jsonl
 
 from app.models.session import SessionStatus, DataStatistics, VisualizationSession, SkippedDocumentInfo
@@ -194,10 +195,14 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             llm = self._get_llm_for_session(session_id, current_schema)
             logger.debug("LLM interface created successfully")
             
-            # Use shared retriever singleton (avoids reloading model each time)
-            from app.services import get_shared_retriever
-            retriever = get_shared_retriever()
-            logger.debug("Retriever ready (shared singleton)")
+            if DISABLE_RETRIEVER:
+                retriever = None
+                logger.debug("Retriever skipped (DISABLE_RETRIEVER=True)")
+            else:
+                # Use shared retriever cache (avoids reloading model each time)
+                from app.services import get_shared_retriever
+                retriever = get_shared_retriever()
+                logger.debug("Retriever ready (shared cache)")
             
             # Run value extraction
             await self.broadcast_progress(session_id, "Processing documents with AI", 0.3, "processing_documents")

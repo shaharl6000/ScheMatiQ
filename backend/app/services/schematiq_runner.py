@@ -844,10 +844,11 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             await update_progress("Setting up retriever", 0.0)
 
             retriever = None
-            if "retriever" in schematiq_config:
+            retriever_cfg = schematiq_config.get("retriever")
+            if retriever_cfg:
                 from app.services import get_shared_retriever
-                retriever = get_shared_retriever()
-                logger.debug("Retriever ready (shared singleton)")
+                retriever = get_shared_retriever(retriever_cfg)
+                logger.debug("Retriever ready (shared cache, model=%s)", retriever.model_name)
             else:
                 logger.debug("No retriever config found, using None")
 

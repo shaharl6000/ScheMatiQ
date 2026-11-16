@@ -231,20 +231,30 @@ def _yield_word_slices(words: List[str], size: int) -> Iterable[str]:
             yield " ".join(piece)
 
 
+def legacy_budget_to_passage_words(budget: int, k: int) -> int:
+    """Convert a legacy total word budget (``max_words`` / ``passage_chars``) to per-passage words."""
+    return max(int(int(budget) / max(int(k), 1)), 128)
+
+
 class EmbeddingRetriever(Retriever):
     """
     Dense-vector retriever that chunks documents by **word count**, not characters.
-    Each passage contains up to `max_words` words (tries to fill the budget as
-    tightly as possible).
+    Each passage contains up to ``passage_words`` words directly. When only the
+    legacy ``max_words`` budget is passed (or neither ``passage_words`` nor
+    ``max_words`` is provided, defaulting to a 512-word budget), it is converted
+    using the historical ``max(int(budget / k), 128)`` formula.
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: int = 512, batch_size: int = 32, k: int = 3,
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: Optional[int] = None, batch_size: int = 32, k: int = 3,
                  device: Optional[str] = None, enable_dynamic_k: bool = False,
                  dynamic_k_threshold: float = 0.65, dynamic_k_minimum: int = 2,
                  enable_embedding_cache: bool = True, max_cache_size: int = 1000,
-                 enable_preprocessing: bool = True):
+                 enable_preprocessing: bool = True,
+                 overlap_words: int = 64,
+                 model: Optional[Any] = None,
+                 passage_words: Optional[int] = None):
         super().__init__()
-        if SentenceTransformer is None:
+        if model is None and SentenceTransformer is None:
             raise ImportError(
                 "sentence-transformers not installed. "
                 "pip install 'sentence-transformers>=2.5 numpy'"
@@ -275,7 +285,15 @@ class EmbeddingRetriever(Retriever):
         self._embedding_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_lock = threading.Lock()
 
-        if "Qwen" in model_name:
+        if model is not None:
+            # Reuse caller-supplied model weights (thread-safe across CPU/CUDA
+            # and serialized via process-wide _MPS_INFERENCE_LOCK on MPS).
+            self.model = model
+            self.is_cross_encoder = "Qwen" in model_name
+            if self.is_cross_encoder:
+                self.batch_size = 2
+
+        elif "Qwen" in model_name:
             self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
             self.is_cross_encoder = True
             tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
@@ -289,12 +307,25 @@ class EmbeddingRetriever(Retriever):
             from schematiq.core.embedding_model import load_sentence_transformer
 
             self.model = load_sentence_transformer(model_name, device=device)
-        self.max_words = max_words
-        self.max_words_chunk = max(int(max_words / self.k), 128)
 
+        if passage_words is not None:
+            resolved_passage_words = max(1, int(passage_words))
+        elif max_words is not None:
+            resolved_passage_words = legacy_budget_to_passage_words(max_words, self.k)
+        else:
+            resolved_passage_words = legacy_budget_to_passage_words(512, self.k)
+
+        self.passage_words = resolved_passage_words
+        self.max_words = (
+            max_words
+            if max_words is not None
+            else (512 if passage_words is None else resolved_passage_words)
+        )
+        self.overlap_words = overlap_words
+        self.max_words_chunk = resolved_passage_words
 
         print(f"-------Create EmbeddingRetriever, with model: {model_name}, k: {self.k}, "
-              f"max_words: {self.max_words}, batch_size: {self.batch_size}, "
+              f"passage_words: {self.passage_words}, batch_size: {self.batch_size}, "
               f"embedding_cache: {enable_embedding_cache}")
 
     def _compute_doc_hash(self, doc: str) -> str:
@@ -436,7 +467,7 @@ class EmbeddingRetriever(Retriever):
             passages: List[str] = []
             for d in docs:
                 d = _to_unicode(d)  # make sure the doc itself is clean
-                for chunk in self._improved_chunk(d):
+                for chunk in self._improved_chunk(d, overlap_words=self.overlap_words):
                     # flatten lists / tuples
                     if isinstance(chunk, (list, tuple)):
                         passages.extend(_to_unicode(c) for c in chunk)

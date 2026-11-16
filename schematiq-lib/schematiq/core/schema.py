@@ -253,14 +253,12 @@ class Schema:
     max_keys: Optional[int] = MAX_KEYS_DEFAULT
     observation_unit: Optional[ObservationUnit] = None  # Defines what each row represents
 
-    # Internal (not part of JSON serialisation)
-    _q_emb: list = field(init=False, repr=False)
-
     # -------------------------------------------------------------- #
     # Life-cycle                                                    #
     # -------------------------------------------------------------- #
     def __post_init__(self):
-        self._q_emb = _embed(self.query)
+        # No embedding work here: _prune embeds the query only when it has to
+        # cut columns, so constructing a Schema does not load the model.
         self._prune()  # Enforce max_keys limit immediately
 
 
@@ -378,7 +376,7 @@ class Schema:
         return inter / union
 
     def to_llm_dict(self) -> List[Dict[str, Any]]:
-        """Serialize schema for LLM prompts, excluding internal fields like _q_emb."""
+        """Serialize schema for LLM prompts (name, definition, rationale and metadata)."""
         result: List[Dict[str, Any]] = []
         for col in self.columns:
             col_dict: Dict[str, Any] = {
