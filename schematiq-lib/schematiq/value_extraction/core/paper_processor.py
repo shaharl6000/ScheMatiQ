@@ -83,6 +83,7 @@ from ..config.prompts import (
 )
 from ..utils.schema_builder import build_extraction_response_schema
 from ..utils.reference_retrieval import ReferenceRetriever
+from ..utils.reference_grounder import ReferenceGrounder
 from ..utils.excerpt_grounder import ExcerptGrounder, _PreparedSource
 
 # Type alias for warning callback: (paper_title, warning_type, message) -> None
@@ -277,6 +278,10 @@ class PaperProcessor:
         self.json_parser = JSONResponseParser()
         self.unit_parser = UnitIdentificationParser()
         self.text_processor = TextProcessor()
+        # Grounds excerpts quoted from an attached reference document, which the
+        # source-text grounding cannot find. Built from the full reference text,
+        # before the small/large split below drops it for large references.
+        self.reference_grounder = ReferenceGrounder(reference_context)
         # Small reference -> inject whole (cheap, no retrieval). Large reference ->
         # index once and retrieve per unit so we never blow the context window.
         reference_retriever = None
@@ -432,6 +437,15 @@ class PaperProcessor:
         # be distinguished from "vision-derived" vs "fabricated" and
         # enforcing here would null out correct answers.
         grounding_stats = self.excerpt_grounder.ground_all_excerpts(cleaned, source_text)
+        # A value taken from an attached reference document is quoted from the
+        # reference, not the source, so its excerpt is "not_found" above. Look
+        # such excerpts up in the reference before enforcement treats the
+        # answer as unsupported.
+        reference_grounder = getattr(self, "reference_grounder", None)
+        reference_hits = 0
+        if reference_grounder is not None and reference_grounder.active:
+            reference_hits = reference_grounder.ground_unmatched(cleaned)
+            grounding_stats["not_found"] = grounding_stats.get("not_found", 0) - reference_hits
         if getattr(self, "_active_figure_images", None):
             return cleaned
         if grounding_stats.get("not_found", 0) > 0:
@@ -440,6 +454,7 @@ class PaperProcessor:
                 f"{grounding_stats['exact']} exact, "
                 f"{grounding_stats.get('case_insensitive', 0)} case_insensitive, "
                 f"{grounding_stats['fuzzy']} fuzzy, "
+                f"{reference_hits} reference, "
                 f"{grounding_stats['not_found']} not found"
             )
 
