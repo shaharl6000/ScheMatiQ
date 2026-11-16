@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 # Serialize SentenceTransformer instantiation across worker threads to avoid
 # concurrent HuggingFace logger mutation and PyTorch meta-tensor initialization races.
 _LOAD_LOCK = threading.Lock()
+# Single process-wide lock for Apple Silicon MPS inference across all model instances.
+_MPS_INFERENCE_LOCK = threading.RLock()
 
 
 @contextmanager
@@ -53,10 +55,10 @@ def is_mps_model(model: Any) -> bool:
 
 
 @contextmanager
-def serialize_if_mps(model: Any, lock: Any):
-    """Acquire ``lock`` around inference only when ``model`` runs on ``mps``."""
+def serialize_if_mps(model: Any):
+    """Acquire the process-wide MPS lock around inference when ``model`` runs on ``mps``."""
     if is_mps_model(model):
-        with lock:
+        with _MPS_INFERENCE_LOCK:
             yield
     else:
         yield

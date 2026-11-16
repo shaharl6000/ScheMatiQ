@@ -20,8 +20,8 @@ MAX_KEYS_DEFAULT = None         # unlimited unless specified
 # in torch/transformers or downloads model weights, which keeps unrelated imports
 # — tests, CLI tools, the FastAPI app startup — fast and dependency-light.
 _EMB_MODEL = None
-# Guards lazy singleton creation and serializes MPS .encode() calls across threads.
-_EMB_MODEL_LOCK = threading.RLock()
+# Guards lazy singleton initialization in _get_emb_model across worker threads.
+_EMB_MODEL_LOCK = threading.Lock()
 
 
 def _get_emb_model():
@@ -37,7 +37,7 @@ def _get_emb_model():
 def _embed(text: str):
     """Small helper – add caching in production."""
     model = _get_emb_model()
-    with serialize_if_mps(model, _EMB_MODEL_LOCK):
+    with serialize_if_mps(model):
         return model.encode(
             text, normalize_embeddings=True, show_progress_bar=False
         )

@@ -389,7 +389,7 @@ def _parse_observation_unit_from_llm(raw_text: str) -> ObservationUnit:
         raise ObservationUnitDiscoveryError(f"Invalid observation unit data structure: {e}") from e
 
 
-def _discover_observation_unit(
+def discover_observation_unit(
     query: Optional[str],
     passages: Optional[List[str]],
     llm,
@@ -481,6 +481,11 @@ def _discover_observation_unit(
         raise
     except Exception as e:
         raise ObservationUnitDiscoveryError(f"LLM generation failed during observation unit discovery: {e}") from e
+
+
+# Internal alias used by ``schematiq.core.schematiq.discover_schema``, whose
+# ``discover_observation_unit: bool`` parameter shadows the public function name.
+_discover_observation_unit = discover_observation_unit
 
 
 def build_messages(query: Optional[str],

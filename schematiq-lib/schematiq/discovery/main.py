@@ -30,7 +30,7 @@ from schematiq.core.schema import (
 )
 from schematiq.core.schematiq import (
     ObservationUnitDiscoveryError,
-    _discover_observation_unit as discover_observation_unit,
+    discover_observation_unit,
 )
 from schematiq.discovery.batch_execution import generate_schema_with_split
 from schematiq.discovery.batch_planner import plan_batches
@@ -56,7 +56,8 @@ class DiscoveryConfig:
     initial_schema_path: Optional[Union[str, Path]] = None
     initial_observation_unit: Optional[Union[ObservationUnit, Dict[str, Any]]] = None
     context_window_size: Optional[int] = None
-    discover_observation_unit: bool = True
+    identify_observation_unit: bool = True
+    strict: bool = False
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DiscoveryConfig":
@@ -88,6 +89,13 @@ class DiscoveryConfig:
             schema_backend = data.get("schema_creation_backend") or {}
             context_window_size = schema_backend.get("context_window_size")
 
+        if "identify_observation_unit" in data:
+            identify_obs_unit = bool(data["identify_observation_unit"])
+        elif "discover_observation_unit" in data:
+            identify_obs_unit = bool(data["discover_observation_unit"])
+        else:
+            identify_obs_unit = True
+
         return cls(
             batch_size=batch_size,
             batch_strategy=batch_strategy,
@@ -97,7 +105,8 @@ class DiscoveryConfig:
             initial_schema_path=initial_schema_path,
             initial_observation_unit=data.get("initial_observation_unit"),
             context_window_size=context_window_size,
-            discover_observation_unit=bool(data.get("discover_observation_unit", True)),
+            identify_observation_unit=identify_obs_unit,
+            strict=bool(data.get("strict", False)),
         )
 
 
@@ -119,8 +128,16 @@ def load_initial_schema_from_config(
     config: DiscoveryConfig,
     query: str,
     max_keys: int,
+    strict: bool = False,
 ) -> Optional[Schema]:
-    """Load an initial ``Schema`` from ``config.initial_schema`` or ``config.initial_schema_path``."""
+    """Load an initial ``Schema`` from ``config.initial_schema`` or ``config.initial_schema_path``.
+
+    When ``strict`` (or ``config.strict``) is ``True``, missing files, invalid JSON,
+    unrecognized structures, or invalid inline column definitions raise instead of
+    logging a warning and returning ``None``.
+    """
+    effective_strict = bool(strict or config.strict)
+
     if config.initial_schema is not None:
         try:
             if isinstance(config.initial_schema, Schema):
@@ -142,6 +159,12 @@ def load_initial_schema_from_config(
                     observation_unit=copied_unit,
                 )
 
+            if isinstance(config.initial_schema, (str, bytes, Mapping)):
+                raise ValueError(
+                    f"Invalid inline initial_schema: expected Schema or sequence of columns, "
+                    f"got {type(config.initial_schema).__name__}"
+                )
+
             columns = [
                 copy.deepcopy(col) if isinstance(col, Column) else Column.from_dict(col)
                 for col in config.initial_schema
@@ -150,6 +173,10 @@ def load_initial_schema_from_config(
             logger.info("Loaded inline initial schema with %d columns", len(columns))
             return initial_schema
         except Exception as e:
+            if effective_strict:
+                if isinstance(e, ValueError):
+                    raise
+                raise ValueError(f"Could not load inline initial schema: {e}") from e
             logger.warning("Could not load inline initial schema: %s", e)
             return None
 
@@ -164,13 +191,21 @@ def load_initial_schema_from_config(
                 "schema" in initial_data or "columns" in initial_data
             ):
                 raw_cols = initial_data.get("schema", initial_data.get("columns", []))
+                if not isinstance(raw_cols, list):
+                    raise ValueError("Initial schema 'schema'/'columns' field must be a list")
                 columns = [Column.from_dict(col_data) for col_data in raw_cols]
                 initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
             else:
-                return None
+                raise ValueError(
+                    "Initial schema file must contain a JSON list of columns or an object with 'schema' or 'columns'"
+                )
             logger.info("Loaded initial schema from file with %d columns", len(columns))
             return initial_schema
         except Exception as e:
+            if effective_strict:
+                if isinstance(e, (FileNotFoundError, ValueError)):
+                    raise
+                raise ValueError(f"Could not load initial schema from file: {e}") from e
             logger.warning("Could not load initial schema from file: %s", e)
             return None
 
@@ -248,7 +283,7 @@ def _run_query_only_discovery(
         if observation_unit is None:
             if current_schema.observation_unit is not None:
                 observation_unit = current_schema.observation_unit
-            elif cfg.discover_observation_unit:
+            elif cfg.identify_observation_unit:
                 logger.info("QUERY_ONLY: discovering observation unit from query")
                 observation_unit = discover_observation_unit(
                     query=query,
@@ -381,7 +416,9 @@ def discover_schema(
                 f"filenames length ({len(names_list)}) must match documents length ({len(docs_list)})"
             )
 
-    initial_schema = load_initial_schema_from_config(cfg, query_str, max_keys)
+    initial_schema = load_initial_schema_from_config(
+        cfg, query_str, max_keys, strict=cfg.strict
+    )
     current_schema = (
         initial_schema
         if initial_schema is not None
@@ -505,7 +542,7 @@ def discover_schema(
         # Discover observation unit in first iteration (if not already set)
         if (
             iteration == 0
-            and cfg.discover_observation_unit
+            and cfg.identify_observation_unit
             and (query_str or relevant_content)
             and not current_schema.observation_unit
         ):

@@ -1036,7 +1036,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 max_keys=config.get("max_keys_schema", 100),
                 initial_schema=initial_schema,
                 context_window_size=llm_config.get("context_window_size"),
-                discover_observation_unit=False,
+                identify_observation_unit=False,
             )
 
             loop = asyncio.get_running_loop()
