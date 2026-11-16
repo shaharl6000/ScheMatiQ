@@ -216,9 +216,19 @@ async def run_schema_discovery(
             for snap in lib_evolution.snapshots
         ],
         column_sources=dict(lib_evolution.column_sources),
+        skipped_batches_by_reason=dict(lib_evolution.skipped_batches_by_reason),
+        skipped_filenames=list(lib_evolution.skipped_filenames),
     )
 
     return discovered_schema, evolution
+
+
+def format_discovery_completion_message(base_message: str, skipped_batches: int) -> str:
+    """Append skipped discovery batch count to a completion message when non-zero."""
+    if skipped_batches <= 0:
+        return base_message
+    noun = "batch" if skipped_batches == 1 else "batches"
+    return f"{base_message} ({skipped_batches} discovery {noun} skipped)"
 
 
 def _load_initial_schema(

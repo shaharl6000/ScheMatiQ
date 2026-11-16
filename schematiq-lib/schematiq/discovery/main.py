@@ -42,6 +42,10 @@ from schematiq.discovery.batch_planner import plan_batches
 
 logger = logging.getLogger(__name__)
 
+# Discovery stops when this many batches in a row fail with an outage error
+# (after each call's own retries), instead of grinding through the corpus.
+_MAX_CONSECUTIVE_FAILED_BATCHES = 3
+
 # Callback type aliases
 OnProgressCallback = Callable[[str, float, Dict[str, Any]], None]
 ShouldStopCallback = Callable[[], bool]
@@ -498,11 +502,12 @@ def discover_schema(
     unchanged_count = 0
     cumulative_docs = 0
     completion_done = False
-    unit_discovery_attempted = False
+    unit_discovery_done = False
     attempted_batches = 0
     failed_batches = 0
     consecutive_failed_batches = 0
     last_batch_error: Optional[Exception] = None
+    last_batch_stage: str = "llm"
 
     # Handle pre-configured observation unit
     pending_observation_unit_name: Optional[str] = None
@@ -584,6 +589,7 @@ def discover_schema(
                 },
             )
             evolution.non_contributing_files.extend(batch_names)
+            evolution.record_skipped_batch("retrieval_failed", batch_names)
             evolution.add_snapshot(
                 iteration=iteration + 1,
                 documents=list(batch_names),
@@ -597,52 +603,6 @@ def discover_schema(
 
         if stop_cb():
             logger.warning("Stop requested after content retrieval - saving partial schema")
-            break
-
-        # Discover observation unit on the first successfully retrieved batch (if not already set)
-        if (
-            not unit_discovery_attempted
-            and cfg.identify_observation_unit
-            and (query_str or relevant_content)
-            and not current_schema.observation_unit
-        ):
-            unit_discovery_attempted = True
-            logger.info("Discovering observation unit from first batch...")
-            try:
-                obs_unit = discover_observation_unit(
-                    query=query_str,
-                    passages=relevant_content,
-                    llm=llm,
-                    context_window_size=ctx_window,
-                    source_document=batch_names[0] if batch_names else None,
-                )
-                if pending_observation_unit_name:
-                    logger.info(
-                        "Overriding discovered name '%s' with pre-configured name '%s'",
-                        obs_unit.name,
-                        pending_observation_unit_name,
-                    )
-                    obs_unit.name = pending_observation_unit_name
-                current_schema.observation_unit = obs_unit
-                logger.info(
-                    "Observation unit set: %s - %s", obs_unit.name, obs_unit.definition
-                )
-                if obs_unit.example_names:
-                    logger.info("   Examples: %s", obs_unit.example_names)
-            except ObservationUnitDiscoveryError as e:
-                logger.error("Observation unit discovery failed: %s", e)
-                raise RuntimeError(
-                    f"Failed to discover observation unit: {e}. "
-                    "Ensure documents contain extractable entities."
-                ) from e
-            except Exception as e:
-                logger.error("Unexpected error during observation unit discovery: %s", e)
-                raise RuntimeError(
-                    f"Observation unit discovery failed unexpectedly: {e}"
-                ) from e
-
-        if stop_cb():
-            logger.warning("Stop requested after observation unit discovery - saving partial schema")
             break
 
         def _run_generate(
@@ -671,6 +631,7 @@ def discover_schema(
 
         batch_contributing: List[str] = []
         batch_non_contributing: List[str] = []
+        batch_skipped_token_limit: List[List[str]] = []
 
         def _record_subbatch_outcome(
             sub_names: List[str],
@@ -680,6 +641,7 @@ def discover_schema(
         ) -> None:
             if sub_schema is None:
                 batch_non_contributing.extend(sub_names)
+                batch_skipped_token_limit.append(list(sub_names))
                 return
 
             source_doc = sub_names[0] if sub_names else "unknown"
@@ -693,7 +655,45 @@ def discover_schema(
                 batch_non_contributing.extend(sub_names)
 
         attempted_batches += 1
+        stage_in_batch = "llm"
         try:
+            # Discover observation unit on the first batch that succeeds (if not already set)
+            if (
+                not unit_discovery_done
+                and cfg.identify_observation_unit
+                and (query_str or relevant_content)
+                and not current_schema.observation_unit
+            ):
+                stage_in_batch = "observation_unit"
+                logger.info("Discovering observation unit from batch %d...", iteration + 1)
+                obs_unit = discover_observation_unit(
+                    query=query_str,
+                    passages=relevant_content,
+                    llm=llm,
+                    context_window_size=ctx_window,
+                    source_document=batch_names[0] if batch_names else None,
+                )
+                if obs_unit is not None and pending_observation_unit_name:
+                    logger.info(
+                        "Overriding discovered name '%s' with pre-configured name '%s'",
+                        obs_unit.name,
+                        pending_observation_unit_name,
+                    )
+                    obs_unit.name = pending_observation_unit_name
+                current_schema.observation_unit = obs_unit
+                unit_discovery_done = True
+                if obs_unit is not None:
+                    logger.info(
+                        "Observation unit set: %s - %s", obs_unit.name, obs_unit.definition
+                    )
+                    if obs_unit.example_names:
+                        logger.info("   Examples: %s", obs_unit.example_names)
+
+            if stop_cb():
+                logger.warning("Stop requested after observation unit discovery - saving partial schema")
+                break
+
+            stage_in_batch = "llm"
             # Complete any partial user-seeded columns once, with passages as supporting context.
             if not completion_done and any(ScheMatiQ._is_partial(c) for c in current_schema.columns):
                 logger.info("Completing partial user-seeded columns (batch %d)", iteration + 1)
@@ -717,30 +717,58 @@ def discover_schema(
             )
         except Exception as exc:
             if should_abort_run(exc):
+                if stage_in_batch == "observation_unit":
+                    if isinstance(exc, ObservationUnitDiscoveryError):
+                        raise RuntimeError(
+                            f"Failed to discover observation unit: {exc}. "
+                            "Ensure documents contain extractable entities."
+                        ) from exc
+                    raise RuntimeError(
+                        f"Observation unit discovery failed unexpectedly: {exc}"
+                    ) from exc
                 raise
             failed_batches += 1
             consecutive_failed_batches = (
                 consecutive_failed_batches + 1 if is_outage_error(exc) else 0
             )
             last_batch_error = exc
-            logger.warning(
-                "Iteration %d — LLM call failed, skipping batch %s: %s",
-                iteration + 1,
-                batch_names,
-                exc,
-                exc_info=True,
-            )
+            last_batch_stage = stage_in_batch
             skipped_label = ", ".join(batch_names) if batch_names else f"batch {iteration + 1}"
+            if stage_in_batch == "observation_unit":
+                skip_reason = "observation_unit_discovery_failed"
+                logger.warning(
+                    "Iteration %d — observation unit discovery failed, skipping batch %s: %s",
+                    iteration + 1,
+                    batch_names,
+                    exc,
+                    exc_info=True,
+                )
+                warn_message = (
+                    f"Skipped '{skipped_label}' during schema discovery because observation unit discovery failed: {exc}"
+                )
+            else:
+                skip_reason = "llm_call_failed"
+                logger.warning(
+                    "Iteration %d — LLM call failed, skipping batch %s: %s",
+                    iteration + 1,
+                    batch_names,
+                    exc,
+                    exc_info=True,
+                )
+                warn_message = (
+                    f"Skipped '{skipped_label}' during schema discovery because the LLM call failed: {exc}"
+                )
             warning_cb(
                 "warning",
-                f"Skipped '{skipped_label}' during schema discovery because the LLM call failed: {exc}",
+                warn_message,
                 {
                     "filenames": list(batch_names),
-                    "reason": "llm_call_failed",
+                    "reason": skip_reason,
                     "error": str(exc)[:2000],
                 },
             )
             evolution.non_contributing_files.extend(batch_names)
+            evolution.record_skipped_batch(skip_reason, batch_names)
             evolution.add_snapshot(
                 iteration=iteration + 1,
                 documents=list(batch_names),
@@ -748,8 +776,7 @@ def discover_schema(
                 new_columns=[],
                 cumulative_documents=cumulative_docs,
             )
-            max_consecutive = getattr(ScheMatiQ, "_MAX_CONSECUTIVE_FAILED_BATCHES", 3)
-            if consecutive_failed_batches >= max_consecutive:
+            if consecutive_failed_batches >= _MAX_CONSECUTIVE_FAILED_BATCHES:
                 raise LLMRunAborted(
                     f"Schema discovery stopped after {consecutive_failed_batches} "
                     f"batches failed in a row. Last error: {exc}"
@@ -761,6 +788,8 @@ def discover_schema(
             if stop_cb():
                 break
             evolution.non_contributing_files.extend(batch_non_contributing)
+            for skipped_names in batch_skipped_token_limit:
+                evolution.record_skipped_batch("single_document_exceeds_token_limit", skipped_names)
             logger.warning(
                 "Batch %d/%d produced no schema (all documents skipped for token limits); continuing",
                 iteration + 1,
@@ -776,6 +805,8 @@ def discover_schema(
 
         evolution.contributing_files.extend(batch_contributing)
         evolution.non_contributing_files.extend(batch_non_contributing)
+        for skipped_names in batch_skipped_token_limit:
+            evolution.record_skipped_batch("single_document_exceeds_token_limit", skipped_names)
 
         # Merge with existing schema
         logger.debug("Current schema has %d columns", len(current_schema.columns))
@@ -842,6 +873,15 @@ def discover_schema(
         snapshot_cb(current_schema, evolution)
 
     if attempted_batches and failed_batches == attempted_batches and last_batch_error is not None:
+        if last_batch_stage == "observation_unit":
+            if isinstance(last_batch_error, ObservationUnitDiscoveryError):
+                raise RuntimeError(
+                    f"Failed to discover observation unit: {last_batch_error}. "
+                    "Ensure documents contain extractable entities."
+                ) from last_batch_error
+            raise RuntimeError(
+                f"Observation unit discovery failed unexpectedly: {last_batch_error}"
+            ) from last_batch_error
         raise last_batch_error
 
     logger.debug(

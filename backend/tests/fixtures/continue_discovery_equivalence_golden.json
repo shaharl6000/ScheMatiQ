@@ -150,6 +150,8 @@
           "case_identifier": "alpha.txt",
           "ruling_outcome": "alpha.txt"
         },
+        "skipped_batches_by_reason": {},
+        "skipped_filenames": [],
         "snapshots": [
           {
             "cumulative_documents": 5,
@@ -461,6 +463,8 @@
           "court_level": "beta.txt",
           "ruling_outcome": "alpha.txt"
         },
+        "skipped_batches_by_reason": {},
+        "skipped_filenames": [],
         "snapshots": [
           {
             "cumulative_documents": 3,

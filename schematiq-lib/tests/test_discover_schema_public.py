@@ -756,8 +756,19 @@ def test_contributing_non_contributing_and_column_tagging() -> None:
 
     assert evo.contributing_files == ["alpha.txt", "beta.txt"]
     assert evo.non_contributing_files == ["unhelpful.txt", "empty.txt", "big.txt", "broken.txt"]
+    assert evo.skipped_batches_by_reason == {
+        "single_document_exceeds_token_limit": 1,
+        "llm_call_failed": 1,
+    }
+    assert evo.skipped_filenames == ["big.txt", "broken.txt"]
+    assert evo.total_skipped_batches == 2
     # to_dict() remains compatible with downstream SchemaEvolution parsers
-    assert set(evo.to_dict().keys()) == {"snapshots", "column_sources"}
+    assert set(evo.to_dict().keys()) == {
+        "snapshots",
+        "column_sources",
+        "skipped_batches_by_reason",
+        "skipped_filenames",
+    }
 
     by_name = {c.name: c for c in schema.columns}
     assert by_name["seeded_col"].source_document == "initial_schema"
@@ -837,3 +848,138 @@ def test_deprecated_core_wrappers_warn_and_main_does_not(
         core_sq.main(cfg_file)
     assert [w for w in recorded if issubclass(w.category, DeprecationWarning)] == []
     assert out_file.exists()
+
+
+def test_observation_unit_failure_skips_batch_and_retries_next_batch() -> None:
+    from google.genai import errors as genai_errors
+
+    class ObsUnitFlakyLLM(FakeDiscoveryLLM):
+        def generate(self, prompt: Any, **kwargs) -> str:
+            if isinstance(prompt, list):
+                system = prompt[0].get("content", "") if len(prompt) > 0 else ""
+                user = prompt[1].get("content", "") if len(prompt) > 1 else ""
+            else:
+                system = ""
+                user = str(prompt)
+
+            if "ObservationUnitLLM" in system:
+                self.calls.append({"stage": "observation_unit", "user": user})
+                if "DOC_BAD_UNIT" in user:
+                    return "{not valid json"
+                if "DOC_AUTH_FAIL" in user:
+                    with pytest.raises(genai_errors.APIError) as excinfo:
+                        genai_errors.APIError.raise_error(
+                            401,
+                            {
+                                "error": {
+                                    "code": 401,
+                                    "status": "UNAUTHENTICATED",
+                                    "message": "API key not valid",
+                                }
+                            },
+                            None,
+                        )
+                    raise excinfo.value
+                return json.dumps(
+                    {
+                        "observation_unit": {
+                            "name": "Court Ruling",
+                            "definition": "A single judicial decision on an appeal",
+                            "example_names": ["Appeal 101"],
+                        },
+                        "reasoning": "Deterministic test unit",
+                    }
+                )
+            return super().generate(prompt, **kwargs)
+
+    warnings_seen: List[tuple] = []
+    llm = ObsUnitFlakyLLM()
+    schema, evo = discover_schema(
+        documents=[
+            "DOC_BAD_UNIT: Unparseable intro.",
+            "DOC_BETA: Appellate court decision.",
+        ],
+        filenames=["bad_unit.txt", "b.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(batch_strategy="fixed", batch_size=1),
+        llm=llm,
+        on_warning=lambda lvl, msg, info: warnings_seen.append((lvl, msg, info)),
+    )
+
+    assert schema.observation_unit is not None
+    assert schema.observation_unit.name == "Court Ruling"
+    assert schema.observation_unit.source_document == "b.txt"
+    assert [c.name for c in schema.columns] == ["court_level"]
+    assert evo.contributing_files == ["b.txt"]
+    assert evo.non_contributing_files == ["bad_unit.txt"]
+    assert evo.skipped_batches_by_reason == {"observation_unit_discovery_failed": 1}
+    assert evo.skipped_filenames == ["bad_unit.txt"]
+    assert evo.total_skipped_batches == 1
+    assert len(warnings_seen) == 1
+    assert warnings_seen[0][2]["reason"] == "observation_unit_discovery_failed"
+    assert warnings_seen[0][2]["filenames"] == ["bad_unit.txt"]
+
+    # Fatal should_abort_run error during observation unit discovery aborts immediately.
+    llm_fatal = ObsUnitFlakyLLM()
+    with pytest.raises(RuntimeError, match="Failed to discover observation unit") as exc_info:
+        discover_schema(
+            documents=[
+                "DOC_AUTH_FAIL: Bad key.",
+                "DOC_BETA: Should never be reached.",
+            ],
+            filenames=["bad_key.txt", "b.txt"],
+            query="Analyze rulings",
+            config=DiscoveryConfig(batch_strategy="fixed", batch_size=1),
+            llm=llm_fatal,
+        )
+    assert isinstance(exc_info.value.__cause__, ObservationUnitDiscoveryError)
+    assert [c["stage"] for c in llm_fatal.calls] == ["observation_unit"]
+
+
+def test_max_consecutive_failed_batches_in_discovery_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from google.genai import errors as genai_errors
+    import schematiq.discovery as discovery_pkg
+    from schematiq.core import schematiq as core_sq
+    from schematiq.core.llm_backends import LLMRunAborted
+    from schematiq.discovery import main as discovery_main
+
+    assert discovery_pkg._MAX_CONSECUTIVE_FAILED_BATCHES == 3
+    assert discovery_main._MAX_CONSECUTIVE_FAILED_BATCHES == 3
+    assert not hasattr(core_sq, "_MAX_CONSECUTIVE_FAILED_BATCHES")
+
+    class OutageLLM(FakeDiscoveryLLM):
+        def generate(self, prompt: Any, **kwargs) -> str:
+            if isinstance(prompt, list) and "SchemaLLM" in (prompt[0].get("content", "")):
+                self.calls.append({"stage": "schema_discovery", "user": ""})
+                with pytest.raises(genai_errors.APIError) as excinfo:
+                    genai_errors.APIError.raise_error(
+                        503,
+                        {
+                            "error": {
+                                "code": 503,
+                                "status": "UNAVAILABLE",
+                                "message": "Overloaded",
+                            }
+                        },
+                        None,
+                    )
+                raise excinfo.value
+            return super().generate(prompt, **kwargs)
+
+    monkeypatch.setattr(discovery_main, "_MAX_CONSECUTIVE_FAILED_BATCHES", 2)
+    llm = OutageLLM()
+    with pytest.raises(LLMRunAborted, match="2 batches failed in a row"):
+        discover_schema(
+            documents=["DOC_1", "DOC_2", "DOC_3"],
+            filenames=["d1.txt", "d2.txt", "d3.txt"],
+            query="Analyze rulings",
+            config=DiscoveryConfig(
+                batch_strategy="fixed",
+                batch_size=1,
+                identify_observation_unit=False,
+            ),
+            llm=llm,
+        )
+    assert [c["stage"] for c in llm.calls] == ["schema_discovery", "schema_discovery"]

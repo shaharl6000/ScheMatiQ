@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Sequence
 import json
 import threading
 
@@ -177,12 +177,28 @@ class SchemaEvolution:
     column_sources: Dict[str, str] = field(default_factory=dict)  # column_name -> source_document
     contributing_files: List[str] = field(default_factory=list)
     non_contributing_files: List[str] = field(default_factory=list)
+    skipped_batches_by_reason: Dict[str, int] = field(default_factory=dict)
+    skipped_filenames: List[str] = field(default_factory=list)
+
+    @property
+    def total_skipped_batches(self) -> int:
+        """Total number of skipped batches (or single-doc split leaves)."""
+        return sum(self.skipped_batches_by_reason.values())
 
     def to_dict(self) -> Dict:
         return {
             "snapshots": [s.to_dict() for s in self.snapshots],
-            "column_sources": self.column_sources
+            "column_sources": self.column_sources,
+            "skipped_batches_by_reason": dict(self.skipped_batches_by_reason),
+            "skipped_filenames": list(self.skipped_filenames),
         }
+
+    def record_skipped_batch(self, reason: str, filenames: Sequence[str]) -> None:
+        """Record a skipped batch (or skipped single document) and its filenames."""
+        self.skipped_batches_by_reason[reason] = (
+            self.skipped_batches_by_reason.get(reason, 0) + 1
+        )
+        self.skipped_filenames.extend(filenames)
 
     def add_snapshot(self, iteration: int, documents: List[str],
                      total_columns: int, new_columns: List[str],

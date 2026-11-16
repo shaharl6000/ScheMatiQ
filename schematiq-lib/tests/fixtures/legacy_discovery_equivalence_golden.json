@@ -69,6 +69,8 @@
           "court_level": "02_beta.txt",
           "ruling_outcome": "01_alpha.txt"
         },
+        "skipped_batches_by_reason": {},
+        "skipped_filenames": [],
         "snapshots": [
           {
             "cumulative_documents": 1,
@@ -183,6 +185,12 @@
           "court_level": "03_beta.txt",
           "ruling_outcome": "02_alpha.txt"
         },
+        "skipped_batches_by_reason": {
+          "observation_unit_discovery_failed": 1
+        },
+        "skipped_filenames": [
+          "01_bad_unit.txt"
+        ],
         "snapshots": [
           {
             "cumulative_documents": 1,
@@ -290,6 +298,8 @@
           "ruling_outcome": "01_alpha.txt",
           "seeded_court": "initial_schema"
         },
+        "skipped_batches_by_reason": {},
+        "skipped_filenames": [],
         "snapshots": [
           {
             "cumulative_documents": 0,
@@ -353,6 +363,12 @@
         "court_level": "b.txt",
         "ruling_outcome": "a.txt"
       },
+      "skipped_batches_by_reason": {
+        "llm_call_failed": 1
+      },
+      "skipped_filenames": [
+        "bad.txt"
+      ],
       "snapshots": [
         {
           "cumulative_documents": 1,
@@ -457,6 +473,8 @@
         "court_level": "d2.txt",
         "ruling_outcome": "d1.txt"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 1,
@@ -549,6 +567,12 @@
         "court_level": "b.txt",
         "ruling_outcome": "a.txt"
       },
+      "skipped_batches_by_reason": {
+        "observation_unit_discovery_failed": 1
+      },
+      "skipped_filenames": [
+        "bad_unit.txt"
+      ],
       "snapshots": [
         {
           "cumulative_documents": 1,

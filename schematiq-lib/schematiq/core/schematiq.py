@@ -762,11 +762,6 @@ def load_initial_schema(initial_schema_path: Path, query: str, max_keys_schema: 
     return loaded if loaded is not None else Schema(query=query, max_keys=max_keys_schema)
 
 
-# Discovery stops when this many batches in a row fail with an outage error
-# (after each call's own retries), instead of grinding through the corpus.
-_MAX_CONSECUTIVE_FAILED_BATCHES = 3
-
-
 def discover_schema(
     query: str | None,
     documents: List[str],

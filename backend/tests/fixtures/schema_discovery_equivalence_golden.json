@@ -5,6 +5,8 @@
         "case_identifier": "alpha.txt",
         "ruling_outcome": "alpha.txt"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 1,
@@ -181,6 +183,8 @@
         "court_level": "beta.txt",
         "ruling_outcome": "alpha.txt"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 1,
@@ -365,6 +369,8 @@
         "court_level": "beta.txt",
         "ruling_outcome": "alpha.txt"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 1,
@@ -578,6 +584,8 @@
         "court_level": "beta.txt",
         "ruling_outcome": "alpha.txt"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 1,
@@ -793,6 +801,8 @@
         "seeded_judge": "initial_schema",
         "seeded_year": "initial_schema"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 0,
@@ -1020,6 +1030,8 @@
         "court_level": "beta.txt",
         "ruling_outcome": "alpha.txt"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 1,
@@ -1191,6 +1203,8 @@
         "court_level": "beta.txt",
         "ruling_outcome": "alpha.txt"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 1,
@@ -1374,6 +1388,8 @@
         "applicant_origin": "query_only",
         "case_outcome": "query_only"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 0,
@@ -1451,6 +1467,12 @@
         "court_level": "beta.txt",
         "ruling_outcome": "oversized.txt, alpha.txt"
       },
+      "skipped_batches_by_reason": {
+        "single_document_exceeds_token_limit": 1
+      },
+      "skipped_filenames": [
+        "oversized.txt"
+      ],
       "snapshots": [
         {
           "cumulative_documents": 2,
@@ -1655,6 +1677,8 @@
         "court_level": "beta.txt",
         "ruling_outcome": "gamma.txt, alpha.txt"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 1,
@@ -1839,6 +1863,8 @@
         "case_identifier": "alpha.txt",
         "ruling_outcome": "alpha.txt"
       },
+      "skipped_batches_by_reason": {},
+      "skipped_filenames": [],
       "snapshots": [
         {
           "cumulative_documents": 1,

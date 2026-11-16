@@ -163,6 +163,8 @@ async def test_run_schema_discovery_skips_failed_batch_and_logs_warning(tmp_path
     assert [c.name for c in schema.columns] == ["case_identifier", "court_level"]
     assert len(evolution.snapshots) == 3
     assert evolution.snapshots[1].new_columns == []
+    assert evolution.skipped_batches_by_reason == {"llm_call_failed": 1}
+    assert evolution.skipped_filenames == ["broken.txt"]
 
     skip_file = tmp_path / session_id / "schema_discovery_skips.json"
     assert skip_file.exists()
@@ -213,6 +215,8 @@ async def test_run_schema_discovery_skips_retrieval_failure_and_logs_warning(
     )
 
     assert [c.name for c in schema.columns] == ["case_identifier", "court_level"]
+    assert _evo.skipped_batches_by_reason == {"retrieval_failed": 1}
+    assert _evo.skipped_filenames == ["ret_fail.txt"]
     skips = json.loads((tmp_path / session_id / "schema_discovery_skips.json").read_text())
     assert skips[0]["filenames"] == ["ret_fail.txt"]
     assert skips[0]["reason"] == "retrieval_failed"
@@ -303,3 +307,175 @@ async def test_run_schema_discovery_aborts_immediately_on_fatal_auth_error(tmp_p
 
     assert llm.calls == ["schema_discovery"]
     assert not (tmp_path / session_id / "schema_discovery_skips.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_run_schema_discovery_skips_obs_unit_failure_and_retries_next_batch(
+    tmp_path: Path,
+) -> None:
+    class ObsUnitFailFirstFakeLLM(FailingBatchFakeLLM):
+        def generate(self, prompt: Any, **kwargs) -> str:
+            system = prompt[0].get("content", "") if isinstance(prompt, list) else ""
+            user = prompt[1].get("content", "") if isinstance(prompt, list) else str(prompt)
+            if "ObservationUnitLLM" in system and "DOC_BAD_OBS_UNIT" in user:
+                self.calls.append("observation_unit")
+                return "{invalid json"
+            return super().generate(prompt, **kwargs)
+
+    session_id = "sess_skip_obs_unit"
+    (tmp_path / session_id).mkdir()
+    ws = RecordingWSManager()
+    llm = ObsUnitFailFirstFakeLLM()
+
+    schema, evolution = await run_schema_discovery(
+        session_id=session_id,
+        documents=[
+            "DOC_BAD_OBS_UNIT: Unparseable cover page.",
+            "DOC_ALPHA: First valid ruling.",
+            "DOC_BETA: Second valid ruling.",
+        ],
+        filenames=["bad_unit.txt", "alpha.txt", "beta.txt"],
+        schematiq_config=_cfg(),
+        llm=llm,
+        retriever=None,
+        progress_callback=_noop_progress,
+        is_stop_requested=lambda _sid: False,
+        ws_manager=ws,
+        work_dir=tmp_path,
+    )
+
+    assert schema.observation_unit is not None
+    assert schema.observation_unit.name == "Court Ruling"
+    assert schema.observation_unit.source_document == "alpha.txt"
+    assert [c.name for c in schema.columns] == ["case_identifier", "court_level"]
+    assert evolution.skipped_batches_by_reason == {"observation_unit_discovery_failed": 1}
+    assert evolution.skipped_filenames == ["bad_unit.txt"]
+
+    skips = json.loads((tmp_path / session_id / "schema_discovery_skips.json").read_text())
+    assert len(skips) == 1
+    assert skips[0]["filenames"] == ["bad_unit.txt"]
+    assert skips[0]["reason"] == "observation_unit_discovery_failed"
+    assert len(ws.logs) == 1
+    assert ws.logs[0]["level"] == "warning"
+    assert "bad_unit.txt" in ws.logs[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_schematiq_runner_completion_message_includes_skipped_discovery_batches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.models.schematiq import LLMConfig, ScheMatiQConfig
+    from app.models.session import (
+        SessionMetadata,
+        SessionStatus,
+        SessionType,
+        VisualizationSession,
+    )
+    from app.services import schematiq_runner as runner_mod
+    from app.services.pipeline.schema_discovery import format_discovery_completion_message
+    from app.services.schematiq_runner import ScheMatiQRunner
+    from app.services.session_manager import SessionManager
+    from app.storage.local_backend import LocalStorageBackend
+
+    assert (
+        format_discovery_completion_message("ScheMatiQ execution completed successfully", 0)
+        == "ScheMatiQ execution completed successfully"
+    )
+    assert (
+        format_discovery_completion_message("ScheMatiQ execution completed successfully", 2)
+        == "ScheMatiQ execution completed successfully (2 discovery batches skipped)"
+    )
+
+    data_dir = tmp_path / "data"
+    work_dir = tmp_path / "work"
+    sessions_dir = tmp_path / "sessions"
+    docs_dir = tmp_path / "input_docs"
+    for d in (data_dir, work_dir, sessions_dir, docs_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    (docs_dir / "01_alpha.txt").write_text("DOC_ALPHA: First ruling.", encoding="utf-8")
+    (docs_dir / "02_broken.txt").write_text("DOC_TRANSIENT: Broken batch.", encoding="utf-8")
+    (docs_dir / "03_beta.txt").write_text("DOC_BETA: Third ruling.", encoding="utf-8")
+
+    session_id = "sess_runner_skip_summary"
+    storage = LocalStorageBackend(
+        sessions_dir=str(sessions_dir),
+        data_dir=str(data_dir),
+        schematiq_work_dir=str(work_dir),
+    )
+    session_manager = SessionManager(storage=storage)
+    session_manager.create_session(
+        VisualizationSession(
+            id=session_id,
+            type=SessionType.SCHEMATIQ,
+            status=SessionStatus.PROCESSING,
+            metadata=SessionMetadata(source="test"),
+        )
+    )
+
+    ws = MagicMock()
+    ws.broadcast_progress = AsyncMock()
+    ws.broadcast_to_session = AsyncMock()
+    ws.broadcast_log = AsyncMock()
+    ws.broadcast_completion = AsyncMock()
+    ws.broadcast_error = AsyncMock()
+
+    runner = ScheMatiQRunner(
+        work_dir=str(work_dir),
+        websocket_manager=ws,
+        session_manager=session_manager,
+    )
+
+    fake_llm = FailingBatchFakeLLM()
+    monkeypatch.setattr(runner_mod, "DEFAULT_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(
+        runner_mod, "resolve_docs_paths", AsyncMock(return_value=[str(docs_dir)])
+    )
+    monkeypatch.setattr(runner_mod, "enforce_release_llm_config", lambda cfg, **_kw: cfg)
+    monkeypatch.setattr(runner_mod, "build_llm_interface", lambda **_kw: fake_llm)
+    monkeypatch.setattr(runner, "check_global_quota", lambda *_args, **_kwargs: None)
+
+    config = ScheMatiQConfig(
+        query="What drives appeal outcomes?",
+        docs_path=str(docs_dir),
+        max_keys_schema=20,
+        documents_batch_size=1,
+        batch_strategy="fixed",
+        convergence_threshold=5,
+        skip_value_extraction=True,
+        count_toward_quota=False,
+        document_randomization_seed=42,
+        output_path=str(work_dir / session_id / "output.json"),
+        schema_creation_backend=LLMConfig(
+            provider="openai",
+            model="fake-deterministic",
+            context_window_size=16384,
+        ),
+        value_extraction_backend=LLMConfig(
+            provider="openai",
+            model="fake-deterministic",
+            context_window_size=16384,
+        ),
+    )
+
+    await runner._execute_schematiq(session_id, config)
+
+    ws.broadcast_completion.assert_awaited_once()
+    _sid, completion_payload = ws.broadcast_completion.call_args.args
+    assert _sid == session_id
+    assert (
+        completion_payload["message"]
+        == "Schema discovery completed (value extraction skipped) (1 discovery batch skipped)"
+    )
+    assert completion_payload["skipped_discovery_batches"] == 1
+
+    saved_session = session_manager.get_session(session_id)
+    assert saved_session is not None
+    assert saved_session.statistics is not None
+    assert saved_session.statistics.schema_evolution is not None
+    assert saved_session.statistics.schema_evolution.skipped_batches_by_reason == {
+        "llm_call_failed": 1
+    }
+    assert saved_session.statistics.schema_evolution.skipped_filenames == ["02_broken.txt"]

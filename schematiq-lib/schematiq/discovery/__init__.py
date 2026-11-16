@@ -6,6 +6,7 @@ from schematiq.discovery.batch_execution import (
 )
 from schematiq.discovery.batch_planner import PlannedBatch, plan_batches
 from schematiq.discovery.main import (
+    _MAX_CONSECUTIVE_FAILED_BATCHES,
     DiscoveryConfig,
     OnProgressCallback,
     OnSnapshotCallback,
@@ -16,6 +17,7 @@ from schematiq.discovery.main import (
 )
 
 __all__ = [
+    "_MAX_CONSECUTIVE_FAILED_BATCHES",
     "DiscoveryConfig",
     "OnProgressCallback",
     "OnSnapshotCallback",
