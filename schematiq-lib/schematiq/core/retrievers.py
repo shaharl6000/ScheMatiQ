@@ -274,7 +274,6 @@ class EmbeddingRetriever(Retriever):
         self.max_cache_size = max_cache_size
         self._embedding_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_lock = threading.Lock()
-        self._mps_lock = threading.Lock()
 
         if "Qwen" in model_name:
             self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
@@ -337,7 +336,7 @@ class EmbeddingRetriever(Retriever):
         Otherwise compute embeddings and cache them if doc_hash is provided.
         """
         # Serialize model.encode calls only on MPS (CPU/CUDA run concurrently).
-        with serialize_if_mps(self.model, self._mps_lock):
+        with serialize_if_mps(self.model):
             # 1. Encode query (always needed, but fast ~10ms)
             q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
 
@@ -381,7 +380,7 @@ class EmbeddingRetriever(Retriever):
         for i in range(0, len(pairs), chunk):
             sub = pairs[i: i + chunk]
             # len(sub) may be smaller than chunk for the last slice
-            with serialize_if_mps(self.model, self._mps_lock):
+            with serialize_if_mps(self.model):
                 scores.extend(
                     self.model.predict(
                         sub,

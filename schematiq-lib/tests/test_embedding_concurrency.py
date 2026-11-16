@@ -170,3 +170,96 @@ def test_load_lock_applies_to_all_devices(monkeypatch: pytest.MonkeyPatch) -> No
     assert total_loads - before == 1
     assert len({id(m) for m in singletons}) == 1
 
+
+def test_cross_instance_mps_encodes_are_serialized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Concurrent encodes across distinct MPS model instances share one process-wide lock."""
+    stats_lock = threading.Lock()
+    stats = {"active": 0, "max_active": 0}
+
+    class _SharedStatsModel:
+        def __init__(self, device, *, sleep_s: float = 0.0, barrier=None):
+            self.device = device
+            self._sleep_s = sleep_s
+            self._barrier = barrier
+
+        def encode(self, texts, **_kwargs):
+            with stats_lock:
+                stats["active"] += 1
+                stats["max_active"] = max(stats["max_active"], stats["active"])
+            try:
+                if self._barrier is not None:
+                    self._barrier.wait()
+                if self._sleep_s > 0:
+                    time.sleep(self._sleep_s)
+                if isinstance(texts, str):
+                    return np.ones(4, dtype=np.float32)
+                return np.ones((len(texts), 4), dtype=np.float32)
+            finally:
+                with stats_lock:
+                    stats["active"] -= 1
+
+    mps_dev = torch.device("mps", 0)
+    m_schema = _SharedStatsModel(mps_dev, sleep_s=0.05)
+    m_ret_a = _SharedStatsModel(mps_dev, sleep_s=0.05)
+    m_ret_b = _SharedStatsModel(mps_dev, sleep_s=0.05)
+
+    monkeypatch.setattr(schema_mod, "_EMB_MODEL", m_schema)
+    models_iter = iter([m_ret_a, m_ret_b])
+    monkeypatch.setattr(
+        embedding_model, "load_sentence_transformer", lambda *_a, **_kw: next(models_iter)
+    )
+    ret_a = EmbeddingRetriever(
+        model_name="fake-model-a", enable_preprocessing=False, enable_embedding_cache=False
+    )
+    ret_b = EmbeddingRetriever(
+        model_name="fake-model-b", enable_preprocessing=False, enable_embedding_cache=False
+    )
+
+    def _worker(idx: int) -> None:
+        if idx < 2:
+            schema_mod._embed(f"col_{idx}")
+        elif idx < 4:
+            ret_a._query_sentence_transformer_with_cache(
+                ["passage a", "passage b"], f"q_{idx}"
+            )
+        else:
+            ret_b._query_sentence_transformer_with_cache(
+                ["passage c", "passage d"], f"q_{idx}"
+            )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(_worker, range(6)))
+
+    assert stats["max_active"] == 1
+
+    # On CPU, distinct instances (schema._embed + EmbeddingRetriever) must NOT block each other.
+    stats["active"] = 0
+    stats["max_active"] = 0
+    cpu_barrier = threading.Barrier(2, timeout=2.0)
+    cpu_schema = _SharedStatsModel(torch.device("cpu"), barrier=cpu_barrier)
+    cpu_ret_model = _SharedStatsModel(torch.device("cpu"), barrier=cpu_barrier)
+
+    monkeypatch.setattr(schema_mod, "_EMB_MODEL", cpu_schema)
+    monkeypatch.setattr(
+        embedding_model, "load_sentence_transformer", lambda *_a, **_kw: cpu_ret_model
+    )
+    cpu_ret = EmbeddingRetriever(
+        model_name="fake-cpu", enable_preprocessing=False, enable_embedding_cache=False
+    )
+    cached = np.ones((2, 4), dtype=np.float32)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        f1 = pool.submit(schema_mod._embed, "col_cpu")
+        f2 = pool.submit(
+            cpu_ret._query_sentence_transformer_with_cache,
+            ["passage a", "passage b"],
+            "q_cpu",
+            cached_embeddings=cached,
+        )
+        f1.result(timeout=5.0)
+        f2.result(timeout=5.0)
+
+    assert stats["max_active"] == 2
+

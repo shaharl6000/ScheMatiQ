@@ -548,7 +548,7 @@ def test_filenames_length_mismatch_raises() -> None:
     assert len(llm.calls) == 0
 
 
-def test_discover_observation_unit_false_skips_unit_discovery() -> None:
+def test_identify_observation_unit_false_skips_unit_discovery() -> None:
     llm_docs = FakeDiscoveryLLM()
     schema_docs, _ = discover_schema(
         documents=["DOC_ALPHA: Text"],
@@ -556,7 +556,7 @@ def test_discover_observation_unit_false_skips_unit_discovery() -> None:
         query="Analyze rulings",
         config=DiscoveryConfig(
             batch_strategy="fixed",
-            discover_observation_unit=False,
+            identify_observation_unit=False,
         ),
         llm=llm_docs,
     )
@@ -568,8 +568,101 @@ def test_discover_observation_unit_false_skips_unit_discovery() -> None:
         documents=[],
         filenames=[],
         query="Analyze rulings",
-        config=DiscoveryConfig(discover_observation_unit=False),
+        config=DiscoveryConfig(identify_observation_unit=False),
         llm=llm_q,
     )
     assert schema_q.observation_unit is None
     assert [c["stage"] for c in llm_q.calls] == ["schema_discovery"]
+
+    # from_dict accepts both the new key and the legacy discover_observation_unit key.
+    assert DiscoveryConfig.from_dict({"identify_observation_unit": False}).identify_observation_unit is False
+    assert DiscoveryConfig.from_dict({"discover_observation_unit": False}).identify_observation_unit is False
+    assert (
+        DiscoveryConfig.from_dict(
+            {"identify_observation_unit": True, "discover_observation_unit": False}
+        ).identify_observation_unit
+        is True
+    )
+
+
+def test_strict_initial_schema_loading(tmp_path: Path) -> None:
+    from schematiq.discovery import load_initial_schema_from_config
+
+    missing_path = tmp_path / "does_not_exist.json"
+    malformed_path = tmp_path / "malformed.json"
+    malformed_path.write_text("{not valid json", encoding="utf-8")
+    unrecognized_path = tmp_path / "unrecognized.json"
+    unrecognized_path.write_text(json.dumps({"unexpected": []}), encoding="utf-8")
+
+    # Non-strict (default) preserves existing behavior: returns None on errors.
+    for cfg in [
+        DiscoveryConfig(initial_schema_path=missing_path),
+        DiscoveryConfig(initial_schema_path=malformed_path),
+        DiscoveryConfig(initial_schema_path=unrecognized_path),
+        DiscoveryConfig(initial_schema=[{}]),
+        DiscoveryConfig(initial_schema="not_a_list"),  # type: ignore[arg-type]
+    ]:
+        assert load_initial_schema_from_config(cfg, "query", 10) is None
+
+    # strict=True raises clear exceptions via function argument or DiscoveryConfig.
+    with pytest.raises(FileNotFoundError):
+        load_initial_schema_from_config(
+            DiscoveryConfig(initial_schema_path=missing_path), "query", 10, strict=True
+        )
+    with pytest.raises(ValueError):
+        load_initial_schema_from_config(
+            DiscoveryConfig(initial_schema_path=malformed_path), "query", 10, strict=True
+        )
+    with pytest.raises(ValueError, match="JSON list"):
+        load_initial_schema_from_config(
+            DiscoveryConfig(initial_schema_path=unrecognized_path), "query", 10, strict=True
+        )
+    with pytest.raises(ValueError):
+        load_initial_schema_from_config(
+            DiscoveryConfig(initial_schema=[{}], strict=True), "query", 10
+        )
+    with pytest.raises(ValueError, match="expected Schema or sequence"):
+        load_initial_schema_from_config(
+            DiscoveryConfig(initial_schema="not_a_list", strict=True), "query", 10  # type: ignore[arg-type]
+        )
+
+    # discover_schema honors strict from both DiscoveryConfig and dict config.
+    llm = FakeDiscoveryLLM()
+    with pytest.raises(FileNotFoundError):
+        discover_schema(
+            documents=["DOC_ALPHA: Text"],
+            filenames=["a.txt"],
+            query="Analyze rulings",
+            config=DiscoveryConfig(initial_schema_path=missing_path, strict=True),
+            llm=llm,
+        )
+    with pytest.raises(ValueError):
+        discover_schema(
+            documents=["DOC_ALPHA: Text"],
+            filenames=["a.txt"],
+            query="Analyze rulings",
+            config={"initial_schema_path": str(unrecognized_path), "strict": True},
+            llm=llm,
+        )
+    assert len(llm.calls) == 0
+
+    # strict=True without any seed schema still succeeds cleanly.
+    assert load_initial_schema_from_config(DiscoveryConfig(strict=True), "query", 10) is None
+    schema_ok, _ = discover_schema(
+        documents=["DOC_ALPHA: Text"],
+        filenames=["a.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(batch_strategy="fixed", strict=True),
+        llm=llm,
+    )
+    assert [c.name for c in schema_ok.columns] == ["case_identifier"]
+
+
+def test_public_discover_observation_unit_import() -> None:
+    import schematiq
+    from schematiq.core import schematiq as core_sq
+    from schematiq.discovery import main as discovery_main
+
+    assert schematiq.discover_observation_unit is core_sq.discover_observation_unit
+    assert discovery_main.discover_observation_unit is core_sq.discover_observation_unit
+    assert core_sq.discover_observation_unit.__name__ == "discover_observation_unit"

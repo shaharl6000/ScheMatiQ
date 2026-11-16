@@ -36,7 +36,7 @@ from schematiq.core.document_preprocessor import (
 )
 from schematiq.core.table_detector import TableDetector
 from schematiq.core.schematiq import (
-    _discover_observation_unit as discover_observation_unit,
+    discover_observation_unit,
     ObservationUnitError,
     ObservationUnitDiscoveryError,
 )
