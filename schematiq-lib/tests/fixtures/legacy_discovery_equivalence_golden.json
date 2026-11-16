@@ -1,0 +1,439 @@
+{
+  "cli_multi_batch_contributions": {
+    "artifact": {
+      "backend": {
+        "context_window_size": 16384,
+        "model": "fake-legacy-deterministic",
+        "provider": "openai"
+      },
+      "docs_path": "docs",
+      "document_contributions": {
+        "contributing_files": [
+          "01_alpha.txt",
+          "02_beta.txt"
+        ],
+        "contribution_rate": 0.6666666666666666,
+        "non_contributing_files": [
+          "03_nonew.txt"
+        ],
+        "total_files": 3
+      },
+      "observation_unit": {
+        "definition": "A single judicial decision on an appeal",
+        "discovery_iteration": 1,
+        "name": "Court Ruling",
+        "source_document": "01_alpha.txt"
+      },
+      "query": "What factors drive asylum appeal outcomes?",
+      "retriever": {},
+      "schema": [
+        {
+          "auto_expand_threshold": 2,
+          "column": "case_identifier",
+          "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
+          "explanation": "Identifies each ruling uniquely",
+          "source_document": "01_alpha.txt",
+          "value_kind": "identifier"
+        },
+        {
+          "allowed_values": [
+            "granted",
+            "denied"
+          ],
+          "auto_expand_threshold": 2,
+          "column": "ruling_outcome",
+          "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
+          "explanation": "Primary dependent outcome variable",
+          "source_document": "01_alpha.txt",
+          "value_kind": "category"
+        },
+        {
+          "allowed_values": [
+            "district",
+            "appellate"
+          ],
+          "auto_expand_threshold": 2,
+          "column": "court_level",
+          "definition": "Level of court issuing the decision",
+          "discovery_iteration": 2,
+          "explanation": "Captures institutional hierarchy",
+          "source_document": "02_beta.txt",
+          "value_kind": "category"
+        }
+      ],
+      "schema_evolution": {
+        "column_sources": {
+          "case_identifier": "01_alpha.txt",
+          "court_level": "02_beta.txt",
+          "ruling_outcome": "01_alpha.txt"
+        },
+        "snapshots": [
+          {
+            "cumulative_documents": 1,
+            "documents_processed": [
+              "01_alpha.txt"
+            ],
+            "iteration": 1,
+            "new_columns": [
+              "case_identifier",
+              "ruling_outcome"
+            ],
+            "total_columns": 2
+          },
+          {
+            "cumulative_documents": 2,
+            "documents_processed": [
+              "02_beta.txt"
+            ],
+            "iteration": 2,
+            "new_columns": [
+              "court_level"
+            ],
+            "total_columns": 3
+          },
+          {
+            "cumulative_documents": 3,
+            "documents_processed": [
+              "03_nonew.txt"
+            ],
+            "iteration": 3,
+            "new_columns": [],
+            "total_columns": 3
+          }
+        ]
+      }
+    },
+    "llm_call_count": 4,
+    "llm_call_stages": [
+      "observation_unit",
+      "schema_discovery",
+      "schema_discovery",
+      "schema_discovery"
+    ]
+  },
+  "cli_seed_and_early_convergence": {
+    "artifact": {
+      "backend": {
+        "context_window_size": 16384,
+        "model": "fake-legacy-deterministic",
+        "provider": "openai"
+      },
+      "docs_path": "docs",
+      "document_contributions": {
+        "contributing_files": [
+          "01_alpha.txt"
+        ],
+        "contribution_rate": 0.5,
+        "non_contributing_files": [
+          "02_unhelpful.txt"
+        ],
+        "total_files": 2
+      },
+      "observation_unit": {
+        "definition": "A single judicial decision on an appeal",
+        "discovery_iteration": 1,
+        "name": "Court Ruling",
+        "source_document": "01_alpha.txt"
+      },
+      "query": "What factors drive asylum appeal outcomes?",
+      "retriever": {},
+      "schema": [
+        {
+          "column": "seeded_court",
+          "definition": "Name of the reviewing court",
+          "discovery_iteration": 0,
+          "explanation": "Tracks jurisdiction",
+          "source_document": "initial_schema"
+        },
+        {
+          "auto_expand_threshold": 2,
+          "column": "case_identifier",
+          "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
+          "explanation": "Identifies each ruling uniquely",
+          "source_document": "01_alpha.txt",
+          "value_kind": "identifier"
+        },
+        {
+          "allowed_values": [
+            "granted",
+            "denied"
+          ],
+          "auto_expand_threshold": 2,
+          "column": "ruling_outcome",
+          "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
+          "explanation": "Primary dependent outcome variable",
+          "source_document": "01_alpha.txt",
+          "value_kind": "category"
+        }
+      ],
+      "schema_evolution": {
+        "column_sources": {
+          "case_identifier": "01_alpha.txt",
+          "ruling_outcome": "01_alpha.txt",
+          "seeded_court": "initial_schema"
+        },
+        "snapshots": [
+          {
+            "cumulative_documents": 0,
+            "documents_processed": [
+              "initial_schema"
+            ],
+            "iteration": 0,
+            "new_columns": [
+              "seeded_court"
+            ],
+            "total_columns": 1
+          },
+          {
+            "cumulative_documents": 1,
+            "documents_processed": [
+              "01_alpha.txt"
+            ],
+            "iteration": 1,
+            "new_columns": [
+              "case_identifier",
+              "ruling_outcome"
+            ],
+            "total_columns": 3
+          },
+          {
+            "cumulative_documents": 2,
+            "documents_processed": [
+              "02_unhelpful.txt"
+            ],
+            "iteration": 2,
+            "new_columns": [],
+            "total_columns": 3
+          }
+        ]
+      }
+    },
+    "llm_call_count": 3,
+    "llm_call_stages": [
+      "observation_unit",
+      "schema_discovery",
+      "schema_discovery"
+    ]
+  },
+  "core_all_batches_failed": {
+    "exception_message": "fail two",
+    "exception_type": "RuntimeError",
+    "llm_call_count": 2,
+    "llm_call_stages": [
+      "schema_discovery",
+      "schema_discovery"
+    ]
+  },
+  "core_batch_failure_skipped": {
+    "contributing_files": [
+      "a.txt",
+      "b.txt"
+    ],
+    "evolution": {
+      "column_sources": {
+        "case_identifier": "a.txt",
+        "court_level": "b.txt",
+        "ruling_outcome": "a.txt"
+      },
+      "snapshots": [
+        {
+          "cumulative_documents": 1,
+          "documents_processed": [
+            "a.txt"
+          ],
+          "iteration": 1,
+          "new_columns": [
+            "case_identifier",
+            "ruling_outcome"
+          ],
+          "total_columns": 2
+        },
+        {
+          "cumulative_documents": 2,
+          "documents_processed": [
+            "bad.txt"
+          ],
+          "iteration": 2,
+          "new_columns": [],
+          "total_columns": 2
+        },
+        {
+          "cumulative_documents": 3,
+          "documents_processed": [
+            "b.txt"
+          ],
+          "iteration": 3,
+          "new_columns": [
+            "court_level"
+          ],
+          "total_columns": 3
+        }
+      ]
+    },
+    "llm_call_count": 4,
+    "llm_call_stages": [
+      "observation_unit",
+      "schema_discovery",
+      "schema_discovery",
+      "schema_discovery"
+    ],
+    "non_contributing_files": [
+      "bad.txt"
+    ],
+    "schema": {
+      "columns": [
+        {
+          "auto_expand_threshold": 2,
+          "column": "case_identifier",
+          "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
+          "explanation": "Identifies each ruling uniquely",
+          "source_document": "a.txt",
+          "value_kind": "identifier"
+        },
+        {
+          "allowed_values": [
+            "granted",
+            "denied"
+          ],
+          "auto_expand_threshold": 2,
+          "column": "ruling_outcome",
+          "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
+          "explanation": "Primary dependent outcome variable",
+          "source_document": "a.txt",
+          "value_kind": "category"
+        },
+        {
+          "allowed_values": [
+            "district",
+            "appellate"
+          ],
+          "auto_expand_threshold": 2,
+          "column": "court_level",
+          "definition": "Level of court issuing the decision",
+          "discovery_iteration": 3,
+          "explanation": "Captures institutional hierarchy",
+          "source_document": "b.txt",
+          "value_kind": "category"
+        }
+      ],
+      "max_keys": 15,
+      "observation_unit": {
+        "definition": "A single judicial decision on an appeal",
+        "discovery_iteration": 1,
+        "name": "Court Ruling",
+        "source_document": "a.txt"
+      },
+      "query": "What factors drive asylum appeal outcomes?"
+    }
+  },
+  "core_max_iters_cap": {
+    "contributing_files": [
+      "d1.txt",
+      "d2.txt"
+    ],
+    "evolution": {
+      "column_sources": {
+        "case_identifier": "d1.txt",
+        "court_level": "d2.txt",
+        "ruling_outcome": "d1.txt"
+      },
+      "snapshots": [
+        {
+          "cumulative_documents": 1,
+          "documents_processed": [
+            "d1.txt"
+          ],
+          "iteration": 1,
+          "new_columns": [
+            "case_identifier",
+            "ruling_outcome"
+          ],
+          "total_columns": 2
+        },
+        {
+          "cumulative_documents": 2,
+          "documents_processed": [
+            "d2.txt"
+          ],
+          "iteration": 2,
+          "new_columns": [
+            "court_level"
+          ],
+          "total_columns": 3
+        }
+      ]
+    },
+    "llm_call_count": 3,
+    "llm_call_stages": [
+      "observation_unit",
+      "schema_discovery",
+      "schema_discovery"
+    ],
+    "non_contributing_files": [],
+    "schema": {
+      "columns": [
+        {
+          "auto_expand_threshold": 2,
+          "column": "case_identifier",
+          "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
+          "explanation": "Identifies each ruling uniquely",
+          "source_document": "d1.txt",
+          "value_kind": "identifier"
+        },
+        {
+          "allowed_values": [
+            "granted",
+            "denied"
+          ],
+          "auto_expand_threshold": 2,
+          "column": "ruling_outcome",
+          "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
+          "explanation": "Primary dependent outcome variable",
+          "source_document": "d1.txt",
+          "value_kind": "category"
+        },
+        {
+          "allowed_values": [
+            "district",
+            "appellate"
+          ],
+          "auto_expand_threshold": 2,
+          "column": "court_level",
+          "definition": "Level of court issuing the decision",
+          "discovery_iteration": 2,
+          "explanation": "Captures institutional hierarchy",
+          "source_document": "d2.txt",
+          "value_kind": "category"
+        }
+      ],
+      "max_keys": 15,
+      "observation_unit": {
+        "definition": "A single judicial decision on an appeal",
+        "discovery_iteration": 1,
+        "name": "Court Ruling",
+        "source_document": "d1.txt"
+      },
+      "query": "What factors drive asylum appeal outcomes?"
+    }
+  },
+  "core_three_consecutive_outages": {
+    "exception_type": "LLMRunAborted",
+    "llm_call_count": 5,
+    "llm_call_stages": [
+      "observation_unit",
+      "schema_discovery",
+      "schema_discovery",
+      "schema_discovery",
+      "schema_discovery"
+    ],
+    "mentions_consecutive_count": true
+  }
+}
