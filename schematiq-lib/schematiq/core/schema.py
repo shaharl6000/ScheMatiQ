@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 import json
+import threading
 
 from sentence_transformers import util
 
@@ -19,21 +20,28 @@ MAX_KEYS_DEFAULT = None         # unlimited unless specified
 # in torch/transformers or downloads model weights, which keeps unrelated imports
 # — tests, CLI tools, the FastAPI app startup — fast and dependency-light.
 _EMB_MODEL = None
+# Guards lazy singleton creation and serializes .encode() calls (e.g. on MPS)
+# across concurrent discovery worker threads.
+_EMB_MODEL_LOCK = threading.RLock()
 
 
 def _get_emb_model():
     """Return the shared SentenceTransformer, loading it once on first use."""
     global _EMB_MODEL
     if _EMB_MODEL is None:
-        _EMB_MODEL = load_sentence_transformer(EMB_MODEL_NAME)
+        with _EMB_MODEL_LOCK:
+            if _EMB_MODEL is None:
+                _EMB_MODEL = load_sentence_transformer(EMB_MODEL_NAME)
     return _EMB_MODEL
 
 
 def _embed(text: str):
     """Small helper – add caching in production."""
-    return _get_emb_model().encode(
-        text, normalize_embeddings=True, show_progress_bar=False
-    )
+    model = _get_emb_model()
+    with _EMB_MODEL_LOCK:
+        return model.encode(
+            text, normalize_embeddings=True, show_progress_bar=False
+        )
 
 
 # -------------------------------------------------------------------- #

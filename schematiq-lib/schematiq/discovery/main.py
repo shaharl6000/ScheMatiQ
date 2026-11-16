@@ -56,6 +56,7 @@ class DiscoveryConfig:
     initial_schema_path: Optional[Union[str, Path]] = None
     initial_observation_unit: Optional[Union[ObservationUnit, Dict[str, Any]]] = None
     context_window_size: Optional[int] = None
+    discover_observation_unit: bool = True
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DiscoveryConfig":
@@ -96,6 +97,7 @@ class DiscoveryConfig:
             initial_schema_path=initial_schema_path,
             initial_observation_unit=data.get("initial_observation_unit"),
             context_window_size=context_window_size,
+            discover_observation_unit=bool(data.get("discover_observation_unit", True)),
         )
 
 
@@ -246,7 +248,7 @@ def _run_query_only_discovery(
         if observation_unit is None:
             if current_schema.observation_unit is not None:
                 observation_unit = current_schema.observation_unit
-            else:
+            elif cfg.discover_observation_unit:
                 logger.info("QUERY_ONLY: discovering observation unit from query")
                 observation_unit = discover_observation_unit(
                     query=query,
@@ -374,6 +376,10 @@ def discover_schema(
         names_list = [f"doc_{i + 1}" for i in range(len(docs_list))]
     else:
         names_list = list(filenames)
+        if len(names_list) != len(docs_list):
+            raise ValueError(
+                f"filenames length ({len(names_list)}) must match documents length ({len(docs_list)})"
+            )
 
     initial_schema = load_initial_schema_from_config(cfg, query_str, max_keys)
     current_schema = (
@@ -497,7 +503,12 @@ def discover_schema(
             break
 
         # Discover observation unit in first iteration (if not already set)
-        if iteration == 0 and (query_str or relevant_content) and not current_schema.observation_unit:
+        if (
+            iteration == 0
+            and cfg.discover_observation_unit
+            and (query_str or relevant_content)
+            and not current_schema.observation_unit
+        ):
             logger.info("Discovering observation unit from first batch...")
             try:
                 obs_unit = discover_observation_unit(

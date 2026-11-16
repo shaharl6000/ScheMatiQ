@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import contextmanager
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
+
+# Serialize SentenceTransformer instantiation across worker threads to avoid
+# concurrent HuggingFace logger mutation and PyTorch meta-tensor initialization races.
+_LOAD_LOCK = threading.Lock()
 
 
 @contextmanager
@@ -37,5 +42,6 @@ def load_sentence_transformer(
     """Load a SentenceTransformer, suppressing known-harmless HF checkpoint warnings."""
     from sentence_transformers import SentenceTransformer
 
-    with _suppress_transformers_load_noise():
-        return SentenceTransformer(model_name, **kwargs)
+    with _LOAD_LOCK:
+        with _suppress_transformers_load_noise():
+            return SentenceTransformer(model_name, **kwargs)

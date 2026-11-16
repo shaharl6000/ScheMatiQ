@@ -14,6 +14,7 @@ import functools
 import re
 import json
 import hashlib
+import threading
 from transformers import AutoTokenizer
 import torch
 import tiktoken
@@ -271,6 +272,7 @@ class EmbeddingRetriever(Retriever):
         self.enable_embedding_cache = enable_embedding_cache
         self.max_cache_size = max_cache_size
         self._embedding_cache: Dict[str, Dict[str, Any]] = {}
+        self._lock = threading.RLock()
 
         if "Qwen" in model_name:
             self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
@@ -300,20 +302,22 @@ class EmbeddingRetriever(Retriever):
 
     def _get_cached_embeddings(self, doc_hash: str) -> Optional[Dict[str, Any]]:
         """Get cached passages and embeddings for a document hash."""
-        return self._embedding_cache.get(doc_hash)
+        with self._lock:
+            return self._embedding_cache.get(doc_hash)
 
     def _cache_embeddings(self, doc_hash: str, passages: List[str], embeddings: Any) -> None:
         """Cache passages and embeddings for a document hash."""
-        # Simple LRU-like eviction: if cache is full, remove oldest entry
-        if len(self._embedding_cache) >= self.max_cache_size:
-            # Remove the first (oldest) entry
-            oldest_key = next(iter(self._embedding_cache))
-            del self._embedding_cache[oldest_key]
+        with self._lock:
+            # Simple LRU-like eviction: if cache is full, remove oldest entry
+            if len(self._embedding_cache) >= self.max_cache_size:
+                # Remove the first (oldest) entry
+                oldest_key = next(iter(self._embedding_cache))
+                del self._embedding_cache[oldest_key]
 
-        self._embedding_cache[doc_hash] = {
-            'passages': passages,
-            'embeddings': embeddings
-        }
+            self._embedding_cache[doc_hash] = {
+                'passages': passages,
+                'embeddings': embeddings
+            }
 
     # ---- Retriever API -------------------------------------------------- #
     def _query_sentence_transformer_with_cache(
@@ -330,22 +334,24 @@ class EmbeddingRetriever(Retriever):
         If cached_embeddings is provided, skip passage embedding computation.
         Otherwise compute embeddings and cache them if doc_hash is provided.
         """
-        # 1. Encode query (always needed, but fast ~10ms)
-        q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
+        # Serialize model.encode calls to avoid concurrent device (e.g. MPS) crashes.
+        with self._lock:
+            # 1. Encode query (always needed, but fast ~10ms)
+            q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
 
-        # 2. Get or compute passage embeddings
-        if cached_embeddings is not None:
-            p_embs = cached_embeddings
-        else:
-            # Compute passage embeddings (the expensive part: ~30 sec)
-            p_embs = self.model.encode(
-                passages,
-                batch_size=self.batch_size,
-                show_progress_bar=False,
-            )
-            # Cache for future queries on this document
-            if self.enable_embedding_cache and doc_hash is not None:
-                self._cache_embeddings(doc_hash, passages, p_embs)
+            # 2. Get or compute passage embeddings
+            if cached_embeddings is not None:
+                p_embs = cached_embeddings
+            else:
+                # Compute passage embeddings (the expensive part: ~30 sec)
+                p_embs = self.model.encode(
+                    passages,
+                    batch_size=self.batch_size,
+                    show_progress_bar=False,
+                )
+                # Cache for future queries on this document
+                if self.enable_embedding_cache and doc_hash is not None:
+                    self._cache_embeddings(doc_hash, passages, p_embs)
 
         # 3. Cosine similarity (fast ~50ms)
         q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
@@ -373,13 +379,14 @@ class EmbeddingRetriever(Retriever):
         for i in range(0, len(pairs), chunk):
             sub = pairs[i: i + chunk]
             # len(sub) may be smaller than chunk for the last slice
-            scores.extend(
-                self.model.predict(
-                    sub,
-                    batch_size=len(sub),  # safe even without pad token
-                    show_progress_bar=False,
+            with self._lock:
+                scores.extend(
+                    self.model.predict(
+                        sub,
+                        batch_size=len(sub),  # safe even without pad token
+                        show_progress_bar=False,
+                    )
                 )
-            )
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()  # reclaim reserved-but-unused blocks
         return np.asarray(scores)

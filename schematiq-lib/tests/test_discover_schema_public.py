@@ -516,3 +516,60 @@ def test_observation_unit_error_handling_parity() -> None:
                 config=DiscoveryConfig(batch_strategy="fixed"),
                 llm=FakeDiscoveryLLM(),
             )
+
+
+def test_filenames_length_mismatch_raises() -> None:
+    llm = FakeDiscoveryLLM()
+
+    with pytest.raises(ValueError, match="filenames length \\(1\\) must match documents length \\(2\\)"):
+        discover_schema(
+            documents=["DOC_ALPHA: Text", "DOC_BETA: Text"],
+            filenames=["only_one.txt"],
+            query="Analyze rulings",
+            llm=llm,
+        )
+
+    with pytest.raises(ValueError, match="filenames length \\(2\\) must match documents length \\(1\\)"):
+        discover_schema(
+            documents=["DOC_ALPHA: Text"],
+            filenames=["a.txt", "b.txt"],
+            query="Analyze rulings",
+            llm=llm,
+        )
+
+    with pytest.raises(ValueError, match="filenames length \\(1\\) must match documents length \\(0\\)"):
+        discover_schema(
+            documents=[],
+            filenames=["extra.txt"],
+            query="Analyze rulings",
+            llm=llm,
+        )
+
+    assert len(llm.calls) == 0
+
+
+def test_discover_observation_unit_false_skips_unit_discovery() -> None:
+    llm_docs = FakeDiscoveryLLM()
+    schema_docs, _ = discover_schema(
+        documents=["DOC_ALPHA: Text"],
+        filenames=["a.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(
+            batch_strategy="fixed",
+            discover_observation_unit=False,
+        ),
+        llm=llm_docs,
+    )
+    assert schema_docs.observation_unit is None
+    assert [c["stage"] for c in llm_docs.calls] == ["schema_discovery"]
+
+    llm_q = FakeDiscoveryLLM()
+    schema_q, _ = discover_schema(
+        documents=[],
+        filenames=[],
+        query="Analyze rulings",
+        config=DiscoveryConfig(discover_observation_unit=False),
+        llm=llm_q,
+    )
+    assert schema_q.observation_unit is None
+    assert [c["stage"] for c in llm_q.calls] == ["schema_discovery"]

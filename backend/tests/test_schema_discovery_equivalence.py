@@ -2,9 +2,9 @@
 
 Runs ``app.services.pipeline.schema_discovery.run_schema_discovery`` with a
 deterministic fake LLM and fixed documents across all major discovery modes and
-compares the full output (schema, evolution, saved partial schema, progress
-callbacks, WebSocket broadcasts, and LLM call count) against a golden fixture
-captured prior to refactoring the loop into ``schematiq-lib``.
+compares the full output (schema, evolution, saved partial schema, skip log,
+progress callbacks, WebSocket broadcasts, and LLM call count) against a golden
+fixture captured on ``main`` prior to refactoring into ``schematiq-lib``.
 """
 
 from __future__ import annotations
@@ -111,6 +111,11 @@ class FakeDiscoveryLLM(LLMInterface):
                 )
 
             passages_text = passages_match.group(1)
+            if "DOC_OVERSIZED" in passages_text:
+                raise RuntimeError(
+                    "400 INVALID_ARGUMENT: input token count exceeds maximum context length"
+                )
+
             columns: List[Dict[str, Any]] = []
             if "DOC_ALPHA" in passages_text:
                 columns.extend(
@@ -237,10 +242,25 @@ async def _run_scenario(
         else None
     )
 
+    skips_path = session_dir / "schema_discovery_skips.json"
+    saved_skips = (
+        [
+            {
+                "filenames": rec["filenames"],
+                "reason": rec["reason"],
+                "error": rec["error"],
+            }
+            for rec in json.loads(skips_path.read_text(encoding="utf-8"))
+        ]
+        if skips_path.exists()
+        else None
+    )
+
     return {
         "schema": schema.to_full_dict(),
         "evolution": evolution.model_dump(),
         "saved_partial_schema": saved_partial,
+        "saved_skips": saved_skips,
         "progress_events": progress_events,
         "ws_events": ws_manager.events,
         "ws_logs": ws_manager.logs,
@@ -356,6 +376,65 @@ async def _collect_all_scenarios(tmp_path: Path) -> Dict[str, Dict[str, Any]]:
         filenames=["alpha.txt", "beta.txt", "gamma.txt", "delta.txt"],
         config=_base_config(),
         stop_on_first_progress=True,
+    )
+
+    batching_docs = [
+        "DOC_ALPHA: short appeal.",
+        "DOC_BETA: " + ("appellate review record " * 250),
+        "DOC_GAMMA: brief procedural note.",
+    ]
+    batching_names = ["alpha.txt", "beta.txt", "gamma.txt"]
+    batching_backend = {
+        "provider": "openai",
+        "model": "fake-deterministic",
+        "context_window_size": 1800,
+    }
+
+    results["smart_batching"] = await _run_scenario(
+        tmp_path,
+        session_id="scen_smart_batching",
+        documents=batching_docs,
+        filenames=batching_names,
+        config=_base_config(
+            batch_strategy="smart",
+            documents_batch_size=1,
+            schema_creation_backend=batching_backend,
+        ),
+    )
+
+    results["fixed_batching"] = await _run_scenario(
+        tmp_path,
+        session_id="scen_fixed_batching",
+        documents=batching_docs,
+        filenames=batching_names,
+        config=_base_config(
+            batch_strategy="fixed",
+            documents_batch_size=1,
+            schema_creation_backend=batching_backend,
+        ),
+    )
+
+    results["document_only_mode"] = await _run_scenario(
+        tmp_path,
+        session_id="scen_document_only",
+        documents=[
+            "DOC_ALPHA: Appeal 101 was granted.",
+            "DOC_BETA: Heard at the appellate court level.",
+        ],
+        filenames=["alpha.txt", "beta.txt"],
+        config=_base_config(query=""),
+    )
+
+    results["skip_log_path"] = await _run_scenario(
+        tmp_path,
+        session_id="scen_skip_log",
+        documents=[
+            "DOC_OVERSIZED: Huge transcript exceeding context window.",
+            "DOC_ALPHA: Appeal 101 was granted.",
+            "DOC_BETA: Heard at the appellate court level.",
+        ],
+        filenames=["oversized.txt", "alpha.txt", "beta.txt"],
+        config=_base_config(batch_strategy="fixed", documents_batch_size=2),
     )
 
     return results
