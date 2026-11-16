@@ -308,13 +308,6 @@ async def _run_continue_scenario(
             if final_session.statistics.schema_evolution is not None
             else None
         )
-        if evo_dump is not None:
-            # _run_continue_discovery builds doc_names via docs_dir.glob("*")
-            # whose order is filesystem-dependent; sort for deterministic comparison.
-            for snap in evo_dump.get("snapshots", []):
-                snap["documents_processed"] = sorted(
-                    snap.get("documents_processed", [])
-                )
         stats_dump = {
             "total_rows": final_session.statistics.total_rows,
             "total_columns": final_session.statistics.total_columns,
@@ -442,3 +435,48 @@ async def test_continue_discovery_equivalence(
     )
     expected = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
     assert actual == expected
+
+
+@pytest.mark.asyncio
+async def test_continue_discovery_deterministic_under_reversed_glob_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unsorted Linux tmpfs/ext4 glob order must not change column_sources or snapshots."""
+    orig_glob = Path.glob
+
+    def _reversed_glob(self: Path, pattern: str):
+        entries = list(orig_glob(self, pattern))
+        if self.name == "documents" and pattern == "*":
+            return iter(sorted(entries, key=lambda p: p.name, reverse=True))
+        return iter(entries)
+
+    monkeypatch.setattr(Path, "glob", _reversed_glob)
+
+    res = await _run_continue_scenario(
+        tmp_path,
+        monkeypatch,
+        scenario_name="convergence_rev_glob",
+        docs=[
+            ("alpha.txt", "DOC_ALPHA: Appeal 101 was granted."),
+            ("gamma.txt", "DOC_GAMMA: No new columns."),
+            ("delta.txt", "DOC_DELTA: Still no new columns."),
+            ("epsilon.txt", "DOC_EPSILON: Should not be reached."),
+            ("zeta.txt", "DOC_ZETA: Should not be reached."),
+        ],
+        convergence_threshold=2,
+    )
+
+    expected = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
+    evo = res["statistics"]["schema_evolution"]
+    assert evo == expected["convergence_stop"]["statistics"]["schema_evolution"]
+    assert evo["column_sources"] == {
+        "case_identifier": "alpha.txt",
+        "ruling_outcome": "alpha.txt",
+    }
+    assert evo["snapshots"][0]["documents_processed"] == [
+        "alpha.txt",
+        "delta.txt",
+        "epsilon.txt",
+        "gamma.txt",
+        "zeta.txt",
+    ]

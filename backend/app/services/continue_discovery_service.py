@@ -653,7 +653,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
             # Also check schematiq_work directory
             if not documents and schematiq_work_dir.exists():
-                for subdir in schematiq_work_dir.iterdir():
+                for subdir in sorted(schematiq_work_dir.iterdir()):
                     if subdir.is_dir() and not subdir.name.startswith('.'):
                         for f in sorted(subdir.iterdir()):
                             if f.is_file() and f.suffix.lower() in WORK_DIR_TEXT_EXTENSIONS:
@@ -1209,9 +1209,13 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     stats_evolution = session.statistics.schema_evolution
                     next_iteration = len(stats_evolution.snapshots) + 1
 
-                    # Get document names that were used for discovery
+                    # Get document names that were used for discovery in deterministic order
                     docs_dir = committed_docs_dir(self._get_data_dir() / operation.session_id)
-                    doc_names = [f.name for f in docs_dir.glob("*") if f.is_file()][:10] if docs_dir.exists() else []
+                    doc_names = (
+                        sorted(f.name for f in docs_dir.glob("*") if f.is_file())[:10]
+                        if docs_dir.exists()
+                        else []
+                    )
 
                     # Filter out any excerpt columns from new_columns list
                     non_excerpt_new_cols = [col["name"] for col in new_columns if not col["name"].lower().endswith('_excerpt')]
