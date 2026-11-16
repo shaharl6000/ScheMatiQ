@@ -1,0 +1,704 @@
+{
+  "convergence_stop": {
+    "baseline_columns": {
+      "case_identifier": {
+        "allowed_values": null,
+        "checksum": "3e064d425c6b80f865085b996d74f730",
+        "definition": "Unique docket identifier of the case",
+        "name": "case_identifier",
+        "rationale": "Identifies each ruling uniquely"
+      },
+      "existing_col": {
+        "allowed_values": null,
+        "checksum": "6672cbd2f7f1c3c5cb97f8287703e2f5",
+        "definition": "Pre-existing column",
+        "name": "existing_col",
+        "rationale": "Already present"
+      },
+      "ruling_outcome": {
+        "allowed_values": [
+          "granted",
+          "denied"
+        ],
+        "checksum": "124dfe9e957bec1eaf0c62be19822842",
+        "definition": "Outcome of the appeal ruling",
+        "name": "ruling_outcome",
+        "rationale": "Primary dependent outcome variable"
+      }
+    },
+    "data_jsonl_rows": [
+      {
+        "case_identifier": null,
+        "existing_col": {
+          "answer": "A",
+          "excerpts": []
+        },
+        "papers": [
+          "alpha.txt"
+        ],
+        "row_name": "Case 1",
+        "ruling_outcome": null
+      },
+      {
+        "case_identifier": null,
+        "existing_col": {
+          "answer": "B",
+          "excerpts": []
+        },
+        "papers": [
+          "beta.txt"
+        ],
+        "row_name": "Case 2",
+        "ruling_outcome": null
+      }
+    ],
+    "llm_call_count": 3,
+    "llm_call_stages": [
+      "schema_discovery",
+      "schema_discovery",
+      "schema_discovery"
+    ],
+    "operation_cleaned_up": false,
+    "operation_final": {
+      "current_batch": 3,
+      "initial_columns": [
+        "existing_col"
+      ],
+      "new_columns": [
+        {
+          "allowed_values": null,
+          "definition": "Unique docket identifier of the case",
+          "discovery_iteration": null,
+          "name": "case_identifier",
+          "rationale": "Identifies each ruling uniquely",
+          "source_document": null,
+          "value_kind": "identifier"
+        },
+        {
+          "allowed_values": [
+            "granted",
+            "denied"
+          ],
+          "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": null,
+          "name": "ruling_outcome",
+          "rationale": "Primary dependent outcome variable",
+          "source_document": null,
+          "value_kind": "category"
+        }
+      ],
+      "phase": "discovery",
+      "progress": 1.0,
+      "status": "completed",
+      "total_batches": 5,
+      "total_documents": 5
+    },
+    "session_columns": [
+      {
+        "allowed_values": null,
+        "definition": "Pre-existing column",
+        "discovery_iteration": null,
+        "name": "existing_col",
+        "rationale": "Already present",
+        "source_document": null,
+        "value_kind": null
+      },
+      {
+        "allowed_values": null,
+        "definition": "Unique docket identifier of the case",
+        "discovery_iteration": null,
+        "name": "case_identifier",
+        "rationale": "Identifies each ruling uniquely",
+        "source_document": null,
+        "value_kind": "identifier"
+      },
+      {
+        "allowed_values": [
+          "granted",
+          "denied"
+        ],
+        "definition": "Outcome of the appeal ruling",
+        "discovery_iteration": null,
+        "name": "ruling_outcome",
+        "rationale": "Primary dependent outcome variable",
+        "source_document": null,
+        "value_kind": "category"
+      }
+    ],
+    "session_status": "completed",
+    "statistics": {
+      "column_stats": [
+        {
+          "name": "existing_col",
+          "non_null_count": 2,
+          "unique_count": 2
+        },
+        {
+          "name": "case_identifier",
+          "non_null_count": 0,
+          "unique_count": 1
+        },
+        {
+          "name": "ruling_outcome",
+          "non_null_count": 0,
+          "unique_count": 1
+        }
+      ],
+      "completeness": 33.33333333333333,
+      "schema_evolution": {
+        "column_sources": {
+          "case_identifier": "alpha.txt",
+          "ruling_outcome": "alpha.txt"
+        },
+        "snapshots": [
+          {
+            "cumulative_documents": 5,
+            "documents_processed": [
+              "alpha.txt",
+              "delta.txt",
+              "epsilon.txt",
+              "gamma.txt",
+              "zeta.txt"
+            ],
+            "iteration": 1,
+            "new_columns": [
+              "case_identifier",
+              "ruling_outcome"
+            ],
+            "total_columns": 3
+          }
+        ]
+      },
+      "total_columns": 3,
+      "total_documents": 2,
+      "total_rows": 2
+    },
+    "ws_events": [
+      {
+        "data": {
+          "document_source": "original",
+          "initial_columns": [
+            "existing_col"
+          ],
+          "operation_id": "op_convergence"
+        },
+        "type": "continue_discovery_started"
+      },
+      {
+        "data": {
+          "initial_columns": 1,
+          "message": "Starting schema discovery with 5 documents...",
+          "operation_id": "op_convergence",
+          "phase": "discovery",
+          "progress": 0.1,
+          "total_documents": 5
+        },
+        "type": "continue_discovery_progress"
+      },
+      {
+        "data": {
+          "current_columns": 1,
+          "iteration": 1,
+          "max_iterations": 5,
+          "message": "Processing batch 1/5 (1 docs)...",
+          "operation_id": "op_convergence",
+          "phase": "discovery",
+          "progress": 0.2
+        },
+        "type": "continue_discovery_progress"
+      },
+      {
+        "data": {
+          "current_columns": 3,
+          "iteration": 2,
+          "max_iterations": 5,
+          "message": "Processing batch 2/5 (1 docs)...",
+          "operation_id": "op_convergence",
+          "phase": "discovery",
+          "progress": 0.4
+        },
+        "type": "continue_discovery_progress"
+      },
+      {
+        "data": {
+          "current_columns": 3,
+          "iteration": 3,
+          "max_iterations": 5,
+          "message": "Processing batch 3/5 (1 docs)...",
+          "operation_id": "op_convergence",
+          "phase": "discovery",
+          "progress": 0.6
+        },
+        "type": "continue_discovery_progress"
+      },
+      {
+        "data": {
+          "initial_columns": [
+            "existing_col"
+          ],
+          "message": "Discovered 2 new columns",
+          "new_columns": [
+            {
+              "allowed_values": null,
+              "definition": "Unique docket identifier of the case",
+              "discovery_iteration": null,
+              "name": "case_identifier",
+              "rationale": "Identifies each ruling uniquely",
+              "source_document": null,
+              "value_kind": "identifier"
+            },
+            {
+              "allowed_values": [
+                "granted",
+                "denied"
+              ],
+              "definition": "Outcome of the appeal ruling",
+              "discovery_iteration": null,
+              "name": "ruling_outcome",
+              "rationale": "Primary dependent outcome variable",
+              "source_document": null,
+              "value_kind": "category"
+            }
+          ],
+          "operation_id": "op_convergence",
+          "total_columns": 3
+        },
+        "type": "continue_discovery_completed"
+      }
+    ],
+    "ws_logs": []
+  },
+  "multi_batch_new_columns": {
+    "baseline_columns": {
+      "case_identifier": {
+        "allowed_values": null,
+        "checksum": "3e064d425c6b80f865085b996d74f730",
+        "definition": "Unique docket identifier of the case",
+        "name": "case_identifier",
+        "rationale": "Identifies each ruling uniquely"
+      },
+      "court_level": {
+        "allowed_values": [
+          "district",
+          "appellate"
+        ],
+        "checksum": "d1004eaaf62444747fd1a06a742eda63",
+        "definition": "Level of court issuing the decision",
+        "name": "court_level",
+        "rationale": "Captures institutional hierarchy"
+      },
+      "existing_col": {
+        "allowed_values": null,
+        "checksum": "6672cbd2f7f1c3c5cb97f8287703e2f5",
+        "definition": "Pre-existing column",
+        "name": "existing_col",
+        "rationale": "Already present"
+      },
+      "ruling_outcome": {
+        "allowed_values": [
+          "granted",
+          "denied"
+        ],
+        "checksum": "124dfe9e957bec1eaf0c62be19822842",
+        "definition": "Outcome of the appeal ruling",
+        "name": "ruling_outcome",
+        "rationale": "Primary dependent outcome variable"
+      }
+    },
+    "data_jsonl_rows": [
+      {
+        "case_identifier": null,
+        "court_level": null,
+        "existing_col": {
+          "answer": "A",
+          "excerpts": []
+        },
+        "papers": [
+          "alpha.txt"
+        ],
+        "row_name": "Case 1",
+        "ruling_outcome": null
+      },
+      {
+        "case_identifier": null,
+        "court_level": null,
+        "existing_col": {
+          "answer": "B",
+          "excerpts": []
+        },
+        "papers": [
+          "beta.txt"
+        ],
+        "row_name": "Case 2",
+        "ruling_outcome": null
+      }
+    ],
+    "llm_call_count": 3,
+    "llm_call_stages": [
+      "schema_discovery",
+      "schema_discovery",
+      "schema_discovery"
+    ],
+    "operation_cleaned_up": false,
+    "operation_final": {
+      "current_batch": 3,
+      "initial_columns": [
+        "existing_col"
+      ],
+      "new_columns": [
+        {
+          "allowed_values": null,
+          "definition": "Unique docket identifier of the case",
+          "discovery_iteration": null,
+          "name": "case_identifier",
+          "rationale": "Identifies each ruling uniquely",
+          "source_document": null,
+          "value_kind": "identifier"
+        },
+        {
+          "allowed_values": [
+            "granted",
+            "denied"
+          ],
+          "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": null,
+          "name": "ruling_outcome",
+          "rationale": "Primary dependent outcome variable",
+          "source_document": null,
+          "value_kind": "category"
+        },
+        {
+          "allowed_values": [
+            "district",
+            "appellate"
+          ],
+          "definition": "Level of court issuing the decision",
+          "discovery_iteration": null,
+          "name": "court_level",
+          "rationale": "Captures institutional hierarchy",
+          "source_document": null,
+          "value_kind": "category"
+        }
+      ],
+      "phase": "discovery",
+      "progress": 1.0,
+      "status": "completed",
+      "total_batches": 3,
+      "total_documents": 3
+    },
+    "session_columns": [
+      {
+        "allowed_values": null,
+        "definition": "Pre-existing column",
+        "discovery_iteration": null,
+        "name": "existing_col",
+        "rationale": "Already present",
+        "source_document": null,
+        "value_kind": null
+      },
+      {
+        "allowed_values": null,
+        "definition": "Unique docket identifier of the case",
+        "discovery_iteration": null,
+        "name": "case_identifier",
+        "rationale": "Identifies each ruling uniquely",
+        "source_document": null,
+        "value_kind": "identifier"
+      },
+      {
+        "allowed_values": [
+          "granted",
+          "denied"
+        ],
+        "definition": "Outcome of the appeal ruling",
+        "discovery_iteration": null,
+        "name": "ruling_outcome",
+        "rationale": "Primary dependent outcome variable",
+        "source_document": null,
+        "value_kind": "category"
+      },
+      {
+        "allowed_values": [
+          "district",
+          "appellate"
+        ],
+        "definition": "Level of court issuing the decision",
+        "discovery_iteration": null,
+        "name": "court_level",
+        "rationale": "Captures institutional hierarchy",
+        "source_document": null,
+        "value_kind": "category"
+      }
+    ],
+    "session_status": "completed",
+    "statistics": {
+      "column_stats": [
+        {
+          "name": "existing_col",
+          "non_null_count": 2,
+          "unique_count": 2
+        },
+        {
+          "name": "case_identifier",
+          "non_null_count": 0,
+          "unique_count": 1
+        },
+        {
+          "name": "ruling_outcome",
+          "non_null_count": 0,
+          "unique_count": 1
+        },
+        {
+          "name": "court_level",
+          "non_null_count": 0,
+          "unique_count": 1
+        }
+      ],
+      "completeness": 25.0,
+      "schema_evolution": {
+        "column_sources": {
+          "case_identifier": "alpha.txt",
+          "court_level": "alpha.txt",
+          "ruling_outcome": "alpha.txt"
+        },
+        "snapshots": [
+          {
+            "cumulative_documents": 3,
+            "documents_processed": [
+              "alpha.txt",
+              "beta.txt",
+              "gamma.txt"
+            ],
+            "iteration": 1,
+            "new_columns": [
+              "case_identifier",
+              "ruling_outcome",
+              "court_level"
+            ],
+            "total_columns": 4
+          }
+        ]
+      },
+      "total_columns": 4,
+      "total_documents": 2,
+      "total_rows": 2
+    },
+    "ws_events": [
+      {
+        "data": {
+          "document_source": "original",
+          "initial_columns": [
+            "existing_col"
+          ],
+          "operation_id": "op_multi_batch"
+        },
+        "type": "continue_discovery_started"
+      },
+      {
+        "data": {
+          "initial_columns": 1,
+          "message": "Starting schema discovery with 3 documents...",
+          "operation_id": "op_multi_batch",
+          "phase": "discovery",
+          "progress": 0.1,
+          "total_documents": 3
+        },
+        "type": "continue_discovery_progress"
+      },
+      {
+        "data": {
+          "current_columns": 1,
+          "iteration": 1,
+          "max_iterations": 3,
+          "message": "Processing batch 1/3 (1 docs)...",
+          "operation_id": "op_multi_batch",
+          "phase": "discovery",
+          "progress": 0.3333333333333333
+        },
+        "type": "continue_discovery_progress"
+      },
+      {
+        "data": {
+          "current_columns": 3,
+          "iteration": 2,
+          "max_iterations": 3,
+          "message": "Processing batch 2/3 (1 docs)...",
+          "operation_id": "op_multi_batch",
+          "phase": "discovery",
+          "progress": 0.6666666666666666
+        },
+        "type": "continue_discovery_progress"
+      },
+      {
+        "data": {
+          "current_columns": 4,
+          "iteration": 3,
+          "max_iterations": 3,
+          "message": "Processing batch 3/3 (1 docs)...",
+          "operation_id": "op_multi_batch",
+          "phase": "discovery",
+          "progress": 1.0
+        },
+        "type": "continue_discovery_progress"
+      },
+      {
+        "data": {
+          "initial_columns": [
+            "existing_col"
+          ],
+          "message": "Discovered 3 new columns",
+          "new_columns": [
+            {
+              "allowed_values": null,
+              "definition": "Unique docket identifier of the case",
+              "discovery_iteration": null,
+              "name": "case_identifier",
+              "rationale": "Identifies each ruling uniquely",
+              "source_document": null,
+              "value_kind": "identifier"
+            },
+            {
+              "allowed_values": [
+                "granted",
+                "denied"
+              ],
+              "definition": "Outcome of the appeal ruling",
+              "discovery_iteration": null,
+              "name": "ruling_outcome",
+              "rationale": "Primary dependent outcome variable",
+              "source_document": null,
+              "value_kind": "category"
+            },
+            {
+              "allowed_values": [
+                "district",
+                "appellate"
+              ],
+              "definition": "Level of court issuing the decision",
+              "discovery_iteration": null,
+              "name": "court_level",
+              "rationale": "Captures institutional hierarchy",
+              "source_document": null,
+              "value_kind": "category"
+            }
+          ],
+          "operation_id": "op_multi_batch",
+          "total_columns": 4
+        },
+        "type": "continue_discovery_completed"
+      }
+    ],
+    "ws_logs": []
+  },
+  "stop_request": {
+    "baseline_columns": null,
+    "data_jsonl_rows": [
+      {
+        "existing_col": {
+          "answer": "A",
+          "excerpts": []
+        },
+        "papers": [
+          "alpha.txt"
+        ],
+        "row_name": "Case 1"
+      },
+      {
+        "existing_col": {
+          "answer": "B",
+          "excerpts": []
+        },
+        "papers": [
+          "beta.txt"
+        ],
+        "row_name": "Case 2"
+      }
+    ],
+    "llm_call_count": 1,
+    "llm_call_stages": [
+      "schema_discovery"
+    ],
+    "operation_cleaned_up": true,
+    "operation_final": {
+      "current_batch": 1,
+      "initial_columns": [
+        "existing_col"
+      ],
+      "new_columns": [],
+      "phase": "discovery",
+      "progress": 0.0,
+      "status": "stopped",
+      "total_batches": 3,
+      "total_documents": 3
+    },
+    "session_columns": [
+      {
+        "allowed_values": null,
+        "definition": "Pre-existing column",
+        "discovery_iteration": null,
+        "name": "existing_col",
+        "rationale": "Already present",
+        "source_document": null,
+        "value_kind": null
+      }
+    ],
+    "session_status": "completed",
+    "statistics": {
+      "column_stats": [
+        {
+          "name": "existing_col",
+          "non_null_count": 2,
+          "unique_count": 2
+        }
+      ],
+      "completeness": 100.0,
+      "schema_evolution": null,
+      "total_columns": 1,
+      "total_documents": 2,
+      "total_rows": 2
+    },
+    "ws_events": [
+      {
+        "data": {
+          "document_source": "original",
+          "initial_columns": [
+            "existing_col"
+          ],
+          "operation_id": "op_stop_request"
+        },
+        "type": "continue_discovery_started"
+      },
+      {
+        "data": {
+          "initial_columns": 1,
+          "message": "Starting schema discovery with 3 documents...",
+          "operation_id": "op_stop_request",
+          "phase": "discovery",
+          "progress": 0.1,
+          "total_documents": 3
+        },
+        "type": "continue_discovery_progress"
+      },
+      {
+        "data": {
+          "current_columns": 1,
+          "iteration": 1,
+          "max_iterations": 3,
+          "message": "Processing batch 1/3 (1 docs)...",
+          "operation_id": "op_stop_request",
+          "phase": "discovery",
+          "progress": 0.3333333333333333
+        },
+        "type": "continue_discovery_progress"
+      },
+      {
+        "data": {
+          "message": "Stopped by user during discovery",
+          "operation_id": "op_stop_request"
+        },
+        "type": "continue_discovery_stopped"
+      }
+    ],
+    "ws_logs": []
+  }
+}

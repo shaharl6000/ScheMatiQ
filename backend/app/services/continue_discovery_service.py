@@ -5,6 +5,7 @@ discovering new columns, and incremental value extraction.
 """
 
 import logging
+import inspect
 import json
 import asyncio
 import functools
@@ -35,11 +36,12 @@ from app.services.document_preprocessor import read_document_text, MATERIALIZABL
 from app.services.data_utils import extract_papers, row_name_of
 
 # ScheMatiQ library imports
-from schematiq.core import schematiq as ScheMatiQ
-from schematiq.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot
+from schematiq.core.schema import Schema, Column
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
+from schematiq.discovery import DiscoveryConfig, discover_schema
 from schematiq.value_extraction.main import build_table_jsonl
+from app.services.pipeline.schema_discovery import log_skipped_batch, run_callback_on_loop
 from app.services.session_documents import (
     committed_docs_dir,
     pending_docs_dir,
@@ -651,7 +653,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
             # Also check schematiq_work directory
             if not documents and schematiq_work_dir.exists():
-                for subdir in schematiq_work_dir.iterdir():
+                for subdir in sorted(schematiq_work_dir.iterdir()):
                     if subdir.is_dir() and not subdir.name.startswith('.'):
                         for f in sorted(subdir.iterdir()):
                             if f.is_file() and f.suffix.lower() in WORK_DIR_TEXT_EXTENSIONS:
@@ -1025,142 +1027,116 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 }
             )
 
-            # Manual iteration loop for schema discovery (allows stop between batches)
-            logger.info("Starting manual schema discovery loop with initial_schema")
+            # Run schema discovery through schematiq.discovery.discover_schema
+            logger.info("Starting schema discovery with initial_schema via discover_schema")
+            discovery_cfg = DiscoveryConfig(
+                batch_size=batch_size,
+                batch_strategy=(config.get("batch_strategy") or "fixed"),
+                convergence_threshold=config.get("convergence_threshold") or 2,
+                max_keys=config.get("max_keys_schema", 100),
+                initial_schema=initial_schema,
+                context_window_size=llm_config.get("context_window_size"),
+                discover_observation_unit=False,
+            )
 
-            # Create document batches
-            batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
-            filename_batches = [filenames[i:i+batch_size] for i in range(0, len(filenames), batch_size)]
+            loop = asyncio.get_running_loop()
+            caller_cancelled = threading.Event()
 
-            logger.info("📦 Continue discovery: %d documents → %d batches (batch_size=%d)", len(documents), len(batches), batch_size)
-
-            # Update operation with actual batch count
-            operation.total_batches = len(batches)
-
-            # Initialize tracking
-            current_schema = initial_schema
-            context_window_size = llm_config.get("context_window_size") or getattr(llm, 'context_window_size', 8192)
-            convergence_threshold = config.get("convergence_threshold") or 2
-            unchanged_count = 0
-            evolution = SchemaEvolution()
-            cumulative_docs = 0
-            stopped = False
-
-            for iteration, (batch_docs, batch_names) in enumerate(zip(batches, filename_batches)):
-                # CHECK STOP FLAG BEFORE EACH ITERATION
-                if self.is_stop_requested(operation_id):
-                    logger.info(f"Stop requested during schema discovery at iteration {iteration}")
-                    stopped = True
-                    operation.status = "stopped"
-                    operation.completed_at = datetime.now()
-                    await self.broadcast_event(
-                        operation.session_id,
-                        "continue_discovery_stopped",
-                        {"operation_id": operation_id, "message": "Stopped by user during discovery"}
-                    )
-                    return
-
-                # Update progress
-                operation.current_batch = iteration + 1
-                progress = (iteration + 1) / len(batches)
-
+            async def _apply_progress_on_loop(
+                iteration_num: int,
+                max_iters: int,
+                batch_docs_count: int,
+                current_cols: int,
+            ) -> None:
+                if max_iters:
+                    operation.total_batches = max_iters
+                if iteration_num:
+                    operation.current_batch = iteration_num
+                progress = iteration_num / max_iters if max_iters else 1.0
                 await self.broadcast_event(
                     operation.session_id,
                     "continue_discovery_progress",
                     {
                         "operation_id": operation_id,
                         "phase": "discovery",
-                        "iteration": iteration + 1,
-                        "max_iterations": len(batches),
+                        "iteration": iteration_num,
+                        "max_iterations": max_iters,
                         "progress": progress,
-                        "message": f"Processing batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs)...",
-                        "current_columns": len(current_schema.columns)
-                    }
+                        "message": f"Processing batch {iteration_num}/{max_iters} ({batch_docs_count} docs)...",
+                        "current_columns": current_cols,
+                    },
                 )
 
-                logger.debug(f"Schema discovery batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs: {batch_names})")
-
-                # Track column names before this iteration
-                columns_before = {col.name.lower() for col in current_schema.columns}
-                cumulative_docs += len(batch_docs)
-
-                # Select relevant content from this batch's documents (offloaded to thread pool)
-                loop = asyncio.get_running_loop()
-                relevant_content = await loop.run_in_executor(
-                    schematiq_thread_pool,
-                    functools.partial(ScheMatiQ.select_relevant_content, docs=batch_docs, query=query, retriever=retriever),
+            def _on_progress(_stage: str, _fraction: float, info: Dict[str, Any]) -> None:
+                run_callback_on_loop(
+                    loop,
+                    caller_cancelled,
+                    _apply_progress_on_loop,
+                    info.get("iteration", 0),
+                    info.get("max_iterations", 0),
+                    info.get("batch_docs", 0),
+                    info.get("current_columns", 0),
                 )
-                logger.debug(f"Selected {len(relevant_content)} relevant passages from batch")
 
-                # Generate schema for this batch (offloaded to thread pool)
-                try:
-                    schema_result = await loop.run_in_executor(
-                        schematiq_thread_pool,
-                        functools.partial(
-                            ScheMatiQ.generate_schema,
-                            passages=relevant_content,
-                            query=query,
-                            max_keys_schema=config.get("max_keys_schema", 100),
-                            current_schema=current_schema,
-                            llm=llm,
-                            context_window_size=context_window_size,
-                        ),
+            def _should_stop() -> bool:
+                return caller_cancelled.is_set() or self.is_stop_requested(operation_id)
+
+            def _on_warning(
+                level: str,
+                message: str,
+                skip_info: Optional[Dict[str, Any]] = None,
+            ) -> None:
+                if skip_info is not None:
+                    log_skipped_batch(
+                        self._get_schematiq_work_dir(),
+                        operation.session_id,
+                        skip_info.get("filenames", []),
+                        reason=skip_info.get("reason", "single_document_exceeds_token_limit"),
+                        error=skip_info.get("error", ""),
                     )
-                    # generate_schema returns a tuple (Schema, bool)
-                    new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
-                    logger.debug(f"Generated schema with {len(new_schema.columns)} columns")
-                except Exception as e:
-                    logger.error(f"ERROR in generate_schema: {e}")
-                    raise
+                if self.websocket_manager:
+                    run_callback_on_loop(
+                        loop,
+                        caller_cancelled,
+                        self.websocket_manager.broadcast_log,
+                        operation.session_id,
+                        {"level": level, "message": message},
+                    )
 
-                # Merge with existing schema (offloaded to thread pool)
-                merged_schema = await loop.run_in_executor(
+            try:
+                result_schema, lib_evolution = await loop.run_in_executor(
                     schematiq_thread_pool,
-                    functools.partial(current_schema.merge, new_schema),
+                    functools.partial(
+                        discover_schema,
+                        documents=documents,
+                        filenames=filenames,
+                        query=query,
+                        config=discovery_cfg,
+                        llm=llm,
+                        retriever=retriever,
+                        on_progress=_on_progress,
+                        should_stop=_should_stop,
+                        on_warning=_on_warning,
+                    ),
                 )
-                logger.debug(f"Merged schema has {len(merged_schema.columns)} columns")
+            finally:
+                caller_cancelled.set()
 
-                # Identify NEW columns added in this iteration
-                columns_after = {col.name.lower() for col in merged_schema.columns}
-                new_column_names_lower = columns_after - columns_before
-                new_columns_in_batch = [col.name for col in merged_schema.columns if col.name.lower() in new_column_names_lower]
-
-                # Record column sources
-                batch_source = ", ".join(batch_names) if batch_names else f"batch_{iteration + 1}"
-                for col_name in new_columns_in_batch:
-                    if col_name not in evolution.column_sources:
-                        evolution.column_sources[col_name] = batch_source
-
-                # Add snapshot to evolution
-                evolution.snapshots.append(SchemaSnapshot(
-                    iteration=iteration + 1,
-                    documents_processed=batch_names,
-                    total_columns=len(merged_schema.columns),
-                    new_columns=new_columns_in_batch,
-                    cumulative_documents=cumulative_docs
-                ))
-
-                # Check convergence (offloaded to thread pool)
-                converged = await loop.run_in_executor(
-                    schematiq_thread_pool,
-                    functools.partial(ScheMatiQ.evaluate_schema_convergence, current_schema, merged_schema),
+            if self.is_stop_requested(operation_id):
+                logger.info("Stop requested during schema discovery")
+                operation.status = "stopped"
+                operation.completed_at = datetime.now()
+                await self.broadcast_event(
+                    operation.session_id,
+                    "continue_discovery_stopped",
+                    {"operation_id": operation_id, "message": "Stopped by user during discovery"},
                 )
-                if converged:
-                    unchanged_count += 1
-                    logger.debug(f"Schema unchanged (count: {unchanged_count}/{convergence_threshold})")
-                    if unchanged_count >= convergence_threshold:
-                        logger.info(f"Schema converged after {iteration + 1} batches")
-                        break
-                else:
-                    unchanged_count = 0
+                return
 
-                current_schema = merged_schema
-
-                # Small delay to allow other tasks
-                await asyncio.sleep(0.1)
-
-            result_schema = current_schema
-            logger.info(f"Schema discovery completed with {len(result_schema.columns)} columns after {len(evolution.snapshots)} batches")
+            logger.info(
+                f"Schema discovery completed with {len(result_schema.columns)} columns "
+                f"after {len(lib_evolution.snapshots)} batches"
+            )
 
             # Identify new columns
             new_columns = self._identify_new_columns(operation.initial_columns, result_schema)
@@ -1233,9 +1209,13 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     stats_evolution = session.statistics.schema_evolution
                     next_iteration = len(stats_evolution.snapshots) + 1
 
-                    # Get document names that were used for discovery
+                    # Get document names that were used for discovery in deterministic order
                     docs_dir = committed_docs_dir(self._get_data_dir() / operation.session_id)
-                    doc_names = [f.name for f in docs_dir.glob("*") if f.is_file()][:10] if docs_dir.exists() else []
+                    doc_names = (
+                        sorted(f.name for f in docs_dir.glob("*") if f.is_file())[:10]
+                        if docs_dir.exists()
+                        else []
+                    )
 
                     # Filter out any excerpt columns from new_columns list
                     non_excerpt_new_cols = [col["name"] for col in new_columns if not col["name"].lower().endswith('_excerpt')]

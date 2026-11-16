@@ -28,35 +28,26 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Resolve the token counter once. Prefer schematiq-lib's tiktoken-based counter
-# so estimates match the cost estimator; fall back to a chars/4 heuristic
-# (identical to the library's own fallback) if it can't be imported.
 try:
     from schematiq.core.cost_estimator import count_tokens as _count_tokens
-except Exception:  # pragma: no cover - exercised only when the lib is absent
+except Exception:  # pragma: no cover - defensive fallback
     def _count_tokens(text: str) -> int:
         return len(text) // 4 if text else 0
 
-# Conservative fallbacks used only when the config / model specs do not provide
-# a value. These mirror the fallbacks already used in schema_discovery.py.
 _DEFAULT_CONTEXT_WINDOW = 8192
 _DEFAULT_SCHEMA_SYSTEM_PROMPT_TOKENS = 700
 _DEFAULT_SCHEMA_USER_TEMPLATE_TOKENS = 50
 
 # Reserve fraction of the context window for model output + drift so we never
-# plan a batch that fills the whole window. Output for schema discovery is a
-# JSON schema; reserving a third of the window is deliberately conservative.
+# plan a batch that fills the whole window.
 _OUTPUT_RESERVE_FRACTION = 0.35
 
-# Safety ceiling on documents per batch in smart mode. This is NOT a tuning
-# knob the user sets — smart mode deliberately packs as many documents as fit
-# under the token budget, because seeing more documents together yields a richer
-# schema. The ceiling only guards against pathologically large batches (e.g.
-# thousands of tiny documents) that would produce an unwieldy single prompt.
+# Safety ceiling on documents per batch in smart mode. Guards against
+# pathologically large batches (e.g. thousands of tiny documents).
 _SMART_SAFETY_MAX_DOCS_PER_BATCH = 30
 
 
@@ -75,11 +66,7 @@ class PlannedBatch:
 
 
 def _measured_prompt_overhead() -> int:
-    """Fixed per-call prompt overhead (system prompt + user template).
-
-    Uses measured values from schematiq-lib when available, otherwise
-    conservative constants.
-    """
+    """Fixed per-call prompt overhead (system prompt + user template)."""
     try:
         from schematiq.core.cost_estimator import _measure_prompt_tokens
         measured = _measure_prompt_tokens()
@@ -91,16 +78,14 @@ def _measured_prompt_overhead() -> int:
         return _DEFAULT_SCHEMA_SYSTEM_PROMPT_TOKENS + _DEFAULT_SCHEMA_USER_TEMPLATE_TOKENS
 
 
-def _resolve_context_window(schematiq_config: Dict[str, Any]) -> int:
-    """Resolve the schema-creation context window from config, with fallback."""
-    backend = schematiq_config.get("schema_creation_backend", {}) or {}
-    ctx = backend.get("context_window_size")
-    if isinstance(ctx, int) and ctx > 0:
-        return ctx
+def _resolve_context_window(context_window_size: Optional[int]) -> int:
+    """Resolve the schema-creation context window, with fallback."""
+    if isinstance(context_window_size, int) and context_window_size > 0:
+        return context_window_size
     return _DEFAULT_CONTEXT_WINDOW
 
 
-def _batch_token_budget(schematiq_config: Dict[str, Any]) -> int:
+def _batch_token_budget(context_window_size: Optional[int]) -> int:
     """Compute the per-batch document-token budget.
 
     budget = context_window - prompt_overhead - output_reserve
@@ -108,7 +93,7 @@ def _batch_token_budget(schematiq_config: Dict[str, Any]) -> int:
     The result is floored at a small positive value so planning always
     terminates even with pathological configs.
     """
-    context_window = _resolve_context_window(schematiq_config)
+    context_window = _resolve_context_window(context_window_size)
     prompt_overhead = _measured_prompt_overhead()
     output_reserve = int(context_window * _OUTPUT_RESERVE_FRACTION)
     budget = context_window - prompt_overhead - output_reserve
@@ -142,14 +127,7 @@ def _smart_batches(
     token_budget: int,
     max_docs_per_batch: int,
 ) -> List[PlannedBatch]:
-    """First-Fit-Decreasing bin-packing by estimated token size.
-
-    Documents larger than ``token_budget`` are placed alone in their own batch
-    (they cannot be split here). Remaining documents are sorted descending by
-    token count and placed into the first batch that has room for both the
-    tokens and the document-count cap.
-    """
-    # Pair each document with its estimated token count and original filename.
+    """First-Fit-Decreasing bin-packing by estimated token size."""
     items: List[Tuple[int, str, str]] = [
         (_count_tokens(doc), doc, name)
         for doc, name in zip(documents, filenames)
@@ -161,9 +139,6 @@ def _smart_batches(
     bins: List[PlannedBatch] = []
 
     for tokens, doc, name in items:
-        # Oversized document: give it its own batch. It still gets processed;
-        # downstream retrieval/truncation handles content that exceeds the
-        # window. Packing it with others would only make things worse.
         if tokens >= token_budget:
             bins.append(PlannedBatch(documents=[doc], filenames=[name], estimated_tokens=tokens))
             continue
@@ -172,7 +147,6 @@ def _smart_batches(
         for b in bins:
             fits_tokens = b.estimated_tokens + tokens <= token_budget
             fits_count = len(b.documents) < max_docs_per_batch
-            # Skip bins already holding an oversized solo document.
             solo_oversized = len(b.documents) == 1 and b.estimated_tokens >= token_budget
             if fits_tokens and fits_count and not solo_oversized:
                 b.documents.append(doc)
@@ -188,18 +162,21 @@ def _smart_batches(
 
 
 def plan_batches(
-    documents: List[str],
-    filenames: List[str],
-    schematiq_config: Dict[str, Any],
+    documents: Sequence[str],
+    filenames: Sequence[str],
+    *,
+    batch_strategy: str = "smart",
+    batch_size: int = 1,
+    context_window_size: Optional[int] = None,
 ) -> List[PlannedBatch]:
     """Plan document batches for schema discovery.
 
     Args:
         documents: Document text contents.
         filenames: Corresponding filenames (aligned with ``documents``).
-        schematiq_config: Full ScheMatiQ configuration dict. Reads
-            ``batch_strategy`` ("smart" | "fixed"), ``documents_batch_size``,
-            and ``schema_creation_backend.context_window_size``.
+        batch_strategy: ``"smart"`` (token-aware FFD bin-packing) or ``"fixed"``.
+        batch_size: Documents per batch when ``batch_strategy == "fixed"``.
+        context_window_size: Model context window size in tokens (optional).
 
     Returns:
         List of PlannedBatch. Empty input yields an empty list.
@@ -207,36 +184,33 @@ def plan_batches(
     if not documents:
         return []
 
-    if len(documents) != len(filenames):
-        # Defensive: never let misaligned inputs corrupt batching. Fall back to
-        # the shorter length so downstream zip semantics are preserved.
-        n = min(len(documents), len(filenames))
+    docs_list = list(documents)
+    names_list = list(filenames)
+
+    if len(docs_list) != len(names_list):
+        n = min(len(docs_list), len(names_list))
         logger.warning(
             "plan_batches received misaligned inputs (%d docs, %d names); truncating to %d",
-            len(documents), len(filenames), n,
+            len(docs_list), len(names_list), n,
         )
-        documents = documents[:n]
-        filenames = filenames[:n]
+        docs_list = docs_list[:n]
+        names_list = names_list[:n]
 
-    strategy = (schematiq_config.get("batch_strategy") or "smart").lower()
-    batch_size = schematiq_config.get("documents_batch_size", 1) or 1
+    strategy = (batch_strategy or "smart").lower()
+    effective_batch_size = batch_size or 1
 
     if strategy == "fixed":
-        planned = _fixed_batches(documents, filenames, batch_size)
+        planned = _fixed_batches(docs_list, names_list, effective_batch_size)
         logger.debug(
             "Batch planning (fixed) - %d docs, batch_size=%d, %d batches",
-            len(documents), batch_size, len(planned),
+            len(docs_list), effective_batch_size, len(planned),
         )
         return planned
 
-    # smart (default): pack as many documents as fit under the token budget.
-    # documents_batch_size is intentionally ignored here — it only governs the
-    # fixed strategy. Smart mode maximizes documents per batch (richer schema
-    # signal) up to a high safety ceiling.
-    token_budget = _batch_token_budget(schematiq_config)
-    planned = _smart_batches(documents, filenames, token_budget, _SMART_SAFETY_MAX_DOCS_PER_BATCH)
+    token_budget = _batch_token_budget(context_window_size)
+    planned = _smart_batches(docs_list, names_list, token_budget, _SMART_SAFETY_MAX_DOCS_PER_BATCH)
     logger.debug(
         "Batch planning (smart) - %d docs, token_budget=%d, safety_max_docs/batch=%d, %d batches",
-        len(documents), token_budget, _SMART_SAFETY_MAX_DOCS_PER_BATCH, len(planned),
+        len(docs_list), token_budget, _SMART_SAFETY_MAX_DOCS_PER_BATCH, len(planned),
     )
     return planned
