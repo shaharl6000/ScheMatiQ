@@ -175,6 +175,8 @@ class SchemaEvolution(BaseModel):
     """Tracks how the schema evolved during discovery."""
     snapshots: List[SchemaSnapshot] = Field(default_factory=list)
     column_sources: Dict[str, str] = Field(default_factory=dict)  # column_name -> source_document
+    skipped_batches_by_reason: Dict[str, int] = Field(default_factory=dict)
+    skipped_filenames: List[str] = Field(default_factory=list)
 
 
 class SessionMetadata(BaseModel):

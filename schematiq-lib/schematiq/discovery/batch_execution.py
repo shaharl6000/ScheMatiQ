@@ -60,9 +60,10 @@ def generate_schema_with_split(
     *,
     batch_docs: List[str],
     batch_names: List[str],
-    run_generate: Callable[[List[str]], Schema],
+    run_generate: Callable[[List[str]], Any],
     should_stop: Callable[[], bool],
     on_warning: Optional[Callable[[str, str, Optional[Dict[str, Any]]], None]] = None,
+    on_subbatch_outcome: Optional[Callable[[List[str], Optional[Schema], bool], None]] = None,
     _depth: int = 0,
 ) -> Optional[Schema]:
     """Run schema generation for a batch, splitting on token-limit failure.
@@ -71,10 +72,13 @@ def generate_schema_with_split(
         batch_docs: Documents in this batch.
         batch_names: Filenames aligned with ``batch_docs``.
         run_generate: Synchronous callable taking a list of documents and
-            returning the generated ``Schema`` (or raising).
+            returning the generated ``Schema`` or a tuple whose first two elements
+            are ``(Schema, document_helpful)``.
         should_stop: Stop-signal check returning True when discovery should stop.
         on_warning: Optional callback ``(level, message, skip_info)`` invoked
             when a batch is split or a single document is skipped.
+        on_subbatch_outcome: Optional callback ``(filenames, schema_or_none, document_helpful)``
+            invoked for each resolved leaf batch (or skipped single document).
         _depth: Internal recursion depth.
 
     Returns:
@@ -97,7 +101,7 @@ def generate_schema_with_split(
         return None
 
     try:
-        return run_generate(batch_docs)
+        raw = run_generate(batch_docs)
     except Exception as e:
         if not is_token_limit_error(e):
             raise
@@ -122,6 +126,8 @@ def generate_schema_with_split(
                     "error": error_str[:2000],
                 },
             )
+            if on_subbatch_outcome is not None:
+                on_subbatch_outcome(list(batch_names), None, False)
             return None
 
         mid = len(batch_docs) // 2
@@ -144,6 +150,7 @@ def generate_schema_with_split(
             run_generate=run_generate,
             should_stop=should_stop,
             on_warning=on_warning,
+            on_subbatch_outcome=on_subbatch_outcome,
             _depth=_depth + 1,
         )
         right = generate_schema_with_split(
@@ -152,6 +159,7 @@ def generate_schema_with_split(
             run_generate=run_generate,
             should_stop=should_stop,
             on_warning=on_warning,
+            on_subbatch_outcome=on_subbatch_outcome,
             _depth=_depth + 1,
         )
 
@@ -165,3 +173,14 @@ def generate_schema_with_split(
         except Exception as merge_err:
             logger.error("Failed to merge split-batch schemas: %s", merge_err)
             return left
+
+    if isinstance(raw, tuple):
+        sub_schema = raw[0]
+        doc_helpful = bool(raw[1]) if len(raw) > 1 else True
+    else:
+        sub_schema = raw
+        doc_helpful = True
+
+    if on_subbatch_outcome is not None:
+        on_subbatch_outcome(list(batch_names), sub_schema, doc_helpful)
+    return sub_schema

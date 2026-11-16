@@ -114,6 +114,9 @@ class FakeDiscoveryLLM(LLMInterface):
             if self.fail_single_marker and self.fail_single_marker in passages_text:
                 raise RuntimeError("Request fails: too many tokens in prompt")
 
+            if "DOC_TRANSIENT_FAIL" in passages_text:
+                raise RuntimeError("transient network error")
+
             if (
                 self.fail_combined_marker
                 and self.fail_combined_marker in passages_text
@@ -121,6 +124,15 @@ class FakeDiscoveryLLM(LLMInterface):
                 and "DOC_BETA" in passages_text
             ):
                 raise RuntimeError("This model's maximum context length exceeded")
+
+            if "DOC_UNHELPFUL" in passages_text:
+                return json.dumps(
+                    {
+                        "document_helpful": False,
+                        "columns": [],
+                        "suggested_value_additions": [],
+                    }
+                )
 
             columns: List[Dict[str, Any]] = []
             if "DOC_ALPHA" in passages_text:
@@ -140,6 +152,24 @@ class FakeDiscoveryLLM(LLMInterface):
                         "rationale": "Captures jurisdiction tier",
                         "value_kind": "category",
                         "allowed_values": ["district", "appellate"],
+                    }
+                )
+            if "DOC_GAMMA_COL" in passages_text:
+                columns.append(
+                    {
+                        "name": "filing_year",
+                        "definition": "Filing year",
+                        "rationale": "Tracks filing year",
+                        "value_kind": "number",
+                    }
+                )
+            if "DOC_DELTA_COL" in passages_text:
+                columns.append(
+                    {
+                        "name": "country_of_origin",
+                        "definition": "Country of origin",
+                        "rationale": "Tracks origin",
+                        "value_kind": "free_text",
                     }
                 )
             return json.dumps(
@@ -666,3 +696,290 @@ def test_public_discover_observation_unit_import() -> None:
     assert schematiq.discover_observation_unit is core_sq.discover_observation_unit
     assert discovery_main.discover_observation_unit is core_sq.discover_observation_unit
     assert core_sq.discover_observation_unit.__name__ == "discover_observation_unit"
+    assert not hasattr(core_sq, "_discover_observation_unit")
+
+
+def test_max_iters_cap_and_from_dict() -> None:
+    llm = FakeDiscoveryLLM()
+    schema, evo = discover_schema(
+        documents=[
+            "DOC_ALPHA: Case 1.",
+            "DOC_BETA: Case 2.",
+            "DOC_GAMMA_COL: Case 3.",
+            "DOC_DELTA_COL: Case 4.",
+        ],
+        filenames=["d1.txt", "d2.txt", "d3.txt", "d4.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(batch_strategy="fixed", batch_size=1, max_iters=2),
+        llm=llm,
+    )
+    assert [c.name for c in schema.columns] == ["case_identifier", "court_level"]
+    assert len(evo.snapshots) == 2
+    assert [c["stage"] for c in llm.calls].count("schema_discovery") == 2
+
+    cfg_from_dict = DiscoveryConfig.from_dict({"max_iters": 3})
+    assert cfg_from_dict.max_iters == 3
+    assert DiscoveryConfig().max_iters is None
+
+
+def test_contributing_non_contributing_and_column_tagging() -> None:
+    warnings_seen: List[tuple] = []
+    llm = FakeDiscoveryLLM(fail_single_marker="DOC_TOO_BIG")
+    schema, evo = discover_schema(
+        documents=[
+            "DOC_ALPHA: Helpful with columns.",
+            "DOC_UNHELPFUL: Boilerplate.",
+            "DOC_EMPTY_HELPFUL: No columns produced.",
+            "DOC_TOO_BIG: Overflow doc.",
+            "DOC_TRANSIENT_FAIL: Transient fail.",
+            "DOC_BETA: Court level.",
+        ],
+        filenames=[
+            "alpha.txt",
+            "unhelpful.txt",
+            "empty.txt",
+            "big.txt",
+            "broken.txt",
+            "beta.txt",
+        ],
+        query="Analyze rulings",
+        config=DiscoveryConfig(
+            batch_strategy="fixed",
+            batch_size=1,
+            initial_schema=[
+                {"name": "seeded_col", "definition": "Seeded", "rationale": "Seeded"}
+            ],
+        ),
+        llm=llm,
+        on_warning=lambda lvl, msg, info: warnings_seen.append((lvl, msg, info)),
+    )
+
+    assert evo.contributing_files == ["alpha.txt", "beta.txt"]
+    assert evo.non_contributing_files == ["unhelpful.txt", "empty.txt", "big.txt", "broken.txt"]
+    assert evo.skipped_batches_by_reason == {
+        "single_document_exceeds_token_limit": 1,
+        "llm_call_failed": 1,
+    }
+    assert evo.skipped_filenames == ["big.txt", "broken.txt"]
+    assert evo.total_skipped_batches == 2
+    # to_dict() remains compatible with downstream SchemaEvolution parsers
+    assert set(evo.to_dict().keys()) == {
+        "snapshots",
+        "column_sources",
+        "skipped_batches_by_reason",
+        "skipped_filenames",
+    }
+
+    by_name = {c.name: c for c in schema.columns}
+    assert by_name["seeded_col"].source_document == "initial_schema"
+    assert by_name["seeded_col"].discovery_iteration == 0
+    assert by_name["case_identifier"].source_document == "alpha.txt"
+    assert by_name["case_identifier"].discovery_iteration == 1
+    assert by_name["court_level"].source_document == "beta.txt"
+    # big.txt was skipped before snapshot numbering, broken.txt ran as batch 5 -> beta.txt is batch 6
+    assert by_name["court_level"].discovery_iteration == 6
+
+    reasons = [info["reason"] for _, _, info in warnings_seen if info]
+    assert reasons == ["single_document_exceeds_token_limit", "llm_call_failed"]
+
+    # Query-only mode tags new columns with ("query_only", 1)
+    q_schema, _ = discover_schema(
+        documents=[],
+        filenames=[],
+        query="Analyze rulings",
+        config=DiscoveryConfig(identify_observation_unit=False),
+        llm=FakeDiscoveryLLM(),
+    )
+    assert q_schema.columns[0].source_document == "query_only"
+    assert q_schema.columns[0].discovery_iteration == 1
+
+
+def test_deprecated_core_wrappers_warn_and_main_does_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import warnings
+    from schematiq.core import schematiq as core_sq
+    from schematiq.core import utils as core_utils
+
+    missing_seed = tmp_path / "missing.json"
+    with pytest.warns(DeprecationWarning, match="load_initial_schema_from_config"):
+        empty_schema = core_sq.load_initial_schema(missing_seed, "Analyze rulings", 10)
+    assert len(empty_schema.columns) == 0
+
+    with pytest.warns(DeprecationWarning, match="schematiq.discover_schema"):
+        schema_old, contrib, non_contrib, evo = core_sq.discover_schema(
+            query="Analyze rulings",
+            documents=["DOC_ALPHA: Text", "DOC_BETA: Text"],
+            filenames=["a.txt", "b.txt"],
+            max_keys_schema=10,
+            llm=FakeDiscoveryLLM(),
+            retriever=None,
+            documents_batch_size=1,
+            context_window_size=16384,
+        )
+    assert [c.name for c in schema_old.columns] == ["case_identifier", "court_level"]
+    assert contrib == ["a.txt", "b.txt"]
+    assert non_contrib == []
+    assert len(evo.snapshots) == 2
+
+    # Verify CLI main() calls the unified loop without emitting DeprecationWarning.
+    docs_dir = tmp_path / "cli_docs"
+    docs_dir.mkdir()
+    (docs_dir / "a.txt").write_text("DOC_ALPHA: Text", encoding="utf-8")
+    out_file = tmp_path / "cli_out.json"
+    cfg_file = tmp_path / "cli_cfg.json"
+    cfg_file.write_text(
+        json.dumps(
+            {
+                "query": "Analyze rulings",
+                "docs_path": str(docs_dir),
+                "document_randomization_seed": None,
+                "documents_batch_size": 1,
+                "max_keys_schema": 10,
+                "output_path": str(out_file),
+                "backend": {"provider": "openai", "model": "fake-deterministic"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(core_utils, "build_llm", lambda _cfg: FakeDiscoveryLLM())
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always", DeprecationWarning)
+        core_sq.main(cfg_file)
+    assert [w for w in recorded if issubclass(w.category, DeprecationWarning)] == []
+    assert out_file.exists()
+
+
+def test_observation_unit_failure_skips_batch_and_retries_next_batch() -> None:
+    from google.genai import errors as genai_errors
+
+    class ObsUnitFlakyLLM(FakeDiscoveryLLM):
+        def generate(self, prompt: Any, **kwargs) -> str:
+            if isinstance(prompt, list):
+                system = prompt[0].get("content", "") if len(prompt) > 0 else ""
+                user = prompt[1].get("content", "") if len(prompt) > 1 else ""
+            else:
+                system = ""
+                user = str(prompt)
+
+            if "ObservationUnitLLM" in system:
+                self.calls.append({"stage": "observation_unit", "user": user})
+                if "DOC_BAD_UNIT" in user:
+                    return "{not valid json"
+                if "DOC_AUTH_FAIL" in user:
+                    with pytest.raises(genai_errors.APIError) as excinfo:
+                        genai_errors.APIError.raise_error(
+                            401,
+                            {
+                                "error": {
+                                    "code": 401,
+                                    "status": "UNAUTHENTICATED",
+                                    "message": "API key not valid",
+                                }
+                            },
+                            None,
+                        )
+                    raise excinfo.value
+                return json.dumps(
+                    {
+                        "observation_unit": {
+                            "name": "Court Ruling",
+                            "definition": "A single judicial decision on an appeal",
+                            "example_names": ["Appeal 101"],
+                        },
+                        "reasoning": "Deterministic test unit",
+                    }
+                )
+            return super().generate(prompt, **kwargs)
+
+    warnings_seen: List[tuple] = []
+    llm = ObsUnitFlakyLLM()
+    schema, evo = discover_schema(
+        documents=[
+            "DOC_BAD_UNIT: Unparseable intro.",
+            "DOC_BETA: Appellate court decision.",
+        ],
+        filenames=["bad_unit.txt", "b.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(batch_strategy="fixed", batch_size=1),
+        llm=llm,
+        on_warning=lambda lvl, msg, info: warnings_seen.append((lvl, msg, info)),
+    )
+
+    assert schema.observation_unit is not None
+    assert schema.observation_unit.name == "Court Ruling"
+    assert schema.observation_unit.source_document == "b.txt"
+    assert [c.name for c in schema.columns] == ["court_level"]
+    assert evo.contributing_files == ["b.txt"]
+    assert evo.non_contributing_files == ["bad_unit.txt"]
+    assert evo.skipped_batches_by_reason == {"observation_unit_discovery_failed": 1}
+    assert evo.skipped_filenames == ["bad_unit.txt"]
+    assert evo.total_skipped_batches == 1
+    assert len(warnings_seen) == 1
+    assert warnings_seen[0][2]["reason"] == "observation_unit_discovery_failed"
+    assert warnings_seen[0][2]["filenames"] == ["bad_unit.txt"]
+
+    # Fatal should_abort_run error during observation unit discovery aborts immediately.
+    llm_fatal = ObsUnitFlakyLLM()
+    with pytest.raises(RuntimeError, match="Failed to discover observation unit") as exc_info:
+        discover_schema(
+            documents=[
+                "DOC_AUTH_FAIL: Bad key.",
+                "DOC_BETA: Should never be reached.",
+            ],
+            filenames=["bad_key.txt", "b.txt"],
+            query="Analyze rulings",
+            config=DiscoveryConfig(batch_strategy="fixed", batch_size=1),
+            llm=llm_fatal,
+        )
+    assert isinstance(exc_info.value.__cause__, ObservationUnitDiscoveryError)
+    assert [c["stage"] for c in llm_fatal.calls] == ["observation_unit"]
+
+
+def test_max_consecutive_failed_batches_in_discovery_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from google.genai import errors as genai_errors
+    import schematiq.discovery as discovery_pkg
+    from schematiq.core import schematiq as core_sq
+    from schematiq.core.llm_backends import LLMRunAborted
+    from schematiq.discovery import main as discovery_main
+
+    assert discovery_pkg._MAX_CONSECUTIVE_FAILED_BATCHES == 3
+    assert discovery_main._MAX_CONSECUTIVE_FAILED_BATCHES == 3
+    assert not hasattr(core_sq, "_MAX_CONSECUTIVE_FAILED_BATCHES")
+
+    class OutageLLM(FakeDiscoveryLLM):
+        def generate(self, prompt: Any, **kwargs) -> str:
+            if isinstance(prompt, list) and "SchemaLLM" in (prompt[0].get("content", "")):
+                self.calls.append({"stage": "schema_discovery", "user": ""})
+                with pytest.raises(genai_errors.APIError) as excinfo:
+                    genai_errors.APIError.raise_error(
+                        503,
+                        {
+                            "error": {
+                                "code": 503,
+                                "status": "UNAVAILABLE",
+                                "message": "Overloaded",
+                            }
+                        },
+                        None,
+                    )
+                raise excinfo.value
+            return super().generate(prompt, **kwargs)
+
+    monkeypatch.setattr(discovery_main, "_MAX_CONSECUTIVE_FAILED_BATCHES", 2)
+    llm = OutageLLM()
+    with pytest.raises(LLMRunAborted, match="2 batches failed in a row"):
+        discover_schema(
+            documents=["DOC_1", "DOC_2", "DOC_3"],
+            filenames=["d1.txt", "d2.txt", "d3.txt"],
+            query="Analyze rulings",
+            config=DiscoveryConfig(
+                batch_strategy="fixed",
+                batch_size=1,
+                identify_observation_unit=False,
+            ),
+            llm=llm,
+        )
+    assert [c["stage"] for c in llm.calls] == ["schema_discovery", "schema_discovery"]
