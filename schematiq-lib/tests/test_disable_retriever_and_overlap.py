@@ -427,3 +427,75 @@ def test_default_and_legacy_retriever_equivalence_with_main(
         hashlib.sha256(json.dumps(legacy_mw_passages).encode("utf-8")).hexdigest()
         == "db58df69f754cc21f7836ce6a00ae6dc6b7d16d5e589f403cf94fc7e123f204a"
     )
+
+
+def test_embedding_retriever_default_constructor_matches_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No-arg EmbeddingRetriever() (k=3) and custom k with no size args match main's 512/k."""
+
+    class _DeterministicFakeST:
+        device = "cpu"
+
+        def encode(self, texts, **_kwargs):
+            vecs = []
+            for t in texts:
+                digest = hashlib.sha256(t.encode("utf-8")).digest()
+                arr = np.frombuffer(digest, dtype=np.uint8).astype(np.float32)[:16] - 128.0
+                arr = arr / (np.linalg.norm(arr) + 1e-8)
+                vecs.append(arr)
+            return np.stack(vecs, axis=0)
+
+    monkeypatch.setattr(
+        embedding_model, "load_sentence_transformer", lambda *_a, **_kw: _DeterministicFakeST()
+    )
+
+    fixed_doc = "\n\n".join(
+        [
+            "# Introduction\n"
+            + " ".join(
+                f"intro_word_{i} clinical study cohort baseline." if i % 12 == 0 else f"intro_{i}"
+                for i in range(180)
+            ),
+            "# Methods\n"
+            + " ".join(
+                f"method_word_{i} randomized trial dosage protocol." if i % 10 == 0 else f"method_{i}"
+                for i in range(190)
+            ),
+            "# Results\n"
+            + " ".join(
+                f"result_word_{i} primary endpoint p_value outcome." if i % 11 == 0 else f"result_{i}"
+                for i in range(185)
+            ),
+        ]
+    )
+    question = "What was the primary endpoint outcome in the randomized trial?"
+
+    # 1. No-argument constructor: k=3, default budget=512 -> max(int(512/3), 128) = 170 words
+    r_noarg = EmbeddingRetriever()
+    assert r_noarg.k == 3
+    assert r_noarg.max_words == 512
+    assert r_noarg.passage_words == 170
+    assert r_noarg.max_words_chunk == 170
+    noarg_passages = r_noarg.query([fixed_doc], question)
+    assert [len(p.split()) for p in noarg_passages] == [75, 55, 1]
+    assert (
+        hashlib.sha256(json.dumps(noarg_passages).encode("utf-8")).hexdigest()
+        == "b0bc05c449604273b3860e17df33787c4286402e0a28437b55396643f49f5ef8"
+    )
+
+    # 2. Another k (k=2) with neither passage_words nor max_words -> max(int(512/2), 128) = 256 words
+    r_k2 = EmbeddingRetriever(k=2)
+    assert r_k2.passage_words == 256
+    assert r_k2.max_words_chunk == 256
+    k2_passages = r_k2.query([fixed_doc], question)
+    assert [len(p.split()) for p in k2_passages] == [255, 242]
+    assert (
+        hashlib.sha256(json.dumps(k2_passages).encode("utf-8")).hexdigest()
+        == "ae02f6137e97e8fa465602ecaa957c1c6e922778f2525959be2b4d113816ac3f"
+    )
+
+    # 3. Large k (k=10) with neither size arg floors at 128 words
+    r_k10 = EmbeddingRetriever(k=10)
+    assert r_k10.passage_words == 128
+    assert r_k10.max_words_chunk == 128

@@ -240,8 +240,9 @@ class EmbeddingRetriever(Retriever):
     """
     Dense-vector retriever that chunks documents by **word count**, not characters.
     Each passage contains up to ``passage_words`` words directly. When only the
-    legacy ``max_words`` budget is passed, it is converted using the historical
-    ``max(int(max_words / k), 128)`` formula to preserve prior chunking.
+    legacy ``max_words`` budget is passed (or neither ``passage_words`` nor
+    ``max_words`` is provided, defaulting to a 512-word budget), it is converted
+    using the historical ``max(int(budget / k), 128)`` formula.
     """
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: Optional[int] = None, batch_size: int = 32, k: int = 3,
@@ -312,10 +313,14 @@ class EmbeddingRetriever(Retriever):
         elif max_words is not None:
             resolved_passage_words = legacy_budget_to_passage_words(max_words, self.k)
         else:
-            resolved_passage_words = 128
+            resolved_passage_words = legacy_budget_to_passage_words(512, self.k)
 
         self.passage_words = resolved_passage_words
-        self.max_words = max_words if max_words is not None else resolved_passage_words
+        self.max_words = (
+            max_words
+            if max_words is not None
+            else (512 if passage_words is None else resolved_passage_words)
+        )
         self.overlap_words = overlap_words
         self.max_words_chunk = resolved_passage_words
 
