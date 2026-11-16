@@ -40,6 +40,7 @@ from schematiq.core.schema import Schema, Column
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.discovery import DiscoveryConfig, discover_schema
+from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
 from schematiq.value_extraction.main import build_table_jsonl
 from app.services.pipeline.schema_discovery import log_skipped_batch, run_callback_on_loop
 from app.services.session_documents import (
@@ -1001,11 +1002,11 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=True)
             llm = schematiq_utils.build_llm(enforced_llm_config)
 
-            # Build retriever - use shared singleton if config requests one
+            # Build retriever - use shared cache if config requests one
             retriever_cfg = config.get("retriever_config")
             if retriever_cfg:
                 from app.services import get_shared_retriever
-                retriever = get_shared_retriever()
+                retriever = get_shared_retriever(retriever_cfg)
             else:
                 retriever = None
 
@@ -1515,9 +1516,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Enforce release mode settings if applicable (value extraction)
             enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=False)
             llm = schematiq_utils.build_llm(enforced_llm_config)
-            if retriever_cfg:
+            if retriever_cfg and not DISABLE_RETRIEVER:
                 from app.services import get_shared_retriever
-                retriever = get_shared_retriever()
+                retriever = get_shared_retriever(retriever_cfg)
             else:
                 retriever = None
 

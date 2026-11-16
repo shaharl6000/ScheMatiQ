@@ -242,7 +242,8 @@ class EmbeddingRetriever(Retriever):
                  device: Optional[str] = None, enable_dynamic_k: bool = False,
                  dynamic_k_threshold: float = 0.65, dynamic_k_minimum: int = 2,
                  enable_embedding_cache: bool = True, max_cache_size: int = 1000,
-                 enable_preprocessing: bool = True):
+                 enable_preprocessing: bool = True,
+                 overlap_words: int = 64):
         super().__init__()
         if SentenceTransformer is None:
             raise ImportError(
@@ -290,6 +291,7 @@ class EmbeddingRetriever(Retriever):
 
             self.model = load_sentence_transformer(model_name, device=device)
         self.max_words = max_words
+        self.overlap_words = overlap_words
         self.max_words_chunk = max(int(max_words / self.k), 128)
 
 
@@ -436,7 +438,7 @@ class EmbeddingRetriever(Retriever):
             passages: List[str] = []
             for d in docs:
                 d = _to_unicode(d)  # make sure the doc itself is clean
-                for chunk in self._improved_chunk(d):
+                for chunk in self._improved_chunk(d, overlap_words=self.overlap_words):
                     # flatten lists / tuples
                     if isinstance(chunk, (list, tuple)):
                         passages.extend(_to_unicode(c) for c in chunk)

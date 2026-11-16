@@ -16,6 +16,7 @@ from app.models.session import SkippedDocumentInfo
 
 from schematiq.core.schema import Schema
 from schematiq.core.llm_backends import LLMInterface
+from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
 from schematiq.value_extraction.main import build_table_jsonl
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ async def run_value_extraction(
             docs_directories=docs_directories,
             output_path=output_path,
             llm=llm,
-            retriever=retriever,
+            retriever=None if DISABLE_RETRIEVER else retriever,
             resume=False,
             mode="all",
             retrieval_k=8,

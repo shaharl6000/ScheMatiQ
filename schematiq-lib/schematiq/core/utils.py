@@ -88,10 +88,17 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
 def build_retriever(cfg: Dict[str, Any], llm_for_prompting: LLMInterface = None) -> Retriever:
     rtype = cfg.get("type", "embedding").lower()
     if rtype == "embedding":
+        max_words = cfg.get("max_words")
+        if max_words is None:
+            max_words = cfg.get("passage_chars", 512)
+        overlap_words = cfg.get("overlap_words")
+        if overlap_words is None:
+            overlap_words = cfg.get("overlap", 64)
         return EmbeddingRetriever(
             model_name=cfg.get("model_name", "all-MiniLM-L6-v2"),
             k=cfg.get("k", 15),
-            max_words=cfg.get("max_words", 512),
+            max_words=max_words,
+            overlap_words=overlap_words,
             batch_size=cfg.get("batch_size", 32),
             device=cfg.get("device"),
             enable_dynamic_k=cfg.get("enable_dynamic_k", False),
