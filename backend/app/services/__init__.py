@@ -4,6 +4,7 @@ import asyncio
 import logging
 import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Tuple, Union
 
@@ -128,11 +129,17 @@ async def find_session_data_file(session_id: str) -> Optional[Path]:
     return await resolve_primary_session_data_file(session_id)
 
 
-# ── Shared EmbeddingRetriever cache (keyed by config) ──────────────
-# SentenceTransformer loads are expensive (~2s + HuggingFace HEAD requests).
-# Share one instance per distinct RetrieverConfig while honoring every
-# configured parameter (model_name, passage_chars, overlap, k, dynamic_k).
-_shared_retrievers: Dict[Tuple[Any, ...], Any] = {}
+# ── Shared EmbeddingRetriever & model caches ───────────────────────
+# SentenceTransformer weights are heavy (~hundreds of MB + HF load calls), so
+# we cache at most one loaded model per `model_name` in `_shared_embedding_models`
+# (bounded LRU so distinct model names cannot grow memory without limit), and
+# cache lightweight `EmbeddingRetriever` wrappers (and their per-chunking-config
+# passage embedding cache) per full RetrieverConfig tuple in `_shared_retrievers`
+# (bounded LRU so parameter sweeps evict old wrappers without reloading weights).
+_MAX_SHARED_MODELS = 8
+_MAX_SHARED_RETRIEVERS = 32
+_shared_embedding_models: "OrderedDict[str, Any]" = OrderedDict()
+_shared_retrievers: "OrderedDict[Tuple[Any, ...], Any]" = OrderedDict()
 _shared_retriever_lock = threading.Lock()
 
 
@@ -181,7 +188,12 @@ def get_shared_retriever(
     *,
     model_name: Optional[str] = None,
 ):
-    """Return a cached EmbeddingRetriever matching the given retriever config."""
+    """Return a cached EmbeddingRetriever matching the given retriever config.
+
+    Multiple configs sharing the same ``model_name`` share a single loaded model
+    instance while keeping independent retrieval/chunking parameters and passage
+    caches. Both the model cache and wrapper cache use bounded LRU eviction.
+    """
     cfg = _normalize_retriever_config(retriever_config, model_name=model_name)
     cache_key = (
         cfg.type.lower(),
@@ -193,34 +205,55 @@ def get_shared_retriever(
         float(cfg.dynamic_k_threshold),
         cfg.dynamic_k_minimum,
     )
-    cached = _shared_retrievers.get(cache_key)
-    if cached is None:
-        with _shared_retriever_lock:
-            cached = _shared_retrievers.get(cache_key)
-            if cached is None:
-                from schematiq.core.retrievers import EmbeddingRetriever
+    with _shared_retriever_lock:
+        cached = _shared_retrievers.get(cache_key)
+        if cached is not None:
+            _shared_retrievers.move_to_end(cache_key)
+            if cfg.model_name in _shared_embedding_models:
+                _shared_embedding_models.move_to_end(cfg.model_name)
+            return cached
 
-                logger.info(
-                    "[retriever] Loading shared EmbeddingRetriever "
-                    "(model=%s, k=%s, max_words=%s, overlap=%s, dynamic_k=%s)",
-                    cfg.model_name,
-                    cfg.k,
-                    cfg.passage_chars,
-                    cfg.overlap,
-                    cfg.enable_dynamic_k,
-                )
-                cached = EmbeddingRetriever(
-                    model_name=cfg.model_name,
-                    k=cfg.k,
-                    max_words=cfg.passage_chars,
-                    overlap_words=cfg.overlap,
-                    enable_dynamic_k=cfg.enable_dynamic_k,
-                    dynamic_k_threshold=cfg.dynamic_k_threshold,
-                    dynamic_k_minimum=cfg.dynamic_k_minimum,
-                )
-                _shared_retrievers[cache_key] = cached
-                logger.info("[retriever] Shared EmbeddingRetriever ready (%s)", cfg.model_name)
-    return cached
+        from schematiq.core.retrievers import EmbeddingRetriever
+
+        shared_model = _shared_embedding_models.get(cfg.model_name)
+        if shared_model is not None:
+            _shared_embedding_models.move_to_end(cfg.model_name)
+
+        logger.info(
+            "[retriever] %s EmbeddingRetriever "
+            "(model=%s, k=%s, max_words=%s, overlap=%s, dynamic_k=%s)",
+            "Creating" if shared_model is not None else "Loading",
+            cfg.model_name,
+            cfg.k,
+            cfg.passage_chars,
+            cfg.overlap,
+            cfg.enable_dynamic_k,
+        )
+        init_kwargs: Dict[str, Any] = {
+            "model_name": cfg.model_name,
+            "k": cfg.k,
+            "max_words": cfg.passage_chars,
+            "overlap_words": cfg.overlap,
+            "enable_dynamic_k": cfg.enable_dynamic_k,
+            "dynamic_k_threshold": cfg.dynamic_k_threshold,
+            "dynamic_k_minimum": cfg.dynamic_k_minimum,
+        }
+        if shared_model is not None:
+            init_kwargs["model"] = shared_model
+
+        cached = EmbeddingRetriever(**init_kwargs)
+
+        if shared_model is None and getattr(cached, "model", None) is not None:
+            _shared_embedding_models[cfg.model_name] = cached.model
+            while len(_shared_embedding_models) > _MAX_SHARED_MODELS:
+                _shared_embedding_models.popitem(last=False)
+
+        _shared_retrievers[cache_key] = cached
+        while len(_shared_retrievers) > _MAX_SHARED_RETRIEVERS:
+            _shared_retrievers.popitem(last=False)
+
+        logger.info("[retriever] Shared EmbeddingRetriever ready (%s)", cfg.model_name)
+        return cached
 
 
 # Create singleton instances

@@ -243,9 +243,10 @@ class EmbeddingRetriever(Retriever):
                  dynamic_k_threshold: float = 0.65, dynamic_k_minimum: int = 2,
                  enable_embedding_cache: bool = True, max_cache_size: int = 1000,
                  enable_preprocessing: bool = True,
-                 overlap_words: int = 64):
+                 overlap_words: int = 64,
+                 model: Optional[Any] = None):
         super().__init__()
-        if SentenceTransformer is None:
+        if model is None and SentenceTransformer is None:
             raise ImportError(
                 "sentence-transformers not installed. "
                 "pip install 'sentence-transformers>=2.5 numpy'"
@@ -276,7 +277,15 @@ class EmbeddingRetriever(Retriever):
         self._embedding_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_lock = threading.Lock()
 
-        if "Qwen" in model_name:
+        if model is not None:
+            # Reuse caller-supplied model weights (thread-safe across CPU/CUDA
+            # and serialized via process-wide _MPS_INFERENCE_LOCK on MPS).
+            self.model = model
+            self.is_cross_encoder = "Qwen" in model_name
+            if self.is_cross_encoder:
+                self.batch_size = 2
+
+        elif "Qwen" in model_name:
             self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
             self.is_cross_encoder = True
             tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)

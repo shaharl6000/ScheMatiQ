@@ -300,3 +300,24 @@ def test_embedding_retriever_respects_overlap_words_and_build_retriever_aliases(
     # 400 words in 128-word windows: step=128 -> 4 chunks; step=128-96=32 -> 13 chunks
     assert captured["no_overlap"] == [4]
     assert captured["with_overlap"] == [13]
+
+
+def test_embedding_retriever_reuses_injected_model_without_loading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    load_spy = MagicMock(side_effect=AssertionError("load_sentence_transformer must not run"))
+    monkeypatch.setattr(embedding_model, "load_sentence_transformer", load_spy)
+
+    shared_model = SimpleNamespace(device="cpu")
+    retriever = EmbeddingRetriever(
+        model_name="all-MiniLM-L6-v2",
+        k=7,
+        max_words=640,
+        overlap_words=32,
+        enable_preprocessing=False,
+        model=shared_model,
+    )
+    assert retriever.model is shared_model
+    assert retriever.is_cross_encoder is False
+    assert retriever.k == 7
+    load_spy.assert_not_called()

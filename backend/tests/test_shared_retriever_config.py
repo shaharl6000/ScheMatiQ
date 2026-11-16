@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,7 +30,7 @@ from app.services.pipeline import value_extraction as ve_mod
 from app.services.session_manager import SessionManager
 from app.storage.factory import reset_storage
 from app.storage.local_backend import LocalStorageBackend
-from schematiq.core import retrievers as retrievers_mod
+from schematiq.core import embedding_model, retrievers as retrievers_mod
 from schematiq.core.schema import Column, ObservationUnit, Schema
 
 
@@ -39,6 +40,7 @@ class _FakeEmbeddingRetriever:
     def __init__(self, **kwargs):
         self.init_kwargs = dict(kwargs)
         self.model_name = kwargs.get("model_name", "all-MiniLM-L6-v2")
+        self.model = kwargs.get("model", SimpleNamespace(model_name=self.model_name))
         self.k = kwargs.get("k")
         self.max_words = kwargs.get("max_words")
         self.overlap_words = kwargs.get("overlap_words")
@@ -49,9 +51,11 @@ class _FakeEmbeddingRetriever:
 
 @pytest.fixture(autouse=True)
 def _reset_retriever_cache(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(services_mod, "_shared_retrievers", {})
+    monkeypatch.setattr(services_mod, "_shared_retrievers", OrderedDict())
+    monkeypatch.setattr(services_mod, "_shared_embedding_models", OrderedDict())
     yield
-    monkeypatch.setattr(services_mod, "_shared_retrievers", {})
+    monkeypatch.setattr(services_mod, "_shared_retrievers", OrderedDict())
+    monkeypatch.setattr(services_mod, "_shared_embedding_models", OrderedDict())
 
 
 def test_get_shared_retriever_caches_per_config_and_forwards_all_fields(
@@ -121,6 +125,68 @@ def test_get_shared_retriever_caches_per_config_and_forwards_all_fields(
 def test_get_shared_retriever_rejects_non_embedding_type() -> None:
     with pytest.raises(ValueError, match="Unsupported shared retriever type"):
         services_mod.get_shared_retriever({"type": "prompting"})
+
+
+def test_two_configs_with_same_model_name_load_sentence_transformer_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two distinct configs sharing model_name must load SentenceTransformer only once."""
+    load_calls: List[tuple] = []
+
+    def _fake_load(model_name: str = "all-MiniLM-L6-v2", **kwargs: Any):
+        load_calls.append((model_name, kwargs.get("device")))
+        return SimpleNamespace(tag=f"st-{model_name}-{len(load_calls)}")
+
+    monkeypatch.setattr(embedding_model, "load_sentence_transformer", _fake_load)
+
+    r1 = services_mod.get_shared_retriever(
+        {"model_name": "all-MiniLM-L6-v2", "k": 10, "overlap": 32}
+    )
+    r2 = services_mod.get_shared_retriever(
+        {"model_name": "all-MiniLM-L6-v2", "k": 25, "overlap": 128}
+    )
+
+    assert len(load_calls) == 1
+    assert load_calls[0][0] == "all-MiniLM-L6-v2"
+    assert r1 is not r2
+    assert r1.k == 10 and r2.k == 25
+    assert r1.overlap_words == 32 and r2.overlap_words == 128
+    assert r1.model is r2.model
+
+    # A different model_name loads its own model once
+    r3 = services_mod.get_shared_retriever({"model_name": "BAAI/bge-m3", "k": 10})
+    assert len(load_calls) == 2
+    assert load_calls[1][0] == "BAAI/bge-m3"
+    assert r3.model is not r1.model
+
+
+def test_shared_retriever_lru_bound_evicts_wrappers_without_reloading_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    load_calls: List[str] = []
+
+    def _fake_load(model_name: str = "all-MiniLM-L6-v2", **_kw: Any):
+        load_calls.append(model_name)
+        return SimpleNamespace(tag=f"st-{model_name}-{len(load_calls)}")
+
+    monkeypatch.setattr(embedding_model, "load_sentence_transformer", _fake_load)
+    monkeypatch.setattr(services_mod, "_MAX_SHARED_RETRIEVERS", 3)
+
+    r1 = services_mod.get_shared_retriever({"k": 1})
+    services_mod.get_shared_retriever({"k": 2})
+    services_mod.get_shared_retriever({"k": 3})
+    r4 = services_mod.get_shared_retriever({"k": 4})
+
+    assert len(services_mod._shared_retrievers) == 3
+    assert len(load_calls) == 1
+
+    # k=1 was evicted as LRU, so re-requesting it creates a fresh wrapper
+    # while still reusing the cached model weights (no extra load_sentence_transformer).
+    r1_rebuilt = services_mod.get_shared_retriever({"k": 1})
+    assert r1_rebuilt is not r1
+    assert r1_rebuilt.model is r4.model
+    assert len(services_mod._shared_retrievers) == 3
+    assert len(load_calls) == 1
 
 
 @pytest.mark.asyncio
