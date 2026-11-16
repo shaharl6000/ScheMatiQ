@@ -46,6 +46,12 @@ logger = logging.getLogger(__name__)
 # (after each call's own retries), instead of grinding through the corpus.
 _MAX_CONSECUTIVE_FAILED_BATCHES = 3
 
+# When observation unit discovery fails on a batch, the batch is skipped and
+# discovery tries again on the next batch. Stop after this many failed
+# attempts, so a unit the LLM cannot produce does not cost one call per batch
+# across the whole corpus. ``None`` in DiscoveryConfig means no limit.
+_DEFAULT_MAX_OBSERVATION_UNIT_ATTEMPTS = 3
+
 # Callback type aliases
 OnProgressCallback = Callable[[str, float, Dict[str, Any]], None]
 ShouldStopCallback = Callable[[], bool]
@@ -68,6 +74,7 @@ class DiscoveryConfig:
     identify_observation_unit: bool = True
     strict: bool = False
     max_iters: Optional[int] = None
+    max_observation_unit_attempts: Optional[int] = _DEFAULT_MAX_OBSERVATION_UNIT_ATTEMPTS
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DiscoveryConfig":
@@ -109,6 +116,14 @@ class DiscoveryConfig:
         raw_max_iters = data.get("max_iters")
         max_iters = int(raw_max_iters) if raw_max_iters is not None else None
 
+        if "max_observation_unit_attempts" in data:
+            raw_obs_attempts = data["max_observation_unit_attempts"]
+            max_obs_unit_attempts = (
+                int(raw_obs_attempts) if raw_obs_attempts is not None else None
+            )
+        else:
+            max_obs_unit_attempts = _DEFAULT_MAX_OBSERVATION_UNIT_ATTEMPTS
+
         return cls(
             batch_size=batch_size,
             batch_strategy=batch_strategy,
@@ -121,6 +136,7 @@ class DiscoveryConfig:
             identify_observation_unit=identify_obs_unit,
             strict=bool(data.get("strict", False)),
             max_iters=max_iters,
+            max_observation_unit_attempts=max_obs_unit_attempts,
         )
 
 
@@ -506,6 +522,7 @@ def discover_schema(
     attempted_batches = 0
     failed_batches = 0
     consecutive_failed_batches = 0
+    observation_unit_failures = 0
     last_batch_error: Optional[Exception] = None
     last_batch_stage: str = "llm"
 
@@ -781,6 +798,22 @@ def discover_schema(
                     f"Schema discovery stopped after {consecutive_failed_batches} "
                     f"batches failed in a row. Last error: {exc}"
                 ) from exc
+            if stage_in_batch == "observation_unit":
+                observation_unit_failures += 1
+                max_obs_attempts = cfg.max_observation_unit_attempts
+                if (
+                    max_obs_attempts is not None
+                    and observation_unit_failures >= max(1, max_obs_attempts)
+                ):
+                    attempts_note = f"after {observation_unit_failures} attempts"
+                    if isinstance(exc, ObservationUnitDiscoveryError):
+                        raise RuntimeError(
+                            f"Failed to discover observation unit ({attempts_note}): {exc}. "
+                            "Ensure documents contain extractable entities."
+                        ) from exc
+                    raise RuntimeError(
+                        f"Observation unit discovery failed unexpectedly ({attempts_note}): {exc}"
+                    ) from exc
             continue
         consecutive_failed_batches = 0
 

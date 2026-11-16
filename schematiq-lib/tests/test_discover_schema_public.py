@@ -983,3 +983,73 @@ def test_max_consecutive_failed_batches_in_discovery_package(
             llm=llm,
         )
     assert [c["stage"] for c in llm.calls] == ["schema_discovery", "schema_discovery"]
+
+
+def test_observation_unit_attempts_are_capped() -> None:
+    docs = [f"DOC_{i}: Unparseable unit text." for i in range(5)]
+    names = [f"doc_{i}.txt" for i in range(5)]
+
+    # Default cap: stop after 3 failed observation unit attempts, not 5.
+    llm_capped = FakeDiscoveryLLM(bad_obs_unit_json=True)
+    warnings_seen: List[tuple] = []
+    with pytest.raises(
+        RuntimeError,
+        match=r"Failed to discover observation unit \(after 3 attempts\): .* "
+        r"Ensure documents contain extractable entities\.",
+    ) as exc_info:
+        discover_schema(
+            documents=docs,
+            filenames=names,
+            query="Analyze rulings",
+            config=DiscoveryConfig(batch_strategy="fixed", batch_size=1),
+            llm=llm_capped,
+            on_warning=lambda lvl, msg, info: warnings_seen.append((lvl, msg, info)),
+        )
+    assert isinstance(exc_info.value.__cause__, ObservationUnitDiscoveryError)
+    assert [c["stage"] for c in llm_capped.calls] == ["observation_unit"] * 3
+    assert [w[2]["filenames"] for w in warnings_seen] == [[n] for n in names[:3]]
+
+    # Custom cap.
+    llm_custom = FakeDiscoveryLLM(bad_obs_unit_json=True)
+    with pytest.raises(RuntimeError, match=r"\(after 2 attempts\)"):
+        discover_schema(
+            documents=docs,
+            filenames=names,
+            query="Analyze rulings",
+            config=DiscoveryConfig(
+                batch_strategy="fixed", batch_size=1, max_observation_unit_attempts=2
+            ),
+            llm=llm_custom,
+        )
+    assert len(llm_custom.calls) == 2
+
+    # No cap: every batch is attempted, then the all-batches-failed error is raised.
+    llm_uncapped = FakeDiscoveryLLM(bad_obs_unit_json=True)
+    with pytest.raises(
+        RuntimeError, match=r"^Failed to discover observation unit: "
+    ):
+        discover_schema(
+            documents=docs,
+            filenames=names,
+            query="Analyze rulings",
+            config=DiscoveryConfig(
+                batch_strategy="fixed", batch_size=1, max_observation_unit_attempts=None
+            ),
+            llm=llm_uncapped,
+        )
+    assert len(llm_uncapped.calls) == 5
+
+
+def test_observation_unit_attempts_from_dict() -> None:
+    assert DiscoveryConfig().max_observation_unit_attempts == 3
+    assert DiscoveryConfig.from_dict({}).max_observation_unit_attempts == 3
+    assert (
+        DiscoveryConfig.from_dict({"max_observation_unit_attempts": 5})
+        .max_observation_unit_attempts
+        == 5
+    )
+    assert (
+        DiscoveryConfig.from_dict({"max_observation_unit_attempts": None})
+        .max_observation_unit_attempts
+        is None
+    )
