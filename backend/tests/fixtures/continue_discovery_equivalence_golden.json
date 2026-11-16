@@ -68,10 +68,10 @@
         {
           "allowed_values": null,
           "definition": "Unique docket identifier of the case",
-          "discovery_iteration": null,
+          "discovery_iteration": 1,
           "name": "case_identifier",
           "rationale": "Identifies each ruling uniquely",
-          "source_document": null,
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -80,10 +80,10 @@
             "denied"
           ],
           "definition": "Outcome of the appeal ruling",
-          "discovery_iteration": null,
+          "discovery_iteration": 1,
           "name": "ruling_outcome",
           "rationale": "Primary dependent outcome variable",
-          "source_document": null,
+          "source_document": "alpha.txt",
           "value_kind": "category"
         }
       ],
@@ -106,10 +106,10 @@
       {
         "allowed_values": null,
         "definition": "Unique docket identifier of the case",
-        "discovery_iteration": null,
+        "discovery_iteration": 1,
         "name": "case_identifier",
         "rationale": "Identifies each ruling uniquely",
-        "source_document": null,
+        "source_document": "alpha.txt",
         "value_kind": "identifier"
       },
       {
@@ -118,10 +118,10 @@
           "denied"
         ],
         "definition": "Outcome of the appeal ruling",
-        "discovery_iteration": null,
+        "discovery_iteration": 1,
         "name": "ruling_outcome",
         "rationale": "Primary dependent outcome variable",
-        "source_document": null,
+        "source_document": "alpha.txt",
         "value_kind": "category"
       }
     ],
@@ -241,10 +241,10 @@
             {
               "allowed_values": null,
               "definition": "Unique docket identifier of the case",
-              "discovery_iteration": null,
+              "discovery_iteration": 1,
               "name": "case_identifier",
               "rationale": "Identifies each ruling uniquely",
-              "source_document": null,
+              "source_document": "alpha.txt",
               "value_kind": "identifier"
             },
             {
@@ -253,10 +253,10 @@
                 "denied"
               ],
               "definition": "Outcome of the appeal ruling",
-              "discovery_iteration": null,
+              "discovery_iteration": 1,
               "name": "ruling_outcome",
               "rationale": "Primary dependent outcome variable",
-              "source_document": null,
+              "source_document": "alpha.txt",
               "value_kind": "category"
             }
           ],
@@ -349,10 +349,10 @@
         {
           "allowed_values": null,
           "definition": "Unique docket identifier of the case",
-          "discovery_iteration": null,
+          "discovery_iteration": 1,
           "name": "case_identifier",
           "rationale": "Identifies each ruling uniquely",
-          "source_document": null,
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -361,10 +361,10 @@
             "denied"
           ],
           "definition": "Outcome of the appeal ruling",
-          "discovery_iteration": null,
+          "discovery_iteration": 1,
           "name": "ruling_outcome",
           "rationale": "Primary dependent outcome variable",
-          "source_document": null,
+          "source_document": "alpha.txt",
           "value_kind": "category"
         },
         {
@@ -373,10 +373,10 @@
             "appellate"
           ],
           "definition": "Level of court issuing the decision",
-          "discovery_iteration": null,
+          "discovery_iteration": 2,
           "name": "court_level",
           "rationale": "Captures institutional hierarchy",
-          "source_document": null,
+          "source_document": "beta.txt",
           "value_kind": "category"
         }
       ],
@@ -399,10 +399,10 @@
       {
         "allowed_values": null,
         "definition": "Unique docket identifier of the case",
-        "discovery_iteration": null,
+        "discovery_iteration": 1,
         "name": "case_identifier",
         "rationale": "Identifies each ruling uniquely",
-        "source_document": null,
+        "source_document": "alpha.txt",
         "value_kind": "identifier"
       },
       {
@@ -411,10 +411,10 @@
           "denied"
         ],
         "definition": "Outcome of the appeal ruling",
-        "discovery_iteration": null,
+        "discovery_iteration": 1,
         "name": "ruling_outcome",
         "rationale": "Primary dependent outcome variable",
-        "source_document": null,
+        "source_document": "alpha.txt",
         "value_kind": "category"
       },
       {
@@ -423,10 +423,10 @@
           "appellate"
         ],
         "definition": "Level of court issuing the decision",
-        "discovery_iteration": null,
+        "discovery_iteration": 2,
         "name": "court_level",
         "rationale": "Captures institutional hierarchy",
-        "source_document": null,
+        "source_document": "beta.txt",
         "value_kind": "category"
       }
     ],
@@ -458,7 +458,7 @@
       "schema_evolution": {
         "column_sources": {
           "case_identifier": "alpha.txt",
-          "court_level": "alpha.txt",
+          "court_level": "beta.txt",
           "ruling_outcome": "alpha.txt"
         },
         "snapshots": [
@@ -551,10 +551,10 @@
             {
               "allowed_values": null,
               "definition": "Unique docket identifier of the case",
-              "discovery_iteration": null,
+              "discovery_iteration": 1,
               "name": "case_identifier",
               "rationale": "Identifies each ruling uniquely",
-              "source_document": null,
+              "source_document": "alpha.txt",
               "value_kind": "identifier"
             },
             {
@@ -563,10 +563,10 @@
                 "denied"
               ],
               "definition": "Outcome of the appeal ruling",
-              "discovery_iteration": null,
+              "discovery_iteration": 1,
               "name": "ruling_outcome",
               "rationale": "Primary dependent outcome variable",
-              "source_document": null,
+              "source_document": "alpha.txt",
               "value_kind": "category"
             },
             {
@@ -575,10 +575,10 @@
                 "appellate"
               ],
               "definition": "Level of court issuing the decision",
-              "discovery_iteration": null,
+              "discovery_iteration": 2,
               "name": "court_level",
               "rationale": "Captures institutional hierarchy",
-              "source_document": null,
+              "source_document": "beta.txt",
               "value_kind": "category"
             }
           ],

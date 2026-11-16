@@ -114,6 +114,9 @@ class FakeDiscoveryLLM(LLMInterface):
             if self.fail_single_marker and self.fail_single_marker in passages_text:
                 raise RuntimeError("Request fails: too many tokens in prompt")
 
+            if "DOC_TRANSIENT_FAIL" in passages_text:
+                raise RuntimeError("transient network error")
+
             if (
                 self.fail_combined_marker
                 and self.fail_combined_marker in passages_text
@@ -121,6 +124,15 @@ class FakeDiscoveryLLM(LLMInterface):
                 and "DOC_BETA" in passages_text
             ):
                 raise RuntimeError("This model's maximum context length exceeded")
+
+            if "DOC_UNHELPFUL" in passages_text:
+                return json.dumps(
+                    {
+                        "document_helpful": False,
+                        "columns": [],
+                        "suggested_value_additions": [],
+                    }
+                )
 
             columns: List[Dict[str, Any]] = []
             if "DOC_ALPHA" in passages_text:
@@ -140,6 +152,24 @@ class FakeDiscoveryLLM(LLMInterface):
                         "rationale": "Captures jurisdiction tier",
                         "value_kind": "category",
                         "allowed_values": ["district", "appellate"],
+                    }
+                )
+            if "DOC_GAMMA_COL" in passages_text:
+                columns.append(
+                    {
+                        "name": "filing_year",
+                        "definition": "Filing year",
+                        "rationale": "Tracks filing year",
+                        "value_kind": "number",
+                    }
+                )
+            if "DOC_DELTA_COL" in passages_text:
+                columns.append(
+                    {
+                        "name": "country_of_origin",
+                        "definition": "Country of origin",
+                        "rationale": "Tracks origin",
+                        "value_kind": "free_text",
                     }
                 )
             return json.dumps(
@@ -666,3 +696,144 @@ def test_public_discover_observation_unit_import() -> None:
     assert schematiq.discover_observation_unit is core_sq.discover_observation_unit
     assert discovery_main.discover_observation_unit is core_sq.discover_observation_unit
     assert core_sq.discover_observation_unit.__name__ == "discover_observation_unit"
+    assert not hasattr(core_sq, "_discover_observation_unit")
+
+
+def test_max_iters_cap_and_from_dict() -> None:
+    llm = FakeDiscoveryLLM()
+    schema, evo = discover_schema(
+        documents=[
+            "DOC_ALPHA: Case 1.",
+            "DOC_BETA: Case 2.",
+            "DOC_GAMMA_COL: Case 3.",
+            "DOC_DELTA_COL: Case 4.",
+        ],
+        filenames=["d1.txt", "d2.txt", "d3.txt", "d4.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(batch_strategy="fixed", batch_size=1, max_iters=2),
+        llm=llm,
+    )
+    assert [c.name for c in schema.columns] == ["case_identifier", "court_level"]
+    assert len(evo.snapshots) == 2
+    assert [c["stage"] for c in llm.calls].count("schema_discovery") == 2
+
+    cfg_from_dict = DiscoveryConfig.from_dict({"max_iters": 3})
+    assert cfg_from_dict.max_iters == 3
+    assert DiscoveryConfig().max_iters is None
+
+
+def test_contributing_non_contributing_and_column_tagging() -> None:
+    warnings_seen: List[tuple] = []
+    llm = FakeDiscoveryLLM(fail_single_marker="DOC_TOO_BIG")
+    schema, evo = discover_schema(
+        documents=[
+            "DOC_ALPHA: Helpful with columns.",
+            "DOC_UNHELPFUL: Boilerplate.",
+            "DOC_EMPTY_HELPFUL: No columns produced.",
+            "DOC_TOO_BIG: Overflow doc.",
+            "DOC_TRANSIENT_FAIL: Transient fail.",
+            "DOC_BETA: Court level.",
+        ],
+        filenames=[
+            "alpha.txt",
+            "unhelpful.txt",
+            "empty.txt",
+            "big.txt",
+            "broken.txt",
+            "beta.txt",
+        ],
+        query="Analyze rulings",
+        config=DiscoveryConfig(
+            batch_strategy="fixed",
+            batch_size=1,
+            initial_schema=[
+                {"name": "seeded_col", "definition": "Seeded", "rationale": "Seeded"}
+            ],
+        ),
+        llm=llm,
+        on_warning=lambda lvl, msg, info: warnings_seen.append((lvl, msg, info)),
+    )
+
+    assert evo.contributing_files == ["alpha.txt", "beta.txt"]
+    assert evo.non_contributing_files == ["unhelpful.txt", "empty.txt", "big.txt", "broken.txt"]
+    # to_dict() remains compatible with downstream SchemaEvolution parsers
+    assert set(evo.to_dict().keys()) == {"snapshots", "column_sources"}
+
+    by_name = {c.name: c for c in schema.columns}
+    assert by_name["seeded_col"].source_document == "initial_schema"
+    assert by_name["seeded_col"].discovery_iteration == 0
+    assert by_name["case_identifier"].source_document == "alpha.txt"
+    assert by_name["case_identifier"].discovery_iteration == 1
+    assert by_name["court_level"].source_document == "beta.txt"
+    # big.txt was skipped before snapshot numbering, broken.txt ran as batch 5 -> beta.txt is batch 6
+    assert by_name["court_level"].discovery_iteration == 6
+
+    reasons = [info["reason"] for _, _, info in warnings_seen if info]
+    assert reasons == ["single_document_exceeds_token_limit", "llm_call_failed"]
+
+    # Query-only mode tags new columns with ("query_only", 1)
+    q_schema, _ = discover_schema(
+        documents=[],
+        filenames=[],
+        query="Analyze rulings",
+        config=DiscoveryConfig(identify_observation_unit=False),
+        llm=FakeDiscoveryLLM(),
+    )
+    assert q_schema.columns[0].source_document == "query_only"
+    assert q_schema.columns[0].discovery_iteration == 1
+
+
+def test_deprecated_core_wrappers_warn_and_main_does_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import warnings
+    from schematiq.core import schematiq as core_sq
+    from schematiq.core import utils as core_utils
+
+    missing_seed = tmp_path / "missing.json"
+    with pytest.warns(DeprecationWarning, match="load_initial_schema_from_config"):
+        empty_schema = core_sq.load_initial_schema(missing_seed, "Analyze rulings", 10)
+    assert len(empty_schema.columns) == 0
+
+    with pytest.warns(DeprecationWarning, match="schematiq.discover_schema"):
+        schema_old, contrib, non_contrib, evo = core_sq.discover_schema(
+            query="Analyze rulings",
+            documents=["DOC_ALPHA: Text", "DOC_BETA: Text"],
+            filenames=["a.txt", "b.txt"],
+            max_keys_schema=10,
+            llm=FakeDiscoveryLLM(),
+            retriever=None,
+            documents_batch_size=1,
+            context_window_size=16384,
+        )
+    assert [c.name for c in schema_old.columns] == ["case_identifier", "court_level"]
+    assert contrib == ["a.txt", "b.txt"]
+    assert non_contrib == []
+    assert len(evo.snapshots) == 2
+
+    # Verify CLI main() calls the unified loop without emitting DeprecationWarning.
+    docs_dir = tmp_path / "cli_docs"
+    docs_dir.mkdir()
+    (docs_dir / "a.txt").write_text("DOC_ALPHA: Text", encoding="utf-8")
+    out_file = tmp_path / "cli_out.json"
+    cfg_file = tmp_path / "cli_cfg.json"
+    cfg_file.write_text(
+        json.dumps(
+            {
+                "query": "Analyze rulings",
+                "docs_path": str(docs_dir),
+                "document_randomization_seed": None,
+                "documents_batch_size": 1,
+                "max_keys_schema": 10,
+                "output_path": str(out_file),
+                "backend": {"provider": "openai", "model": "fake-deterministic"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(core_utils, "build_llm", lambda _cfg: FakeDiscoveryLLM())
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always", DeprecationWarning)
+        core_sq.main(cfg_file)
+    assert [w for w in recorded if issubclass(w.category, DeprecationWarning)] == []
+    assert out_file.exists()

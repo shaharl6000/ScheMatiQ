@@ -20,7 +20,12 @@ from typing import (
 )
 
 from schematiq.core import schematiq as ScheMatiQ
-from schematiq.core.llm_backends import LLMInterface
+from schematiq.core.llm_backends import (
+    LLMInterface,
+    LLMRunAborted,
+    is_outage_error,
+    should_abort_run,
+)
 from schematiq.core.schema import (
     Column,
     ObservationUnit,
@@ -58,6 +63,7 @@ class DiscoveryConfig:
     context_window_size: Optional[int] = None
     identify_observation_unit: bool = True
     strict: bool = False
+    max_iters: Optional[int] = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DiscoveryConfig":
@@ -96,6 +102,9 @@ class DiscoveryConfig:
         else:
             identify_obs_unit = True
 
+        raw_max_iters = data.get("max_iters")
+        max_iters = int(raw_max_iters) if raw_max_iters is not None else None
+
         return cls(
             batch_size=batch_size,
             batch_strategy=batch_strategy,
@@ -107,6 +116,7 @@ class DiscoveryConfig:
             context_window_size=context_window_size,
             identify_observation_unit=identify_obs_unit,
             strict=bool(data.get("strict", False)),
+            max_iters=max_iters,
         )
 
 
@@ -324,6 +334,10 @@ def _run_query_only_discovery(
         new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
         logger.debug("QUERY_ONLY generated schema with %d columns", len(new_schema.columns))
 
+        for col in new_schema.columns:
+            col.source_document = "query_only"
+            col.discovery_iteration = 1
+
         if current_schema.columns:
             merged_schema = current_schema.merge(new_schema)
         else:
@@ -332,9 +346,9 @@ def _run_query_only_discovery(
         if observation_unit and not merged_schema.observation_unit:
             merged_schema.observation_unit = observation_unit
 
-        existing_names = {c.name for c in current_schema.columns}
+        existing_names_lower = {c.name.lower() for c in current_schema.columns}
         new_column_names = [
-            col.name for col in merged_schema.columns if col.name not in existing_names
+            col.name for col in merged_schema.columns if col.name.lower() not in existing_names_lower
         ]
 
         for col_name in new_column_names:
@@ -416,6 +430,9 @@ def discover_schema(
                 f"filenames length ({len(names_list)}) must match documents length ({len(docs_list)})"
             )
 
+    if not (query_str and query_str.strip()) and not docs_list:
+        raise ValueError("At least one of query or documents must be provided")
+
     initial_schema = load_initial_schema_from_config(
         cfg, query_str, max_keys, strict=cfg.strict
     )
@@ -438,7 +455,11 @@ def discover_schema(
             cumulative_documents=0,
         )
         for col in current_schema.columns:
-            evolution.record_column_source(col.name, "initial_schema")
+            if col.source_document is None:
+                col.source_document = "initial_schema"
+            if col.discovery_iteration is None:
+                col.discovery_iteration = 0
+            evolution.record_column_source(col.name, col.source_document)
 
     # Handle QUERY_ONLY mode
     if not docs_list:
@@ -461,6 +482,10 @@ def discover_schema(
     )
     batches = [pb.documents for pb in planned_batches]
     filename_batches = [pb.filenames for pb in planned_batches]
+    if cfg.max_iters is not None:
+        cap = max(0, cfg.max_iters)
+        batches = batches[:cap]
+        filename_batches = filename_batches[:cap]
 
     strategy = (cfg.batch_strategy or "smart").lower()
     logger.debug(
@@ -473,6 +498,11 @@ def discover_schema(
     unchanged_count = 0
     cumulative_docs = 0
     completion_done = False
+    unit_discovery_attempted = False
+    attempted_batches = 0
+    failed_batches = 0
+    consecutive_failed_batches = 0
+    last_batch_error: Optional[Exception] = None
 
     # Handle pre-configured observation unit
     pending_observation_unit_name: Optional[str] = None
@@ -528,24 +558,55 @@ def discover_schema(
         columns_before = {col.name.lower() for col in current_schema.columns}
         cumulative_docs += len(batch_docs)
 
-        relevant_content = ScheMatiQ.select_relevant_content(
-            docs=batch_docs,
-            query=query_str,
-            retriever=retriever,
-        )
+        try:
+            relevant_content = ScheMatiQ.select_relevant_content(
+                docs=batch_docs,
+                query=query_str,
+                retriever=retriever,
+            )
+        except Exception as exc:
+            if should_abort_run(exc):
+                raise
+            logger.warning(
+                "Iteration %d — retrieval failed, skipping batch %s: %s",
+                iteration + 1,
+                batch_names,
+                exc,
+            )
+            skipped_label = ", ".join(batch_names) if batch_names else f"batch {iteration + 1}"
+            warning_cb(
+                "warning",
+                f"Skipped '{skipped_label}' during schema discovery due to retrieval error: {exc}",
+                {
+                    "filenames": list(batch_names),
+                    "reason": "retrieval_failed",
+                    "error": str(exc)[:2000],
+                },
+            )
+            evolution.non_contributing_files.extend(batch_names)
+            evolution.add_snapshot(
+                iteration=iteration + 1,
+                documents=list(batch_names),
+                total_columns=len(current_schema.columns),
+                new_columns=[],
+                cumulative_documents=cumulative_docs,
+            )
+            continue
+
         logger.debug("Selected %d relevant passages from batch", len(relevant_content))
 
         if stop_cb():
             logger.warning("Stop requested after content retrieval - saving partial schema")
             break
 
-        # Discover observation unit in first iteration (if not already set)
+        # Discover observation unit on the first successfully retrieved batch (if not already set)
         if (
-            iteration == 0
+            not unit_discovery_attempted
             and cfg.identify_observation_unit
             and (query_str or relevant_content)
             and not current_schema.observation_unit
         ):
+            unit_discovery_attempted = True
             logger.info("Discovering observation unit from first batch...")
             try:
                 obs_unit = discover_observation_unit(
@@ -584,25 +645,12 @@ def discover_schema(
             logger.warning("Stop requested after observation unit discovery - saving partial schema")
             break
 
-        # Complete any partial user-seeded columns once, with passages as supporting context.
-        if not completion_done and any(ScheMatiQ._is_partial(c) for c in current_schema.columns):
-            logger.info("Completing partial user-seeded columns (batch %d)", iteration + 1)
-            current_schema.columns = ScheMatiQ.complete_partial_columns(
-                columns=current_schema.columns,
-                query=query_str,
-                observation_unit=current_schema.observation_unit,
-                passages=relevant_content,
-                llm=llm,
-                context_window_size=ctx_window,
-            )
-        completion_done = True
-
         def _run_generate(
             sub_docs: List[str],
             _batch_docs: List[str] = batch_docs,
             _relevant_content: List[str] = relevant_content,
             _current_schema: Schema = current_schema,
-        ) -> Schema:
+        ) -> Any:
             if sub_docs is _batch_docs:
                 sub_content = _relevant_content
             else:
@@ -611,29 +659,108 @@ def discover_schema(
                     query=query_str,
                     retriever=retriever,
                 )
-            result = ScheMatiQ.generate_schema(
+            return ScheMatiQ.generate_schema(
                 passages=sub_content,
                 query=query_str,
                 max_keys_schema=max_keys,
                 current_schema=_current_schema,
                 llm=llm,
                 context_window_size=ctx_window,
+                observation_unit=_current_schema.observation_unit,
             )
-            return result[0] if isinstance(result, tuple) else result
 
+        batch_contributing: List[str] = []
+        batch_non_contributing: List[str] = []
+
+        def _record_subbatch_outcome(
+            sub_names: List[str],
+            sub_schema: Optional[Schema],
+            doc_helpful: bool,
+            _iter_num: int = iteration + 1,
+        ) -> None:
+            if sub_schema is None:
+                batch_non_contributing.extend(sub_names)
+                return
+
+            source_doc = sub_names[0] if sub_names else "unknown"
+            for col in sub_schema.columns:
+                col.source_document = source_doc
+                col.discovery_iteration = _iter_num
+
+            if doc_helpful and len(sub_schema.columns) > 0:
+                batch_contributing.extend(sub_names)
+            else:
+                batch_non_contributing.extend(sub_names)
+
+        attempted_batches += 1
         try:
+            # Complete any partial user-seeded columns once, with passages as supporting context.
+            if not completion_done and any(ScheMatiQ._is_partial(c) for c in current_schema.columns):
+                logger.info("Completing partial user-seeded columns (batch %d)", iteration + 1)
+                current_schema.columns = ScheMatiQ.complete_partial_columns(
+                    columns=current_schema.columns,
+                    query=query_str,
+                    observation_unit=current_schema.observation_unit,
+                    passages=relevant_content,
+                    llm=llm,
+                    context_window_size=ctx_window,
+                )
+            completion_done = True
+
             new_schema = generate_schema_with_split(
                 batch_docs=batch_docs,
                 batch_names=batch_names,
                 run_generate=_run_generate,
                 should_stop=stop_cb,
                 on_warning=warning_cb,
+                on_subbatch_outcome=_record_subbatch_outcome,
             )
-        except Exception as e:
-            logger.error("ERROR in generate_schema: %s", e)
-            raise
+        except Exception as exc:
+            if should_abort_run(exc):
+                raise
+            failed_batches += 1
+            consecutive_failed_batches = (
+                consecutive_failed_batches + 1 if is_outage_error(exc) else 0
+            )
+            last_batch_error = exc
+            logger.warning(
+                "Iteration %d — LLM call failed, skipping batch %s: %s",
+                iteration + 1,
+                batch_names,
+                exc,
+                exc_info=True,
+            )
+            skipped_label = ", ".join(batch_names) if batch_names else f"batch {iteration + 1}"
+            warning_cb(
+                "warning",
+                f"Skipped '{skipped_label}' during schema discovery because the LLM call failed: {exc}",
+                {
+                    "filenames": list(batch_names),
+                    "reason": "llm_call_failed",
+                    "error": str(exc)[:2000],
+                },
+            )
+            evolution.non_contributing_files.extend(batch_names)
+            evolution.add_snapshot(
+                iteration=iteration + 1,
+                documents=list(batch_names),
+                total_columns=len(current_schema.columns),
+                new_columns=[],
+                cumulative_documents=cumulative_docs,
+            )
+            max_consecutive = getattr(ScheMatiQ, "_MAX_CONSECUTIVE_FAILED_BATCHES", 3)
+            if consecutive_failed_batches >= max_consecutive:
+                raise LLMRunAborted(
+                    f"Schema discovery stopped after {consecutive_failed_batches} "
+                    f"batches failed in a row. Last error: {exc}"
+                ) from exc
+            continue
+        consecutive_failed_batches = 0
 
         if new_schema is None:
+            if stop_cb():
+                break
+            evolution.non_contributing_files.extend(batch_non_contributing)
             logger.warning(
                 "Batch %d/%d produced no schema (all documents skipped for token limits); continuing",
                 iteration + 1,
@@ -646,6 +773,9 @@ def discover_schema(
         if stop_cb():
             logger.warning("Stop requested after schema generation - saving partial schema")
             break
+
+        evolution.contributing_files.extend(batch_contributing)
+        evolution.non_contributing_files.extend(batch_non_contributing)
 
         # Merge with existing schema
         logger.debug("Current schema has %d columns", len(current_schema.columns))
@@ -699,6 +829,7 @@ def discover_schema(
                 "Schema unchanged (count: %d/%d)", unchanged_count, convergence_threshold
             )
             if unchanged_count >= convergence_threshold:
+                current_schema = merged_schema
                 logger.debug("Schema converged after %d batches", iteration + 1)
                 break
         else:
@@ -709,6 +840,9 @@ def discover_schema(
         logger.debug("Completed batch %d, moving to next", iteration + 1)
 
         snapshot_cb(current_schema, evolution)
+
+    if attempted_batches and failed_batches == attempted_batches and last_batch_error is not None:
+        raise last_batch_error
 
     logger.debug(
         "Schema discovery completed with %d columns after %d batches",

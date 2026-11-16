@@ -21,12 +21,12 @@ from __future__ import annotations
 
 from schematiq.core import utils
 from typing import List, Dict, Sequence, Tuple, Any, Union, Optional
-import itertools
 import argparse
 import json
 import logging, re
 import time
 import random
+import warnings
 from pathlib import Path
 from schematiq.core.schema import Schema, Column, SchemaEvolution, ObservationUnit
 from schematiq.core.llm_call_tracker import LLMCallTracker
@@ -483,11 +483,6 @@ def discover_observation_unit(
         raise ObservationUnitDiscoveryError(f"LLM generation failed during observation unit discovery: {e}") from e
 
 
-# Internal alias used by ``schematiq.core.schematiq.discover_schema``, whose
-# ``discover_observation_unit: bool`` parameter shadows the public function name.
-_discover_observation_unit = discover_observation_unit
-
-
 def build_messages(query: Optional[str],
                    passages: List[str],
                    draft_schema=None,
@@ -746,19 +741,25 @@ def evaluate_schema_convergence(prev: Schema, new: Schema, thresh: float = 0.9) 
 
 
 def load_initial_schema(initial_schema_path: Path, query: str, max_keys_schema: int) -> Schema:
-    """Load initial schema from JSON file."""
+    """Deprecated wrapper around ``schematiq.discovery.load_initial_schema_from_config``."""
+    warnings.warn(
+        "schematiq.core.schematiq.load_initial_schema is deprecated; "
+        "use schematiq.discovery.load_initial_schema_from_config instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    from schematiq.discovery import DiscoveryConfig, load_initial_schema_from_config
+
     if not initial_schema_path.exists():
         logging.info("No initial schema file found at %s, starting with empty schema", initial_schema_path)
         return Schema(query=query, max_keys=max_keys_schema)
-    
-    try:
-        data = json.loads(initial_schema_path.read_text(encoding="utf-8"))
-        columns = [Column.from_dict(col) for col in data]
-        logging.info("Loaded initial schema with %d columns from %s", len(columns), initial_schema_path)
-        return Schema(query=query, columns=columns, max_keys=max_keys_schema)
-    except Exception as e:
-        logging.warning("Failed to load initial schema from %s: %s. Starting with empty schema.", initial_schema_path, e)
-        return Schema(query=query, max_keys=max_keys_schema)
+
+    loaded = load_initial_schema_from_config(
+        DiscoveryConfig(initial_schema_path=initial_schema_path, strict=False),
+        query,
+        max_keys_schema,
+    )
+    return loaded if loaded is not None else Schema(query=query, max_keys=max_keys_schema)
 
 
 # Discovery stops when this many batches in a row fail with an outage error
@@ -770,7 +771,7 @@ def discover_schema(
     query: str | None,
     documents: List[str],
     filenames: List[str],
-    max_keys_schema : int,
+    max_keys_schema: int,
     llm,
     retriever,
     documents_batch_size,
@@ -780,297 +781,50 @@ def discover_schema(
     initial_observation_unit: ObservationUnit | None = None,
     discover_observation_unit: bool = True,
 ) -> tuple[Schema, List[str], List[str], SchemaEvolution]:
+    """Deprecated wrapper around ``schematiq.discovery.discover_schema``.
+
+    Preserves the legacy signature, fixed batching, ``max_iters`` cap,
+    ``convergence_threshold=1``, and 4-tuple return value.
     """
-    Main orchestration loop with document contribution tracking.
+    warnings.warn(
+        "schematiq.core.schematiq.discover_schema is deprecated; "
+        "use schematiq.discover_schema instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    from schematiq.discovery import DiscoveryConfig, discover_schema as _discover_schema
 
-    Supports three modes:
-    - STANDARD: Both query and documents provided
-    - DOCUMENT_ONLY: Documents provided, no query
-    - QUERY_ONLY: Query provided, no documents
-
-    Args:
-        query: User query (optional - can be None/empty for document-only mode)
-        documents: List of document contents (optional - can be empty for query-only mode)
-        filenames: List of document filenames (parallel to documents)
-        max_keys_schema: Maximum number of schema columns
-        llm: LLM interface
-        retriever: Content retriever (optional)
-        documents_batch_size: Number of documents per batch
-        context_window_size: LLM context window size
-        initial_schema: Starting schema (optional)
-        max_iters: Maximum iterations
-        initial_observation_unit: Pre-defined observation unit (optional)
-        discover_observation_unit: Whether to discover observation unit in first iteration (default True)
-
-    Returns:
-        (Schema, contributing_files, non_contributing_files, schema_evolution)
-
-    Raises:
-        ValueError: If neither query nor documents are provided
-    """
-    # Validate inputs - at least one must be provided
-    has_query = bool(query and query.strip())
-    has_documents = bool(documents)
-    if not has_query and not has_documents:
-        raise ValueError("At least one of query or documents must be provided")
-
-    logging.info("Starting schema discovery…")
-    schema = initial_schema or Schema(query=query or "", max_keys=max_keys_schema)
-
-    # Initialize observation unit (will be discovered in first iteration if not provided)
-    observation_unit = initial_observation_unit or (schema.observation_unit if initial_schema else None)
-    if observation_unit:
-        schema.observation_unit = observation_unit
-        logging.info("Using pre-defined observation unit: %s", observation_unit.name)
-
-    logging.info("Starting with schema containing %d columns", len(schema))
-
-    # Track document contributions
-    contributing_files = []
-    non_contributing_files = []
-
-    # Track schema evolution
-    evolution = SchemaEvolution()
-    cumulative_docs = 0
-
-    # Record initial columns (if any) as iteration 0
-    if len(schema.columns) > 0:
-        initial_column_names = [col.name for col in schema.columns]
-        evolution.add_snapshot(
-            iteration=0,
-            documents=["initial_schema"],
-            total_columns=len(schema.columns),
-            new_columns=initial_column_names,
-            cumulative_documents=0
+    cfg = DiscoveryConfig(
+        batch_size=documents_batch_size,
+        batch_strategy="fixed",
+        convergence_threshold=1,
+        max_keys=max_keys_schema,
+        initial_schema=initial_schema,
+        initial_observation_unit=initial_observation_unit,
+        context_window_size=context_window_size,
+        identify_observation_unit=discover_observation_unit,
+        max_iters=max_iters,
+    )
+    try:
+        schema, evolution = _discover_schema(
+            documents=documents,
+            filenames=filenames,
+            query=query,
+            config=cfg,
+            llm=llm,
+            retriever=retriever,
         )
-        # Mark initial columns as from initial schema
-        for col in schema.columns:
-            if col.source_document is None:
-                col.source_document = "initial_schema"
-            if col.discovery_iteration is None:
-                col.discovery_iteration = 0
-            evolution.record_column_source(col.name, col.source_document)
+    except RuntimeError as exc:
+        if isinstance(exc.__cause__, ObservationUnitDiscoveryError):
+            raise exc.__cause__
+        raise
 
-    # Tracks whether complete_partial_columns has already run for this discovery.
-    completion_done = False
-
-    # Handle QUERY_ONLY mode: no documents, just generate schema from query
-    if not has_documents:
-        logging.info("QUERY_ONLY mode: Generating schema from query without documents")
-        # Auto-discover observation unit from query if not provided and discovery is enabled
-        if not observation_unit and discover_observation_unit:
-            logging.info("Discovering observation unit from query...")
-            observation_unit = _discover_observation_unit(
-                query=query,
-                passages=None,  # No passages in query-only mode
-                llm=llm,
-                context_window_size=context_window_size,
-                source_document="query_only"
-            )
-        schema.observation_unit = observation_unit
-
-        # Complete any partial user-seeded columns before the LLM proposes additions.
-        if any(_is_partial(c) for c in schema.columns):
-            logging.info("Completing partial user-seeded columns (QUERY_ONLY mode)")
-            schema.columns = complete_partial_columns(
-                columns=schema.columns,
-                query=query or "",
-                observation_unit=observation_unit,
-                passages=[],
-                llm=llm,
-                context_window_size=context_window_size,
-            )
-        completion_done = True
-
-        proposed, _, _, mode = generate_schema(
-            passages=[], query=query, max_keys_schema=max_keys_schema,
-            current_schema=schema, llm=llm, context_window_size=context_window_size,
-            observation_unit=observation_unit
-        )
-
-        # Merge proposed schema
-        merged = schema.merge(proposed)
-        new_columns = [col.name for col in merged.columns if col.name not in {c.name for c in schema.columns}]
-
-        # Tag new columns
-        for col in merged.columns:
-            if col.name in new_columns:
-                col.source_document = "query_only"
-                col.discovery_iteration = 1
-                evolution.record_column_source(col.name, "query_only")
-
-        # Record evolution snapshot
-        evolution.add_snapshot(
-            iteration=1,
-            documents=["query_only"],
-            total_columns=len(merged.columns),
-            new_columns=new_columns,
-            cumulative_documents=0
-        )
-
-        logging.info("QUERY_ONLY mode completed with %d columns: %s",
-                     len(merged), [col.name for col in merged.columns])
-        return merged, contributing_files, non_contributing_files, evolution
-
-    # Simple batching; one doc may be chunked if > batch_size
-    doc_iter = iter(list(zip(documents, filenames)))
-    batches = [list(itertools.islice(doc_iter, documents_batch_size))
-               for _ in range((len(documents)+documents_batch_size-1)//documents_batch_size)]
-
-    logging.info("📦 Schema discovery: %d documents → %d batches (batch_size=%d, max_iters=%d)",
-                 len(documents), len(batches), documents_batch_size, max_iters)
-
-    # Batches whose LLM calls failed are skipped rather than aborting the whole
-    # discovery; only if every attempted batch failed is the error re-raised.
-    attempted_batches = 0
-    failed_batches = 0
-    consecutive_failed_batches = 0
-    last_batch_error: Exception | None = None
-
-    for it, batch_docs_with_names in enumerate(batches[:max_iters], start=1):
-        batch_docs = [doc for doc, _ in batch_docs_with_names]
-        batch_filenames = [fname for _, fname in batch_docs_with_names]
-        cumulative_docs += len(batch_filenames)
-
-        logging.info("📦 Iteration %d/%d: processing %d documents (cumulative: %d)",
-                     it, min(len(batches), max_iters), len(batch_filenames), cumulative_docs)
-
-        # Track column names before this iteration
-        columns_before = {col.name.lower() for col in schema.columns}
-
-        try:
-            passages = select_relevant_content(batch_docs, query, retriever)
-        except Exception as exc:
-            print(f"Failed to retrieve {exc}")
-            # Mark these documents as non-contributing due to retrieval failure
-            non_contributing_files.extend(batch_filenames)
-            # Still record snapshot (no changes)
-            evolution.add_snapshot(
-                iteration=it,
-                documents=batch_filenames,
-                total_columns=len(schema.columns),
-                new_columns=[],
-                cumulative_documents=cumulative_docs
-            )
-            continue
-
-        attempted_batches += 1
-        try:
-            # Discover observation unit in the first successful iteration if not already set
-            # Supports STANDARD (query + docs) and DOCUMENT_ONLY (docs only) modes
-            if not observation_unit and discover_observation_unit and (has_query or passages):
-                logging.info("Discovering observation unit from first batch...")
-                source_doc = batch_filenames[0] if batch_filenames else None
-                observation_unit = _discover_observation_unit(
-                    query=query if has_query else None,
-                    passages=passages,
-                    llm=llm,
-                    context_window_size=context_window_size,
-                    source_document=source_doc
-                )
-                schema.observation_unit = observation_unit
-                logging.info("Set observation unit: %s - %s", observation_unit.name, observation_unit.definition)
-
-            # Complete any partial user-seeded columns once, with passages from the first
-            # successful iteration as supporting context.
-            if not completion_done and any(_is_partial(c) for c in schema.columns):
-                logging.info("Completing partial user-seeded columns (iteration %d)", it)
-                schema.columns = complete_partial_columns(
-                    columns=schema.columns,
-                    query=query or "",
-                    observation_unit=observation_unit,
-                    passages=passages,
-                    llm=llm,
-                    context_window_size=context_window_size,
-                )
-            completion_done = True
-
-            # suggested_value_additions is parsed and ignored. During discovery,
-            # merge can still add labels from later documents to a discovered
-            # column's list; a list the user set (locked column) is kept as is.
-            proposed, document_helpful, _suggested_value_additions, _ = generate_schema(
-                passages, query, max_keys_schema, schema, llm, context_window_size,
-                observation_unit=observation_unit
-            )
-        except Exception as exc:
-            if should_abort_run(exc):
-                raise
-            failed_batches += 1
-            # Only an outage counts toward stopping; any other failure means
-            # the provider answered.
-            consecutive_failed_batches = consecutive_failed_batches + 1 if is_outage_error(exc) else 0
-            last_batch_error = exc
-            logging.exception("Iteration %d — LLM call failed, skipping batch %s", it, batch_filenames)
-            non_contributing_files.extend(batch_filenames)
-            evolution.add_snapshot(
-                iteration=it,
-                documents=batch_filenames,
-                total_columns=len(schema.columns),
-                new_columns=[],
-                cumulative_documents=cumulative_docs
-            )
-            if consecutive_failed_batches >= _MAX_CONSECUTIVE_FAILED_BATCHES:
-                # Each failed batch already spent its calls' retries; more
-                # batches in a row failing means the provider is down.
-                raise LLMRunAborted(
-                    f"Schema discovery stopped after {consecutive_failed_batches} "
-                    f"batches failed in a row. Last error: {exc}"
-                ) from exc
-            continue
-        consecutive_failed_batches = 0
-
-        # Tag proposed columns with source document info BEFORE merging
-        # Use first document in batch as source (representative)
-        source_doc = batch_filenames[0] if batch_filenames else "unknown"
-        for col in proposed.columns:
-            col.source_document = source_doc
-            col.discovery_iteration = it
-
-        # Track document contributions
-        if document_helpful and len(proposed.columns) > 0:
-            contributing_files.extend(batch_filenames)
-            logging.info("Iteration %d — Helpful documents: %s", it, batch_filenames)
-        else:
-            non_contributing_files.extend(batch_filenames)
-            if not document_helpful:
-                logging.info("Iteration %d — Non-helpful documents (LLM assessed): %s", it, batch_filenames)
-            else:
-                logging.info("Iteration %d — No new columns from: %s", it, batch_filenames)
-
-        merged = schema.merge(proposed)
-
-        # Identify NEW columns added in this iteration
-        columns_after = {col.name.lower() for col in merged.columns}
-        new_column_names_lower = columns_after - columns_before
-        new_columns = [col.name for col in merged.columns if col.name.lower() in new_column_names_lower]
-
-        # Record column sources for new columns
-        for col in merged.columns:
-            if col.name.lower() in new_column_names_lower:
-                evolution.record_column_source(col.name, source_doc)
-
-        # Add snapshot to evolution
-        evolution.add_snapshot(
-            iteration=it,
-            documents=batch_filenames,
-            total_columns=len(merged.columns),
-            new_columns=new_columns,
-            cumulative_documents=cumulative_docs
-        )
-
-        logging.info("Iteration %d — columns: %d → %d (J=%.2f), new columns: %s",
-                     it, len(schema), len(merged), schema.jaccard(merged), new_columns)
-
-        if evaluate_schema_convergence(schema, merged):
-            logging.info("Converged at iteration %d", it)
-            return merged, contributing_files, non_contributing_files, evolution
-
-        schema = merged  # update and continue
-
-    if attempted_batches and failed_batches == attempted_batches and last_batch_error is not None:
-        raise last_batch_error
-
-    return schema, contributing_files, non_contributing_files, evolution
+    return (
+        schema,
+        list(evolution.contributing_files),
+        list(evolution.non_contributing_files),
+        evolution,
+    )
 
 
 # ------------------------------------------------------------------------ #
@@ -1092,7 +846,7 @@ def load_documents(paths: Union[Path, List[Path]], seed: Optional[int] = None) -
     for path in paths:
         logging.info(f"Loading documents from: {path}")
         count_from_path = 0
-        for p in path.rglob("*"):
+        for p in sorted(path.rglob("*")):
             if p.suffix.lower() in exts and p.is_file():
                 docs.append(p.read_text(encoding="utf-8", errors="ignore"))
                 filenames.append(p.name)  # Just filename, not full path
@@ -1187,14 +941,39 @@ def main(cfg_path: Path) -> None:
     max_keys_schema = cfg["max_keys_schema"]
     output_path = Path(cfg.get("output_path", "schema_output.json"))
     
+    from schematiq.discovery import (
+        DiscoveryConfig,
+        discover_schema as _discover_schema_lib,
+        load_initial_schema_from_config,
+    )
+
     # Load initial schema if specified
     initial_schema = None
-    if "initial_schema_path" in cfg:
+    if "initial_schema_path" in cfg and cfg["initial_schema_path"]:
         initial_schema_path = Path(cfg["initial_schema_path"])
         # Make path relative to config file directory if not absolute
         if not initial_schema_path.is_absolute():
             initial_schema_path = cfg_path.parent / initial_schema_path
-        initial_schema = load_initial_schema(initial_schema_path, query, max_keys_schema)
+        if initial_schema_path.exists():
+            loaded_schema = load_initial_schema_from_config(
+                DiscoveryConfig(
+                    initial_schema_path=initial_schema_path,
+                    strict=bool(cfg.get("strict", False)),
+                ),
+                query,
+                max_keys_schema,
+            )
+            initial_schema = (
+                loaded_schema
+                if loaded_schema is not None
+                else Schema(query=query, max_keys=max_keys_schema)
+            )
+        else:
+            logging.info(
+                "No initial schema file found at %s, starting with empty schema",
+                initial_schema_path,
+            )
+            initial_schema = Schema(query=query, max_keys=max_keys_schema)
 
     # Set up components
     llm_for_schema = utils.build_llm(backend_cfg)
@@ -1208,16 +987,33 @@ def main(cfg_path: Path) -> None:
     # Load docs with filenames and potential randomization
     docs, filenames = load_documents(docs_paths, seed=randomization_seed)
 
-    # Run discovery with contribution tracking
+    # Run discovery with contribution tracking via unified schematiq.discovery loop
     start_time = time.time()
-    context_window_size = backend_cfg.get("context_window_size") or backend_cfg.get("max_context_tokens") or getattr(llm_for_schema, 'context_window_size', 8192)
-    schema, contributing_files, non_contributing_files, schema_evolution = discover_schema(
-        query=query, documents=docs, filenames=filenames,
-        max_keys_schema=max_keys_schema, llm=llm_for_schema, retriever=retriever,
-        context_window_size=context_window_size,
-        documents_batch_size=documents_batch_size,
-        initial_schema=initial_schema
+    context_window_size = (
+        backend_cfg.get("context_window_size")
+        or backend_cfg.get("max_context_tokens")
+        or getattr(llm_for_schema, 'context_window_size', 8192)
     )
+    discovery_cfg = DiscoveryConfig(
+        batch_size=documents_batch_size,
+        batch_strategy=cfg.get("batch_strategy", "fixed"),
+        convergence_threshold=cfg.get("convergence_threshold", 1),
+        max_keys=max_keys_schema,
+        initial_schema=initial_schema,
+        context_window_size=context_window_size,
+        identify_observation_unit=cfg.get("identify_observation_unit", True),
+        max_iters=cfg.get("max_iters", 6),
+    )
+    schema, schema_evolution = _discover_schema_lib(
+        documents=docs,
+        filenames=filenames,
+        query=query,
+        config=discovery_cfg,
+        llm=llm_for_schema,
+        retriever=retriever,
+    )
+    contributing_files = list(schema_evolution.contributing_files)
+    non_contributing_files = list(schema_evolution.non_contributing_files)
     elapsed_time = time.time() - start_time
 
     # Log timing results

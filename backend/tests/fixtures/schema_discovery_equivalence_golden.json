@@ -117,7 +117,9 @@
           "auto_expand_threshold": 2,
           "column": "case_identifier",
           "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
           "explanation": "Identifies each ruling uniquely",
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -128,7 +130,9 @@
           "auto_expand_threshold": 2,
           "column": "ruling_outcome",
           "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
           "explanation": "Primary dependent outcome variable",
+          "source_document": "alpha.txt",
           "value_kind": "category"
         }
       ],
@@ -282,7 +286,9 @@
           "auto_expand_threshold": 2,
           "column": "case_identifier",
           "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
           "explanation": "Identifies each ruling uniquely",
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -293,7 +299,9 @@
           "auto_expand_threshold": 2,
           "column": "ruling_outcome",
           "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
           "explanation": "Primary dependent outcome variable",
+          "source_document": "alpha.txt",
           "value_kind": "category"
         },
         {
@@ -304,7 +312,9 @@
           "auto_expand_threshold": 2,
           "column": "court_level",
           "definition": "Level of court issuing the decision",
+          "discovery_iteration": 2,
           "explanation": "Captures institutional hierarchy",
+          "source_document": "beta.txt",
           "value_kind": "category"
         }
       ],
@@ -480,7 +490,9 @@
           "auto_expand_threshold": 2,
           "column": "case_identifier",
           "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
           "explanation": "Identifies each ruling uniquely",
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -491,7 +503,9 @@
           "auto_expand_threshold": 2,
           "column": "ruling_outcome",
           "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
           "explanation": "Primary dependent outcome variable",
+          "source_document": "alpha.txt",
           "value_kind": "category"
         },
         {
@@ -502,7 +516,9 @@
           "auto_expand_threshold": 2,
           "column": "court_level",
           "definition": "Level of court issuing the decision",
+          "discovery_iteration": 2,
           "explanation": "Captures institutional hierarchy",
+          "source_document": "beta.txt",
           "value_kind": "category"
         }
       ],
@@ -687,7 +703,9 @@
           "auto_expand_threshold": 2,
           "column": "case_identifier",
           "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
           "explanation": "Identifies each ruling uniquely",
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -698,7 +716,9 @@
           "auto_expand_threshold": 2,
           "column": "ruling_outcome",
           "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
           "explanation": "Primary dependent outcome variable",
+          "source_document": "alpha.txt",
           "value_kind": "category"
         },
         {
@@ -709,7 +729,9 @@
           "auto_expand_threshold": 2,
           "column": "court_level",
           "definition": "Level of court issuing the decision",
+          "discovery_iteration": 2,
           "explanation": "Captures institutional hierarchy",
+          "source_document": "beta.txt",
           "value_kind": "category"
         }
       ],
@@ -901,21 +923,27 @@
         {
           "column": "seeded_judge",
           "definition": "Completed definition for seeded_judge",
+          "discovery_iteration": 0,
           "explanation": "Completed rationale for seeded_judge",
           "locked": true,
+          "source_document": "initial_schema",
           "value_kind": "free_text"
         },
         {
           "column": "seeded_year",
           "definition": "Year of ruling",
+          "discovery_iteration": 0,
           "explanation": "Temporal trend",
-          "locked": true
+          "locked": true,
+          "source_document": "initial_schema"
         },
         {
           "auto_expand_threshold": 2,
           "column": "case_identifier",
           "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
           "explanation": "Identifies each ruling uniquely",
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -926,7 +954,9 @@
           "auto_expand_threshold": 2,
           "column": "ruling_outcome",
           "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
           "explanation": "Primary dependent outcome variable",
+          "source_document": "alpha.txt",
           "value_kind": "category"
         },
         {
@@ -937,7 +967,9 @@
           "auto_expand_threshold": 2,
           "column": "court_level",
           "definition": "Level of court issuing the decision",
+          "discovery_iteration": 2,
           "explanation": "Captures institutional hierarchy",
+          "source_document": "beta.txt",
           "value_kind": "category"
         }
       ],
@@ -1086,7 +1118,9 @@
           "auto_expand_threshold": 2,
           "column": "case_identifier",
           "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
           "explanation": "Identifies each ruling uniquely",
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -1097,7 +1131,9 @@
           "auto_expand_threshold": 2,
           "column": "ruling_outcome",
           "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
           "explanation": "Primary dependent outcome variable",
+          "source_document": "alpha.txt",
           "value_kind": "category"
         },
         {
@@ -1108,7 +1144,9 @@
           "auto_expand_threshold": 2,
           "column": "court_level",
           "definition": "Level of court issuing the decision",
+          "discovery_iteration": 2,
           "explanation": "Captures institutional hierarchy",
+          "source_document": "beta.txt",
           "value_kind": "category"
         }
       ],
@@ -1258,7 +1296,9 @@
           "auto_expand_threshold": 2,
           "column": "case_identifier",
           "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
           "explanation": "Identifies each ruling uniquely",
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -1269,7 +1309,9 @@
           "auto_expand_threshold": 2,
           "column": "ruling_outcome",
           "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
           "explanation": "Primary dependent outcome variable",
+          "source_document": "alpha.txt",
           "value_kind": "category"
         },
         {
@@ -1280,7 +1322,9 @@
           "auto_expand_threshold": 2,
           "column": "court_level",
           "definition": "Level of court issuing the decision",
+          "discovery_iteration": 2,
           "explanation": "Captures institutional hierarchy",
+          "source_document": "beta.txt",
           "value_kind": "category"
         }
       ],
@@ -1373,14 +1417,18 @@
           "auto_expand_threshold": 2,
           "column": "case_outcome",
           "definition": "Final appeal outcome",
+          "discovery_iteration": 1,
           "explanation": "Measures decision result",
+          "source_document": "query_only",
           "value_kind": "category"
         },
         {
           "auto_expand_threshold": 2,
           "column": "applicant_origin",
           "definition": "Country of origin of the applicant",
+          "discovery_iteration": 1,
           "explanation": "Tracks demographic context",
+          "source_document": "query_only",
           "value_kind": "free_text"
         }
       ],
@@ -1519,7 +1567,9 @@
           "auto_expand_threshold": 2,
           "column": "case_identifier",
           "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
           "explanation": "Identifies each ruling uniquely",
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -1530,7 +1580,9 @@
           "auto_expand_threshold": 2,
           "column": "ruling_outcome",
           "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
           "explanation": "Primary dependent outcome variable",
+          "source_document": "alpha.txt",
           "value_kind": "category"
         },
         {
@@ -1541,7 +1593,9 @@
           "auto_expand_threshold": 2,
           "column": "court_level",
           "definition": "Level of court issuing the decision",
+          "discovery_iteration": 2,
           "explanation": "Captures institutional hierarchy",
+          "source_document": "beta.txt",
           "value_kind": "category"
         }
       ],
@@ -1711,14 +1765,18 @@
           "auto_expand_threshold": 2,
           "column": "court_level",
           "definition": "Level of court issuing the decision",
+          "discovery_iteration": 1,
           "explanation": "Captures institutional hierarchy",
+          "source_document": "beta.txt",
           "value_kind": "category"
         },
         {
           "auto_expand_threshold": 2,
           "column": "case_identifier",
           "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 2,
           "explanation": "Identifies each ruling uniquely",
+          "source_document": "gamma.txt",
           "value_kind": "identifier"
         },
         {
@@ -1729,7 +1787,9 @@
           "auto_expand_threshold": 2,
           "column": "ruling_outcome",
           "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 2,
           "explanation": "Primary dependent outcome variable",
+          "source_document": "gamma.txt",
           "value_kind": "category"
         }
       ],
@@ -1851,7 +1911,9 @@
           "auto_expand_threshold": 2,
           "column": "case_identifier",
           "definition": "Unique docket identifier of the case",
+          "discovery_iteration": 1,
           "explanation": "Identifies each ruling uniquely",
+          "source_document": "alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -1862,7 +1924,9 @@
           "auto_expand_threshold": 2,
           "column": "ruling_outcome",
           "definition": "Outcome of the appeal ruling",
+          "discovery_iteration": 1,
           "explanation": "Primary dependent outcome variable",
+          "source_document": "alpha.txt",
           "value_kind": "category"
         }
       ],

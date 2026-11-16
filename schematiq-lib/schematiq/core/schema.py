@@ -175,6 +175,8 @@ class SchemaEvolution:
     """Tracks how the schema evolved during discovery."""
     snapshots: List[SchemaSnapshot] = field(default_factory=list)
     column_sources: Dict[str, str] = field(default_factory=dict)  # column_name -> source_document
+    contributing_files: List[str] = field(default_factory=list)
+    non_contributing_files: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
         return {
