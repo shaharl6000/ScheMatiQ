@@ -103,7 +103,7 @@ def compute_statistics(
                         seen_canonical.add(("repr", str(canonical)))
         unique_count = len(seen_canonical)
 
-        source_document = None
+        source_document = getattr(col, "source_document", None)
         if schema_evolution and col.name in schema_evolution.column_sources:
             source_document = schema_evolution.column_sources[col.name]
 
