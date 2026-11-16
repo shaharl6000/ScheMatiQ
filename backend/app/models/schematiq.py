@@ -1,7 +1,7 @@
 """ScheMatiQ-specific models."""
 
-from typing import List, Optional, Dict, Any, Union
-from pydantic import BaseModel, Field
+from typing import List, Mapping, Optional, Dict, Any, Union
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class LLMConfig(BaseModel):
     """LLM backend configuration.
@@ -18,16 +18,43 @@ class LLMConfig(BaseModel):
 
 class RetrieverConfig(BaseModel):
     """Retriever configuration."""
-    model_config = {"protected_namespaces": ()}
+    model_config = ConfigDict(protected_namespaces=())
 
     type: str = "embedding"
     model_name: str = "all-MiniLM-L6-v2"
-    passage_chars: int = 512
+    passage_words: int = 128
     overlap: int = 64
     k: int = 15
     enable_dynamic_k: bool = True
     dynamic_k_threshold: float = 0.65
     dynamic_k_minimum: int = 3
+
+    @model_validator(mode="before")
+    @classmethod
+    def _convert_legacy_fields(cls, values: Any) -> Any:
+        if not isinstance(values, Mapping):
+            return values
+        data = dict(values)
+        if data.get("overlap") is None and data.get("overlap_words") is not None:
+            data["overlap"] = data["overlap_words"]
+        data.pop("overlap_words", None)
+
+        if data.get("passage_words") is None:
+            data.pop("passage_words", None)
+
+        legacy_budget = (
+            data.get("max_words")
+            if data.get("max_words") is not None
+            else data.get("passage_chars")
+        )
+        data.pop("max_words", None)
+        data.pop("passage_chars", None)
+
+        if "passage_words" not in data and legacy_budget is not None:
+            raw_k = data.get("k")
+            effective_k = int(raw_k) if raw_k is not None else 15
+            data["passage_words"] = max(int(int(legacy_budget) / max(effective_k, 1)), 128)
+        return data
 
 class InitialSchemaColumn(BaseModel):
     """Initial schema column definition.

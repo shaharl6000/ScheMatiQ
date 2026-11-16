@@ -991,7 +991,7 @@ class PaperProcessor:
                 "type": "embedding",
                 "model_name": "all-MiniLM-L6-v2",  # Fast, lightweight model
                 "k": 8,  # Default retrieval count
-                "max_words": 512,
+                "passage_words": 128,
                 "batch_size": 32,
                 "enable_dynamic_k": True,
                 "dynamic_k_threshold": 0.65,
@@ -1272,14 +1272,17 @@ class PaperProcessor:
                 f"{[c.name for c in missing]}"
             )
 
-            fallback_retriever = self.retriever
-            if self.retriever is None:
-                if self._cached_fallback_retriever is None:
-                    print("📡 Creating fallback retriever (will be cached)")
-                    self._cached_fallback_retriever = (
-                        self._create_fallback_retriever()
-                    )
-                fallback_retriever = self._cached_fallback_retriever
+            if DISABLE_RETRIEVER:
+                fallback_retriever = None
+            else:
+                fallback_retriever = self.retriever
+                if self.retriever is None:
+                    if self._cached_fallback_retriever is None:
+                        print("📡 Creating fallback retriever (will be cached)")
+                        self._cached_fallback_retriever = (
+                            self._create_fallback_retriever()
+                        )
+                    fallback_retriever = self._cached_fallback_retriever
 
             expanded_k = self.text_processor.expand_k(retrieval_k)
             still_missing = []
@@ -1620,7 +1623,7 @@ class PaperProcessor:
 
             if first and first.get("answer", "").strip():
                 col_value = first
-            elif self.retriever is not None:
+            elif not DISABLE_RETRIEVER and self.retriever is not None:
                 # Check for stop before attempt 2
                 if self._check_stop_requested():
                     print(

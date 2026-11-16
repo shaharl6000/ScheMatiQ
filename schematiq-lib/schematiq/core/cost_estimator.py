@@ -425,7 +425,7 @@ def estimate_schema_discovery_cost(
     # Content tokens per batch - THIS IS THE KEY DIFFERENCE
     if has_retriever:
         # Retriever returns k passages per document in the batch
-        # Each passage is typically 200-500 tokens (based on retriever.passage_chars setting)
+        # Each passage is typically 200-500 tokens (based on retriever.passage_words setting)
         passage_tokens = constants.get("retrieval_passage_avg_tokens", 250)
         # Retriever queries each doc in batch and returns k passages total
         content_tokens_per_batch = retrieval_k * passage_tokens * batch_size

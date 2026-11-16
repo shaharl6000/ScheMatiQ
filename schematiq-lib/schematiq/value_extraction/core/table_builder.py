@@ -25,7 +25,7 @@ from .paper_processor import (
 )
 from .row_manager import RowDataManager
 from .llm_cache import LLMCache
-from ..config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
+from ..config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS, DISABLE_RETRIEVER
 
 
 # Type alias for the should_stop callback
@@ -172,11 +172,12 @@ class TableBuilder:
     
     def _create_metadata(self, schema: Schema, docs_directory: Path) -> Dict[str, Any]:
         """Create metadata for row output."""
+        active_retriever = None if DISABLE_RETRIEVER else self.retriever
         return {
             "query": schema.query,
             "retriever": {
-                "type": self.retriever.__class__.__name__ if self.retriever else None,
-                "model": getattr(self.retriever, 'model_name', None) if self.retriever else None
+                "type": active_retriever.__class__.__name__ if active_retriever else None,
+                "model": getattr(active_retriever, 'model_name', None) if active_retriever else None
             },
             "backend": {
                 "type": self.llm.__class__.__name__,

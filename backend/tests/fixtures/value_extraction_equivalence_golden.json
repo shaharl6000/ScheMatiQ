@@ -1,0 +1,1539 @@
+{
+  "five_doc_unit_extraction_all_filled": {
+    "result": {
+      "skipped_documents": [],
+      "suggested_values": {}
+    },
+    "rows": [
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_five_filled/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_1.txt"
+        ],
+        "_parent_document": "doc_1",
+        "_row_name": "Unit_1",
+        "_source_document": "doc_1",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_1",
+        "case_id": {
+          "answer": "ID-D1",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_1",
+              "text": "case ID-D1 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_five_filled/docs",
+        "explicit_null_col": {
+          "_confirmed_empty": true,
+          "answer": "",
+          "excerpts": []
+        },
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_1",
+              "text": "outcome granted for D1"
+            }
+          ]
+        }
+      },
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_five_filled/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_2.txt"
+        ],
+        "_parent_document": "doc_2",
+        "_row_name": "Unit_2",
+        "_source_document": "doc_2",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_2",
+        "case_id": {
+          "answer": "ID-D2",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_2",
+              "text": "case ID-D2 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_five_filled/docs",
+        "explicit_null_col": {
+          "_confirmed_empty": true,
+          "answer": "",
+          "excerpts": []
+        },
+        "outcome": {
+          "answer": "denied",
+          "excerpts": [
+            {
+              "char_end": 121,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_2",
+              "text": "outcome denied for D2"
+            }
+          ]
+        }
+      },
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_five_filled/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_3.txt"
+        ],
+        "_parent_document": "doc_3",
+        "_row_name": "Unit_3",
+        "_source_document": "doc_3",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_3",
+        "case_id": {
+          "answer": "ID-D3",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_3",
+              "text": "case ID-D3 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_five_filled/docs",
+        "explicit_null_col": {
+          "_confirmed_empty": true,
+          "answer": "",
+          "excerpts": []
+        },
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_3",
+              "text": "outcome granted for D3"
+            }
+          ]
+        }
+      },
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_five_filled/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_4.txt"
+        ],
+        "_parent_document": "doc_4",
+        "_row_name": "Unit_4",
+        "_source_document": "doc_4",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_4",
+        "case_id": {
+          "answer": "ID-D4",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_4",
+              "text": "case ID-D4 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_five_filled/docs",
+        "explicit_null_col": {
+          "_confirmed_empty": true,
+          "answer": "",
+          "excerpts": []
+        },
+        "outcome": {
+          "answer": "denied",
+          "excerpts": [
+            {
+              "char_end": 121,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_4",
+              "text": "outcome denied for D4"
+            }
+          ]
+        }
+      },
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_five_filled/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_5.txt"
+        ],
+        "_parent_document": "doc_5",
+        "_row_name": "Unit_5",
+        "_source_document": "doc_5",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_5",
+        "case_id": {
+          "answer": "ID-D5",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_5",
+              "text": "case ID-D5 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_five_filled/docs",
+        "explicit_null_col": {
+          "_confirmed_empty": true,
+          "answer": "",
+          "excerpts": []
+        },
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_5",
+              "text": "outcome granted for D5"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "five_doc_unit_extraction_with_missing": {
+    "result": {
+      "skipped_documents": [],
+      "suggested_values": {}
+    },
+    "rows": [
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_five_missing/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_1.txt"
+        ],
+        "_parent_document": "doc_1",
+        "_row_name": "Unit_1",
+        "_source_document": "doc_1",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_1",
+        "case_id": {
+          "answer": "ID-D1",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_1",
+              "text": "case ID-D1 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_five_missing/docs",
+        "explicit_null_col": {
+          "_confirmed_empty": true,
+          "answer": "",
+          "excerpts": []
+        },
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_1",
+              "text": "outcome granted for D1"
+            }
+          ]
+        },
+        "strict_only_col": {
+          "answer": "strict-D1",
+          "excerpts": [
+            {
+              "char_end": 230,
+              "char_start": 212,
+              "grounding_status": "exact",
+              "source": "doc_1 - Unit_1",
+              "text": "strict-D1 evidence"
+            }
+          ]
+        }
+      },
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_five_missing/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_2.txt"
+        ],
+        "_parent_document": "doc_2",
+        "_row_name": "Unit_2",
+        "_source_document": "doc_2",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_2",
+        "case_id": {
+          "answer": "ID-D2",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_2",
+              "text": "case ID-D2 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_five_missing/docs",
+        "explicit_null_col": {
+          "_confirmed_empty": true,
+          "answer": "",
+          "excerpts": []
+        },
+        "outcome": {
+          "answer": "denied",
+          "excerpts": [
+            {
+              "char_end": 121,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_2",
+              "text": "outcome denied for D2"
+            }
+          ]
+        },
+        "strict_only_col": {
+          "answer": "strict-D2",
+          "excerpts": [
+            {
+              "char_end": 229,
+              "char_start": 211,
+              "grounding_status": "exact",
+              "source": "doc_2 - Unit_2",
+              "text": "strict-D2 evidence"
+            }
+          ]
+        }
+      },
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_five_missing/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_3.txt"
+        ],
+        "_parent_document": "doc_3",
+        "_row_name": "Unit_3",
+        "_source_document": "doc_3",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_3",
+        "case_id": {
+          "answer": "ID-D3",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_3",
+              "text": "case ID-D3 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_five_missing/docs",
+        "explicit_null_col": {
+          "_confirmed_empty": true,
+          "answer": "",
+          "excerpts": []
+        },
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_3",
+              "text": "outcome granted for D3"
+            }
+          ]
+        },
+        "strict_only_col": {
+          "answer": "strict-D3",
+          "excerpts": [
+            {
+              "char_end": 230,
+              "char_start": 212,
+              "grounding_status": "exact",
+              "source": "doc_3 - Unit_3",
+              "text": "strict-D3 evidence"
+            }
+          ]
+        }
+      },
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_five_missing/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_4.txt"
+        ],
+        "_parent_document": "doc_4",
+        "_row_name": "Unit_4",
+        "_source_document": "doc_4",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_4",
+        "case_id": {
+          "answer": "ID-D4",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_4",
+              "text": "case ID-D4 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_five_missing/docs",
+        "explicit_null_col": {
+          "_confirmed_empty": true,
+          "answer": "",
+          "excerpts": []
+        },
+        "outcome": {
+          "answer": "denied",
+          "excerpts": [
+            {
+              "char_end": 121,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_4",
+              "text": "outcome denied for D4"
+            }
+          ]
+        },
+        "strict_only_col": {
+          "answer": "strict-D4",
+          "excerpts": [
+            {
+              "char_end": 229,
+              "char_start": 211,
+              "grounding_status": "exact",
+              "source": "doc_4 - Unit_4",
+              "text": "strict-D4 evidence"
+            }
+          ]
+        }
+      },
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_five_missing/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_5.txt"
+        ],
+        "_parent_document": "doc_5",
+        "_row_name": "Unit_5",
+        "_source_document": "doc_5",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_5",
+        "case_id": {
+          "answer": "ID-D5",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_5",
+              "text": "case ID-D5 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_five_missing/docs",
+        "explicit_null_col": {
+          "_confirmed_empty": true,
+          "answer": "",
+          "excerpts": []
+        },
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_5",
+              "text": "outcome granted for D5"
+            }
+          ]
+        },
+        "strict_only_col": {
+          "answer": "strict-D5",
+          "excerpts": [
+            {
+              "char_end": 230,
+              "char_start": 212,
+              "grounding_status": "exact",
+              "source": "doc_5 - Unit_5",
+              "text": "strict-D5 evidence"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "legacy_single_dir_one_by_one_and_all": {
+    "all_rows": [
+      {
+        "_metadata": {
+          "backend": {
+            "max_output_tokens": 4096,
+            "model": "fake-extraction-deterministic",
+            "temperature": 0,
+            "type": "FakeExtractionLLM"
+          },
+          "query": "What are the case outcomes and procedural details?"
+        },
+        "_papers": [
+          "doc_1",
+          "doc_2",
+          "doc_3",
+          "doc_4",
+          "doc_5"
+        ],
+        "_row_name": "doc",
+        "case_id": {
+          "answer": "ID-D1; ID-D2; ID-D3; ID-D4; ID-D5",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_1",
+              "text": "case ID-D1 verified"
+            },
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_2",
+              "text": "case ID-D2 verified"
+            },
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_3",
+              "text": "case ID-D3 verified"
+            },
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_4",
+              "text": "case ID-D4 verified"
+            },
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_5",
+              "text": "case ID-D5 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_legacy_single_dir/docs",
+        "outcome": {
+          "answer": "granted; denied; granted; denied; granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_1",
+              "text": "outcome granted for D1"
+            },
+            {
+              "char_end": 121,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_2",
+              "text": "outcome denied for D2"
+            },
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_3",
+              "text": "outcome granted for D3"
+            },
+            {
+              "char_end": 121,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_4",
+              "text": "outcome denied for D4"
+            },
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_5",
+              "text": "outcome granted for D5"
+            }
+          ]
+        },
+        "strict_only_col": {
+          "answer": "strict-D1; strict-D2; strict-D3; strict-D4; strict-D5",
+          "excerpts": [
+            {
+              "char_end": 230,
+              "char_start": 212,
+              "grounding_status": "exact",
+              "source": "doc_1",
+              "text": "strict-D1 evidence"
+            },
+            {
+              "char_end": 229,
+              "char_start": 211,
+              "grounding_status": "exact",
+              "source": "doc_2",
+              "text": "strict-D2 evidence"
+            },
+            {
+              "char_end": 230,
+              "char_start": 212,
+              "grounding_status": "exact",
+              "source": "doc_3",
+              "text": "strict-D3 evidence"
+            },
+            {
+              "char_end": 229,
+              "char_start": 211,
+              "grounding_status": "exact",
+              "source": "doc_4",
+              "text": "strict-D4 evidence"
+            },
+            {
+              "char_end": 230,
+              "char_start": 212,
+              "grounding_status": "exact",
+              "source": "doc_5",
+              "text": "strict-D5 evidence"
+            }
+          ]
+        }
+      }
+    ],
+    "one_by_one_rows": [
+      {
+        "_metadata": {
+          "backend": {
+            "max_output_tokens": 4096,
+            "model": "fake-extraction-deterministic",
+            "temperature": 0,
+            "type": "FakeExtractionLLM"
+          },
+          "query": "What are the case outcomes and procedural details?"
+        },
+        "_papers": [
+          "doc_1",
+          "doc_2",
+          "doc_3",
+          "doc_4",
+          "doc_5"
+        ],
+        "_row_name": "doc",
+        "case_id": {
+          "answer": "ID-D1; ID-D2; ID-D3; ID-D4; ID-D5",
+          "excerpts": [
+            {
+              "source": "doc_1",
+              "text": "case ID-D1 verified"
+            },
+            {
+              "source": "doc_2",
+              "text": "case ID-D2 verified"
+            },
+            {
+              "source": "doc_3",
+              "text": "case ID-D3 verified"
+            },
+            {
+              "source": "doc_4",
+              "text": "case ID-D4 verified"
+            },
+            {
+              "source": "doc_5",
+              "text": "case ID-D5 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_legacy_single_dir/docs",
+        "outcome": {
+          "answer": "granted; denied; granted; denied; granted",
+          "excerpts": [
+            {
+              "source": "doc_1",
+              "text": "outcome granted for D1"
+            },
+            {
+              "source": "doc_2",
+              "text": "outcome denied for D2"
+            },
+            {
+              "source": "doc_3",
+              "text": "outcome granted for D3"
+            },
+            {
+              "source": "doc_4",
+              "text": "outcome denied for D4"
+            },
+            {
+              "source": "doc_5",
+              "text": "outcome granted for D5"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "multi_unit_and_reordered_and_skipped": {
+    "result": {
+      "skipped_documents": [
+        {
+          "document": "doc_empty",
+          "reason": "No matching units in procedural notice"
+        }
+      ],
+      "suggested_values": {}
+    },
+    "rows": [
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_multi_reordered_skip/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_1.txt"
+        ],
+        "_parent_document": "doc_1",
+        "_row_name": "Unit_1",
+        "_source_document": "doc_1",
+        "_unit_confidence": "high",
+        "_unit_name": "Unit_1",
+        "case_id": {
+          "answer": "ID-D1",
+          "excerpts": [
+            {
+              "char_end": 69,
+              "char_start": 50,
+              "grounding_status": "exact",
+              "source": "doc_1",
+              "text": "case ID-D1 verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_multi_reordered_skip/docs",
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_1",
+              "text": "outcome granted for D1"
+            }
+          ]
+        },
+        "reordered_col_1": {
+          "answer": "reordered1-D1",
+          "excerpts": [
+            {
+              "char_end": 170,
+              "char_start": 150,
+              "grounding_status": "exact",
+              "source": "doc_1 - Unit_1",
+              "text": "reordered1-D1 detail"
+            }
+          ]
+        },
+        "reordered_col_2": {
+          "answer": "reordered2-D1",
+          "excerpts": [
+            {
+              "char_end": 195,
+              "char_start": 175,
+              "grounding_status": "exact",
+              "source": "doc_1 - Unit_1",
+              "text": "reordered2-D1 detail"
+            }
+          ]
+        }
+      },
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_multi_reordered_skip/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_multi.txt"
+        ],
+        "_parent_document": "doc_multi",
+        "_row_name": "Case_A",
+        "_source_document": "doc_multi",
+        "_unit_confidence": "high",
+        "_unit_name": "Case_A",
+        "case_id": {
+          "answer": "ID-Case_A",
+          "excerpts": [
+            {
+              "char_end": 95,
+              "char_start": 72,
+              "grounding_status": "exact",
+              "source": "doc_multi",
+              "text": "case ID-Case_A verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_multi_reordered_skip/docs",
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 152,
+              "char_start": 126,
+              "grounding_status": "exact",
+              "source": "doc_multi",
+              "text": "outcome granted for Case_A"
+            }
+          ]
+        },
+        "reordered_col_1": {
+          "answer": "reordered1-Case_A",
+          "excerpts": [
+            {
+              "char_end": 204,
+              "char_start": 180,
+              "grounding_status": "exact",
+              "source": "doc_multi - Case_A",
+              "text": "reordered1-Case_A detail"
+            }
+          ]
+        },
+        "reordered_col_2": {
+          "answer": "reordered2-Case_A",
+          "excerpts": [
+            {
+              "char_end": 233,
+              "char_start": 209,
+              "grounding_status": "exact",
+              "source": "doc_multi - Case_A",
+              "text": "reordered2-Case_A detail"
+            }
+          ]
+        }
+      },
+      {
+        "_metadata": {
+          "base_row_name": "doc",
+          "observation_unit": "Appeal Case",
+          "query": "What are the case outcomes and procedural details?",
+          "source_directories": [
+            "<TMP>/scen_multi_reordered_skip/docs"
+          ]
+        },
+        "_observation_unit": "Appeal Case",
+        "_papers": [
+          "doc_multi.txt"
+        ],
+        "_parent_document": "doc_multi",
+        "_row_name": "Case_B",
+        "_source_document": "doc_multi",
+        "_unit_confidence": "high",
+        "_unit_name": "Case_B",
+        "case_id": {
+          "answer": "ID-Case_B",
+          "excerpts": [
+            {
+              "char_end": 358,
+              "char_start": 335,
+              "grounding_status": "exact",
+              "source": "doc_multi",
+              "text": "case ID-Case_B verified"
+            }
+          ]
+        },
+        "document_directory": "<TMP>/scen_multi_reordered_skip/docs",
+        "outcome": {
+          "answer": "denied",
+          "excerpts": [
+            {
+              "char_end": 414,
+              "char_start": 389,
+              "grounding_status": "exact",
+              "source": "doc_multi",
+              "text": "outcome denied for Case_B"
+            }
+          ]
+        },
+        "reordered_col_1": {
+          "answer": "reordered1-Case_B",
+          "excerpts": [
+            {
+              "char_end": 466,
+              "char_start": 442,
+              "grounding_status": "exact",
+              "source": "doc_multi - Case_B",
+              "text": "reordered1-Case_B detail"
+            }
+          ]
+        },
+        "reordered_col_2": {
+          "answer": "reordered2-Case_B",
+          "excerpts": [
+            {
+              "char_end": 495,
+              "char_start": 471,
+              "grounding_status": "exact",
+              "source": "doc_multi - Case_B",
+              "text": "reordered2-Case_B detail"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "reextraction_service_five_docs": {
+    "rows": [
+      {
+        "_papers": [
+          "doc_1.txt"
+        ],
+        "_parent_document": "doc_1",
+        "_row_name": "Unit_1",
+        "_source_document": "doc_1",
+        "_unit_name": "Unit_1",
+        "case_id": {
+          "answer": "ID-D1",
+          "excerpts": [
+            "case ID-D1 verified"
+          ]
+        },
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_1",
+              "text": "outcome granted for D1"
+            }
+          ]
+        },
+        "unfillable_col": null
+      },
+      {
+        "_papers": [
+          "doc_2.txt"
+        ],
+        "_parent_document": "doc_2",
+        "_row_name": "Unit_2",
+        "_source_document": "doc_2",
+        "_unit_name": "Unit_2",
+        "case_id": {
+          "answer": "ID-D2",
+          "excerpts": [
+            "case ID-D2 verified"
+          ]
+        },
+        "outcome": {
+          "answer": "denied",
+          "excerpts": [
+            {
+              "char_end": 121,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_2",
+              "text": "outcome denied for D2"
+            }
+          ]
+        },
+        "unfillable_col": null
+      },
+      {
+        "_papers": [
+          "doc_3.txt"
+        ],
+        "_parent_document": "doc_3",
+        "_row_name": "Unit_3",
+        "_source_document": "doc_3",
+        "_unit_name": "Unit_3",
+        "case_id": {
+          "answer": "ID-D3",
+          "excerpts": [
+            "case ID-D3 verified"
+          ]
+        },
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_3",
+              "text": "outcome granted for D3"
+            }
+          ]
+        },
+        "unfillable_col": null
+      },
+      {
+        "_papers": [
+          "doc_4.txt"
+        ],
+        "_parent_document": "doc_4",
+        "_row_name": "Unit_4",
+        "_source_document": "doc_4",
+        "_unit_name": "Unit_4",
+        "case_id": {
+          "answer": "ID-D4",
+          "excerpts": [
+            "case ID-D4 verified"
+          ]
+        },
+        "outcome": {
+          "answer": "denied",
+          "excerpts": [
+            {
+              "char_end": 121,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_4",
+              "text": "outcome denied for D4"
+            }
+          ]
+        },
+        "unfillable_col": null
+      },
+      {
+        "_papers": [
+          "doc_5.txt"
+        ],
+        "_parent_document": "doc_5",
+        "_row_name": "Unit_5",
+        "_source_document": "doc_5",
+        "_unit_name": "Unit_5",
+        "case_id": {
+          "answer": "ID-D5",
+          "excerpts": [
+            "case ID-D5 verified"
+          ]
+        },
+        "outcome": {
+          "answer": "granted",
+          "excerpts": [
+            {
+              "char_end": 122,
+              "char_start": 100,
+              "grounding_status": "exact",
+              "source": "doc_5",
+              "text": "outcome granted for D5"
+            }
+          ]
+        },
+        "unfillable_col": null
+      }
+    ],
+    "status": "completed"
+  },
+  "schema_manager_reprocess_column": {
+    "rows": [
+      {
+        "_source_document": "doc_1",
+        "data": {
+          "case_id": {
+            "answer": "ID-D1",
+            "excerpts": []
+          },
+          "outcome": {
+            "answer": "granted",
+            "excerpts": [
+              {
+                "char_end": 122,
+                "char_start": 100,
+                "grounding_status": "exact",
+                "source": "doc_1",
+                "text": "outcome granted for D1"
+              }
+            ]
+          },
+          "strict_only_col": {
+            "answer": "strict-D1",
+            "excerpts": [
+              {
+                "char_end": 230,
+                "char_start": 212,
+                "grounding_status": "exact",
+                "source": "doc_1 - Unit_1",
+                "text": "strict-D1 evidence"
+              }
+            ]
+          }
+        },
+        "papers": [
+          "doc_1.txt"
+        ],
+        "row_name": "Unit_1"
+      },
+      {
+        "_source_document": "doc_2",
+        "data": {
+          "case_id": {
+            "answer": "ID-D2",
+            "excerpts": []
+          },
+          "outcome": {
+            "answer": "denied",
+            "excerpts": [
+              {
+                "char_end": 121,
+                "char_start": 100,
+                "grounding_status": "exact",
+                "source": "doc_2",
+                "text": "outcome denied for D2"
+              }
+            ]
+          },
+          "strict_only_col": {
+            "answer": "strict-D2",
+            "excerpts": [
+              {
+                "char_end": 229,
+                "char_start": 211,
+                "grounding_status": "exact",
+                "source": "doc_2 - Unit_2",
+                "text": "strict-D2 evidence"
+              }
+            ]
+          }
+        },
+        "papers": [
+          "doc_2.txt"
+        ],
+        "row_name": "Unit_2"
+      },
+      {
+        "_source_document": "doc_3",
+        "data": {
+          "case_id": {
+            "answer": "ID-D3",
+            "excerpts": []
+          },
+          "outcome": {
+            "answer": "granted",
+            "excerpts": [
+              {
+                "char_end": 122,
+                "char_start": 100,
+                "grounding_status": "exact",
+                "source": "doc_3",
+                "text": "outcome granted for D3"
+              }
+            ]
+          },
+          "strict_only_col": {
+            "answer": "strict-D3",
+            "excerpts": [
+              {
+                "char_end": 230,
+                "char_start": 212,
+                "grounding_status": "exact",
+                "source": "doc_3 - Unit_3",
+                "text": "strict-D3 evidence"
+              }
+            ]
+          }
+        },
+        "papers": [
+          "doc_3.txt"
+        ],
+        "row_name": "Unit_3"
+      },
+      {
+        "_source_document": "doc_4",
+        "data": {
+          "case_id": {
+            "answer": "ID-D4",
+            "excerpts": []
+          },
+          "outcome": {
+            "answer": "denied",
+            "excerpts": [
+              {
+                "char_end": 121,
+                "char_start": 100,
+                "grounding_status": "exact",
+                "source": "doc_4",
+                "text": "outcome denied for D4"
+              }
+            ]
+          },
+          "strict_only_col": {
+            "answer": "strict-D4",
+            "excerpts": [
+              {
+                "char_end": 229,
+                "char_start": 211,
+                "grounding_status": "exact",
+                "source": "doc_4 - Unit_4",
+                "text": "strict-D4 evidence"
+              }
+            ]
+          }
+        },
+        "papers": [
+          "doc_4.txt"
+        ],
+        "row_name": "Unit_4"
+      },
+      {
+        "_source_document": "doc_5",
+        "data": {
+          "case_id": {
+            "answer": "ID-D5",
+            "excerpts": []
+          },
+          "outcome": {
+            "answer": "granted",
+            "excerpts": [
+              {
+                "char_end": 122,
+                "char_start": 100,
+                "grounding_status": "exact",
+                "source": "doc_5",
+                "text": "outcome granted for D5"
+              }
+            ]
+          },
+          "strict_only_col": {
+            "answer": "strict-D5",
+            "excerpts": [
+              {
+                "char_end": 230,
+                "char_start": 212,
+                "grounding_status": "exact",
+                "source": "doc_5 - Unit_5",
+                "text": "strict-D5 evidence"
+              }
+            ]
+          }
+        },
+        "papers": [
+          "doc_5.txt"
+        ],
+        "row_name": "Unit_5"
+      }
+    ]
+  },
+  "upload_document_processor": {
+    "rows": [
+      {
+        "_parent_document": "doc_1",
+        "_source_document": "doc_1",
+        "_unit_name": "Unit_1",
+        "data": {
+          "case_id": {
+            "answer": "ID-D1",
+            "excerpts": [
+              {
+                "char_end": 69,
+                "char_start": 50,
+                "grounding_status": "exact",
+                "source": "doc_1",
+                "text": "case ID-D1 verified"
+              }
+            ]
+          },
+          "document_directory": "data/sess_upload_proc/pending_documents",
+          "explicit_null_col": {
+            "answer": "",
+            "excerpts": []
+          },
+          "outcome": {
+            "answer": "granted",
+            "excerpts": [
+              {
+                "char_end": 122,
+                "char_start": 100,
+                "grounding_status": "exact",
+                "source": "doc_1",
+                "text": "outcome granted for D1"
+              }
+            ]
+          }
+        },
+        "papers": [
+          "doc_1.txt"
+        ],
+        "row_name": "Unit_1"
+      },
+      {
+        "_parent_document": "doc_2",
+        "_source_document": "doc_2",
+        "_unit_name": "Unit_2",
+        "data": {
+          "case_id": {
+            "answer": "ID-D2",
+            "excerpts": [
+              {
+                "char_end": 69,
+                "char_start": 50,
+                "grounding_status": "exact",
+                "source": "doc_2",
+                "text": "case ID-D2 verified"
+              }
+            ]
+          },
+          "document_directory": "data/sess_upload_proc/pending_documents",
+          "explicit_null_col": {
+            "answer": "",
+            "excerpts": []
+          },
+          "outcome": {
+            "answer": "denied",
+            "excerpts": [
+              {
+                "char_end": 121,
+                "char_start": 100,
+                "grounding_status": "exact",
+                "source": "doc_2",
+                "text": "outcome denied for D2"
+              }
+            ]
+          }
+        },
+        "papers": [
+          "doc_2.txt"
+        ],
+        "row_name": "Unit_2"
+      },
+      {
+        "_parent_document": "doc_3",
+        "_source_document": "doc_3",
+        "_unit_name": "Unit_3",
+        "data": {
+          "case_id": {
+            "answer": "ID-D3",
+            "excerpts": [
+              {
+                "char_end": 69,
+                "char_start": 50,
+                "grounding_status": "exact",
+                "source": "doc_3",
+                "text": "case ID-D3 verified"
+              }
+            ]
+          },
+          "document_directory": "data/sess_upload_proc/pending_documents",
+          "explicit_null_col": {
+            "answer": "",
+            "excerpts": []
+          },
+          "outcome": {
+            "answer": "granted",
+            "excerpts": [
+              {
+                "char_end": 122,
+                "char_start": 100,
+                "grounding_status": "exact",
+                "source": "doc_3",
+                "text": "outcome granted for D3"
+              }
+            ]
+          }
+        },
+        "papers": [
+          "doc_3.txt"
+        ],
+        "row_name": "Unit_3"
+      },
+      {
+        "_parent_document": "doc_4",
+        "_source_document": "doc_4",
+        "_unit_name": "Unit_4",
+        "data": {
+          "case_id": {
+            "answer": "ID-D4",
+            "excerpts": [
+              {
+                "char_end": 69,
+                "char_start": 50,
+                "grounding_status": "exact",
+                "source": "doc_4",
+                "text": "case ID-D4 verified"
+              }
+            ]
+          },
+          "document_directory": "data/sess_upload_proc/pending_documents",
+          "explicit_null_col": {
+            "answer": "",
+            "excerpts": []
+          },
+          "outcome": {
+            "answer": "denied",
+            "excerpts": [
+              {
+                "char_end": 121,
+                "char_start": 100,
+                "grounding_status": "exact",
+                "source": "doc_4",
+                "text": "outcome denied for D4"
+              }
+            ]
+          }
+        },
+        "papers": [
+          "doc_4.txt"
+        ],
+        "row_name": "Unit_4"
+      },
+      {
+        "_parent_document": "doc_5",
+        "_source_document": "doc_5",
+        "_unit_name": "Unit_5",
+        "data": {
+          "case_id": {
+            "answer": "ID-D5",
+            "excerpts": [
+              {
+                "char_end": 69,
+                "char_start": 50,
+                "grounding_status": "exact",
+                "source": "doc_5",
+                "text": "case ID-D5 verified"
+              }
+            ]
+          },
+          "document_directory": "data/sess_upload_proc/pending_documents",
+          "explicit_null_col": {
+            "answer": "",
+            "excerpts": []
+          },
+          "outcome": {
+            "answer": "granted",
+            "excerpts": [
+              {
+                "char_end": 122,
+                "char_start": 100,
+                "grounding_status": "exact",
+                "source": "doc_5",
+                "text": "outcome granted for D5"
+              }
+            ]
+          }
+        },
+        "papers": [
+          "doc_5.txt"
+        ],
+        "row_name": "Unit_5"
+      }
+    ]
+  }
+}

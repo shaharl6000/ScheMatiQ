@@ -20,6 +20,7 @@ from schematiq.core.retrievers import (
     PromptingRetriever,
     PromptingRetrieverConfig,
     Retriever,
+    legacy_budget_to_passage_words,
 )
 
 MAX_CTX_TOKENS = 8192
@@ -88,10 +89,24 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
 def build_retriever(cfg: Dict[str, Any], llm_for_prompting: LLMInterface = None) -> Retriever:
     rtype = cfg.get("type", "embedding").lower()
     if rtype == "embedding":
+        k = cfg.get("k", 15)
+        passage_words = cfg.get("passage_words")
+        if passage_words is None:
+            legacy_budget = cfg.get("max_words")
+            if legacy_budget is None:
+                legacy_budget = cfg.get("passage_chars")
+            if legacy_budget is not None:
+                passage_words = legacy_budget_to_passage_words(legacy_budget, k)
+            else:
+                passage_words = 128
+        overlap_words = cfg.get("overlap_words")
+        if overlap_words is None:
+            overlap_words = cfg.get("overlap", 64)
         return EmbeddingRetriever(
             model_name=cfg.get("model_name", "all-MiniLM-L6-v2"),
-            k=cfg.get("k", 15),
-            max_words=cfg.get("max_words", 512),
+            k=k,
+            passage_words=passage_words,
+            overlap_words=overlap_words,
             batch_size=cfg.get("batch_size", 32),
             device=cfg.get("device"),
             enable_dynamic_k=cfg.get("enable_dynamic_k", False),
