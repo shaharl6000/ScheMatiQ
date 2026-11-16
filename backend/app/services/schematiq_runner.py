@@ -23,7 +23,10 @@ from app.services.pipeline.callbacks import start_heartbeat
 from app.services.pipeline.config_handler import (
     resolve_docs_paths, convert_config_to_schematiq_format, validate_config as _validate_config,
 )
-from app.services.pipeline.schema_discovery import run_schema_discovery
+from app.services.pipeline.schema_discovery import (
+    format_discovery_completion_message,
+    run_schema_discovery,
+)
 from app.services.pipeline.error_reporting import describe_llm_error
 from app.services.pipeline.value_extraction import run_value_extraction
 from app.services.pipeline.data_query import (
@@ -1000,15 +1003,24 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
             # Broadcast completion
             schema_only = schematiq_config.get("skip_value_extraction", False) or not has_documents
-            completion_message = (
+            skipped_discovery_batches = (
+                sum(schema_evolution.skipped_batches_by_reason.values())
+                if schema_evolution and schema_evolution.skipped_batches_by_reason
+                else 0
+            )
+            base_completion_message = (
                 "Schema discovery completed (value extraction skipped)"
                 if schema_only
                 else "ScheMatiQ execution completed successfully"
+            )
+            completion_message = format_discovery_completion_message(
+                base_completion_message, skipped_discovery_batches
             )
             completion_details = {
                 "total_documents": total_docs,
                 "schema_columns": len(discovered_schema.columns),
                 "schema_only": schema_only,
+                "skipped_discovery_batches": skipped_discovery_batches,
                 "elapsed_seconds": int(time.time() - schematiq_start_time),
                 "llm_stats": session.metadata.processing_stats.get("llm_stats", {}),
             }

@@ -42,7 +42,11 @@ from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.discovery import DiscoveryConfig, discover_schema
 from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
 from schematiq.value_extraction.main import build_table_jsonl
-from app.services.pipeline.schema_discovery import log_skipped_batch, run_callback_on_loop
+from app.services.pipeline.schema_discovery import (
+    format_discovery_completion_message,
+    log_skipped_batch,
+    run_callback_on_loop,
+)
 from app.services.session_documents import (
     committed_docs_dir,
     pending_docs_dir,
@@ -1251,6 +1255,20 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             session = self.session_manager.get_session(operation.session_id)
             if session:
                 session.status = "completed"
+                if lib_evolution.skipped_batches_by_reason and session.statistics:
+                    from app.models.session import SchemaEvolution as SessionSchemaEvolution
+
+                    if not session.statistics.schema_evolution:
+                        session.statistics.schema_evolution = SessionSchemaEvolution(
+                            snapshots=[],
+                            column_sources={},
+                        )
+                    stats_evo = session.statistics.schema_evolution
+                    for reason, count in lib_evolution.skipped_batches_by_reason.items():
+                        stats_evo.skipped_batches_by_reason[reason] = (
+                            stats_evo.skipped_batches_by_reason.get(reason, 0) + count
+                        )
+                    stats_evo.skipped_filenames.extend(lib_evolution.skipped_filenames)
                 self.session_manager.update_session(session)
                 logger.info("Set session status to 'completed' after discovery")
 
@@ -1268,6 +1286,15 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             operation.progress = 1.0
             operation.completed_at = datetime.now()
 
+            base_cd_message = (
+                f"Discovered {len(new_columns)} new columns"
+                if new_columns
+                else "No new columns discovered"
+            )
+            cd_message = format_discovery_completion_message(
+                base_cd_message, lib_evolution.total_skipped_batches
+            )
+
             # Broadcast completion with new columns
             await self.broadcast_event(
                 operation.session_id,
@@ -1277,7 +1304,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     "initial_columns": operation.initial_columns,
                     "new_columns": new_columns,
                     "total_columns": len(result_schema.columns),
-                    "message": f"Discovered {len(new_columns)} new columns" if new_columns else "No new columns discovered"
+                    "message": cd_message,
                 }
             )
 

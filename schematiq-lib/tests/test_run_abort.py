@@ -9,6 +9,7 @@ import pytest
 from schematiq.core import llm_backends as lb
 from schematiq.core import schematiq as sq
 from schematiq.core.schema import ObservationUnit, Schema
+from schematiq.discovery import _MAX_CONSECUTIVE_FAILED_BATCHES
 from schematiq.value_extraction.core.paper_processor import _counted_llm_call
 from test_parallel_unit_extraction import (
     FakeProcessor, _builder, _read, _run_parallel, _setup,
@@ -206,7 +207,7 @@ def test_discovery_stops_after_consecutive_failed_batches(monkeypatch):
     monkeypatch.setattr(sq, "generate_schema", generate_schema)
     with pytest.raises(lb.LLMRunAborted):
         _discover(10)
-    assert len(calls) == 1 + sq._MAX_CONSECUTIVE_FAILED_BATCHES
+    assert len(calls) == 1 + _MAX_CONSECUTIVE_FAILED_BATCHES
 
 
 def test_discovery_keeps_going_when_failures_are_not_consecutive(monkeypatch):

@@ -241,6 +241,8 @@ class DataCollectionService:
                     for s in (evo.snapshots or [])
                 ],
                 "column_sources": evo.column_sources or {},
+                "skipped_batches_by_reason": dict(evo.skipped_batches_by_reason or {}),
+                "skipped_filenames": list(evo.skipped_filenames or []),
             }
 
         return result
