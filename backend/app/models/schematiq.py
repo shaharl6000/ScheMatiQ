@@ -3,6 +3,8 @@
 from typing import List, Mapping, Optional, Dict, Any, Union
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from schematiq.core.retrievers import legacy_budget_to_passage_words
+
 class LLMConfig(BaseModel):
     """LLM backend configuration.
 
@@ -53,7 +55,7 @@ class RetrieverConfig(BaseModel):
         if "passage_words" not in data and legacy_budget is not None:
             raw_k = data.get("k")
             effective_k = int(raw_k) if raw_k is not None else 15
-            data["passage_words"] = max(int(int(legacy_budget) / max(effective_k, 1)), 128)
+            data["passage_words"] = legacy_budget_to_passage_words(legacy_budget, effective_k)
         return data
 
 class InitialSchemaColumn(BaseModel):

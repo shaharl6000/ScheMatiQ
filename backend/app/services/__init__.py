@@ -1,6 +1,7 @@
 """Shared service instances."""
 
 import asyncio
+import json
 import logging
 import threading
 import time
@@ -254,6 +255,89 @@ def get_shared_retriever(
 
         logger.info("[retriever] Shared EmbeddingRetriever ready (%s)", cfg.model_name)
         return cached
+
+
+def _extract_retriever_mapping(payload: Any) -> Optional[Dict[str, Any]]:
+    """Extract a non-empty retriever mapping from a saved session/schema JSON dict."""
+    if not isinstance(payload, Mapping):
+        return None
+    for key in ("retriever", "retriever_config"):
+        candidate = payload.get(key)
+        if isinstance(candidate, Mapping) and candidate:
+            return dict(candidate)
+    return None
+
+
+def resolve_retriever_config_for_session(
+    session_id: str,
+    session_manager: Any = None,
+    *,
+    extracted_schema: Optional[Mapping[str, Any]] = None,
+    data_dir: Optional[Union[str, Path]] = None,
+    work_dir: Optional[Union[str, Path]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Resolve the saved retriever config dict for ``session_id``, if any.
+
+    Checks session config sources in priority order (mirroring
+    ``resolve_llm_for_session``):
+      1. ``{work_dir}/{session_id}/schematiq_config.json``
+      2. ``{work_dir}/{session_id}/config.json``
+      3. ``extracted_schema`` argument or ``session.metadata.extracted_schema``
+      4. ``{data_dir}/{session_id}/parsed_schema.json``
+      5. ``{data_dir}/{session_id}/schematiq_config.json``
+    Returns ``None`` when no custom retriever config was stored so
+    ``get_shared_retriever(None)`` uses default ``RetrieverConfig()`` values.
+    """
+    from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
+
+    resolved_work_dir = Path(work_dir if work_dir is not None else DEFAULT_SCHEMATIQ_WORK_DIR)
+    resolved_data_dir = Path(data_dir if data_dir is not None else DEFAULT_DATA_DIR)
+    schematiq_session_dir = resolved_work_dir / session_id
+    data_session_dir = resolved_data_dir / session_id
+
+    for config_path in (
+        schematiq_session_dir / "schematiq_config.json",
+        schematiq_session_dir / "config.json",
+    ):
+        try:
+            if config_path.exists():
+                with open(config_path, encoding="utf-8") as f:
+                    found = _extract_retriever_mapping(json.load(f))
+                if found is not None:
+                    return found
+        except Exception as exc:
+            logger.debug("Could not load retriever config from %s: %s", config_path, exc)
+
+    schema_candidates: list[Mapping[str, Any]] = []
+    if isinstance(extracted_schema, Mapping):
+        schema_candidates.append(extracted_schema)
+    if session_manager is not None:
+        try:
+            session = session_manager.get_session(session_id)
+            if session and session.metadata and isinstance(session.metadata.extracted_schema, Mapping):
+                schema_candidates.append(session.metadata.extracted_schema)
+        except Exception as exc:
+            logger.debug("Could not load retriever config from session metadata: %s", exc)
+
+    for candidate in schema_candidates:
+        found = _extract_retriever_mapping(candidate)
+        if found is not None:
+            return found
+
+    for data_config_path in (
+        data_session_dir / "parsed_schema.json",
+        data_session_dir / "schematiq_config.json",
+    ):
+        try:
+            if data_config_path.exists():
+                with open(data_config_path, encoding="utf-8") as f:
+                    found = _extract_retriever_mapping(json.load(f))
+                if found is not None:
+                    return found
+        except Exception as exc:
+            logger.debug("Could not load retriever config from %s: %s", data_config_path, exc)
+
+    return None
 
 
 # Create singleton instances

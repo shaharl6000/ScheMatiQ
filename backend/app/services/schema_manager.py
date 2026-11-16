@@ -121,8 +121,13 @@ class SchemaManager(WebSocketBroadcasterMixin):
             if DISABLE_RETRIEVER:
                 retriever = None
             else:
-                from app.services import get_shared_retriever
-                retriever = get_shared_retriever()
+                from app.services import get_shared_retriever, resolve_retriever_config_for_session
+                retriever_cfg = resolve_retriever_config_for_session(
+                    session_id,
+                    self.session_manager,
+                    data_dir=DEFAULT_DATA_DIR,
+                )
+                retriever = get_shared_retriever(retriever_cfg)
 
             # Find documents directory
             docs_dir = committed_docs_dir(session_dir)
@@ -631,8 +636,13 @@ class SchemaManager(WebSocketBroadcasterMixin):
             if DISABLE_RETRIEVER:
                 retriever = None
             else:
-                from app.services import get_shared_retriever
-                retriever = get_shared_retriever()
+                from app.services import get_shared_retriever, resolve_retriever_config_for_session
+                retriever_cfg = resolve_retriever_config_for_session(
+                    session_id,
+                    self.session_manager,
+                    data_dir=DEFAULT_DATA_DIR,
+                )
+                retriever = get_shared_retriever(retriever_cfg)
 
             # Find documents directory
             docs_dir = committed_docs_dir(session_dir)

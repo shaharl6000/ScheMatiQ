@@ -1992,7 +1992,17 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 llm = self._get_llm_from_session(
                     operation.session_id, honor_user_llm_config=operation.honor_user_llm_config
                 )
-            retriever = None if DISABLE_RETRIEVER else self.get_cached_retriever()
+            if DISABLE_RETRIEVER:
+                retriever = None
+            else:
+                from app.services import resolve_retriever_config_for_session
+                retriever_cfg = resolve_retriever_config_for_session(
+                    operation.session_id,
+                    self.session_manager,
+                    data_dir=DEFAULT_DATA_DIR,
+                    work_dir=DEFAULT_SCHEMATIQ_WORK_DIR,
+                )
+                retriever = self.get_cached_retriever(retriever_cfg)
 
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
 
