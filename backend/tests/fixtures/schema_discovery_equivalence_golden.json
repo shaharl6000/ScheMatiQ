@@ -1463,9 +1463,9 @@
   "skip_log_path": {
     "evolution": {
       "column_sources": {
-        "case_identifier": "oversized.txt, alpha.txt",
+        "case_identifier": "alpha.txt",
         "court_level": "beta.txt",
-        "ruling_outcome": "oversized.txt, alpha.txt"
+        "ruling_outcome": "alpha.txt"
       },
       "skipped_batches_by_reason": {
         "single_document_exceeds_token_limit": 1
@@ -1800,7 +1800,7 @@
           "definition": "Unique docket identifier of the case",
           "discovery_iteration": 2,
           "explanation": "Identifies each ruling uniquely",
-          "source_document": "gamma.txt",
+          "source_document": "gamma.txt, alpha.txt",
           "value_kind": "identifier"
         },
         {
@@ -1813,7 +1813,7 @@
           "definition": "Outcome of the appeal ruling",
           "discovery_iteration": 2,
           "explanation": "Primary dependent outcome variable",
-          "source_document": "gamma.txt",
+          "source_document": "gamma.txt, alpha.txt",
           "value_kind": "category"
         }
       ],

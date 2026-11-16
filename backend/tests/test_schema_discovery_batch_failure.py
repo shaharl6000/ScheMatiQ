@@ -479,3 +479,133 @@ async def test_schematiq_runner_completion_message_includes_skipped_discovery_ba
         "llm_call_failed": 1
     }
     assert saved_session.statistics.schema_evolution.skipped_filenames == ["02_broken.txt"]
+
+
+@pytest.mark.asyncio
+async def test_run_schema_discovery_split_batch_partial_failure_keeps_sibling_columns(
+    tmp_path: Path,
+) -> None:
+    from app.models.session import SchemaEvolution as BackendSchemaEvolution
+    from app.services.pipeline.data_query import compute_statistics
+
+    class SplitPartialBackendFakeLLM(FailingBatchFakeLLM):
+        def generate(self, prompt: Any, **kwargs) -> str:
+            system = prompt[0].get("content", "") if isinstance(prompt, list) else ""
+            user = prompt[1].get("content", "") if isinstance(prompt, list) else str(prompt)
+            if "SchemaLLM" in system:
+                match = re.search(r"<PASSAGES>(.*?)</PASSAGES>", user, flags=re.DOTALL)
+                text = match.group(1) if match else user
+                if "DOC_ALPHA" in text and "DOC_TRANSIENT" in text:
+                    self.calls.append("schema_discovery")
+                    raise RuntimeError("This model's maximum context length exceeded")
+            return super().generate(prompt, **kwargs)
+
+    session_id = "sess_split_partial"
+    (tmp_path / session_id).mkdir()
+    ws = RecordingWSManager()
+    llm = SplitPartialBackendFakeLLM()
+
+    schema, evolution = await run_schema_discovery(
+        session_id=session_id,
+        documents=[
+            "DOC_ALPHA: Valid ruling.",
+            "DOC_TRANSIENT: Broken sibling.",
+        ],
+        filenames=["alpha.txt", "broken.txt"],
+        schematiq_config=_cfg(
+            batch_strategy="fixed",
+            documents_batch_size=2,
+            initial_observation_unit={
+                "name": "Court Ruling",
+                "definition": "A single judicial decision",
+            },
+        ),
+        llm=llm,
+        retriever=None,
+        progress_callback=_noop_progress,
+        is_stop_requested=lambda _sid: False,
+        ws_manager=ws,
+        work_dir=tmp_path,
+    )
+
+    assert [c.name for c in schema.columns] == ["case_identifier"]
+    assert schema.columns[0].source_document == "alpha.txt"
+    assert evolution.column_sources == {"case_identifier": "alpha.txt"}
+    assert evolution.skipped_batches_by_reason == {"llm_call_failed": 1}
+    assert evolution.skipped_filenames == ["broken.txt"]
+
+    skips = json.loads((tmp_path / session_id / "schema_discovery_skips.json").read_text())
+    assert len(skips) == 1
+    assert skips[0]["filenames"] == ["broken.txt"]
+    assert skips[0]["reason"] == "llm_call_failed"
+
+    # compute_statistics retains col.source_document both with and without schema_evolution
+    extracted_file = tmp_path / session_id / "extracted_data.jsonl"
+    extracted_file.write_text(
+        json.dumps({"row_name": "Case 1", "papers": ["alpha.txt"], "case_identifier": {"answer": "101"}})
+        + "\n",
+        encoding="utf-8",
+    )
+    stats_no_evo = compute_statistics(
+        session_id=session_id,
+        schema=schema,
+        schema_evolution=None,
+        work_dir=tmp_path,
+    )
+    assert stats_no_evo is not None
+    assert stats_no_evo.column_stats[0].source_document == "alpha.txt"
+
+    stats_with_evo = compute_statistics(
+        session_id=session_id,
+        schema=schema,
+        schema_evolution=BackendSchemaEvolution(
+            snapshots=[],
+            column_sources=dict(evolution.column_sources),
+        ),
+        work_dir=tmp_path,
+    )
+    assert stats_with_evo is not None
+    assert stats_with_evo.column_stats[0].source_document == "alpha.txt"
+
+    # Unsplit multi-doc batch -> Column.source_document, evolution.column_sources, and ColumnInfo match
+    multi_session = "sess_multi_doc_provenance"
+    (tmp_path / multi_session).mkdir()
+    multi_schema, multi_evo = await run_schema_discovery(
+        session_id=multi_session,
+        documents=["DOC_PLAIN: Intro.", "DOC_ALPHA: Ruling."],
+        filenames=["intro.txt", "alpha.txt"],
+        schematiq_config=_cfg(
+            batch_strategy="fixed",
+            documents_batch_size=2,
+            initial_observation_unit={
+                "name": "Court Ruling",
+                "definition": "A single judicial decision",
+            },
+        ),
+        llm=FailingBatchFakeLLM(),
+        retriever=None,
+        progress_callback=_noop_progress,
+        is_stop_requested=lambda _sid: False,
+        ws_manager=None,
+        work_dir=tmp_path,
+    )
+    assert [c.name for c in multi_schema.columns] == ["case_identifier"]
+    assert multi_schema.columns[0].source_document == "intro.txt, alpha.txt"
+    assert multi_evo.column_sources == {"case_identifier": "intro.txt, alpha.txt"}
+
+    (tmp_path / multi_session / "extracted_data.jsonl").write_text(
+        json.dumps({"row_name": "Case 1", "papers": ["alpha.txt"], "case_identifier": {"answer": "101"}})
+        + "\n",
+        encoding="utf-8",
+    )
+    multi_stats = compute_statistics(
+        session_id=multi_session,
+        schema=multi_schema,
+        schema_evolution=BackendSchemaEvolution(
+            snapshots=[],
+            column_sources=dict(multi_evo.column_sources),
+        ),
+        work_dir=tmp_path,
+    )
+    assert multi_stats is not None
+    assert multi_stats.column_stats[0].source_document == "intro.txt, alpha.txt"

@@ -1053,3 +1053,340 @@ def test_observation_unit_attempts_from_dict() -> None:
         .max_observation_unit_attempts
         is None
     )
+
+
+def test_split_batch_partial_sibling_failure_preserves_successful_subbatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from google.genai import errors as genai_errors
+    from schematiq.core import schematiq as core_sq
+    from schematiq.core.llm_backends import LLMRunAborted
+    from schematiq.core.schema import ObservationUnit
+
+    def _outage_err() -> genai_errors.APIError:
+        with pytest.raises(genai_errors.APIError) as excinfo:
+            genai_errors.APIError.raise_error(
+                503,
+                {
+                    "error": {
+                        "code": 503,
+                        "status": "UNAVAILABLE",
+                        "message": "Overloaded",
+                    }
+                },
+                None,
+            )
+        return excinfo.value
+
+    class SplitPartialFailLLM(FakeDiscoveryLLM):
+        def generate(self, prompt: Any, **kwargs) -> str:
+            if isinstance(prompt, list) and "SchemaLLM" in (prompt[0].get("content", "")):
+                user = prompt[1].get("content", "") if len(prompt) > 1 else ""
+                match = re.search(r"<PASSAGES>(.*?)</PASSAGES>", user, flags=re.DOTALL)
+                text = match.group(1) if match else user
+                marker_count = len(
+                    re.findall(
+                        r"DOC_(?:ALPHA|BETA|TRANSIENT_FAIL|RET_FAIL|OUTAGE|FAIL_ONE|FAIL_TWO)\b",
+                        text,
+                    )
+                )
+                if marker_count > 1:
+                    self.calls.append({"stage": "schema_discovery", "user": user})
+                    raise RuntimeError("This model's maximum context length exceeded")
+                if "DOC_OUTAGE" in text:
+                    self.calls.append({"stage": "schema_discovery", "user": user})
+                    raise _outage_err()
+                if "DOC_FAIL_ONE" in text:
+                    self.calls.append({"stage": "schema_discovery", "user": user})
+                    raise RuntimeError("fail 1")
+                if "DOC_FAIL_TWO" in text:
+                    self.calls.append({"stage": "schema_discovery", "user": user})
+                    raise RuntimeError("fail 2")
+            return super().generate(prompt, **kwargs)
+
+    # 1. Left succeeds, right fails transiently -> left columns and contribution kept
+    warnings_lr: List[tuple] = []
+    schema_lr, evo_lr = discover_schema(
+        documents=["DOC_ALPHA: Ruling 101.", "DOC_TRANSIENT_FAIL: Glitch."],
+        filenames=["a.txt", "broken.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(
+            batch_strategy="fixed",
+            batch_size=2,
+            initial_observation_unit=ObservationUnit(
+                name="Court Ruling", definition="Single ruling"
+            ),
+        ),
+        llm=SplitPartialFailLLM(),
+        on_warning=lambda lvl, msg, info: warnings_lr.append((lvl, msg, info)),
+    )
+    assert [c.name for c in schema_lr.columns] == ["case_identifier"]
+    assert schema_lr.columns[0].source_document == "a.txt"
+    assert evo_lr.column_sources == {"case_identifier": "a.txt"}
+    assert evo_lr.contributing_files == ["a.txt"]
+    assert evo_lr.non_contributing_files == ["broken.txt"]
+    assert evo_lr.skipped_batches_by_reason == {"llm_call_failed": 1}
+    assert evo_lr.skipped_filenames == ["broken.txt"]
+    assert evo_lr.snapshots[0].new_columns == ["case_identifier"]
+    assert [info["reason"] for _, _, info in warnings_lr if info] == ["llm_call_failed"]
+
+    # 2. Left fails transiently, right succeeds -> right columns and contribution kept
+    schema_rl, evo_rl = discover_schema(
+        documents=["DOC_TRANSIENT_FAIL: Glitch.", "DOC_BETA: Appellate court."],
+        filenames=["broken.txt", "b.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(
+            batch_strategy="fixed",
+            batch_size=2,
+            initial_observation_unit=ObservationUnit(
+                name="Court Ruling", definition="Single ruling"
+            ),
+        ),
+        llm=SplitPartialFailLLM(),
+    )
+    assert [c.name for c in schema_rl.columns] == ["court_level"]
+    assert schema_rl.columns[0].source_document == "b.txt"
+    assert evo_rl.column_sources == {"court_level": "b.txt"}
+    assert evo_rl.contributing_files == ["b.txt"]
+    assert evo_rl.non_contributing_files == ["broken.txt"]
+    assert evo_rl.skipped_filenames == ["broken.txt"]
+
+    # 3. Left succeeds, right fails retrieval inside split -> left preserved, reason='retrieval_failed'
+    orig_select = core_sq.select_relevant_content
+
+    def flaky_select(docs, query, retriever):
+        if len(docs) == 1 and any("DOC_RET_FAIL" in d for d in docs):
+            raise RuntimeError("split retrieval connection lost")
+        return orig_select(docs, query, retriever)
+
+    monkeypatch.setattr(core_sq, "select_relevant_content", flaky_select)
+    warnings_ret: List[tuple] = []
+    schema_ret, evo_ret = discover_schema(
+        documents=["DOC_ALPHA: Ruling 101.", "DOC_RET_FAIL: Retriever fails after split."],
+        filenames=["a.txt", "ret_bad.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(
+            batch_strategy="fixed",
+            batch_size=2,
+            initial_observation_unit=ObservationUnit(
+                name="Court Ruling", definition="Single ruling"
+            ),
+        ),
+        llm=SplitPartialFailLLM(),
+        on_warning=lambda lvl, msg, info: warnings_ret.append((lvl, msg, info)),
+    )
+    monkeypatch.undo()
+    assert [c.name for c in schema_ret.columns] == ["case_identifier"]
+    assert evo_ret.contributing_files == ["a.txt"]
+    assert evo_ret.non_contributing_files == ["ret_bad.txt"]
+    assert evo_ret.skipped_batches_by_reason == {"retrieval_failed": 1}
+    assert evo_ret.skipped_filenames == ["ret_bad.txt"]
+    assert [info["reason"] for _, _, info in warnings_ret if info] == ["retrieval_failed"]
+
+    # 4. 3 consecutive outage errors across split leaves abort with LLMRunAborted
+    llm_outage = SplitPartialFailLLM()
+    with pytest.raises(LLMRunAborted, match="3 batches failed in a row"):
+        discover_schema(
+            documents=[
+                "DOC_ALPHA: Success.",
+                "DOC_OUTAGE: 1.",
+                "DOC_OUTAGE: 2.",
+                "DOC_OUTAGE: 3.",
+                "DOC_BETA: Should not be reached.",
+            ],
+            filenames=["a.txt", "o1.txt", "o2.txt", "o3.txt", "b.txt"],
+            query="Analyze rulings",
+            config=DiscoveryConfig(
+                batch_strategy="fixed",
+                batch_size=4,
+                initial_observation_unit=ObservationUnit(
+                    name="Court Ruling", definition="Single ruling"
+                ),
+            ),
+            llm=llm_outage,
+        )
+    assert not any("DOC_BETA" in c["user"] for c in llm_outage.calls)
+
+    # 5. All split leaves failing on the sole batch in corpus re-raises last leaf error
+    with pytest.raises(RuntimeError, match="fail 2"):
+        discover_schema(
+            documents=["DOC_FAIL_ONE: 1.", "DOC_FAIL_TWO: 2."],
+            filenames=["f1.txt", "f2.txt"],
+            query="Analyze rulings",
+            config=DiscoveryConfig(
+                batch_strategy="fixed",
+                batch_size=2,
+                initial_observation_unit=ObservationUnit(
+                    name="Court Ruling", definition="Single ruling"
+                ),
+            ),
+            llm=SplitPartialFailLLM(),
+        )
+
+
+def test_unified_column_provenance_across_unsplit_and_split_batches() -> None:
+    from schematiq.core.schema import ObservationUnit
+
+    class MultiDocSplitLLM(FakeDiscoveryLLM):
+        def generate(self, prompt: Any, **kwargs) -> str:
+            if isinstance(prompt, list) and "SchemaLLM" in (prompt[0].get("content", "")):
+                user = prompt[1].get("content", "") if len(prompt) > 1 else ""
+                match = re.search(r"<PASSAGES>(.*?)</PASSAGES>", user, flags=re.DOTALL)
+                text = match.group(1) if match else user
+                if (
+                    "DOC_ALPHA" in text
+                    and "DOC_BETA" in text
+                    and "DOC_GAMMA_COL" in text
+                    and "DOC_DELTA_COL" in text
+                ):
+                    self.calls.append({"stage": "schema_discovery", "user": user})
+                    raise RuntimeError("This model's maximum context length exceeded")
+            return super().generate(prompt, **kwargs)
+
+    unit = ObservationUnit(name="Court Ruling", definition="Single ruling")
+
+    # Unsplit multi-document batch -> both Column.source_document and column_sources agree
+    schema_unsplit, evo_unsplit = discover_schema(
+        documents=["DOC_GAMMA_COL: Year.", "DOC_ALPHA: Ruling 101."],
+        filenames=["gamma.txt", "alpha.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(
+            batch_strategy="fixed", batch_size=2, initial_observation_unit=unit
+        ),
+        llm=MultiDocSplitLLM(),
+    )
+    assert len(schema_unsplit.columns) == 2
+    for col in schema_unsplit.columns:
+        assert col.source_document == "gamma.txt, alpha.txt"
+        assert evo_unsplit.column_sources[col.name] == col.source_document
+
+    # Split batch with oversized doc skipped + surviving single-doc leaf
+    schema_skip, evo_skip = discover_schema(
+        documents=["DOC_TOO_BIG: Oversized.", "DOC_ALPHA: Ruling 101."],
+        filenames=["huge.txt", "alpha.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(
+            batch_strategy="fixed", batch_size=2, initial_observation_unit=unit
+        ),
+        llm=MultiDocSplitLLM(fail_single_marker="DOC_TOO_BIG"),
+    )
+    assert [c.name for c in schema_skip.columns] == ["case_identifier"]
+    assert schema_skip.columns[0].source_document == "alpha.txt"
+    assert evo_skip.column_sources == {"case_identifier": "alpha.txt"}
+
+    # Split 4-doc batch -> ["a.txt", "b.txt"] and ["c.txt", "d.txt"] sub-batches
+    schema_sub, evo_sub = discover_schema(
+        documents=[
+            "DOC_ALPHA: 1.",
+            "DOC_GAMMA_COL: 2.",
+            "DOC_BETA: 3.",
+            "DOC_DELTA_COL: 4.",
+        ],
+        filenames=["a.txt", "b.txt", "c.txt", "d.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(
+            batch_strategy="fixed", batch_size=4, initial_observation_unit=unit
+        ),
+        llm=MultiDocSplitLLM(),
+    )
+    by_name = {c.name: c for c in schema_sub.columns}
+    assert by_name["case_identifier"].source_document == "a.txt, b.txt"
+    assert by_name["filing_year"].source_document == "a.txt, b.txt"
+    assert by_name["court_level"].source_document == "c.txt, d.txt"
+    assert by_name["country_of_origin"].source_document == "c.txt, d.txt"
+    for name, col in by_name.items():
+        assert evo_sub.column_sources[name] == col.source_document
+
+
+def test_obs_unit_cap_with_split_subbatch_error_handling() -> None:
+    class ObsUnitAndSplitLLM(FakeDiscoveryLLM):
+        def generate(self, prompt: Any, **kwargs) -> str:
+            if isinstance(prompt, list):
+                system = prompt[0].get("content", "") if len(prompt) > 0 else ""
+                user = prompt[1].get("content", "") if len(prompt) > 1 else ""
+            else:
+                system = ""
+                user = str(prompt)
+
+            if "ObservationUnitLLM" in system:
+                self.calls.append({"stage": "observation_unit", "user": user})
+                if "DOC_BAD_OBS" in user:
+                    return "{not valid json"
+                return json.dumps(
+                    {
+                        "observation_unit": {
+                            "name": "Court Ruling",
+                            "definition": "A single judicial decision on an appeal",
+                            "example_names": ["Appeal 101"],
+                        },
+                        "reasoning": "Deterministic test unit",
+                    }
+                )
+
+            if "SchemaLLM" in system:
+                match = re.search(r"<PASSAGES>(.*?)</PASSAGES>", user, flags=re.DOTALL)
+                text = match.group(1) if match else user
+                if (
+                    len(
+                        re.findall(
+                            r"DOC_(?:ALPHA|TRANSIENT_FAIL)\b",
+                            text,
+                        )
+                    )
+                    > 1
+                ):
+                    self.calls.append({"stage": "schema_discovery", "user": user})
+                    raise RuntimeError("This model's maximum context length exceeded")
+            return super().generate(prompt, **kwargs)
+
+    # Batch 1 fails observation unit discovery (1 < cap 2), then batch 2 recovers the unit
+    # and splits on token limits while preserving the surviving sub-batch.
+    schema, evo = discover_schema(
+        documents=[
+            "DOC_BAD_OBS: Cover noise 1.",
+            "DOC_BAD_OBS: Cover noise 2.",
+            "DOC_ALPHA: Ruling 101.",
+            "DOC_TRANSIENT_FAIL: Glitch.",
+        ],
+        filenames=["bad_obs1.txt", "bad_obs2.txt", "a.txt", "broken.txt"],
+        query="Analyze rulings",
+        config=DiscoveryConfig(
+            batch_strategy="fixed",
+            batch_size=2,
+            max_observation_unit_attempts=2,
+        ),
+        llm=ObsUnitAndSplitLLM(),
+    )
+    assert schema.observation_unit is not None
+    assert schema.observation_unit.source_document == "a.txt"
+    assert [c.name for c in schema.columns] == ["case_identifier"]
+    assert schema.columns[0].source_document == "a.txt"
+    assert evo.column_sources == {"case_identifier": "a.txt"}
+    assert evo.contributing_files == ["a.txt"]
+    assert evo.non_contributing_files == ["bad_obs1.txt", "bad_obs2.txt", "broken.txt"]
+    assert evo.skipped_batches_by_reason == {
+        "observation_unit_discovery_failed": 1,
+        "llm_call_failed": 1,
+    }
+    assert evo.skipped_filenames == ["bad_obs1.txt", "bad_obs2.txt", "broken.txt"]
+
+    # Exceeding max_observation_unit_attempts=2 aborts before reaching the split batch.
+    with pytest.raises(
+        RuntimeError, match=r"Failed to discover observation unit \(after 2 attempts\)"
+    ):
+        discover_schema(
+            documents=[
+                "DOC_BAD_OBS: Cover 1.",
+                "DOC_BAD_OBS: Cover 2.",
+                "DOC_ALPHA: Ruling 101.",
+                "DOC_TRANSIENT_FAIL: Glitch.",
+            ],
+            filenames=["bad1.txt", "bad2.txt", "a.txt", "broken.txt"],
+            query="Analyze rulings",
+            config=DiscoveryConfig(
+                batch_strategy="fixed",
+                batch_size=1,
+                max_observation_unit_attempts=2,
+            ),
+            llm=ObsUnitAndSplitLLM(),
+        )
