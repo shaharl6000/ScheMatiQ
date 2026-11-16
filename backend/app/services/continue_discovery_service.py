@@ -41,7 +41,7 @@ from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.discovery import DiscoveryConfig, discover_schema
 from schematiq.value_extraction.main import build_table_jsonl
-from app.services.pipeline.schema_discovery import _log_skipped_batch, run_callback_on_loop
+from app.services.pipeline.schema_discovery import log_skipped_batch, run_callback_on_loop
 from app.services.session_documents import (
     committed_docs_dir,
     pending_docs_dir,
@@ -1042,20 +1042,18 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             loop = asyncio.get_running_loop()
             caller_cancelled = threading.Event()
 
-            def _on_progress(_stage: str, _fraction: float, info: Dict[str, Any]) -> None:
-                iteration_num = info.get("iteration", 0)
-                max_iters = info.get("max_iterations", 0)
-                batch_docs_count = info.get("batch_docs", 0)
-                current_cols = info.get("current_columns", 0)
+            async def _apply_progress_on_loop(
+                iteration_num: int,
+                max_iters: int,
+                batch_docs_count: int,
+                current_cols: int,
+            ) -> None:
                 if max_iters:
                     operation.total_batches = max_iters
                 if iteration_num:
                     operation.current_batch = iteration_num
                 progress = iteration_num / max_iters if max_iters else 1.0
-                run_callback_on_loop(
-                    loop,
-                    caller_cancelled,
-                    self.broadcast_event,
+                await self.broadcast_event(
                     operation.session_id,
                     "continue_discovery_progress",
                     {
@@ -1069,6 +1067,17 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     },
                 )
 
+            def _on_progress(_stage: str, _fraction: float, info: Dict[str, Any]) -> None:
+                run_callback_on_loop(
+                    loop,
+                    caller_cancelled,
+                    _apply_progress_on_loop,
+                    info.get("iteration", 0),
+                    info.get("max_iterations", 0),
+                    info.get("batch_docs", 0),
+                    info.get("current_columns", 0),
+                )
+
             def _should_stop() -> bool:
                 return caller_cancelled.is_set() or self.is_stop_requested(operation_id)
 
@@ -1078,7 +1087,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 skip_info: Optional[Dict[str, Any]] = None,
             ) -> None:
                 if skip_info is not None:
-                    _log_skipped_batch(
+                    log_skipped_batch(
                         self._get_schematiq_work_dir(),
                         operation.session_id,
                         skip_info.get("filenames", []),

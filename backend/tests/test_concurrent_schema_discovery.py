@@ -3,16 +3,46 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import logging
+import os
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import pytest
 
 from app.core.config import SCHEMATIQ_THREAD_POOL_SIZE
-from app.services.pipeline.schema_discovery import run_schema_discovery
+from app.services.pipeline.schema_discovery import (
+    run_callback_on_loop,
+    run_schema_discovery,
+)
+from schematiq.core import schema as schema_mod
 from schematiq.core.llm_backends import LLMInterface
+
+
+class _FakeEmbeddingModel:
+    """Fast deterministic CPU embedding model for unit-testing concurrency without weights."""
+
+    device = "cpu"
+
+    def encode(
+        self,
+        text: str,
+        normalize_embeddings: bool = True,
+        show_progress_bar: bool = False,
+    ) -> np.ndarray:
+        seed = int.from_bytes(hashlib.sha256(text.encode("utf-8")).digest()[:8], "big")
+        vec = np.random.default_rng(seed).standard_normal(64).astype(np.float32)
+        if normalize_embeddings:
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec = vec / norm
+        return vec
 
 
 class ConcurrentFakeLLM(LLMInterface):
@@ -110,12 +140,8 @@ class AsyncRecordingWSManager:
         self.logs.append({"session_id": session_id, "level": log_data.get("level")})
 
 
-@pytest.mark.asyncio
-async def test_six_concurrent_discoveries_complete_without_deadlock(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Running 6 discoveries simultaneously (matching pool size 6) finishes cleanly even from cold start."""
-    monkeypatch.setattr("schematiq.core.schema._EMB_MODEL", None)
+async def _run_six_concurrent_discoveries(tmp_path: Path) -> None:
+    """Execute 6 concurrent discoveries (matching pool size 6) and verify all results."""
     num_concurrent = max(6, SCHEMATIQ_THREAD_POOL_SIZE)
 
     async def _run_one(idx: int):
@@ -180,8 +206,61 @@ async def test_six_concurrent_discoveries_complete_without_deadlock(
 
 
 @pytest.mark.asyncio
-async def test_cancelled_discovery_does_not_wedge_worker_pool(tmp_path: Path) -> None:
-    """Cancelling an in-flight discovery task unblocks run_callback_on_loop and leaves workers usable."""
+async def test_six_concurrent_discoveries_complete_without_deadlock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Running 6 discoveries concurrently from cold start serializes slow model loading cleanly."""
+    counter_lock = threading.Lock()
+    load_calls = 0
+    active_loads = 0
+    max_active_loads = 0
+
+    def fake_slow_loader(_model_name: str, **_kwargs: Any) -> _FakeEmbeddingModel:
+        nonlocal load_calls, active_loads, max_active_loads
+        with counter_lock:
+            load_calls += 1
+            active_loads += 1
+            max_active_loads = max(max_active_loads, active_loads)
+        try:
+            time.sleep(0.05)
+            return _FakeEmbeddingModel()
+        finally:
+            with counter_lock:
+                active_loads -= 1
+
+    monkeypatch.setattr(schema_mod, "_EMB_MODEL", None)
+    monkeypatch.setattr(schema_mod, "load_sentence_transformer", fake_slow_loader)
+
+    await _run_six_concurrent_discoveries(tmp_path)
+    assert load_calls == 1
+    assert max_active_loads == 1
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_six_concurrent_discoveries_real_model_integration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """Opt-in integration test exercising real cold SentenceTransformer load across 6 threads."""
+    markexpr = request.config.getoption("-m") or ""
+    if "integration" not in markexpr and os.environ.get("RUN_INTEGRATION_TESTS") != "1":
+        pytest.skip(
+            "integration test skipped by default (pass -m integration or set RUN_INTEGRATION_TESTS=1)"
+        )
+
+    monkeypatch.setattr(schema_mod, "_EMB_MODEL", None)
+    await _run_six_concurrent_discoveries(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_discovery_does_not_wedge_worker_pool(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Cancelling an in-flight discovery task unblocks run_callback_on_loop, logs drop, and frees workers."""
+    monkeypatch.setattr(schema_mod, "_EMB_MODEL", _FakeEmbeddingModel())
+    caplog.set_level(logging.DEBUG, logger="app.services.pipeline.schema_discovery")
     callback_started = asyncio.Event()
 
     async def slow_progress(_stage: str, _fraction: float, _info: Dict[str, Any]) -> None:
@@ -227,6 +306,14 @@ async def test_cancelled_discovery_does_not_wedge_worker_pool(tmp_path: Path) ->
     with pytest.raises(asyncio.CancelledError):
         await task
 
+    for _ in range(40):
+        if "caller cancelled" in caplog.text:
+            break
+        await asyncio.sleep(0.05)
+
+    assert "Dropping" in caplog.text
+    assert "caller cancelled" in caplog.text
+
     # Now verify another discovery still acquires workers and completes quickly.
     follow_sess = "followup_sess"
     (tmp_path / follow_sess).mkdir(parents=True, exist_ok=True)
@@ -250,4 +337,30 @@ async def test_cancelled_discovery_does_not_wedge_worker_pool(tmp_path: Path) ->
         timeout=10.0,
     )
     assert {c.name for c in schema.columns} == {"case_identifier"}
+
+
+def test_run_callback_on_loop_logs_when_loop_stopped_or_closed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """run_callback_on_loop logs debug messages when dropping callbacks on stopped/closed loops."""
+    caplog.set_level(logging.DEBUG, logger="app.services.pipeline.schema_discovery")
+    loop = asyncio.new_event_loop()
+    cancel_ev = threading.Event()
+    called = False
+
+    def _cb() -> None:
+        nonlocal called
+        called = True
+
+    try:
+        assert run_callback_on_loop(loop, cancel_ev, _cb) is None
+        assert not called
+        assert "event loop stopped" in caplog.text
+    finally:
+        loop.close()
+
+    caplog.clear()
+    assert run_callback_on_loop(loop, cancel_ev, _cb) is None
+    assert not called
+    assert "event loop closed" in caplog.text
 

@@ -24,6 +24,19 @@ from schematiq.discovery import (
 logger = logging.getLogger(__name__)
 
 
+def _callback_drop_reason(
+    loop: asyncio.AbstractEventLoop,
+    cancel_event: threading.Event,
+) -> Optional[str]:
+    if cancel_event.is_set():
+        return "caller cancelled"
+    if loop.is_closed():
+        return "event loop closed"
+    if not loop.is_running():
+        return "event loop stopped"
+    return None
+
+
 def run_callback_on_loop(
     loop: asyncio.AbstractEventLoop,
     cancel_event: threading.Event,
@@ -31,7 +44,13 @@ def run_callback_on_loop(
     *args,
 ) -> Any:
     """Run a sync/async callback on ``loop`` without hanging if ``loop`` stops or caller cancels."""
-    if coro_fn is None or cancel_event.is_set() or loop.is_closed() or not loop.is_running():
+    if coro_fn is None:
+        return None
+
+    cb_name = getattr(coro_fn, "__qualname__", getattr(coro_fn, "__name__", repr(coro_fn)))
+    reason = _callback_drop_reason(loop, cancel_event)
+    if reason is not None:
+        logger.debug("Dropping discovery callback %s (%s)", cb_name, reason)
         return None
 
     async def _invoke():
@@ -43,16 +62,20 @@ def run_callback_on_loop(
     coro = _invoke()
     try:
         fut = asyncio.run_coroutine_threadsafe(coro, loop)
-    except RuntimeError:
+    except RuntimeError as exc:
         coro.close()
+        drop_reason = _callback_drop_reason(loop, cancel_event) or str(exc)
+        logger.debug("Dropping discovery callback %s (%s)", cb_name, drop_reason)
         return None
 
     while True:
         try:
             return fut.result(timeout=0.5)
         except concurrent.futures.TimeoutError:
-            if cancel_event.is_set() or loop.is_closed() or not loop.is_running():
+            reason = _callback_drop_reason(loop, cancel_event)
+            if reason is not None:
                 fut.cancel()
+                logger.debug("Dropping in-flight discovery callback %s (%s)", cb_name, reason)
                 return None
 
 
@@ -145,7 +168,7 @@ async def run_schema_discovery(
         skip_info: Optional[Dict[str, Any]] = None,
     ) -> None:
         if skip_info is not None and work_dir:
-            _log_skipped_batch(
+            log_skipped_batch(
                 work_dir,
                 session_id,
                 skip_info.get("filenames", []),
@@ -207,7 +230,7 @@ def _load_initial_schema(
     )
 
 
-def _log_skipped_batch(
+def log_skipped_batch(
     work_dir: Optional[Path],
     session_id: str,
     filenames: List[str],
