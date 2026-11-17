@@ -189,6 +189,19 @@ async def upload_file(file: UploadFile = File(...)):
         set_session_context(session_id)
         logger.debug(f"Received file upload: {file.filename}, size: {file.size}")
 
+        # Refuse an oversized upload before any of it is read into memory (CWE-400).
+        limit = FileParser.max_upload_bytes(file.filename)
+        size = file.size
+        if size is None:
+            file.file.seek(0, 2)
+            size = file.file.tell()
+            file.file.seek(0)
+        if size > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File is too large to import (limit {limit // (1024 * 1024)} MB)",
+            )
+
         # Validate file
         parser = FileParser()
         validation = await parser.validate_file(file)
@@ -621,9 +634,9 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
             
             try:
                 file_path = pending_dir / filename
-                with open(file_path, 'wb') as f:
-                    content = await file.read()
-                    f.write(content)
+                content = await file.read()
+                # Up to 25MB per file: write off the event loop.
+                await asyncio.to_thread(file_path.write_bytes, content)
 
                 # to_thread rather than run_in_executor: it copies the context,
                 # so preprocessing logs keep the session id.
@@ -983,8 +996,7 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
                 # dataset); only its last component (local_name) is used here,
                 # so it cannot point outside pending_documents/ (CWE-22).
                 file_path = pending_dir / local_name
-                with open(file_path, 'wb') as f:
-                    f.write(content)
+                await asyncio.to_thread(file_path.write_bytes, content)
 
                 # to_thread rather than run_in_executor: it copies the context,
                 # so preprocessing logs keep the session id.
