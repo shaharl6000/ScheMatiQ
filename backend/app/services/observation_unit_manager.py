@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
 from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
+from app.services.session_data_store import save_session_data_file, session_write_lock
 
 
 class ObservationUnitManager:
@@ -147,32 +148,31 @@ class ObservationUnitManager:
         if not jsonl_file.exists():
             jsonl_file = data_dir / "data.jsonl"
 
-        if jsonl_file.exists():
-            rows = []
-            with open(jsonl_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        try:
-                            row = json.loads(line)
-                            row_unit = (
-                                row.get('_unit_name') or
-                                row.get('unit_name') or
-                                row.get('observation_unit') or
-                                row.get('name') or
-                                row.get(list(row.keys())[0] if row else '')
-                            )
-                            if row_unit != unit_name:
-                                rows.append(row)
-                            else:
-                                removed = True
-                        except json.JSONDecodeError:
-                            continue
+        async with session_write_lock(session_id):
+            if jsonl_file.exists():
+                rows = []
+                with open(jsonl_file, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            try:
+                                row = json.loads(line)
+                                row_unit = (
+                                    row.get('_unit_name') or
+                                    row.get('unit_name') or
+                                    row.get('observation_unit') or
+                                    row.get('name') or
+                                    row.get(list(row.keys())[0] if row else '')
+                                )
+                                if row_unit != unit_name:
+                                    rows.append(row)
+                                else:
+                                    removed = True
+                            except json.JSONDecodeError:
+                                continue
 
-            if removed:
-                with open(jsonl_file, 'w') as f:
-                    for row in rows:
-                        f.write(json.dumps(row) + '\n')
-                updated_rows = rows
+                if removed:
+                    await save_session_data_file(session_id, jsonl_file, rows)
+                    updated_rows = rows
 
         # Also check/remove from CSV file
         csv_file = data_dir / "data.csv"

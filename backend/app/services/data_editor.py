@@ -6,7 +6,6 @@ Handles updates to JSONL data files for both load and ScheMatiQ sessions.
 import copy
 import json
 import logging
-import asyncio
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,24 +16,17 @@ from app.services.data_utils import (
     persist_session_data_file,
     rename_column_keys_in_row,
 )
+from app.services.session_data_store import session_write_lock
 
 logger = logging.getLogger(__name__)
 
-# Per-session write locks. update_cell does a read-modify-write over the whole
-# JSONL file, and the frontend fires one request per cell in parallel for a
-# multi-cell clear/paste. Without serialization two concurrent writes each read
-# the pre-edit file and the second write clobbers the first, so some cells
-# silently revert on the next refresh ("cleared two, one comes back"). A lock
-# keyed by session_id serializes writes for a session within the event loop.
-_session_write_locks: dict[str, asyncio.Lock] = {}
-
-
-def _get_session_write_lock(session_id: str) -> asyncio.Lock:
-    lock = _session_write_locks.get(session_id)
-    if lock is None:
-        lock = asyncio.Lock()
-        _session_write_locks[session_id] = lock
-    return lock
+# update_cells does a read-modify-write over the whole JSONL file, and the
+# frontend may fire several requests for a multi-cell clear/paste. Without
+# serialization two concurrent writes each read the pre-edit file and the
+# second write clobbers the first, so some cells silently revert on the next
+# refresh ("cleared two, one comes back"). The per-session lock is shared with
+# every other data-file writer (see session_data_store).
+_get_session_write_lock = session_write_lock
 
 
 class DataEditor:
@@ -427,23 +419,24 @@ class DataEditor:
         files_updated = 0
         total_rows_updated = 0
 
-        for data_file in data_files:
-            rows = []
-            with open(data_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip():
-                        rows.append(json.loads(line))
+        async with _get_session_write_lock(session_id):
+            for data_file in data_files:
+                rows = []
+                with open(data_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip():
+                            rows.append(json.loads(line))
 
-            file_rows_updated = 0
-            for row in rows:
-                if rename_column_keys_in_row(row, old_name, new_name):
-                    file_rows_updated += 1
+                file_rows_updated = 0
+                for row in rows:
+                    if rename_column_keys_in_row(row, old_name, new_name):
+                        file_rows_updated += 1
 
-            write_jsonl_atomic(data_file, rows, ensure_ascii=False)
+                write_jsonl_atomic(data_file, rows, ensure_ascii=False)
 
-            await persist_session_data_file(session_id, data_file)
-            files_updated += 1
-            total_rows_updated += file_rows_updated
+                await persist_session_data_file(session_id, data_file)
+                files_updated += 1
+                total_rows_updated += file_rows_updated
 
         if files_updated == 0:
             raise FileNotFoundError(f"No data file found for session {session_id}")

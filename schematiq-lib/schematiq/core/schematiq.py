@@ -221,13 +221,21 @@ def _extract_json(text: str) -> str:
     """
     Return the JSON payload inside a Markdown code-block if one exists,
     otherwise return the original string (stripped of leading/trailing space).
-    Also normalizes double braces ({{ }}) to single braces ({ }).
+
+    Double braces ({{ }}) are normalized to single braces only when the
+    payload is not valid JSON as is. The model sometimes copies the escaped
+    braces from prompt examples, but valid compact JSON also contains '}}'
+    (e.g. {"observation_unit": {"name": "x"}}), and replacing it there would
+    break the payload.
     """
     match = _CODE_FENCE.search(text)
     result = match.group(1) if match else text.strip()
-    # Normalize double braces (LLM may copy from prompt examples which use {{ }} for Python escaping)
-    result = result.replace('{{', '{').replace('}}', '}')
-    return result
+    try:
+        json.loads(result)
+        return result
+    except ValueError:
+        pass
+    return result.replace('{{', '{').replace('}}', '}')
 
 
 def _clean_column_name(name: str) -> str:

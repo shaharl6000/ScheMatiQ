@@ -57,3 +57,28 @@ def write_jsonl_atomic(
         except OSError:
             logger.debug("Could not remove temp file %s", tmp_path)
         raise
+
+
+def write_json_atomic(path: Path, data: Any, *, indent: int = 2) -> None:
+    """Rewrite *path* with *data* as one JSON document, atomically."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(path.parent),
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=indent)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            logger.debug("Could not remove temp file %s", tmp_path)
+        raise

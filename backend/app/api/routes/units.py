@@ -655,7 +655,7 @@ async def merge_units(session_id: str, request: MergeUnitsRequest):
         )
 
     try:
-        result = unit_view_service.merge_units(session_id, request)
+        result = await unit_view_service.merge_units_async(session_id, request)
 
         if not result.success:
             raise HTTPException(status_code=400, detail=result.message)
@@ -704,7 +704,9 @@ async def get_merge_suggestions(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        return unit_view_service.suggest_similar_units(session_id, threshold, auto_merge)
+        return await unit_view_service.suggest_similar_units_async(
+            session_id, threshold, auto_merge
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting suggestions: {str(e)}")
 
