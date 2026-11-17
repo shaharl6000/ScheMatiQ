@@ -136,6 +136,12 @@ export const emptyData: PaginatedData = {
 // finish, short enough that a genuinely emptied table clears without a visible
 // wait. See applyData in index.tsx.
 export const EMPTY_DATA_RECHECK_MS = 900;
+// Minimum spacing between background row refreshes driven by websocket events
+// (cell_extracted, progress, row_completed, ...) and fallback polls. During
+// extraction these fire once per cell, and each refresh fetches the whole page
+// (~1 MB at 500 rows). Bursts collapse into at most one request in flight plus
+// one trailing request. See refreshSilentThrottled in index.tsx.
+export const SILENT_REFRESH_MIN_INTERVAL_MS = 750;
 // Automatic retry schedule for a table-data fetch that failed with 503: the
 // backend answers 503 specifically when the session's rows exist in storage
 // but could not be hydrated locally, so a retry is expected to succeed once
