@@ -358,14 +358,21 @@ function Workspace() {
     return Boolean(editor?.isOpened?.());
   }, []);
 
-  const commitData = useCallback((nextData: PaginatedData, onCommitted?: (data: PaginatedData) => void) => {
+  const commitData = useCallback((
+    nextData: PaginatedData,
+    onCommitted?: (data: PaginatedData) => void,
+    forceVersionBump?: boolean,
+  ) => {
     dataRowCountRef.current = nextData.rows.length;
     const serverChanged = !lastServerDataRef.current || !dataEquals(lastServerDataRef.current, nextData);
     lastServerDataRef.current = nextData;
     setData((current) => (dataEquals(current, nextData) ? current : nextData));
     // Only a real server-side change should refetch the By Unit view; a no-op
     // poll during extraction used to trigger one unit fetch per event.
-    if (serverChanged) setDataServerVersion((v) => v + 1);
+    // Post-edit refreshes always bump: the optimistic patch also wrote unitData,
+    // and when the save failed the server rows equal lastServerDataRef, so
+    // without the bump By Unit would keep showing the unsaved value.
+    if (serverChanged || forceVersionBump) setDataServerVersion((v) => v + 1);
     onCommitted?.(nextData);
   }, []);
 
@@ -417,7 +424,7 @@ function Workspace() {
         return;
       }
       deferredDataRef.current = null;
-      commitData(nextData, opts?.onCommitted);
+      commitData(nextData, opts?.onCommitted, opts?.force);
     },
     [commitData, isCellEditorOpen, scheduleEmptyRecheck],
   );
@@ -445,6 +452,9 @@ function Workspace() {
       // The user switched projects while this fetch was in flight.
       if (token.sessionId !== sessionIdRef.current) return;
       if (token.seq < dataAppliedSeqRef.current) {
+        // A dropped post-edit refresh still owes By Unit its refetch (see
+        // commitData): the newer payload may equal lastServerDataRef.
+        if (opts?.force) setDataServerVersion((v) => v + 1);
         // A newer response was already applied. Drop these rows, but a caller
         // waiting on the commit (e.g. the re-extraction undo recorder) still
         // gets the newer payload, which reflects at least as recent a state.

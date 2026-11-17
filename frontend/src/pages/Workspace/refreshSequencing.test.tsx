@@ -24,6 +24,7 @@ const mockGetData = jest.fn<Promise<PaginatedData>, [string, number, number]>();
 const mockGetSession = jest.fn();
 const mockGetDocuments = jest.fn();
 const mockGetReextractionStatus = jest.fn();
+const mockUnitsGetData = jest.fn();
 
 jest.mock('@/services/api', () => ({
   __esModule: true,
@@ -48,14 +49,7 @@ jest.mock('@/services/api', () => ({
   },
   unitsAPI: {
     getDocuments: (...args: unknown[]) => mockGetDocuments(...args),
-    getData: () =>
-      Promise.resolve({
-        rows: [],
-        total_count: 0,
-        page: 0,
-        page_size: 500,
-        has_more: false,
-      }),
+    getData: (...args: unknown[]) => mockUnitsGetData(...args),
   },
   describeSkippedAttachments: () => '',
 }));
@@ -107,8 +101,12 @@ jest.mock('@/components/DocumentViewer/DocumentViewer', () => () => null);
 jest.mock('@/components/DocumentViewer/DocumentPreview', () => () => null);
 jest.mock('@/components/DocumentUpload/DocumentUpload', () => () => null);
 jest.mock('@/components/DataTable/SkippedDocumentsBanner', () => () => null);
+let mockCapturedViewModeChange: ((mode: string) => void) | null = null;
 jest.mock('@/components/ViewMode/ViewModeToggle', () => ({
-  ViewModeToggle: () => null,
+  ViewModeToggle: (props: { onViewModeChange: (mode: string) => void }) => {
+    mockCapturedViewModeChange = props.onViewModeChange;
+    return null;
+  },
 }));
 jest.mock('@/components/SchemaEditor/MissingDocumentsSection', () => () => null);
 jest.mock('@/components/TableFeedbackWidget/TableFeedbackWidget', () => () => null);
@@ -130,14 +128,22 @@ jest.mock('./SpreadsheetChrome', () => ({
 
 let mockRenderedRows: string[] = [];
 let mockRenderedSchemaQuery: string | undefined;
+let mockCapturedRefreshAfterEdit: (() => void) | null = null;
+let mockCapturedOptimisticEdit:
+  | ((edits: { identity: { rowName: string }; column: string; value: string }[]) => void)
+  | null = null;
 
 jest.mock('./SpreadsheetSurface', () => ({
   SpreadsheetSurface: (props: {
     applyCellUpdatesRef: React.MutableRefObject<((updates: CellUpdate[]) => void) | null>;
     data: PaginatedData;
     schema: SchemaData | null;
+    onRefreshData: () => void;
+    onOptimisticCellEdit: (edits: { identity: { rowName: string }; column: string; value: string }[]) => void;
   }) => {
     props.applyCellUpdatesRef.current = mockApplyCellUpdatesSpy;
+    mockCapturedRefreshAfterEdit = props.onRefreshData;
+    mockCapturedOptimisticEdit = props.onOptimisticCellEdit;
     mockRenderedRows = props.data.rows.map((r) => String(r.row_name));
     mockRenderedSchemaQuery = props.schema?.query;
     return null;
@@ -229,6 +235,7 @@ describe('Workspace row refresh sequencing', () => {
       enrichmentPending: false,
     });
     mockGetData.mockReset();
+    mockUnitsGetData.mockReset().mockResolvedValue(mkPaginated([]));
     container = document.createElement('div');
     root = createRoot(container);
   });
@@ -416,5 +423,41 @@ describe('Workspace row refresh sequencing', () => {
       await flushMicrotasks();
     });
     expect(mockRenderedSchemaQuery).toBe('session-2');
+  });
+
+  it('refetches By Unit after an edit refresh even when the server rows did not change (failed save)', async () => {
+    mockGetData.mockResolvedValue(mkPaginated([row('r1')]));
+    await act(async () => {
+      root.render(<Workspace />);
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      mockCapturedViewModeChange!('by_unit');
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(250);
+      await flushMicrotasks();
+    });
+    const unitFetchesBefore = mockUnitsGetData.mock.calls.length;
+    expect(unitFetchesBefore).toBeGreaterThan(0);
+
+    // Optimistic edit, the save fails, and the post-edit refresh returns the
+    // same rows as before. By Unit must refetch to drop the unsaved value.
+    await act(async () => {
+      mockCapturedOptimisticEdit!([{ identity: { rowName: 'r1' }, column: 'colA', value: 'unsaved' }]);
+      mockCapturedRefreshAfterEdit!();
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(250);
+      await flushMicrotasks();
+    });
+    expect(mockUnitsGetData.mock.calls.length).toBeGreaterThan(unitFetchesBefore);
   });
 });
