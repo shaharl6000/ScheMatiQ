@@ -448,13 +448,14 @@ async def attach_source_documents(
     session_id: str,
     files: List[UploadFile] = File(...),
 ):
-    """Persist uploaded originals under the session's pending_documents/ dir.
+    """Persist uploaded originals and convert them for the document viewer.
 
-    The viewer's ``get_document_content`` already searches documents/ and
-    pending_documents/ (with stem matching) across every candidate data dir, so
-    writing the originals here is sufficient for inline preview. We deliberately
-    avoid preprocessing (no PDF->text conversion) so the original file renders
-    natively, and we never touch session.status or uploaded_documents.
+    Each original is written to the session's pending_documents/ dir and then
+    converted into documents/ (PDF/office to text), so previews render as text
+    with grounding highlights. The viewer's ``get_document_content`` searches
+    both dirs (with stem matching), so a file that fails to convert still
+    previews from its original. We never touch session.status or
+    uploaded_documents.
 
     Note: this writes to the local filesystem, which is durable in dev and for a
     single-instance backend. Durable storage of re-attached files on the Supabase

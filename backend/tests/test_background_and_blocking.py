@@ -3,7 +3,6 @@ the event loop; persistence failures are reported."""
 
 import asyncio
 import gc
-import io
 import logging
 import threading
 from pathlib import Path
@@ -75,7 +74,7 @@ async def test_attach_source_documents_converts_off_the_event_loop(tmp_path, mon
     assert (tmp_path / "sid" / "pending_documents" / "a.pdf").exists()
 
 
-async def test_persist_session_data_file_reports_failure(tmp_path, caplog):
+async def test_persist_session_data_file_reports_failure(tmp_path, caplog, monkeypatch):
     from app.services import data_utils
 
     local = tmp_path / "data" / "sid" / "data.jsonl"
@@ -90,13 +89,11 @@ async def test_persist_session_data_file_reports_failure(tmp_path, caplog):
         async def upload_file(self, *args, **kwargs):
             return "ok"
 
-    original = data_utils.storage_path_for_data_file
-    data_utils.storage_path_for_data_file = lambda p, sid: f"{sid}/data.jsonl"
-    try:
-        with caplog.at_level(logging.ERROR, logger=data_utils.logger.name):
-            assert await data_utils.persist_session_data_file("sid", local, FailingStorage()) is False
-        assert any("storage down" in r.getMessage() for r in caplog.records)
-        assert await data_utils.persist_session_data_file("sid", local, OkStorage()) is True
-    finally:
-        data_utils.storage_path_for_data_file = original
+    monkeypatch.setattr(
+        data_utils, "storage_path_for_data_file", lambda p, sid: f"{sid}/data.jsonl"
+    )
+    with caplog.at_level(logging.ERROR, logger=data_utils.logger.name):
+        assert await data_utils.persist_session_data_file("sid", local, FailingStorage()) is False
+    assert any("storage down" in r.getMessage() for r in caplog.records)
+    assert await data_utils.persist_session_data_file("sid", local, OkStorage()) is True
 

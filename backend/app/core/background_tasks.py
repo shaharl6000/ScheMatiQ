@@ -35,4 +35,3 @@ def spawn_background(
     _background_tasks.add(task)
     task.add_done_callback(_on_done)
     return task
-

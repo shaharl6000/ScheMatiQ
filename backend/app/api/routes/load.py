@@ -1,7 +1,6 @@
 """Upload API endpoints."""
 
 import asyncio
-from app.core.background_tasks import spawn_background
 import logging
 import uuid
 import json
@@ -9,6 +8,7 @@ import random
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+from app.core.background_tasks import spawn_background
 from app.core.config import DEFAULT_DATA_DIR
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
