@@ -19,6 +19,8 @@ import logging
 from pathlib import Path
 from typing import Set
 
+from app.services.data_utils import row_dedup_key
+from app.services.session_data_store import save_session_data_file, session_write_lock
 from app.services.session_manager import SessionManager
 from app.services.uniprot_lookup import (
     EXTERNAL,
@@ -131,17 +133,17 @@ class UniProtEnrichmentService:
             # Per-session cache so repeated proteins within a session skip HTTP.
             cache: dict = {}
             enriched = 0
+            # (row index, row key, protein looked up, parsed hit or None). The
+            # lookups are slow and rate limited, so the rows are not written
+            # here: _merge_results re-reads the file under the session write
+            # lock and applies these, keeping edits made in the meantime.
+            results: list = []
 
             for idx in pending_indices:
                 row = rows[idx]
-                status = row.get("_cell_status")
-                if not isinstance(status, dict):
-                    status = {}
-                    row["_cell_status"] = status
-
                 protein = extract_value(row.get(pcol)) if pcol else None
                 if not protein:
-                    _fill_empty(row, status)
+                    results.append((idx, row_dedup_key(row), protein, None))
                     continue
 
                 organism = row.get(ocol) if ocol else None
@@ -161,19 +163,14 @@ class UniProtEnrichmentService:
 
                 if parsed:
                     enriched += 1
-                    for col, _defn, _dtype in UNIPROT_SCHEMA_COLUMNS:
-                        val = parsed.get(col)
-                        row[col] = val
-                        status[col] = EXTERNAL if val is not None else NO_CHANGE
-                else:
-                    _fill_empty(row, status)
+                results.append((idx, row_dedup_key(row), protein, parsed))
 
-            _write_jsonl_atomic(jsonl_path, rows)
+            applied = await _merge_results(session_id, jsonl_path, pcol, results)
             self._ensure_columns_on_session(session_id)
 
             logger.info(
-                "[uniprot-enrichment] Finished session %s: %d/%d rows enriched",
-                session_id[:8], enriched, len(pending_indices),
+                "[uniprot-enrichment] Finished session %s: %d/%d rows enriched (%d rows written)",
+                session_id[:8], enriched, len(pending_indices), applied,
             )
         except Exception:
             logger.warning(
@@ -231,14 +228,61 @@ def _load_jsonl(jsonl_path: Path):
     return rows
 
 
-def _write_jsonl_atomic(jsonl_path: Path, rows) -> None:
-    """Write rows to a sibling .tmp file and atomically replace the target."""
-    tmp = jsonl_path.with_suffix(jsonl_path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False))
-            f.write("\n")
-    tmp.replace(jsonl_path)
+async def _merge_results(session_id: str, jsonl_path: Path, pcol, results) -> int:
+    """Apply lookup results to the current file, under the session write lock.
+
+    Rows are matched by (row name, source document), or by index for rows
+    without a name. A row is skipped if it gained an accession or its protein
+    cell changed since the lookup started (the next enrichment run covers it).
+    The file is written atomically and persisted. Returns rows written.
+    """
+    async with session_write_lock(session_id):
+        rows = _load_jsonl(jsonl_path)
+        by_key: dict = {}
+        for i, row in enumerate(rows):
+            key = row_dedup_key(row)
+            if key[0]:
+                by_key.setdefault(key, []).append(i)
+
+        # A row is written at most once: rows sharing a key are all targets of
+        # each result with that key, and only the first matching result counts.
+        applied: set = set()
+        for idx, key, protein, parsed in results:
+            if key[0]:
+                targets = by_key.get(key, [])
+            elif idx < len(rows) and not row_dedup_key(rows[idx])[0]:
+                targets = [idx]
+            else:
+                targets = []
+            for i in targets:
+                if i in applied:
+                    continue
+                row = rows[i]
+                if row.get("uniprot_accession"):
+                    continue
+                current = extract_value(row.get(pcol)) if pcol else None
+                if current != protein:
+                    continue
+                _apply_result(row, parsed)
+                applied.add(i)
+
+        if applied:
+            await save_session_data_file(session_id, jsonl_path, rows, ensure_ascii=False)
+        return len(applied)
+
+
+def _apply_result(row: dict, parsed) -> None:
+    status = row.get("_cell_status")
+    if not isinstance(status, dict):
+        status = {}
+        row["_cell_status"] = status
+    if not parsed:
+        _fill_empty(row, status)
+        return
+    for col, _defn, _dtype in UNIPROT_SCHEMA_COLUMNS:
+        val = parsed.get(col)
+        row[col] = val
+        status[col] = EXTERNAL if val is not None else NO_CHANGE
 
 
 def _fill_empty(row: dict, status: dict) -> None:

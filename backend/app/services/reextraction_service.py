@@ -23,7 +23,7 @@ from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services.atomic_jsonl import write_jsonl_atomic
 from app.services import schematiq_thread_pool, concurrency_limiter
 from app.services.data_utils import row_name_of
-from app.services.session_data_store import session_write_lock
+from app.services.session_data_store import save_session_data_file, session_write_lock
 from app.services.llm_api_keys import restore_api_keys
 from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
 from app.storage.factory import get_storage
@@ -998,34 +998,35 @@ class ReextractionService(WebSocketBroadcasterMixin):
         sorted_docs = sorted(local_files)
         logger.debug(f"Backfill - {len(sorted_docs)} documents available for {total_rows} rows")
 
-        # Read all rows
-        rows = []
-        with open(data_file, 'r') as f:
-            for line in f:
-                if line.strip():
-                    rows.append(json.loads(line))
+        async with session_write_lock(session_id):
+            # Read all rows
+            rows = []
+            with open(data_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        rows.append(json.loads(line))
 
-        if not rows:
-            return
+            if not rows:
+                return
 
-        # Match rows to documents by index
-        updated = False
-        for idx, row in enumerate(rows):
-            papers = row.get('papers') or []
-            # Only backfill if papers is empty
-            if not papers and idx < len(sorted_docs):
-                doc_name = sorted_docs[idx]
-                row['papers'] = [doc_name]
-                updated = True
+            # Match rows to documents by index
+            updated = False
+            for idx, row in enumerate(rows):
+                papers = row.get('papers') or []
+                # Only backfill if papers is empty
+                if not papers and idx < len(sorted_docs):
+                    doc_name = sorted_docs[idx]
+                    row['papers'] = [doc_name]
+                    updated = True
 
-        # Write back if any updates were made
-        if updated:
-            # Backup first
-            backup_file = session_dir / f"data_backup_backfill_{int(datetime.now().timestamp())}.jsonl"
-            import shutil
-            shutil.copy2(data_file, backup_file)
+            # Write back if any updates were made
+            if updated:
+                # Backup first
+                backup_file = session_dir / f"data_backup_backfill_{int(datetime.now().timestamp())}.jsonl"
+                import shutil
+                shutil.copy2(data_file, backup_file)
 
-            write_jsonl_atomic(data_file, rows)
+                await save_session_data_file(session_id, data_file, rows)
 
     async def download_cloud_papers(
         self,

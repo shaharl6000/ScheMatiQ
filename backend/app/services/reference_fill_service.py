@@ -714,7 +714,11 @@ class ReferenceFillService:
 
                 await save_summary(op.session_id, op.fill_id, op.message)
             except Exception:
-                pass
+                # The live event still goes out below; only the reload recap is lost.
+                logger.warning(
+                    "Could not persist reference-fill summary %s for session %s",
+                    op.fill_id, op.session_id, exc_info=True,
+                )
         try:
             await self._ws.broadcast_to_session(
                 op.session_id,

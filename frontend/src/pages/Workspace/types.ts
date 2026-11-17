@@ -90,7 +90,7 @@ export type PendingChatAction = {
 };
 
 export type TableFontFamily = 'Inter' | 'Arial' | 'Georgia' | 'Mono';
-export type TableTextAlign = 'left' | 'center' | 'right';
+export type TableTextAlign = 'start' | 'left' | 'center' | 'right';
 
 export type TableDisplayOptions = {
   fontFamily: TableFontFamily;
