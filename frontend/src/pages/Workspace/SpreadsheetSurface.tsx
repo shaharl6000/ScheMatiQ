@@ -1,7 +1,19 @@
 // Handsontable grid for Data, Schema, and Observation Unit sheets with grounding UI.
 // Parent: Workspace (index.tsx). Owns the sole registerAllModules() call.
 
-import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ComponentProps,
+  type CSSProperties,
+  forwardRef,
+  memo,
+  type MutableRefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useParams } from 'react-router-dom';
 import { HotTable, type HotTableClass } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
@@ -89,7 +101,17 @@ const OFF_LIST_CELL_TOOLTIP =
 const CONFIRMED_EMPTY_CELL_TOOLTIP =
   'The model checked the document and found no value for this cell.';
 
-export function SpreadsheetSurface({
+// @handsontable/react's HotTable extends React.Component (not PureComponent) and
+// unconditionally calls hotInstance.updateSettings(newGlobalSettings) on every
+// componentDidUpdate. Memoizing this host boundary prevents parent callback
+// churn from triggering expensive updateSettings passes when grid settings are unchanged.
+const HotTableHost = memo(
+  forwardRef<HotTableClass, ComponentProps<typeof HotTable>>(function HotTableHost(props, ref) {
+    return <HotTable ref={ref} {...props} />;
+  }),
+);
+
+export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   activeSheet,
   data,
   schema,
@@ -683,13 +705,17 @@ export function SpreadsheetSurface({
   );
 
   // Resolve the group key shown at a given *visual* row (accounting for sort).
+  // Reads from a ref so `renderGroupCell` (and thus `sheetColumns` / `columns`)
+  // keeps a stable identity when only row data is appended or updated.
+  const groupKeysRef = useRef<string[]>([]);
+  groupKeysRef.current = groupKeys;
   const groupKeyAtVisual = useCallback(
     (hot: any, visualRow: number): string => {
       const phys = typeof hot?.toPhysicalRow === 'function' ? hot.toPhysicalRow(visualRow) : visualRow;
       if (phys == null || phys < 0) return '';
-      return groupKeys[phys] ?? '';
+      return groupKeysRef.current[phys] ?? '';
     },
-    [groupKeys],
+    [],
   );
 
   // Recompute and apply merge ranges from the *current* visual order. Driven
@@ -828,6 +854,8 @@ export function SpreadsheetSurface({
           if (!active) return;
           try {
             if (searchTermRef) searchTermRef.current = null;
+            lastAppliedSearchTermRef.current = null;
+            searchDirtyRef.current = true;
             active.getPlugin('search').query('');
             active.render();
           } catch { /* instance may be mid-teardown */ }
@@ -893,23 +921,24 @@ export function SpreadsheetSurface({
     markFilterSettingsInitOnly(hot);
   });
 
-  // Keep the "Find in table" highlight alive across re-renders.
+  // Keep the "Find in table" highlight alive across re-renders without
+  // re-scanning every cell on scroll frames (`beforeViewRender` fires on scroll).
   //
   // The Search plugin marks matches with transient `isSearchResult` cell meta
-  // that a plain render preserves, but a @handsontable/react re-render (which
-  // re-pushes the full settings through updateSettings) rebuilds it, so the
-  // yellow highlight silently vanished on the next unrelated re-render
-  // (selection, toast, background refresh poll) even though the query itself
-  // was never cleared. Re-applying the active query in `beforeViewRender` -- so
-  // the meta is set again before the cells paint -- restores it in the same
-  // render with no extra render() call (and thus no risk of a render loop). The
-  // reentrancy guard covers any nested render the plugin might trigger, and the
-  // work is skipped entirely when no search is active.
+  // that a plain scroll render preserves, while updateSettings / loadData /
+  // edits / sort / filter rebuild or shift cell meta. Only re-run search.query()
+  // when marked dirty or when the search term changes.
   const reapplyingSearchRef = useRef(false);
+  const searchDirtyRef = useRef(true);
+  const lastAppliedSearchTermRef = useRef<string | null>(null);
   const reapplySearchHighlight = useCallback(() => {
     if (reapplyingSearchRef.current) return;
     const term = searchTermRef?.current;
-    if (!term) return;
+    if (!term) {
+      lastAppliedSearchTermRef.current = null;
+      return;
+    }
+    if (!searchDirtyRef.current && lastAppliedSearchTermRef.current === term) return;
     const hot = hotTableRef.current?.hotInstance;
     if (!hot) return;
     try {
@@ -917,6 +946,8 @@ export function SpreadsheetSurface({
       if (!search?.isEnabled?.()) return;
       reapplyingSearchRef.current = true;
       search.query(term);
+      lastAppliedSearchTermRef.current = term;
+      searchDirtyRef.current = false;
     } catch { /* instance may be mid-teardown */ }
     finally { reapplyingSearchRef.current = false; }
   }, [hotTableRef, searchTermRef]);
@@ -968,8 +999,8 @@ export function SpreadsheetSurface({
       badge.style.lineHeight = '1.4';
       badge.style.padding = '0 6px';
       badge.style.borderRadius = '9999px';
-      badge.style.background = 'rgba(100, 116, 139, 0.15)';
-      badge.style.color = '#475569';
+      badge.style.background = 'hsl(var(--muted))';
+      badge.style.color = 'hsl(var(--muted-foreground))';
       badge.style.whiteSpace = 'nowrap';
 
       wrap.appendChild(nameEl);
@@ -1061,57 +1092,50 @@ export function SpreadsheetSurface({
     ];
   }, [schema?.observation_unit]);
 
-  const sheet = useMemo((): { rows: Record<string, any>[]; columns: SheetColumn[]; minSpareRows?: number } => {
+  const sheetColumns = useMemo((): SheetColumn[] => {
     if (activeSheet === 'schema') {
-      return {
-        rows: schemaRows,
-        minSpareRows: 1,
-        columns: [
-          { key: 'name', label: 'name', width: 180, headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.name },
-          {
-            key: 'definition',
-            label: 'definition',
-            width: 360,
-            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.definition,
-          },
-          {
-            key: 'rationale',
-            label: 'rationale',
-            width: 320,
-            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.rationale,
-          },
-          {
-            key: 'allowed_values',
-            label: 'allowed_values',
-            width: 260,
-            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.allowed_values,
-          },
-          {
-            key: 'value_kind',
-            label: 'value_kind',
-            width: 120,
-            type: 'dropdown',
-            source: [...VALUE_KIND_OPTIONS],
-            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.value_kind,
-          },
-        ],
-      };
+      return [
+        { key: 'name', label: 'name', width: 180, headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.name },
+        {
+          key: 'definition',
+          label: 'definition',
+          width: 360,
+          headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.definition,
+        },
+        {
+          key: 'rationale',
+          label: 'rationale',
+          width: 320,
+          headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.rationale,
+        },
+        {
+          key: 'allowed_values',
+          label: 'allowed_values',
+          width: 260,
+          headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.allowed_values,
+        },
+        {
+          key: 'value_kind',
+          label: 'value_kind',
+          width: 120,
+          type: 'dropdown',
+          source: [...VALUE_KIND_OPTIONS],
+          headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.value_kind,
+        },
+      ];
     }
 
     if (activeSheet === 'unit') {
-      return {
-        rows: observationUnitRows,
-        columns: [
-          {
-            key: 'field',
-            label: 'field',
-            width: 190,
-            readOnly: true,
-            renderer: renderObservationUnitFieldCell,
-          },
-          { key: 'value', label: 'value', width: 680 },
-        ],
-      };
+      return [
+        {
+          key: 'field',
+          label: 'field',
+          width: 190,
+          readOnly: true,
+          renderer: renderObservationUnitFieldCell,
+        },
+        { key: 'value', label: 'value', width: 680 },
+      ];
     }
 
     // Order the two provenance columns so the active grouping column is
@@ -1121,25 +1145,48 @@ export function SpreadsheetSurface({
     const groupCol = dataView === 'by_unit' ? unitNameCol : sourceDocCol;
     const otherCol = dataView === 'by_unit' ? sourceDocCol : unitNameCol;
 
+    return [
+      { ...groupCol, renderer: renderGroupCell },
+      otherCol,
+      ...dataColumnNames.map((name) => {
+        // Mirror the legacy DataTable header behaviour: the data column's
+        // header explains itself with the schema definition on hover.
+        const definition = schemaColumns.find((c) => c.name === name)?.definition?.trim();
+        return {
+          key: name,
+          label: columnDisplayLabel(name),
+          width: 190,
+          headerTooltip: definition || undefined,
+        };
+      }),
+    ];
+  }, [activeSheet, dataColumnNames, columnDisplayLabel, schemaColumns, dataView, renderGroupCell]);
+
+  const sheet = useMemo((): { rows: Record<string, any>[]; columns: SheetColumn[]; minSpareRows?: number } => {
+    if (activeSheet === 'schema') {
+      return {
+        rows: schemaRows,
+        minSpareRows: 1,
+        columns: sheetColumns,
+      };
+    }
+
+    if (activeSheet === 'unit') {
+      return {
+        rows: observationUnitRows,
+        columns: sheetColumns,
+      };
+    }
+
     return {
       rows: dataRows,
-      columns: [
-        { ...groupCol, renderer: renderGroupCell },
-        otherCol,
-        ...dataColumnNames.map((name) => {
-          // Mirror the legacy DataTable header behaviour: the data column's
-          // header explains itself with the schema definition on hover.
-          const definition = schemaColumns.find((c) => c.name === name)?.definition?.trim();
-          return {
-            key: name,
-            label: columnDisplayLabel(name),
-            width: 190,
-            headerTooltip: definition || undefined,
-          };
-        }),
-      ],
+      columns: sheetColumns,
     };
-  }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel, schemaColumns, dataView, renderGroupCell]);
+  }, [activeSheet, dataRows, observationUnitRows, schemaRows, sheetColumns]);
+
+  useEffect(() => {
+    searchDirtyRef.current = true;
+  }, [sheet.rows, sheetColumns]);
 
   // Stable ids for Data-sheet rows (physical index -> id), used to key cell
   // formats so they follow the row, not its position in the grid.
@@ -1148,12 +1195,12 @@ export function SpreadsheetSurface({
   // Format key for a physical cell. Data rows use their stable id; the small
   // Schema and Observation Unit sheets keep their row index.
   const formatKeyAt = useCallback((physicalRow: number, physicalCol: number): string | null => {
-    const column = sheet.columns[physicalCol];
+    const column = sheetColumns[physicalCol];
     if (!column) return null;
     const rowId = activeSheet === 'data' ? dataRowIds[physicalRow] : String(physicalRow);
     if (rowId === undefined) return null;
     return cellFormatKey(activeSheet, rowId, column.key);
-  }, [activeSheet, dataRowIds, sheet.columns]);
+  }, [activeSheet, dataRowIds, sheetColumns]);
 
   useEffect(() => {
     if (!cellFormatKeyRef) return;
@@ -1197,6 +1244,13 @@ export function SpreadsheetSurface({
     return props;
   }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataUngrounded, formatKeyAt, schemaColumns, sheet]);
 
+  const cellsCallbackRef = useRef(cellsCallback);
+  cellsCallbackRef.current = cellsCallback;
+  const stableCells = useCallback(
+    (row: number, col: number) => cellsCallbackRef.current(row, col),
+    [],
+  );
+
   const prevFormatVersionRef = useRef(formatVersion);
 
   // Re-apply merges whenever the displayed data, grouping column, or grid size
@@ -1217,7 +1271,7 @@ export function SpreadsheetSurface({
 
     const selection = hot.getSelected();
     try {
-      hot.updateSettings({ cells: cellsCallback });
+      hot.updateSettings({ cells: stableCells });
       hot.render();
     } catch { /* instance may be mid-teardown */ }
 
@@ -1226,7 +1280,7 @@ export function SpreadsheetSurface({
         hot.selectCells(selection);
       } catch { /* selection may be invalid mid-teardown */ }
     }
-  }, [applyGroupMerges, cellsCallback, formatVersion, gridSize, hotTableRef]);
+  }, [applyGroupMerges, formatVersion, gridSize, hotTableRef, sheet.rows, sheetColumns, stableCells]);
 
   // Recompute row heights in place when the compact-rows toggle flips.
   //
@@ -2113,6 +2167,211 @@ export function SpreadsheetSurface({
     };
   }, [activeSheet, customColumnMenuItems]);
 
+  const hotColumns = useMemo(
+    () =>
+      sheetColumns.map((column) => ({
+        data: column.key,
+        readOnly: column.readOnly,
+        width: column.width,
+        ...(column.renderer ? { renderer: column.renderer } : {}),
+        ...(column.type === 'dropdown'
+          ? { type: 'dropdown', source: column.source, strict: true, allowInvalid: false }
+          : {}),
+      })),
+    [sheetColumns],
+  );
+
+  const hotColHeaders = useMemo(
+    () => sheetColumns.map(formatSheetColHeader),
+    [sheetColumns],
+  );
+
+  const hotHandlersRef = useRef({
+    activeSheet,
+    sheetColumns,
+    dataGrounding,
+    syncHotTableDimensions,
+    applyGroupMerges,
+    syncHeaderOverlayScroll,
+    reapplySearchHighlight,
+    handleBeforeRemoveRow,
+    handleBeforeRemoveCol,
+    handleBeforeKeyDown,
+    handleChanges,
+    onEditEnd,
+    onSelectionChange,
+    onGroundingHighlight,
+    onFigureGrounding,
+    onGroundingScrollRequest,
+    onRequestSourcePanel,
+  });
+  hotHandlersRef.current = {
+    activeSheet,
+    sheetColumns,
+    dataGrounding,
+    syncHotTableDimensions,
+    applyGroupMerges,
+    syncHeaderOverlayScroll,
+    reapplySearchHighlight,
+    handleBeforeRemoveRow,
+    handleBeforeRemoveCol,
+    handleBeforeKeyDown,
+    handleChanges,
+    onEditEnd,
+    onSelectionChange,
+    onGroundingHighlight,
+    onFigureGrounding,
+    onGroundingScrollRequest,
+    onRequestSourcePanel,
+  };
+
+  const handleHotAfterInit = useCallback(() => {
+    searchDirtyRef.current = true;
+    hotHandlersRef.current.syncHotTableDimensions();
+    hotHandlersRef.current.applyGroupMerges();
+    // markFilterSettingsInitOnly is driven by a post-mount effect instead:
+    // at afterInit the wrapper has not yet assigned the instance onto the
+    // ref, so calling it here would read undefined and silently no-op.
+    hotHandlersRef.current.syncHeaderOverlayScroll();
+  }, []);
+
+  const handleHotAfterUpdateSettings = useCallback(() => {
+    searchDirtyRef.current = true;
+  }, []);
+
+  const handleHotAfterLoadData = useCallback(() => {
+    searchDirtyRef.current = true;
+  }, []);
+
+  const handleHotAfterScroll = useCallback(() => {
+    hotHandlersRef.current.syncHeaderOverlayScroll();
+  }, []);
+
+  const handleHotBeforeViewRender = useCallback(() => {
+    hotHandlersRef.current.reapplySearchHighlight();
+  }, []);
+
+  const handleHotAfterViewRender = useCallback(() => {
+    hotHandlersRef.current.syncHeaderOverlayScroll();
+  }, []);
+
+  const handleHotAfterColumnSort = useCallback(() => {
+    searchDirtyRef.current = true;
+    hotHandlersRef.current.applyGroupMerges();
+  }, []);
+
+  const handleHotAfterFilter = useCallback(() => {
+    searchDirtyRef.current = true;
+    hotHandlersRef.current.applyGroupMerges();
+  }, []);
+
+  const handleHotBeforeRemoveRow = useCallback(
+    (index: number, amount: number, physicalRows: number[], source?: string) =>
+      hotHandlersRef.current.handleBeforeRemoveRow(index, amount, physicalRows, source),
+    [],
+  );
+
+  const handleHotBeforeRemoveCol = useCallback(
+    (index: number, amount: number, physicalColumns: number[], source?: string) =>
+      hotHandlersRef.current.handleBeforeRemoveCol(index, amount, physicalColumns, source),
+    [],
+  );
+
+  const handleHotBeforeKeyDown = useCallback((event: KeyboardEvent) => {
+    hotHandlersRef.current.handleBeforeKeyDown(event);
+  }, []);
+
+  const handleHotAfterChange = useCallback((changes: any[] | null, source: string) => {
+    searchDirtyRef.current = true;
+    hotHandlersRef.current.handleChanges(changes, source);
+    if (source !== 'loadData') hotHandlersRef.current.onEditEnd();
+  }, []);
+
+  const handleHotAfterDeselect = useCallback(() => {
+    hotHandlersRef.current.onEditEnd();
+  }, []);
+
+  const handleHotAfterSelectionEnd = useCallback((row: number, col: number, row2: number, col2: number) => {
+    const h = hotHandlersRef.current;
+    if (row < 0 || col < 0 || row2 < 0 || col2 < 0) {
+      h.onSelectionChange(null);
+      h.onGroundingHighlight?.(null);
+      h.onFigureGrounding?.(null);
+      return;
+    }
+    const fromRow = Math.min(row, row2);
+    const fromCol = Math.min(col, col2);
+    h.onSelectionChange({
+      sheet: h.activeSheet,
+      fromRow,
+      toRow: Math.max(row, row2),
+      fromCol,
+      toCol: Math.max(col, col2),
+    });
+
+    // Report the top-left cell's grounding excerpts so the source panel
+    // can highlight every place the value came from (all marked; the
+    // first is scrolled into view) — and separately, every figure
+    // citation, so the panel can show those figure images alongside it.
+    if (h.onGroundingHighlight || h.onFigureGrounding) {
+      let textExcerpts: TextExcerpt[] | null = null;
+      let figureExcerpts: FigureExcerpt[] | null = null;
+      if (h.activeSheet === 'data') {
+        const column = h.sheetColumns[fromCol];
+        const hot = hotTableRef.current?.hotInstance;
+        const physicalRow = hot ? hot.toPhysicalRow(fromRow) : fromRow;
+        const grounding =
+          column && physicalRow != null && physicalRow >= 0
+            ? h.dataGrounding[physicalRow]?.[column.key]
+            : null;
+        const excerpts = grounding?.excerpts ?? [];
+        const texts = excerpts
+          .filter((e): e is TextExcerpt => e.type !== 'figure')
+          .filter((e) => Boolean(e.text && e.text.trim()));
+        textExcerpts = texts.length > 0 ? texts : null;
+        const figures = excerpts.filter((e): e is FigureExcerpt => e.type === 'figure');
+        figureExcerpts = figures.length > 0 ? figures : null;
+      }
+      h.onGroundingHighlight?.(textExcerpts);
+      h.onFigureGrounding?.(figureExcerpts);
+    }
+  }, [hotTableRef]);
+
+  const handleHotAfterOnCellMouseDown = useCallback((event: MouseEvent, coords: { row: number; col: number }) => {
+    const h = hotHandlersRef.current;
+    if (h.activeSheet !== 'data' || coords.row < 0 || coords.col < 0) return;
+
+    const column = h.sheetColumns[coords.col];
+    if (!column || column.key === '_row_name') return;
+
+    const hot = hotTableRef.current?.hotInstance;
+    const physicalRow = hot ? hot.toPhysicalRow(coords.row) : coords.row;
+    if (!h.dataGrounding[physicalRow]?.[column.key]) return;
+
+    // Any click on a grounded cell re-scrolls the source panel to the
+    // highlight (mousedown fires only on real clicks, so this never loops).
+    h.onGroundingScrollRequest?.();
+
+    // Open grounding on the top-right indicator only so single-click
+    // selection and keyboard editing on grounded cells stay normal.
+    const cellElement = (event.target as HTMLElement | null)?.closest('td');
+    if (!cellElement) return;
+    const rect = cellElement.getBoundingClientRect();
+    const indicatorSize = 14;
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+    const inIndicatorRegion =
+      clickX >= rect.width - indicatorSize && clickY <= indicatorSize;
+    if (!inIndicatorRegion) return;
+
+    // Ensure the Show Source panel is open and showing this cell's
+    // evidence. The panel already tracks the current selection's
+    // grounding (text highlights + figure images) via
+    // onGroundingHighlight/onFigureGrounding, so this just guarantees
+    // it's visible rather than duplicating that content in a popup.
+    h.onRequestSourcePanel?.();
+  }, [hotTableRef]);
+
   if (!sessionId || sessionMissing) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
@@ -2157,22 +2416,14 @@ export function SpreadsheetSurface({
         '--workspace-table-text-align': displayOptions.align,
       } as CSSProperties}
     >
-      <HotTable
+      <HotTableHost
         ref={hotTableRef}
         key={`${activeSheet}-${activeSheet === 'data' ? dataView : 'x'}`}
         className="workspace-hot"
         theme="ht-theme-main"
         data={sheet.rows}
-        columns={sheet.columns.map((column) => ({
-          data: column.key,
-          readOnly: column.readOnly,
-          width: column.width,
-          ...(column.renderer ? { renderer: column.renderer } : {}),
-          ...(column.type === 'dropdown'
-            ? { type: 'dropdown', source: column.source, strict: true, allowInvalid: false }
-            : {}),
-        }))}
-        colHeaders={sheet.columns.map(formatSheetColHeader)}
+        columns={hotColumns}
+        colHeaders={hotColHeaders}
         rowHeaders
         width={gridSize.width || 320}
         height={gridSize.height || 260}
@@ -2206,111 +2457,28 @@ export function SpreadsheetSurface({
         undo={false}
         minSpareRows={sheet.minSpareRows || 0}
         licenseKey="non-commercial-and-evaluation"
-        afterInit={() => {
-          syncHotTableDimensions();
-          applyGroupMerges();
-          // markFilterSettingsInitOnly is driven by a post-mount effect instead:
-          // at afterInit the wrapper has not yet assigned the instance onto the
-          // ref, so calling it here would read undefined and silently no-op.
-          syncHeaderOverlayScroll();
-        }}
+        afterInit={handleHotAfterInit}
+        afterUpdateSettings={handleHotAfterUpdateSettings}
+        afterLoadData={handleHotAfterLoadData}
         // Runs after Handsontable has drawn and (mis)clamped the header overlay's
         // scroll position, so the compensation above lands on final values.
-        afterScrollHorizontally={syncHeaderOverlayScroll}
-        afterScrollVertically={syncHeaderOverlayScroll}
+        afterScrollHorizontally={handleHotAfterScroll}
+        afterScrollVertically={handleHotAfterScroll}
         // Re-mark search matches before each paint so a wrapper re-render that
         // rebuilt the cell meta does not drop the active Find highlight.
-        beforeViewRender={reapplySearchHighlight}
-        afterViewRender={syncHeaderOverlayScroll}
-        afterColumnSort={applyGroupMerges}
-        afterFilter={applyGroupMerges}
-        beforeRemoveRow={handleBeforeRemoveRow}
-        beforeRemoveCol={handleBeforeRemoveCol}
-        beforeKeyDown={handleBeforeKeyDown}
-        afterChange={(changes, source) => {
-          handleChanges(changes, source);
-          if (source !== 'loadData') onEditEnd();
-        }}
-        afterDeselect={onEditEnd}
-        afterSelectionEnd={(row: number, col: number, row2: number, col2: number) => {
-          if (row < 0 || col < 0 || row2 < 0 || col2 < 0) {
-            onSelectionChange(null);
-            onGroundingHighlight?.(null);
-            onFigureGrounding?.(null);
-            return;
-          }
-          const fromRow = Math.min(row, row2);
-          const fromCol = Math.min(col, col2);
-          onSelectionChange({
-            sheet: activeSheet,
-            fromRow,
-            toRow: Math.max(row, row2),
-            fromCol,
-            toCol: Math.max(col, col2),
-          });
-
-          // Report the top-left cell's grounding excerpts so the source panel
-          // can highlight every place the value came from (all marked; the
-          // first is scrolled into view) — and separately, every figure
-          // citation, so the panel can show those figure images alongside it.
-          if (onGroundingHighlight || onFigureGrounding) {
-            let textExcerpts: TextExcerpt[] | null = null;
-            let figureExcerpts: FigureExcerpt[] | null = null;
-            if (activeSheet === 'data') {
-              const column = sheet.columns[fromCol];
-              const hot = hotTableRef.current?.hotInstance;
-              const physicalRow = hot ? hot.toPhysicalRow(fromRow) : fromRow;
-              const grounding =
-                column && physicalRow != null && physicalRow >= 0
-                  ? dataGrounding[physicalRow]?.[column.key]
-                  : null;
-              const excerpts = grounding?.excerpts ?? [];
-              const texts = excerpts
-                .filter((e): e is TextExcerpt => e.type !== 'figure')
-                .filter((e) => Boolean(e.text && e.text.trim()));
-              textExcerpts = texts.length > 0 ? texts : null;
-              const figures = excerpts.filter((e): e is FigureExcerpt => e.type === 'figure');
-              figureExcerpts = figures.length > 0 ? figures : null;
-            }
-            onGroundingHighlight?.(textExcerpts);
-            onFigureGrounding?.(figureExcerpts);
-          }
-        }}
-        afterOnCellMouseDown={(event, coords) => {
-          if (activeSheet !== 'data' || coords.row < 0 || coords.col < 0) return;
-
-          const column = sheet.columns[coords.col];
-          if (!column || column.key === '_row_name') return;
-
-          const hot = hotTableRef.current?.hotInstance;
-          const physicalRow = hot ? hot.toPhysicalRow(coords.row) : coords.row;
-          if (!dataGrounding[physicalRow]?.[column.key]) return;
-
-          // Any click on a grounded cell re-scrolls the source panel to the
-          // highlight (mousedown fires only on real clicks, so this never loops).
-          onGroundingScrollRequest?.();
-
-          // Open grounding on the top-right indicator only so single-click
-          // selection and keyboard editing on grounded cells stay normal.
-          const cellElement = (event.target as HTMLElement | null)?.closest('td');
-          if (!cellElement) return;
-          const rect = cellElement.getBoundingClientRect();
-          const indicatorSize = 14;
-          const clickX = event.clientX - rect.left;
-          const clickY = event.clientY - rect.top;
-          const inIndicatorRegion =
-            clickX >= rect.width - indicatorSize && clickY <= indicatorSize;
-          if (!inIndicatorRegion) return;
-
-          // Ensure the Show Source panel is open and showing this cell's
-          // evidence. The panel already tracks the current selection's
-          // grounding (text highlights + figure images) via
-          // onGroundingHighlight/onFigureGrounding, so this just guarantees
-          // it's visible rather than duplicating that content in a popup.
-          onRequestSourcePanel?.();
-        }}
-        cells={cellsCallback}
+        beforeViewRender={handleHotBeforeViewRender}
+        afterViewRender={handleHotAfterViewRender}
+        afterColumnSort={handleHotAfterColumnSort}
+        afterFilter={handleHotAfterFilter}
+        beforeRemoveRow={handleHotBeforeRemoveRow}
+        beforeRemoveCol={handleHotBeforeRemoveCol}
+        beforeKeyDown={handleHotBeforeKeyDown}
+        afterChange={handleHotAfterChange}
+        afterDeselect={handleHotAfterDeselect}
+        afterSelectionEnd={handleHotAfterSelectionEnd}
+        afterOnCellMouseDown={handleHotAfterOnCellMouseDown}
+        cells={stableCells}
       />
     </div>
   );
-}
+});
