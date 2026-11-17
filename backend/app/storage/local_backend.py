@@ -10,6 +10,7 @@ import aiofiles
 import aiofiles.os
 
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, DEFAULT_SESSIONS_DIR
+from app.core.safe_paths import is_within
 from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, TemplateInfo, InitialSchemaInfo
 
 logger = logging.getLogger(__name__)
@@ -390,7 +391,12 @@ class LocalStorageBackend(StorageInterface):
         if not datasets_path:
             return None
 
-        file_path = datasets_path / dataset_name / filename
+        dataset_dir = datasets_path / dataset_name
+        file_path = dataset_dir / filename
+        # Names come from the request; never read outside the dataset (CWE-22).
+        if not (is_within(datasets_path, dataset_dir) and is_within(dataset_dir, file_path)):
+            logger.warning("Refusing dataset file outside %s: %r", dataset_name, filename)
+            return None
         if not file_path.exists():
             return None
 
