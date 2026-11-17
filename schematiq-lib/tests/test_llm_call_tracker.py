@@ -9,6 +9,9 @@ Verifies:
 - File persistence across tracker instances
 """
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import contextvars
 import json
 import tempfile
 import threading
@@ -135,6 +138,66 @@ class TestLLMCallTracker:
             t.join()
 
         assert tracker.get_counts()["concurrent_test"] == n_threads * n_per_thread
+
+
+class TestScopedLLMCallTracker:
+    """Tests for ContextVar-scoped per-run LLMCallTracker isolation."""
+
+    def setup_method(self):
+        LLMCallTracker.get_instance().reset()
+
+    def test_scoped_isolates_from_default_singleton_and_restores_on_exception(self):
+        default_tracker = LLMCallTracker.get_instance()
+        default_tracker.set_stage("default")
+        default_tracker.increment()
+
+        with pytest.raises(RuntimeError):
+            with LLMCallTracker.scoped("reextraction") as run_tracker:
+                assert LLMCallTracker.get_instance() is run_tracker
+                assert run_tracker is not default_tracker
+                run_tracker.increment()
+                run_tracker.set_stage("value_extraction")
+                run_tracker.increment()
+                assert run_tracker.get_total() == 2
+                raise RuntimeError("boom")
+
+        assert LLMCallTracker.get_instance() is default_tracker
+        assert default_tracker.get_total() == 1
+        assert default_tracker.get_stage() == "default"
+
+    def test_scoped_propagates_via_copy_context_in_thread_pool(self):
+        def worker(count: int) -> int:
+            t = LLMCallTracker.get_instance()
+            t.set_stage("value_extraction")
+            for _ in range(count):
+                t.increment()
+            return t.get_total()
+
+        with LLMCallTracker.scoped("reextraction") as run_tracker:
+            ctx = contextvars.copy_context()
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                total = pool.submit(ctx.run, worker, 3).result(timeout=5)
+            assert total == 3
+            assert run_tracker.get_total() == 3
+            assert run_tracker.get_counts() == {"value_extraction": 3}
+
+        assert LLMCallTracker.get_instance().get_total() == 0
+
+    def test_concurrent_async_tasks_are_isolated(self):
+        async def run_all():
+            async def job(stage: str, n: int):
+                with LLMCallTracker.scoped(stage) as tracker:
+                    for _ in range(n):
+                        await asyncio.sleep(0.005)
+                        LLMCallTracker.get_instance().increment()
+                    return tracker.get_counts(), tracker.get_total()
+
+            return await asyncio.gather(job("run_a", 3), job("run_b", 5))
+
+        (counts_a, total_a), (counts_b, total_b) = asyncio.run(run_all())
+        assert total_a == 3 and counts_a == {"run_a": 3}
+        assert total_b == 5 and counts_b == {"run_b": 5}
+        assert LLMCallTracker.get_instance().get_total() == 0
 
 
 # ──────────────────────────────────────────────────────────────────
