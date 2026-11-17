@@ -34,8 +34,6 @@
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.42",
     "@types/react-dom": "^18.2.17",
-    "ag-grid-community": "^31.0.1",
-    "ag-grid-react": "^31.0.1",
     "ajv": "^8.17.1",
     "axios": "^1.6.2",
     "class-variance-authority": "^0.7.1",
@@ -47,7 +45,6 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-dropzone": "^14.2.3",
-    "react-json-view": "^1.21.3",
     "react-markdown": "^9.0.1",
     "react-query": "^3.39.3",
     "react-router-dom": "^6.20.1",
@@ -56,8 +53,7 @@
     "remark-gfm": "^4.0.0",
     "serve": "^14.2.0",
     "tailwind-merge": "^3.4.0",
-    "typescript": "^5.3.2",
-    "web-vitals": "^3.5.0"
+    "typescript": "^5.3.2"
   },
   "scripts": {
     "start": "craco start",
