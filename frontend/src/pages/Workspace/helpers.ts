@@ -67,14 +67,16 @@ export function infoLabelMarkup(rawLabel: string, tooltip: string): string {
   const escaped = escapeHtmlAttribute(tooltip);
   return (
     `<span class="workspace-col-header-wrap">` +
-    `<span class="workspace-col-header-label">${label}</span>` +
+    `<span class="workspace-col-header-label" dir="auto">${label}</span>` +
     `<span class="workspace-col-header-info" data-tooltip="${escaped}" aria-label="${escaped}" tabindex="0" role="img">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>` +
     `</span>`
   );
 }
 
+// Labels carry dir="auto" so a Hebrew/Arabic header orders its punctuation and
+// truncates at its end (the left), not its start, inside the LTR grid.
 export function formatSheetColHeader(column: SheetColumn): string {
-  if (!column.headerTooltip) return escapeHtmlText(column.label);
+  if (!column.headerTooltip) return `<span dir="auto">${escapeHtmlText(column.label)}</span>`;
   return infoLabelMarkup(column.label, column.headerTooltip);
 }
 

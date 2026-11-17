@@ -28,6 +28,7 @@ import {
   diffPaginatedData,
   emptyCellScope,
   finishSchemaSpareRowCreate,
+  formatSheetColHeader,
   formatWorkspaceChromeStatus,
   hasSchemaSpareRowDraft,
   recordSchemaSpareRowEdit,
@@ -512,5 +513,18 @@ describe('dataRowFormatIds', () => {
 
   it('falls back to _row_index when a row has no name or document', () => {
     expect(dataRowFormatIds([row({ _row_index: 7 })])).toEqual(['#7']);
+  });
+});
+
+describe('formatSheetColHeader', () => {
+  it('wraps a plain label in an escaped dir="auto" span', () => {
+    expect(formatSheetColHeader({ key: 'k', label: 'שם <x>' })).toBe(
+      '<span dir="auto">שם &lt;x&gt;</span>',
+    );
+  });
+
+  it('gives a tooltip header label dir="auto"', () => {
+    const html = formatSheetColHeader({ key: 'k', label: 'תאריך', headerTooltip: 'Date of ruling' });
+    expect(html).toContain('<span class="workspace-col-header-label" dir="auto">תאריך</span>');
   });
 });
