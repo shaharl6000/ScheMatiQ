@@ -1,6 +1,7 @@
 """Project bundle unpacking refuses oversized archives (CWE-409)."""
 
 import json
+import os
 import zipfile
 
 import pytest
@@ -106,3 +107,42 @@ def _central_offsets(raw):
     while offset != -1:
         yield offset
         offset = raw.find(b"PK\x01\x02", offset + 4)
+
+
+def test_bundle_with_too_many_files_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(file_parser, "_BUNDLE_MAX_ENTRIES", 2)
+    session_dir = tmp_path / "sid"
+    session_dir.mkdir()
+    zip_path = _bundle(
+        session_dir / "p.zip",
+        {"project.json": "{}", "documents/a.txt": "a", "documents/b.txt": "b"},
+    )
+
+    with pytest.raises(ValueError, match="too many files"):
+        FileParser()._extract_project_bundle(zip_path, session_dir)
+
+    assert list((session_dir / "pending_documents").iterdir()) == []
+
+
+def test_highly_compressed_bundle_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(file_parser, "_BUNDLE_RATIO_FLOOR_BYTES", 1000)
+    session_dir = tmp_path / "sid"
+    session_dir.mkdir()
+    # 1MB of one byte deflates to about 1KB: far past 100x.
+    zip_path = _bundle(session_dir / "p.zip", {"project.json": "{}", "documents/z.txt": "0" * 1_000_000})
+
+    with pytest.raises(ValueError, match="expands too much"):
+        FileParser()._extract_project_bundle(zip_path, session_dir)
+
+
+def test_normal_compression_passes_the_ratio_check(tmp_path, monkeypatch):
+    monkeypatch.setattr(file_parser, "_BUNDLE_RATIO_FLOOR_BYTES", 1000)
+    session_dir = tmp_path / "sid"
+    session_dir.mkdir()
+    # Random bytes do not compress, like the PDFs a real bundle carries.
+    payload = os.urandom(200_000)
+    zip_path = _bundle(session_dir / "p.zip", {"project.json": "{}", "documents/doc.pdf": payload})
+
+    FileParser()._extract_project_bundle(zip_path, session_dir)
+
+    assert (session_dir / "pending_documents" / "doc.pdf").read_bytes() == payload

@@ -28,6 +28,14 @@ from app.services.llm_api_keys import strip_api_keys
 # generous for developer-mode projects with thousands of documents.
 _BUNDLE_MAX_ENTRY_BYTES = 200 * 1024 * 1024
 _BUNDLE_MAX_TOTAL_BYTES = 5 * 1024 * 1024 * 1024
+# A bundle expanding past this many times its own size is a decompression
+# bomb. Real bundles are mostly PDFs, which barely compress, so 100x leaves a
+# wide margin. Bundles that unpack to less than the floor are never checked.
+_BUNDLE_MAX_EXPANSION_RATIO = 100
+_BUNDLE_RATIO_FLOOR_BYTES = 100 * 1024 * 1024
+# Each document becomes one file on disk; cap the count so a bundle of empty
+# entries cannot exhaust inodes. Well above developer-mode project sizes.
+_BUNDLE_MAX_ENTRIES = 50_000
 
 _COLUMN_DISPLAY_NAMES = {
     '_row_name': 'Doc Name',
@@ -350,6 +358,7 @@ class FileParser:
         pending_dir.mkdir(parents=True, exist_ok=True)
         project_json_path = session_dir / "project.json"
 
+        zip_size = zip_path.stat().st_size
         written: List[Path] = []
         try:
             with zipfile.ZipFile(zip_path) as zf:
@@ -370,8 +379,13 @@ class FileParser:
 
                 if any(info.file_size > _BUNDLE_MAX_ENTRY_BYTES for info, _ in wanted):
                     raise ValueError("Project bundle has a file that is too large to import")
-                if sum(info.file_size for info, _ in wanted) > _BUNDLE_MAX_TOTAL_BYTES:
+                if len(wanted) > _BUNDLE_MAX_ENTRIES:
+                    raise ValueError("Project bundle has too many files to import")
+                total = sum(info.file_size for info, _ in wanted)
+                if total > _BUNDLE_MAX_TOTAL_BYTES:
                     raise ValueError("Project bundle is too large to import")
+                if total > _BUNDLE_RATIO_FLOOR_BYTES and total > zip_size * _BUNDLE_MAX_EXPANSION_RATIO:
+                    raise ValueError("Project bundle expands too much to import")
 
                 for info, dest in wanted:
                     written.append(dest)
