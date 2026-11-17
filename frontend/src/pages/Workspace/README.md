@@ -87,3 +87,15 @@ monitor's optimistic banner update — declare `useReextraction` before
 
 If you add a new cohesive cluster of state + effects, prefer a new hook in
 `hooks/` over growing `Workspace()`.
+
+### Row refresh rules
+
+- Every row fetch goes through `beginDataFetch` / `applyFetchedData`. A response
+  older than the last one applied, or for a session the user has left, is
+  dropped (pending `onCommitted` callbacks still fire with the newer payload).
+- Background refreshes (websocket progress/cell events, fallback polls) use
+  `refreshSilentThrottled`: at most one request in flight, at least
+  `SILENT_REFRESH_MIN_INTERVAL_MS` between starts, plus one trailing request.
+  Explicit user actions keep using `refreshSilent` / `refresh`.
+- `dataServerVersion` is bumped only when the server rows changed, so a no-op
+  poll does not refetch the By Unit view.
