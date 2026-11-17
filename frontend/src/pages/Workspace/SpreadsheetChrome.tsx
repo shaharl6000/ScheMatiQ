@@ -2,7 +2,10 @@
 // Parent: Workspace (index.tsx).
 
 import {
+  AlignCenter,
   AlignLeft,
+  AlignRight,
+  ArrowLeftRight,
   Bold,
   ChevronDown,
   Download,
@@ -33,6 +36,17 @@ import type {
   WorkspaceMenuAction,
   WorkspaceMenuItem,
 } from './types';
+
+// Record over TableTextAlign, so TypeScript rejects a new alignment that has
+// no label or icon. 'start' follows each cell's text direction, so it gets its
+// own icon instead of looking like a fixed left alignment.
+const TABLE_ALIGN_META: Record<TableTextAlign, { label: string; Icon: typeof AlignLeft }> = {
+  start: { label: 'Auto', Icon: ArrowLeftRight },
+  left: { label: 'Left', Icon: AlignLeft },
+  center: { label: 'Center', Icon: AlignCenter },
+  right: { label: 'Right', Icon: AlignRight },
+};
+const TABLE_ALIGN_ORDER: TableTextAlign[] = ['start', 'left', 'center', 'right'];
 
 export function SpreadsheetChrome({
   projectTitle,
@@ -118,6 +132,9 @@ export function SpreadsheetChrome({
     reportIssue: onReportIssue,
     cite: onCite,
   };
+
+  // Fallback guards a malformed align value restored from localStorage.
+  const activeAlign = TABLE_ALIGN_META[displayOptions.align] ?? TABLE_ALIGN_META.start;
 
   const isDisabled = (item: WorkspaceMenuItem) => {
     // Re-extract has its own gating (no session, nothing pending, or already
@@ -315,21 +332,14 @@ export function SpreadsheetChrome({
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="workspace-toolbar-icon" type="button" title="Align">
-              <AlignLeft className="h-3.5 w-3.5" />
+            <button className="workspace-toolbar-icon" type="button" title={`Align: ${activeAlign.label}`}>
+              <activeAlign.Icon className="h-3.5 w-3.5" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="workspace-menu-content w-32">
-            {(
-              [
-                { value: 'start', label: 'Auto' },
-                { value: 'left', label: 'Left' },
-                { value: 'center', label: 'Center' },
-                { value: 'right', label: 'Right' },
-              ] as const
-            ).map(({ value, label }) => (
+            {TABLE_ALIGN_ORDER.map((value) => (
               <DropdownMenuItem key={value} onClick={() => onApplyFormat({ align: value })}>
-                {label}
+                {TABLE_ALIGN_META[value].label}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
