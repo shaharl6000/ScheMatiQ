@@ -12,6 +12,7 @@ class ExtractionResult:
     """Result of extracting values for observation units in a document."""
     rows: List[Dict[str, Any]] = field(default_factory=list)
     skip_reason: Optional[str] = None
+    stopped: bool = False
 
 @dataclass
 class SkippedDocument:
