@@ -136,6 +136,12 @@ export const emptyData: PaginatedData = {
 // finish, short enough that a genuinely emptied table clears without a visible
 // wait. See applyData in index.tsx.
 export const EMPTY_DATA_RECHECK_MS = 900;
+// How many rows the Workspace grid loads (one page). Larger projects show a
+// RowLimitBanner, since grid filtering/sorting/search only see loaded rows.
+// Kept moderate because every background refresh refetches the whole page.
+export const WORKSPACE_ROW_LIMIT = 2000;
+// Units per page for the By Unit view (the backend caps page_size at 1000).
+export const WORKSPACE_UNIT_LIMIT = 1000;
 // Automatic retry schedule for a table-data fetch that failed with 503: the
 // backend answers 503 specifically when the session's rows exist in storage
 // but could not be hydrated locally, so a retry is expected to succeed once
