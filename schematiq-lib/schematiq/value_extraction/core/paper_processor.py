@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import mimetypes
-import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +29,13 @@ def _ungrounded_policy_from_env() -> str:
         )
         return DEFAULT_UNGROUNDED_POLICY
     return raw
-from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
+from schematiq.core.schema import (
+    Schema,
+    Column,
+    ObservationUnit,
+    _embed,
+    _numbers_conflict,
+)
 from schematiq.core.thread_local import ThreadLocalAttribute
 from schematiq.core.results import UnitIdentificationResult, ExtractionResult
 from schematiq.value_extraction.config.messages import (
@@ -129,20 +134,6 @@ def _chunk_list(lst: List, size: int) -> Iterator[List]:
     """Split list into chunks of given size."""
     for i in range(0, len(lst), size):
         yield lst[i : i + size]
-
-
-# Matches "Fig. 1", "Figure 12", "fig3", etc. Used by _deduplicate_units() to
-# recognize numbered-enumeration unit names, whose embeddings are too similar
-# to each other (differing only by digit) for the semantic-similarity check to
-# reliably tell "Fig. 1" apart from "Fig. 2" — see that method's docstring.
-_NUMBERED_UNIT_RE = re.compile(r"fig(?:ure)?\.?\s*(\d+)", re.IGNORECASE)
-
-
-def _numbered_unit_id(name: str) -> Optional[str]:
-    """Extract the figure number from a name like 'Fig. 3', or None if the
-    name doesn't match the numbered-figure pattern at all."""
-    m = _NUMBERED_UNIT_RE.search(name or "")
-    return m.group(1) if m else None
 
 
 # Default batch size for fallback column extraction
@@ -1747,7 +1738,6 @@ class PaperProcessor:
         # Compute embeddings for all unit names
         names = [u.get("unit_name", "") for u in units]
         embeddings = [_embed(name) for name in names]
-        numbered_ids = [_numbered_unit_id(name) for name in names]
 
         # Greedy clustering
         clusters: List[List[int]] = []  # each cluster is a list of indices
@@ -1763,19 +1753,13 @@ class PaperProcessor:
                 if j in assigned:
                     continue
 
-                # Both names are numbered-figure references (e.g. "Fig. 1",
-                # "Fig. 2") with different numbers: never merge, regardless of
-                # similarity. Short enumerated names like this embed too close
-                # together for the similarity check below to tell "different
-                # figure" from "same figure, different naming convention" —
-                # empirically, 'Fig. 1' vs 'Fig. 7' (0.89 similarity) scores
-                # lower than genuine duplicates like 'Figure 1' vs 'Figure 1a'
-                # (0.89), so no similarity threshold can separate both cases.
-                if (
-                    numbered_ids[i] is not None
-                    and numbered_ids[j] is not None
-                    and numbered_ids[i] != numbered_ids[j]
-                ):
+                # Both names carry numbers and the numbers differ ("Fig. 1" /
+                # "Fig. 7", "Patient 1" / "Patient 12", "Case 2020-123" /
+                # "Case 2020-124"): never merge. Names that differ only by a
+                # number embed too close together for any similarity
+                # threshold, and the substring check below would merge
+                # "Patient 1" into "Patient 12". Same rule as Schema.merge.
+                if _numbers_conflict(names[i], names[j]):
                     continue
 
                 # Check semantic similarity
