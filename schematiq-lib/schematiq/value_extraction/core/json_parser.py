@@ -7,6 +7,8 @@ from typing import Dict, Any, List, Tuple, Optional
 
 from dateutil import parser as date_parser
 
+from schematiq.core.json_payload import extract_json_payload
+
 def _flatten_answer(answer: Any) -> str:
     """Convert a non-string answer (dict/list) to a clean readable string.
 
@@ -167,8 +169,6 @@ class JSONResponseParser:
     """Handles parsing and validation of LLM JSON responses."""
 
     def __init__(self):
-        self.json_fence_re = re.compile(r"```json(.*?)```", re.S)
-        self.last_js_re = re.compile(r"\{[\s\S]*\}\s*$", re.S)
         self.placeholder_re = re.compile(
             r"^(not\s+provided|not\s+specified|not\s+mentioned|no\s+(information|data)|"
             r"cannot\s+be\s+determined|unknown|n/?a|no\s+answer|insufficient\s+information|"
@@ -178,16 +178,10 @@ class JSONResponseParser:
     
     def extract_json_str(self, text: str) -> str:
         """Pull the *text* of the JSON object out of the LLM output."""
-        m = self.json_fence_re.search(text)
-        candidate = m.group(1).strip() if m else None
-
-        if candidate is None:
-            m = self.last_js_re.search(text)
-            if not m:
-                raise ValueError("No JSON object found in output.")
-            candidate = m.group(0)
-
-        return candidate
+        payload = extract_json_payload(text)
+        if "{" not in payload:
+            raise ValueError("No JSON object found in output.")
+        return payload
     
     def parse_response(self, text: str) -> Dict[str, Dict[str, Any]]:
         """
