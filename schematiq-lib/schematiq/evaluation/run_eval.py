@@ -2,17 +2,16 @@ import json
 from tqdm import tqdm
 import os
 from schematiq.core.model_specs import ModelNames
-from metrics import SchemaRecallMetric
-from metrics_utils import (
+from .metrics import SchemaRecallMetric
+from .metrics_utils import (
     BaseFeaturizer,
     DecontextFeaturizer,
     ExactMatchScorer,
     JaccardAlignmentScorer,
-    Llama3AlignmentScorer,
     SentenceTransformerAlignmentScorer,
     ValueFeaturizer,
 )
-from table import Table
+from .table import Table
 
 MINE = True
 
@@ -95,8 +94,8 @@ def load_scorer(scorer_name):
         return JaccardAlignmentScorer(remove_stopwords=True)
     elif scorer_name == "sentence_transformers":
         return SentenceTransformerAlignmentScorer()
-    elif scorer_name == "llama3":
-        return Llama3AlignmentScorer()
+    else:
+        raise ValueError(f"Unknown scorer name: {scorer_name}.")
 
 import numpy as np
 def to_serializable(obj):

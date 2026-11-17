@@ -44,6 +44,9 @@ dev = [
     "black",
     "ruff",
 ]
+eval = [
+    "nltk",
+]
 scripts = [
     "pymupdf4llm",
     "playwright",
