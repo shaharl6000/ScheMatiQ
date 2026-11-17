@@ -9,12 +9,16 @@ import type { WorkspaceMessage } from '../types';
 
 const REMARK_PLUGINS: ComponentProps<typeof ReactMarkdown>['remarkPlugins'] = [remarkGfm];
 
-const MARKDOWN_COMPONENTS: ComponentProps<typeof ReactMarkdown>['components'] = {
+export const MARKDOWN_COMPONENTS: ComponentProps<typeof ReactMarkdown>['components'] = {
   a: ({ node: _node, children, ...props }) => (
     <a {...props} target="_blank" rel="noopener noreferrer">
       {children}
     </a>
   ),
+  // Each list resolves its own direction: a Hebrew list inside a message that
+  // starts in English gets its indent and markers on the right.
+  ul: ({ node: _node, ...props }) => <ul dir="auto" {...props} />,
+  ol: ({ node: _node, ...props }) => <ol dir="auto" {...props} />,
 };
 
 export const ChatMessageBody = memo(function ChatMessageBody({
@@ -24,10 +28,10 @@ export const ChatMessageBody = memo(function ChatMessageBody({
 }) {
   const isMarkdown = message.role === 'assistant' && message.kind !== 'tool_log';
   if (!isMarkdown) {
-    return <>{message.content}</>;
+    return <div dir="auto">{message.content}</div>;
   }
   return (
-    <div className="workspace-chat-markdown">
+    <div className="workspace-chat-markdown" dir="auto">
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
         {message.content}
       </ReactMarkdown>

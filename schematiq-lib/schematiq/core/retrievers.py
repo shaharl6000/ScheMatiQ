@@ -8,6 +8,7 @@ Two retrieval strategies under a single interface:
 """
 
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from typing import List, Optional, Sequence, Iterable, Any, Dict, Callable, Tuple
 from dataclasses import dataclass
 import functools
@@ -248,11 +249,12 @@ class EmbeddingRetriever(Retriever):
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: Optional[int] = None, batch_size: int = 32, k: int = 3,
                  device: Optional[str] = None, enable_dynamic_k: bool = False,
                  dynamic_k_threshold: float = 0.65, dynamic_k_minimum: int = 2,
-                 enable_embedding_cache: bool = True, max_cache_size: int = 1000,
+                 enable_embedding_cache: bool = True, max_cache_size: int = 256,
                  enable_preprocessing: bool = True,
                  overlap_words: int = 64,
                  model: Optional[Any] = None,
-                 passage_words: Optional[int] = None):
+                 passage_words: Optional[int] = None,
+                 max_cache_bytes: int = 64 * 1024 * 1024):
         super().__init__()
         if model is None and SentenceTransformer is None:
             raise ImportError(
@@ -278,11 +280,13 @@ class EmbeddingRetriever(Retriever):
         self.dynamic_k_threshold = dynamic_k_threshold
         self.dynamic_k_minimum = dynamic_k_minimum
 
-        # Embedding cache: stores {doc_hash: {'passages': [...], 'embeddings': np.array}}
-        # This avoids recomputing embeddings for the same document across multiple queries
+        # Embedding cache: stores {doc_hash: {'passages': [...], 'embeddings': np.array, '_bytes': int}}
+        # Bounded by both entry count and approximate payload bytes via LRU eviction.
         self.enable_embedding_cache = enable_embedding_cache
         self.max_cache_size = max_cache_size
-        self._embedding_cache: Dict[str, Dict[str, Any]] = {}
+        self.max_cache_bytes = max_cache_bytes
+        self._embedding_cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._cached_bytes: int = 0
         self._cache_lock = threading.Lock()
 
         if model is not None:
@@ -333,23 +337,41 @@ class EmbeddingRetriever(Retriever):
         return hashlib.md5(doc.encode('utf-8', errors='ignore')).hexdigest()
 
     def _get_cached_embeddings(self, doc_hash: str) -> Optional[Dict[str, Any]]:
-        """Get cached passages and embeddings for a document hash."""
+        """Get cached passages and embeddings for a document hash, promoting it as recently used."""
         with self._cache_lock:
-            return self._embedding_cache.get(doc_hash)
+            entry = self._embedding_cache.get(doc_hash)
+            if entry is not None:
+                self._embedding_cache.move_to_end(doc_hash)
+            return entry
 
     def _cache_embeddings(self, doc_hash: str, passages: List[str], embeddings: Any) -> None:
-        """Cache passages and embeddings for a document hash."""
+        """Cache passages and embeddings for a document hash with LRU count and byte bounds."""
+        if self.max_cache_size <= 0 or self.max_cache_bytes <= 0:
+            return
+        entry_bytes = sum(len(p.encode("utf-8", errors="ignore")) for p in passages) + int(
+            getattr(embeddings, "nbytes", 0)
+        )
+        if entry_bytes > self.max_cache_bytes:
+            # Caching it would evict every other entry and still exceed the budget.
+            return
         with self._cache_lock:
-            # Simple LRU-like eviction: if cache is full, remove oldest entry
-            if len(self._embedding_cache) >= self.max_cache_size:
-                # Remove the first (oldest) entry
-                oldest_key = next(iter(self._embedding_cache))
-                del self._embedding_cache[oldest_key]
+            if doc_hash in self._embedding_cache:
+                prev = self._embedding_cache.pop(doc_hash)
+                self._cached_bytes = max(0, self._cached_bytes - prev.get("_bytes", 0))
+
+            while self._embedding_cache and (
+                len(self._embedding_cache) >= self.max_cache_size
+                or self._cached_bytes + entry_bytes > self.max_cache_bytes
+            ):
+                _, evicted = self._embedding_cache.popitem(last=False)
+                self._cached_bytes = max(0, self._cached_bytes - evicted.get("_bytes", 0))
 
             self._embedding_cache[doc_hash] = {
                 'passages': passages,
-                'embeddings': embeddings
+                'embeddings': embeddings,
+                '_bytes': entry_bytes,
             }
+            self._cached_bytes += entry_bytes
 
     # ---- Retriever API -------------------------------------------------- #
     def _query_sentence_transformer_with_cache(

@@ -16,6 +16,7 @@ from app.core.config import (
 logger = logging.getLogger(__name__)
 
 from schematiq.core import utils as schematiq_utils
+from app.services.llm_api_keys import restore_api_keys
 from schematiq.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
 from schematiq.core.model_specs import ModelNames
 
@@ -153,7 +154,8 @@ def resolve_llm_for_session(
                         "present" if user_config.get("api_key") else "MISSING",
                     )
                     enforced = enforce_release_llm_config(
-                        user_config, is_schema_creation=is_schema_creation
+                        restore_api_keys(session_id, user_config),
+                        is_schema_creation=is_schema_creation,
                     )
                     return schematiq_utils.build_llm(enforced)
         except Exception as e:
@@ -174,7 +176,8 @@ def resolve_llm_for_session(
                     backend_config.get("model"),
                 )
                 enforced = enforce_release_llm_config(
-                    backend_config, is_schema_creation=is_schema_creation
+                    restore_api_keys(session_id, backend_config),
+                    is_schema_creation=is_schema_creation,
                 )
                 return schematiq_utils.build_llm(enforced)
     except Exception as e:
@@ -204,7 +207,8 @@ def resolve_llm_for_session(
                     backend_config.get("model"),
                 )
                 enforced = enforce_release_llm_config(
-                    backend_config, is_schema_creation=is_schema_creation
+                    restore_api_keys(session_id, backend_config),
+                    is_schema_creation=is_schema_creation,
                 )
                 return schematiq_utils.build_llm(enforced)
 
@@ -225,7 +229,8 @@ def resolve_llm_for_session(
                         backend_config.get("model"),
                     )
                     enforced = enforce_release_llm_config(
-                        backend_config, is_schema_creation=is_schema_creation
+                        restore_api_keys(session_id, backend_config),
+                        is_schema_creation=is_schema_creation,
                     )
                     return schematiq_utils.build_llm(enforced)
     except Exception as e:
@@ -246,7 +251,8 @@ def resolve_llm_for_session(
                     backend_config.get("model"),
                 )
                 enforced = enforce_release_llm_config(
-                    backend_config, is_schema_creation=is_schema_creation
+                    restore_api_keys(session_id, backend_config),
+                    is_schema_creation=is_schema_creation,
                 )
                 return schematiq_utils.build_llm(enforced)
     except Exception as e:

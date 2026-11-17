@@ -119,7 +119,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   const cachedStatus = queryClient.getQueryData<ScheMatiQStatus>(['schematiq-status', sessionId]);
   const cachedLlmStats = queryClient.getQueryData<LlmStats>(llmStatsCacheKey);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting');
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting');
   const [logsOpen, setLogsOpen] = useState(false);
 
   // Main processing state - changes IMMEDIATELY on Start click
@@ -200,16 +200,22 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   // Track last logged phase to avoid repeating phase-transition messages
   const lastLoggedPhaseRef = useRef<string | null>(null);
 
-  // Fetch ScheMatiQ status - disable polling when WebSocket is connected
+  // Fetch ScheMatiQ status once on mount (all session types: it also restores
+  // LLM stats and progress after a remount). Fallback polling runs only while a
+  // pipeline phase is active and the WebSocket is not connected.
+  const isPipelineActive =
+    canRunPipeline &&
+    (processingState === 'starting' ||
+      processingState === 'schema' ||
+      processingState === 'extraction' ||
+      processingState === 'observation_unit_review');
+
   const { data: status, isLoading } = useQuery(
     ['schematiq-status', sessionId],
     () => schematiqAPI.getStatus(sessionId),
     {
-      refetchInterval: () => {
-        // Don't poll if WebSocket is connected - rely on real-time updates
-        if (webSocketService.isConnected()) return false;
-        return 2000; // Fallback polling if WebSocket disconnects
-      },
+      enabled: Boolean(sessionId),
+      refetchInterval: isPipelineActive && connectionStatus !== 'connected' ? 2000 : false,
     }
   );
 
@@ -731,8 +737,22 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         if (st.status === 'completed' || st.status === 'failed' || st.status === 'stopped') {
           applyTerminalStatus(st.status, st.error);
         }
-      } catch {
-        // Operation may have been cleaned up after completion
+      } catch (err) {
+        // The backend drops an operation as soon as it ends (completed, failed or
+        // stopped), and loses it on restart. A 404 means "ended, outcome unknown":
+        // stop polling and let the refetched session/data show the real result.
+        // Do not report success here.
+        const httpStatus = (err as { response?: { status?: number } })?.response?.status;
+        if (!cancelled && httpStatus === 404) {
+          setActiveReextractionId(null);
+          setIsStopping(false);
+          stopRequestedRef.current = false;
+          setProcessingState('completed');
+          setCurrentStepMessage('');
+          queryClient.invalidateQueries(['schematiq-status', sessionId]);
+          queryClient.invalidateQueries(['session', sessionId, 'schematiq']);
+          queryClient.invalidateQueries(['data', sessionId]);
+        }
       }
     };
 

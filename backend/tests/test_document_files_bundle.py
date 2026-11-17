@@ -107,3 +107,31 @@ async def test_gather_is_superset_never_drops_rowed_docs(tmp_path, monkeypatch):
 
     out = await document_files.gather_source_documents(session, session_id)
     assert [name for name, _ in out] == ["only_rowed.pdf"]
+
+
+async def test_gather_logs_documents_it_cannot_bundle(tmp_path, monkeypatch, caplog):
+    session_id = "s3"
+    _seed_docs(tmp_path, session_id, "documents", ["here.pdf"])
+    monkeypatch.setattr(
+        session_documents, "candidate_data_dirs", lambda: [tmp_path / "data"]
+    )
+    monkeypatch.setattr(
+        document_files.unit_view_service,
+        "get_source_documents",
+        lambda sid: [{"name": "here.pdf"}, {"name": "gone.pdf"}],
+    )
+
+    class FailingStorage:
+        async def download_file(self, bucket, path):
+            raise RuntimeError("storage down")
+
+    monkeypatch.setattr(document_files, "get_storage", lambda: FailingStorage())
+    session = _make_session(cloud_dataset="ds")
+
+    with caplog.at_level("WARNING", logger=document_files.logger.name):
+        out = await document_files.gather_source_documents(session, session_id)
+
+    assert [name for name, _ in out] == ["here.pdf"]
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("Could not download gone.pdf from dataset ds" in m for m in messages)
+    assert any("missing 1 source document(s): gone.pdf" in m for m in messages)
