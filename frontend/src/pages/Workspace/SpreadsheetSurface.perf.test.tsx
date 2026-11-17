@@ -244,4 +244,3 @@ describe('SpreadsheetSurface render & search performance', () => {
     expect(mockHotState.searchQuery).toHaveBeenCalledTimes(4);
   });
 });
-
