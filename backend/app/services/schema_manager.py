@@ -12,15 +12,41 @@ from typing import List, Dict, Any
 from pathlib import Path
 from datetime import datetime
 
-from app.services.atomic_jsonl import write_jsonl_atomic
+from app.services.atomic_jsonl import write_json_atomic
+from app.services.data_utils import remove_column_keys_in_row, resolve_session_data_files
+from app.services.session_data_store import save_session_data_file, session_write_lock
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.services import schematiq_thread_pool, concurrency_limiter, find_session_data_file
+from app.services import schematiq_thread_pool, concurrency_limiter
 from app.core.config import DEFAULT_DATA_DIR
 from app.services.pipeline.llm_factory import resolve_llm_for_session
 
 logger = logging.getLogger(__name__)
+
+
+def _read_jsonl_rows(path: Path) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    with open(path, 'r', encoding='utf-8') as f:
+        for line in f:
+            if line.strip():
+                rows.append(json.loads(line))
+    return rows
+
+
+def _row_values(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the dict that holds a row's column values.
+
+    Data files use two row formats: values nested under ``data`` (imported
+    and load-mode files) or flat at the top level (pipeline output).
+    """
+    data = row.get('data')
+    return data if isinstance(data, dict) else row
+
+
+def _row_has_column(row: Dict[str, Any], column_name: str) -> bool:
+    values = _row_values(row)
+    return column_name in values or f"{column_name}_excerpt" in values
 
 # ScheMatiQ library imports
 from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
@@ -199,11 +225,11 @@ class SchemaManager(WebSocketBroadcasterMixin):
             await concurrency_limiter.release(session_id)
     
     async def remove_column_data(self, session_id: str, column_name: str):
-        """Remove a column's data from all existing records, including excerpt columns."""
+        """Remove a column's data (and its excerpt column) from every data file."""
         try:
-            data_file = await find_session_data_file(session_id)
+            data_files = await resolve_session_data_files(session_id)
 
-            if not data_file:
+            if not data_files:
                 await self.broadcast_progress(
                     session_id,
                     f"No data file found for column '{column_name}' deletion",
@@ -211,85 +237,52 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     "column_deleted"
                 )
                 return
-            
-            # Determine all column variants to remove
-            columns_to_remove = [column_name]
-            excerpt_column = f"{column_name}_excerpt"
-            
-            # Read existing data and determine what columns actually exist
-            columns_found = set()
-            existing_rows = []
-            with open(data_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        row_data = json.loads(line)
-                        existing_rows.append(row_data)
-                        if 'data' in row_data:
-                            columns_found.update(row_data['data'].keys())
-            
-            # Add excerpt column if it exists in the data
-            if excerpt_column in columns_found:
-                columns_to_remove.append(excerpt_column)
-            
-            logger.debug(f"Removing columns {columns_to_remove} from {len(existing_rows)} rows")
-            
-            # Remove the columns from all rows
-            updated_rows = []
+
             columns_removed_count = 0
-            for row_data in existing_rows:
-                row_updated = False
-                if 'data' in row_data:
-                    for col_to_remove in columns_to_remove:
-                        if col_to_remove in row_data['data']:
-                            del row_data['data'][col_to_remove]
-                            row_updated = True
-                            logger.debug(f"Removed column '{col_to_remove}' from row: {row_data.get('row_name', 'unknown')}")
-                
-                if row_updated:
-                    columns_removed_count += 1
-                
-                updated_rows.append(row_data)
-            
-            # Write back updated data
-            write_jsonl_atomic(data_file, updated_rows)
-            
-            logger.info(f"Successfully removed columns {columns_to_remove} from {columns_removed_count} rows")
-            
+            async with session_write_lock(session_id):
+                for data_file in data_files:
+                    rows = _read_jsonl_rows(data_file)
+                    file_changed = False
+                    for row_data in rows:
+                        if _row_has_column(row_data, column_name):
+                            columns_removed_count += 1
+                            file_changed = True
+                        remove_column_keys_in_row(row_data, column_name)
+                    if file_changed:
+                        await save_session_data_file(session_id, data_file, rows)
+
+                # Legacy data.json next to the primary data file (backup format).
+                json_data_file = data_files[0].parent / "data.json"
+                if json_data_file.exists():
+                    try:
+                        with open(json_data_file, 'r') as f:
+                            json_data = json.load(f)
+                        if 'rows' in json_data and isinstance(json_data['rows'], list):
+                            for row in json_data['rows']:
+                                row.pop(column_name, None)
+                                row.pop(f"{column_name}_excerpt", None)
+                        write_json_atomic(json_data_file, json_data)
+                    except Exception as json_error:
+                        logger.warning(f"Could not update data.json: {json_error}")
+
+            logger.info(
+                f"Removed column '{column_name}' (and its excerpt) from {columns_removed_count} rows"
+            )
+
             await self.broadcast_progress(
                 session_id,
                 f"Column '{column_name}' and related data removed from {columns_removed_count} rows",
                 1.0,
                 "column_deleted"
             )
-            
-            # Also check for and update data.json if it exists (backup format)
-            session_dir = data_file.parent
-            json_data_file = session_dir / "data.json"
-            if json_data_file.exists():
-                try:
-                    with open(json_data_file, 'r') as f:
-                        json_data = json.load(f)
-                    
-                    if 'rows' in json_data and isinstance(json_data['rows'], list):
-                        for row in json_data['rows']:
-                            for col_to_remove in columns_to_remove:
-                                if col_to_remove in row:
-                                    del row[col_to_remove]
-                    
-                    with open(json_data_file, 'w') as f:
-                        json.dump(json_data, f, indent=2)
-                    
-                    logger.debug("Also updated data.json file")
-                except Exception as json_error:
-                    logger.warning(f"Could not update data.json: {json_error}")
-            
+
         except Exception as e:
             logger.error(f"Failed to remove column data: {e}", exc_info=True)
             await self.broadcast_error(session_id, f"Failed to remove column data: {str(e)}")
             raise
     
     async def merge_column_data(self, session_id: str, source_columns: List[str], target_column: str, strategy: str, separator: str = " | "):
-        """Merge data from multiple columns into a new column."""
+        """Merge data from multiple columns into a new column, in every data file."""
         try:
             await self.broadcast_progress(
                 session_id,
@@ -297,51 +290,36 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 0.0,
                 "merging_columns"
             )
-            
-            data_file = await find_session_data_file(session_id)
 
-            if not data_file:
+            data_files = await resolve_session_data_files(session_id)
+            if not data_files:
                 return
 
-            # Read and update data
-            updated_rows = []
-            with open(data_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        row_data = json.loads(line)
+            async with session_write_lock(session_id):
+                for data_file in data_files:
+                    rows = _read_jsonl_rows(data_file)
+                    for row_data in rows:
+                        values = _row_values(row_data)
 
-                        # Extract source values
                         source_values = []
                         for col_name in source_columns:
-                            if 'data' in row_data and col_name in row_data['data']:
-                                value = row_data['data'][col_name]
-                                if value and str(value).strip():
-                                    source_values.append(str(value))
-                        
-                        # Merge values based on strategy
-                        merged_value = self._merge_values(source_values, strategy, separator)
-                        
-                        # Add merged column and remove source columns
-                        if 'data' not in row_data:
-                            row_data['data'] = {}
-                        
-                        row_data['data'][target_column] = merged_value
-                        
-                        # Remove source columns
+                            value = values.get(col_name)
+                            if value and str(value).strip():
+                                source_values.append(str(value))
+
+                        values[target_column] = self._merge_values(source_values, strategy, separator)
+
                         for col_name in source_columns:
-                            if col_name in row_data['data']:
-                                del row_data['data'][col_name]
-                        
-                        updated_rows.append(row_data)
-            
-            # Write back updated data
-            write_jsonl_atomic(data_file, updated_rows)
+                            if col_name != target_column:
+                                values.pop(col_name, None)
+
+                    await save_session_data_file(session_id, data_file, rows)
 
             await self.broadcast_completion(
                 session_id,
                 f"Successfully merged {len(source_columns)} columns into '{target_column}'"
             )
-            
+
         except Exception as e:
             await self.broadcast_error(session_id, f"Failed to merge columns: {str(e)}")
             raise
@@ -405,58 +383,55 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     extracted_by_row_name.setdefault(key[0], []).append((key, value))
                     extracted_by_paper_stem.setdefault(key[0].lower(), []).append((key, value))
 
-        # Update main data file
-        data_file = await find_session_data_file(session_id)
-
-        if not data_file:
+        # Update every data file of the session.
+        data_files = await resolve_session_data_files(session_id)
+        if not data_files:
             return
 
-        updated_rows = []
-        with open(data_file, 'r') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                row_data = json.loads(line)
-                row_name = row_data.get('row_name') or row_data.get('_row_name')
-                row_src = _resolve_source_document(row_data)
-                papers = row_data.get('papers') or []
+        def _match(row_data: Dict[str, Any]) -> Any:
+            row_name = row_data.get('row_name') or row_data.get('_row_name')
+            row_src = _resolve_source_document(row_data)
+            papers = row_data.get('papers') or []
 
-                # Match by composite key first, then row-name, then paper-stem.
-                value = None
-                row_key = (row_name, row_src) if row_name else None
-                if row_key and row_key in extracted_by_key:
-                    value = extracted_by_key[row_key]
-                elif row_name and row_name in extracted_by_row_name:
-                    candidates = extracted_by_row_name[row_name]
-                    if len(candidates) == 1:
-                        value = candidates[0][1]
-                    else:
-                        for paper in papers:
-                            paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                            for cand_key, cand_val in candidates:
-                                if cand_key[1].lower() == paper_stem:
-                                    value = cand_val
-                                    break
-                            if value is not None:
-                                break
-                if value is None:
+            # Match by composite key first, then row-name, then paper-stem.
+            value = None
+            row_key = (row_name, row_src) if row_name else None
+            if row_key and row_key in extracted_by_key:
+                value = extracted_by_key[row_key]
+            elif row_name and row_name in extracted_by_row_name:
+                candidates = extracted_by_row_name[row_name]
+                if len(candidates) == 1:
+                    value = candidates[0][1]
+                else:
                     for paper in papers:
                         paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                        if paper_stem in extracted_by_paper_stem:
-                            candidates = extracted_by_paper_stem[paper_stem]
-                            if len(candidates) == 1:
-                                value = candidates[0][1]
+                        for cand_key, cand_val in candidates:
+                            if cand_key[1].lower() == paper_stem:
+                                value = cand_val
+                                break
+                        if value is not None:
                             break
+            if value is None:
+                for paper in papers:
+                    paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
+                    if paper_stem in extracted_by_paper_stem:
+                        candidates = extracted_by_paper_stem[paper_stem]
+                        if len(candidates) == 1:
+                            value = candidates[0][1]
+                        break
+            return value
 
-                if value is not None:
-                    if 'data' not in row_data:
-                        row_data['data'] = {}
-                    row_data['data'][column_name] = value
-
-                updated_rows.append(row_data)
-
-        # Write back updated data
-        write_jsonl_atomic(data_file, updated_rows)
+        async with session_write_lock(session_id):
+            for data_file in data_files:
+                rows = _read_jsonl_rows(data_file)
+                changed = False
+                for row_data in rows:
+                    value = _match(row_data)
+                    if value is not None:
+                        _row_values(row_data)[column_name] = value
+                        changed = True
+                if changed:
+                    await save_session_data_file(session_id, data_file, rows)
 
     async def reprocess_documents(self, session_id: str, columns: List[str], incremental: bool = True, force: bool = False):
         """Reprocess documents for multiple columns using comprehensive schema context."""
