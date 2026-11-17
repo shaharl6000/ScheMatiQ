@@ -60,6 +60,13 @@ def test_data_editor_uses_the_shared_lock():
     assert _get_session_write_lock("s") is session_write_lock("s")
 
 
+def test_reextraction_merges_use_the_shared_lock():
+    from app.services.reextraction_service import ReextractionService
+
+    svc = ReextractionService.__new__(ReextractionService)
+    assert svc._get_incremental_merge_lock("s-rx") is session_write_lock("s-rx")
+
+
 async def test_merge_units_keeps_rows_in_their_own_file_and_persists(
     tmp_path, unit_svc, persisted
 ):
