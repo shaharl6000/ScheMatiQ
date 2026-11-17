@@ -637,6 +637,253 @@ async def test_all_backend_extraction_services_skip_get_shared_retriever_when_di
     get_shared_spy.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_extraction_services_pass_session_retriever_config_when_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When DISABLE_RETRIEVER is False, extraction services pass the session's retriever config (#671)."""
+    monkeypatch.chdir(tmp_path)
+    reset_storage()
+
+    data_dir = tmp_path / "data"
+    work_dir = tmp_path / "schematiq_work"
+    sessions_dir = tmp_path / "sessions"
+    for d in (data_dir, work_dir, sessions_dir):
+        d.mkdir(parents=True, exist_ok=True)
+    storage = LocalStorageBackend(
+        sessions_dir=str(sessions_dir),
+        data_dir=str(data_dir),
+        schematiq_work_dir=str(work_dir),
+    )
+    sm = SessionManager(storage=storage)
+    ws = MagicMock()
+    ws.broadcast_to_session = MagicMock(side_effect=lambda *_a, **_kw: _async_noop())
+    ws.broadcast_log = MagicMock(side_effect=lambda *_a, **_kw: _async_noop())
+    ws.broadcast_progress = MagicMock(side_effect=lambda *_a, **_kw: _async_noop())
+    ws.broadcast_completion = MagicMock(side_effect=lambda *_a, **_kw: _async_noop())
+    ws.broadcast_error = MagicMock(side_effect=lambda *_a, **_kw: _async_noop())
+    ws.broadcast_row_completed = MagicMock(side_effect=lambda *_a, **_kw: _async_noop())
+
+    captured_configs: List[Any] = []
+    fake_retriever = _FakeEmbeddingRetriever(model_name="BAAI/bge-m3", k=11)
+
+    def _fake_get_shared(cfg=None, **_kw):
+        captured_configs.append(cfg)
+        return fake_retriever
+
+    monkeypatch.setattr(services_mod, "get_shared_retriever", _fake_get_shared)
+
+    # 1. ReextractionService reads session retriever config from schematiq_work/{sid}/schematiq_config.json
+    sid_reext = "sess_reext_enabled"
+    reext_retriever_cfg = {
+        "type": "embedding",
+        "model_name": "BAAI/bge-m3",
+        "passage_words": 320,
+        "overlap": 80,
+        "k": 11,
+        "enable_dynamic_k": False,
+        "dynamic_k_threshold": 0.72,
+        "dynamic_k_minimum": 4,
+    }
+    (work_dir / sid_reext).mkdir(parents=True)
+    (work_dir / sid_reext / "schematiq_config.json").write_text(
+        json.dumps({"retriever": reext_retriever_cfg}), encoding="utf-8"
+    )
+    (data_dir / sid_reext / "documents").mkdir(parents=True)
+    (data_dir / sid_reext / "documents" / "d1.txt").write_text("doc text", encoding="utf-8")
+    (data_dir / sid_reext / "data.jsonl").write_text(
+        json.dumps({"row_name": "U1", "papers": ["d1.txt"], "data": {"c1": "v"}}) + "\n",
+        encoding="utf-8",
+    )
+    sm.create_session(
+        VisualizationSession(
+            id=sid_reext,
+            type=SessionType.SCHEMATIQ,
+            status=SessionStatus.COMPLETED,
+            metadata=SessionMetadata(source="test", uploaded_documents=["d1.txt"]),
+            columns=[ColumnInfo(name="c1", definition="d", rationale="r")],
+            schema_query="q",
+            observation_unit=ObservationUnitInfo(name="Doc", definition="One doc"),
+        )
+    )
+
+    reext_retrievers: List[Any] = []
+    monkeypatch.setattr(reext_mod, "DISABLE_RETRIEVER", False)
+    monkeypatch.setattr(
+        reext_mod,
+        "build_table_jsonl",
+        lambda **kw: (
+            reext_retrievers.append(kw.get("retriever")),
+            Path(kw["output_path"]).write_text("", encoding="utf-8"),
+        )[1],
+    )
+    re_svc = reext_mod.ReextractionService(ws, sm)
+    op = reext_mod.ReextractionOperation(
+        operation_id="op_en_1", session_id=sid_reext, columns=["c1"], status="starting"
+    )
+    op.total_documents = 1
+    op.llm = MagicMock()
+    re_svc.active_operations["op_en_1"] = op
+    monkeypatch.setattr(re_svc, "_summarize_reextraction", lambda *_a, **_kw: _async_noop())
+    await re_svc._run_reextraction("op_en_1")
+
+    assert captured_configs == [reext_retriever_cfg]
+    assert reext_retrievers == [fake_retriever]
+
+    # 2. SchemaManager (reprocess_column + reprocess_column_with_context) reads config.json
+    captured_configs.clear()
+    sid_sm = "sess_sm_enabled"
+    sm_retriever_cfg = {
+        "type": "embedding",
+        "model_name": "intfloat/multilingual-e5-small",
+        "passage_words": 256,
+        "overlap": 48,
+        "k": 9,
+        "enable_dynamic_k": True,
+        "dynamic_k_threshold": 0.6,
+        "dynamic_k_minimum": 2,
+    }
+    (work_dir / sid_sm).mkdir(parents=True)
+    (work_dir / sid_sm / "config.json").write_text(
+        json.dumps({"retriever": sm_retriever_cfg}), encoding="utf-8"
+    )
+    (data_dir / sid_sm / "documents").mkdir(parents=True)
+    (data_dir / sid_sm / "documents" / "d1.txt").write_text("doc text", encoding="utf-8")
+    (data_dir / sid_sm / "data.jsonl").write_text(
+        json.dumps({"row_name": "U1", "papers": ["d1.txt"], "data": {"c1": "v"}}) + "\n",
+        encoding="utf-8",
+    )
+    sm.create_session(
+        VisualizationSession(
+            id=sid_sm,
+            type=SessionType.SCHEMATIQ,
+            status=SessionStatus.COMPLETED,
+            metadata=SessionMetadata(source="test", uploaded_documents=["d1.txt"]),
+            columns=[ColumnInfo(name="c1", definition="d", rationale="r")],
+            schema_query="q",
+            observation_unit=ObservationUnitInfo(name="Doc", definition="One doc"),
+        )
+    )
+
+    sm_retrievers: List[Any] = []
+    monkeypatch.setattr(sm_mod, "DISABLE_RETRIEVER", False)
+    monkeypatch.setattr(
+        sm_mod,
+        "build_table_jsonl",
+        lambda **kw: (
+            sm_retrievers.append(kw.get("retriever")),
+            Path(kw["output_path"]).write_text("", encoding="utf-8"),
+        )[1],
+    )
+    schema_mgr = sm_mod.SchemaManager(ws, sm)
+    monkeypatch.setattr(
+        schema_mgr, "_get_value_extraction_llm_from_session", lambda _sid: MagicMock()
+    )
+    await schema_mgr.reprocess_column(sid_sm, "c1")
+    await schema_mgr.reprocess_column_with_context(sid_sm, "c1", {"query": "q"})
+
+    assert captured_configs == [sm_retriever_cfg, sm_retriever_cfg]
+    assert sm_retrievers == [fake_retriever, fake_retriever]
+
+    # 3. UploadDocumentProcessor reads session retriever config (e.g. from data/{sid}/schematiq_config.json)
+    captured_configs.clear()
+    sid_udp = "sess_udp_enabled"
+    udp_retriever_cfg = {
+        "type": "embedding",
+        "model_name": "paraphrase-multilingual-MiniLM-L12-v2",
+        "passage_words": 400,
+        "overlap": 64,
+        "k": 7,
+        "enable_dynamic_k": False,
+        "dynamic_k_threshold": 0.7,
+        "dynamic_k_minimum": 3,
+    }
+    (data_dir / sid_udp / "pending_documents").mkdir(parents=True)
+    (data_dir / sid_udp / "pending_documents" / "d2.txt").write_text(
+        "pending text", encoding="utf-8"
+    )
+    (data_dir / sid_udp / "schematiq_config.json").write_text(
+        json.dumps({"retriever": udp_retriever_cfg}), encoding="utf-8"
+    )
+    sm.create_session(
+        VisualizationSession(
+            id=sid_udp,
+            type=SessionType.UPLOAD,
+            status=SessionStatus.DOCUMENTS_UPLOADED,
+            metadata=SessionMetadata(source="test", uploaded_documents=["d2.txt"]),
+            columns=[ColumnInfo(name="c1", definition="d", rationale="r")],
+            schema_query="q",
+            observation_unit=ObservationUnitInfo(name="Doc", definition="One doc"),
+        )
+    )
+
+    udp_retrievers: List[Any] = []
+    monkeypatch.setattr(udp_mod, "DISABLE_RETRIEVER", False)
+    monkeypatch.setattr(udp_mod, "PROGRESS_CHECK_INTERVAL", 0.01)
+    monkeypatch.setattr(
+        udp_mod,
+        "build_table_jsonl",
+        lambda **kw: (
+            udp_retrievers.append(kw.get("retriever")),
+            Path(kw["output_path"]).write_text("", encoding="utf-8"),
+            {},
+        )[2],
+    )
+    up = udp_mod.UploadDocumentProcessor(ws, sm)
+    monkeypatch.setattr(up, "_get_llm_for_session", lambda _sid, _s=None: MagicMock())
+    await up.process_documents(sid_udp)
+
+    assert captured_configs == [udp_retriever_cfg]
+    assert udp_retrievers == [fake_retriever]
+
+
+def test_restored_legacy_retriever_config_delegates_to_library_and_preserves_passage_words(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Restored legacy configs sent unchanged by the frontend produce the same passage_words (#675)."""
+    import app.models.schematiq as schematiq_models_mod
+    from app.models.schematiq import LLMConfig, ScheMatiQConfig
+    from schematiq.core.retrievers import legacy_budget_to_passage_words
+
+    spy_calls: List[tuple[int, int]] = []
+
+    def _spy_legacy_budget_to_passage_words(budget: int, k: int) -> int:
+        spy_calls.append((budget, k))
+        return legacy_budget_to_passage_words(budget, k)
+
+    monkeypatch.setattr(
+        schematiq_models_mod,
+        "legacy_budget_to_passage_words",
+        _spy_legacy_budget_to_passage_words,
+    )
+
+    legacy_cases = [
+        # (restored retriever dict sent unchanged by frontend, expected_k, expected_passage_words)
+        ({"type": "embedding", "model_name": "all-MiniLM-L6-v2", "passage_chars": 1200, "k": 4, "overlap": 64}, 4, 300),
+        ({"type": "embedding", "model_name": "all-MiniLM-L6-v2", "passage_chars": 512, "k": 15, "overlap": 64}, 15, 128),
+        ({"type": "embedding", "model_name": "all-MiniLM-L6-v2", "passage_chars": 2400, "overlap": 64}, 15, 160),
+        ({"type": "embedding", "model_name": "all-MiniLM-L6-v2", "max_words": 900, "k": 3, "overlap_words": 48}, 3, 300),
+        ({"type": "embedding", "model_name": "all-MiniLM-L6-v2", "passage_chars": 300, "k": 10}, 10, 128),
+    ]
+
+    for idx, (restored_retriever, expected_k, expected_words) in enumerate(legacy_cases, start=1):
+        cfg = ScheMatiQConfig(
+            query="q",
+            schema_creation_backend=LLMConfig(provider="gemini", model="gemini-3.8-flash"),
+            value_extraction_backend=LLMConfig(provider="gemini", model="gemini-3.5-flash-lite"),
+            retriever=restored_retriever,
+            output_path="outputs/out.json",
+        )
+        assert cfg.retriever is not None
+        assert cfg.retriever.passage_words == expected_words
+        assert cfg.retriever.passage_words == legacy_budget_to_passage_words(
+            restored_retriever.get("max_words", restored_retriever.get("passage_chars")),
+            expected_k,
+        )
+        assert len(spy_calls) == idx
+        assert spy_calls[-1][1] == expected_k
+
+
 async def _async_noop(*_a, **_kw):
     return None
 
