@@ -25,12 +25,15 @@ matcher remains distinct (this module does stem matching; ``units`` strips a
 known extension on either side), so the two are no longer copy-paste duplicates.
 """
 
+import logging
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
 from app.services.session_documents import local_document_dirs
 from app.services.unit_view_service import unit_view_service
 from app.storage import get_storage
+
+logger = logging.getLogger(__name__)
 
 
 def _find_local_document(session_id: str, name: str) -> Optional[Path]:
@@ -85,12 +88,16 @@ async def gather_source_documents(session, session_id: str) -> List[Tuple[str, b
     """Return ``(filename, original_bytes)`` for each source document in a session.
 
     Order mirrors the viewer: local files first, then the session's cloud dataset
-    in Supabase storage. Documents that cannot be located are silently skipped
+    in Supabase storage. Documents that cannot be located are skipped and logged
     (the bundle still imports; those previews simply stay unavailable).
     """
     try:
         names = [d["name"] for d in unit_view_service.get_source_documents(session_id)]
     except Exception:
+        logger.warning(
+            "Could not list source documents for session %s; the bundle has only "
+            "skipped and on-disk documents", session_id, exc_info=True,
+        )
         names = []
 
     # Skipped documents carry no rows, so get_source_documents never lists them;
@@ -102,6 +109,7 @@ async def gather_source_documents(session, session_id: str) -> List[Tuple[str, b
     added: set = set()      # actual filenames placed into the bundle
     cloud_dataset = getattr(session.metadata, "cloud_dataset", None)
     storage = None
+    missing: List[str] = []
 
     for name in names:
         if not name or name in seen:
@@ -116,7 +124,7 @@ async def gather_source_documents(session, session_id: str) -> List[Tuple[str, b
                 added.add(local.name)
                 continue
             except Exception:
-                pass
+                logger.warning("Could not read local document %s", local, exc_info=True)
 
         if cloud_dataset:
             if storage is None:
@@ -124,10 +132,16 @@ async def gather_source_documents(session, session_id: str) -> List[Tuple[str, b
             try:
                 content = await storage.download_file("datasets", f"{cloud_dataset}/{name}")
             except Exception:
+                logger.warning(
+                    "Could not download %s from dataset %s", name, cloud_dataset, exc_info=True
+                )
                 content = None
             if content:
                 out.append((name, content))
                 added.add(name)
+                continue
+
+        missing.append(name)
 
     # Sweep any remaining on-disk source files that neither the rows nor the
     # skipped list referenced (e.g. uploaded-but-not-yet-extracted files). Local
@@ -140,6 +154,11 @@ async def gather_source_documents(session, session_id: str) -> List[Tuple[str, b
         try:
             out.append((local.name, local.read_bytes()))
         except Exception:
-            pass
+            logger.warning("Could not read local document %s", local, exc_info=True)
 
+    if missing:
+        logger.warning(
+            "Project bundle for session %s is missing %d source document(s): %s",
+            session_id, len(missing), ", ".join(sorted(missing)[:20]),
+        )
     return out
