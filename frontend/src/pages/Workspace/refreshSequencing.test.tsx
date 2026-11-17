@@ -460,4 +460,48 @@ describe('Workspace row refresh sequencing', () => {
     });
     expect(mockUnitsGetData.mock.calls.length).toBeGreaterThan(unitFetchesBefore);
   });
+
+  it('a slow first load of the previous project does not hide the new project loading overlay', async () => {
+    const completedStatus = (sid: string): ScheMatiQStatus => ({
+      session_id: sid,
+      status: 'completed',
+      progress: 1,
+      current_step: 'Completed',
+      steps_completed: 1,
+      total_steps: 1,
+    });
+    mockGetData.mockResolvedValue(mkPaginated([row('r')]));
+    const s1Status = deferred<ScheMatiQStatus>();
+    const s2Status = deferred<ScheMatiQStatus>();
+    mockGetStatus.mockReset()
+      .mockReturnValueOnce(s1Status.promise)
+      .mockReturnValueOnce(s2Status.promise);
+    const overlay = () => container.querySelector('.workspace-loading-overlay');
+
+    await act(async () => {
+      root.render(<Workspace />);
+      await flushMicrotasks();
+    });
+    expect(overlay()).not.toBeNull();
+
+    mockSessionId = 'session-2';
+    await act(async () => {
+      root.render(<Workspace />);
+      await flushMicrotasks();
+    });
+    expect(overlay()).not.toBeNull();
+
+    // Project 1's slow load finally lands: project 2 is still loading.
+    await act(async () => {
+      s1Status.resolve(completedStatus('session-1'));
+      await flushMicrotasks();
+    });
+    expect(overlay()).not.toBeNull();
+
+    await act(async () => {
+      s2Status.resolve(completedStatus('session-2'));
+      await flushMicrotasks();
+    });
+    expect(overlay()).toBeNull();
+  });
 });
