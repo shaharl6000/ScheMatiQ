@@ -181,3 +181,57 @@ async def test_add_cloud_documents_refuses_same_stem_keys(upload_session, monkey
     statuses = {f["filename"]: f["status"] for f in result["failed_files"]}
     assert statuses["b/x.pdf"] == "failed: duplicate name in upload"
     assert statuses["folder/"] == "failed: invalid file name"
+
+
+
+@pytest.mark.parametrize("evil", TRAVERSAL_NAMES)
+def test_commit_bytes_stages_inside_temp_dir(tmp_path, monkeypatch, evil):
+    from app.services import document_preprocessor
+
+    if evil == "ABSOLUTE":
+        evil = str(tmp_path / "escaped.txt")
+    stage_root = tmp_path / "stage"
+    stage_root.mkdir()
+    staged = []
+    monkeypatch.setattr(
+        document_preprocessor.tempfile, "mkdtemp", lambda prefix="": str(stage_root)
+    )
+
+    def fake_commit(path, documents_dir, worker_id=None):
+        staged.append(path)
+        return documents_dir / path.name
+
+    monkeypatch.setattr(document_preprocessor, "commit_document_to_documents_dir", fake_commit)
+    docs_dir = tmp_path / "docs"
+
+    committed = document_preprocessor.commit_bytes_to_documents_dir(b"pwned", evil, docs_dir)
+
+    assert committed == docs_dir / "escaped.txt"
+    assert staged == [stage_root / "escaped.txt"]
+    assert not (tmp_path / "escaped.txt").exists()
+
+
+def test_commit_bytes_refuses_unusable_name(tmp_path):
+    from app.services.document_preprocessor import commit_bytes_to_documents_dir
+
+    assert commit_bytes_to_documents_dir(b"x", "..", tmp_path) is None
+
+
+async def test_initial_schema_upload_keeps_name_inside_schemas(monkeypatch):
+    from app.api.routes import cloud_data
+
+    names = []
+
+    class FakeStorage:
+        async def upload_initial_schema(self, name, content, content_type):
+            names.append(name)
+            return f"initial_schemas/{name}.json"
+
+    monkeypatch.setattr(cloud_data, "get_storage", lambda: FakeStorage())
+    body = b'[{"name": "a", "definition": "d", "rationale": "r"}]'
+    upload = UploadFile(file=io.BytesIO(body), filename="../../evil.json")
+
+    result = await cloud_data.upload_initial_schema(upload)
+
+    assert names == ["evil"]
+    assert result.name == "evil"

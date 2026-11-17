@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from app.core.safe_paths import safe_upload_name
+
 from app.services.document_conversion.convert_to_txt import (
     convert_file,
     get_libreoffice_path,
@@ -210,9 +212,16 @@ def commit_bytes_to_documents_dir(
     ``{stem}.txt`` exactly like the pending->documents move. The temp directory
     is always cleaned up. Returns the committed path, or None on failure.
     """
+    try:
+        # Callers pass client file names and storage keys; keep only the last
+        # component so the staged file stays inside the temp dir (CWE-22).
+        safe_name = safe_upload_name(filename)
+    except ValueError:
+        logger.warning("Refusing to commit document with invalid name %r", filename)
+        return None
     staging_dir = Path(tempfile.mkdtemp(prefix="docstage_"))
     try:
-        staged = staging_dir / filename
+        staged = staging_dir / safe_name
         staged.write_bytes(content)
         return commit_document_to_documents_dir(
             staged, documents_dir, worker_id=worker_id
