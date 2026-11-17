@@ -132,10 +132,6 @@ def test_embedding_retriever_lru_count_and_byte_bounds():
     assert "k2" in r_bytes._embedding_cache
     assert r_bytes._cached_bytes <= 200
 
-    r_bytes.clear_cache()
-    assert len(r_bytes._embedding_cache) == 0
-    assert r_bytes._cached_bytes == 0
-
 
 def test_unit_cap_emits_warning_and_early_return_clears_figure_state(tmp_path):
     schema = Schema(

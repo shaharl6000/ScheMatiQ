@@ -373,12 +373,6 @@ class EmbeddingRetriever(Retriever):
             }
             self._cached_bytes += entry_bytes
 
-    def clear_cache(self) -> None:
-        """Clear all cached document passages and embeddings."""
-        with self._cache_lock:
-            self._embedding_cache.clear()
-            self._cached_bytes = 0
-
     # ---- Retriever API -------------------------------------------------- #
     def _query_sentence_transformer_with_cache(
         self,
