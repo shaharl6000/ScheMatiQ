@@ -199,9 +199,15 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 retriever = None
                 logger.debug("Retriever skipped (DISABLE_RETRIEVER=True)")
             else:
-                # Use shared retriever cache (avoids reloading model each time)
-                from app.services import get_shared_retriever
-                retriever = get_shared_retriever()
+                # Use shared retriever cache configured for this session
+                from app.services import get_shared_retriever, resolve_retriever_config_for_session
+                retriever_cfg = resolve_retriever_config_for_session(
+                    session_id,
+                    self.session_manager,
+                    extracted_schema=current_schema,
+                    data_dir=DEFAULT_DATA_DIR,
+                )
+                retriever = get_shared_retriever(retriever_cfg)
                 logger.debug("Retriever ready (shared cache)")
             
             # Run value extraction

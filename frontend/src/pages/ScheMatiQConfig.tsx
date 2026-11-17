@@ -75,17 +75,9 @@ const DEFAULT_CONFIG: ScheMatiQConfig = {
   skip_value_extraction: false,
 };
 
-function normalizeRestoredRetriever(ret?: RetrieverConfig): RetrieverConfig | undefined {
+export function normalizeRestoredRetriever(ret?: RetrieverConfig): RetrieverConfig | undefined {
   if (!ret) return undefined;
-  if (ret.passage_words === undefined && ret.passage_chars !== undefined) {
-    const { passage_chars, ...rest } = ret;
-    const effectiveK = Math.max(rest.k ?? RETRIEVER_DEFAULTS.k, 1);
-    return {
-      ...rest,
-      passage_words: Math.max(Math.trunc(passage_chars / effectiveK), 128),
-    };
-  }
-  return ret;
+  return { ...ret };
 }
 
 const ScheMatiQConfigPage = () => {
@@ -454,13 +446,19 @@ const ScheMatiQConfigPage = () => {
   };
 
   const handleRetrieverChange = (field: keyof RetrieverConfig, value: any) => {
-    setConfig(prev => ({
-      ...prev,
-      retriever: {
+    setConfig(prev => {
+      const next: RetrieverConfig = {
         ...prev.retriever!,
         [field]: value,
-      },
-    }));
+      };
+      if (field === 'passage_words') {
+        delete next.passage_chars;
+      }
+      return {
+        ...prev,
+        retriever: next,
+      };
+    });
   };
 
   // Adapter: map this screen's config + local state into the shared

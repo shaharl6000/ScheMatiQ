@@ -211,8 +211,8 @@ export interface LLMConfig {
 export interface RetrieverConfig {
   type: string;
   model_name: string;
-  passage_words: number;
-  /** @deprecated Legacy saved-config alias for passage_words. */
+  passage_words?: number;
+  /** @deprecated Legacy saved-config alias for passage_words; converted by the backend. */
   passage_chars?: number;
   overlap: number;
   k: number;
