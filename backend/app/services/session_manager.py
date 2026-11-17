@@ -1,8 +1,9 @@
 """Session management service."""
 
+import asyncio
 import logging
 import threading
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Set
 from datetime import datetime
 
 from app.models.session import VisualizationSession, SessionStatus, SchemaBaseline
@@ -31,6 +32,28 @@ class SessionManager:
         # Sessions are fetched on first access; see get_session.
         self._sessions: Dict[str, VisualizationSession] = {}
         self._lock = threading.Lock()
+        # Server event loop (set by the app lifespan) and the background session
+        # saves still in flight on it; see _save_session.
+        self._server_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._pending_saves: Set["asyncio.Task[Any]"] = set()
+
+    def bind_server_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Let saves made on *loop* run in the background (see _save_session)."""
+        self._server_loop = loop
+
+    async def flush_pending_saves(self, timeout: float = 10.0) -> None:
+        """Wait for background session saves, e.g. before the server shuts down."""
+        pending = list(self._pending_saves)
+        if pending:
+            await asyncio.wait(pending, timeout=timeout)
+
+    def _on_background_save_done(self, task: "asyncio.Task[Any]") -> None:
+        self._pending_saves.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("Background session save failed: %s", exc)
 
     def _build_session(self, session_data: dict) -> Optional[VisualizationSession]:
         """Turn a stored session dict into a migrated model, or None if unusable."""
@@ -107,8 +130,29 @@ class SessionManager:
         return False
 
     def _save_session(self, session: VisualizationSession):
-        """Save session to storage."""
-        self._storage.save_session_sync(session.id, session.model_dump())
+        """Save session to storage.
+
+        On the server event loop with a network backend, the save runs in the
+        background: waiting on it here would block the loop (every request and
+        WebSocket) for a full upload, and update_session runs many times per
+        extraction. The data is snapshotted now, and the backend keeps saves of
+        one session in call order, so the newest snapshot always wins. Anywhere
+        else (worker threads, scripts, tests) the save stays synchronous.
+        """
+        data = session.model_dump()
+        if self._server_loop is not None and getattr(
+            self._storage, "saves_over_network", False
+        ):
+            try:
+                running = asyncio.get_running_loop()
+            except RuntimeError:
+                running = None
+            if running is self._server_loop:
+                task = running.create_task(self._storage.save_session(session.id, data))
+                self._pending_saves.add(task)
+                task.add_done_callback(self._on_background_save_done)
+                return
+        self._storage.save_session_sync(session.id, data)
 
     def create_session(self, session: VisualizationSession) -> str:
         """Create a new session."""

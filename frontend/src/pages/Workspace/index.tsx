@@ -665,7 +665,9 @@ function Workspace() {
         if (nextData) applyFetchedData(token, nextData, options);
         setDocuments(nextDocuments);
       } finally {
-        if (!silent) setDataLoading(false);
+        // A load for the project the user already left must not clear the
+        // new project's "Loading rows" badge.
+        if (!silent && !isStale()) setDataLoading(false);
       }
     };
 
@@ -756,7 +758,10 @@ function Workspace() {
 
       await fetchAsSchematiq();
     } finally {
-      if (!silent) {
+      // Same for the full-screen overlay: a slow first load of the previous
+      // project must not hide the new project's overlay while it is loading.
+      // The session-reset effect clears both flags on every switch.
+      if (!silent && !isStale()) {
         setLoading(false);
       }
     }
@@ -921,6 +926,11 @@ function Workspace() {
     // Reset session-scoped view/data so a freshly imported/loaded session
     // never renders the previous session's sheet, schema, or rows.
     setActiveSheet('data');
+    // Loading flags of the session we are leaving: its in-flight refresh no
+    // longer clears them (see isStale in refresh), so reset them here. The new
+    // session's own refresh (a later effect) sets them again.
+    setLoading(false);
+    setDataLoading(false);
     setData(emptyData);
     setSchema(null);
     setStatus(null);

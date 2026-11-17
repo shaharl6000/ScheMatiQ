@@ -86,7 +86,10 @@ from ..config.prompts import (
     SYSTEM_PROMPT_VAL_REEXTRACT,
     build_val_with_unit_prompt,
 )
-from ..utils.schema_builder import build_extraction_response_schema
+from ..utils.schema_builder import (
+    build_extraction_response_schema,
+    build_unit_identification_response_schema,
+)
 from ..utils.reference_retrieval import ReferenceRetriever
 from ..utils.reference_grounder import ReferenceGrounder
 from ..utils.excerpt_grounder import ExcerptGrounder, _PreparedSource
@@ -355,6 +358,19 @@ class PaperProcessor:
                 list(key_map.items()) if key_map else "none",
             )
         return schema, key_map
+
+    def _unit_identification_response_schema(self):
+        """Gemini response_schema for unit identification, or None.
+
+        Controlled generation keeps the response in the unit format, so the
+        model cannot answer in the value-extraction format that
+        UnitIdentificationParser otherwise detects and retries.
+        """
+        if not ENABLE_CONTROLLED_GENERATION or not self._is_gemini_backend():
+            return None
+        return build_unit_identification_response_schema(
+            include_passages=not DISABLE_RETRIEVER
+        )
 
     @staticmethod
     def _remap_response_keys(parsed: dict, key_map: dict) -> dict:
@@ -1883,8 +1899,12 @@ class PaperProcessor:
             messages, truncate=True, max_new=task_tokens, context_window_size=max_ctx
         )
 
+        gen_kwargs = self._gemini_kwargs(thinking_budget=1024)
+        unit_schema = self._unit_identification_response_schema()
+        if unit_schema is not None:
+            gen_kwargs["response_schema"] = unit_schema
         raw_response = self._generate(
-            trimmed, max_output_tokens=task_tokens, **self._gemini_kwargs(thinking_budget=1024)
+            trimmed, max_output_tokens=task_tokens, **gen_kwargs
         )
 
         # Log raw response for diagnostics. Kept to a single line: multi-line

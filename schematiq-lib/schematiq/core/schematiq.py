@@ -29,6 +29,7 @@ import random
 import warnings
 from pathlib import Path
 from schematiq.core.schema import Schema, Column, SchemaEvolution, ObservationUnit
+from schematiq.core.json_payload import extract_json_payload
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.core.llm_backends import LLMRunAborted, is_outage_error, should_abort_run
 from schematiq.core.prompts import (
@@ -174,6 +175,16 @@ OBSERVATION_UNIT_RESPONSE_SCHEMA = {
     "required": ["observation_unit"],
 }
 
+# complete_partial_columns returns the same column objects as discovery,
+# without the document_helpful flag.
+COMPLETE_COLUMNS_RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "columns": SCHEMA_DISCOVERY_RESPONSE_SCHEMA["properties"]["columns"],
+    },
+    "required": ["columns"],
+}
+
 
 ##############################################################################
 # Exceptions                                                               #
@@ -213,29 +224,6 @@ def select_relevant_content(
     for doc in docs:
         passages.extend(retriever.query([doc], question=query))
     return passages
-
-
-_CODE_FENCE = re.compile(r"```(?:\s*json)?\s*(.*?)\s*```", re.DOTALL)
-
-def _extract_json(text: str) -> str:
-    """
-    Return the JSON payload inside a Markdown code-block if one exists,
-    otherwise return the original string (stripped of leading/trailing space).
-
-    Double braces ({{ }}) are normalized to single braces only when the
-    payload is not valid JSON as is. The model sometimes copies the escaped
-    braces from prompt examples, but valid compact JSON also contains '}}'
-    (e.g. {"observation_unit": {"name": "x"}}), and replacing it there would
-    break the payload.
-    """
-    match = _CODE_FENCE.search(text)
-    result = match.group(1) if match else text.strip()
-    try:
-        json.loads(result)
-        return result
-    except ValueError:
-        pass
-    return result.replace('{{', '{').replace('}}', '}')
 
 
 def _clean_column_name(name: str) -> str:
@@ -284,7 +272,7 @@ def _parse_schema_from_llm(raw_text: str,
     before its construction-time prune runs.
     Returns (Schema, document_helpful_flag, suggested_value_additions)
     """
-    cleaned = _extract_json(raw_text)
+    cleaned = extract_json_payload(raw_text)
     document_helpful = True  # Default assumption
     columns = []
     suggested_value_additions = []
@@ -378,7 +366,7 @@ def _parse_observation_unit_from_llm(raw_text: str) -> ObservationUnit:
     Raises:
         ObservationUnitDiscoveryError: If parsing fails or response format is unexpected.
     """
-    cleaned = _extract_json(raw_text)
+    cleaned = extract_json_payload(raw_text)
 
     try:
         payload = json.loads(cleaned)
@@ -715,9 +703,11 @@ def complete_partial_columns(
     LLMCallTracker.get_instance().set_stage("complete_partial_columns")
     task_tokens = llm.max_tokens_for_task("complete_partial_columns")
     generate_kwargs = {"max_output_tokens": task_tokens}
+    if getattr(llm, '_provider', '') == 'gemini':
+        generate_kwargs["response_schema"] = COMPLETE_COLUMNS_RESPONSE_SCHEMA
     raw = llm.generate(trimmed, **generate_kwargs)
 
-    cleaned = _extract_json(raw)
+    cleaned = extract_json_payload(raw)
     try:
         payload = json.loads(cleaned)
         returned = payload.get("columns", [])
