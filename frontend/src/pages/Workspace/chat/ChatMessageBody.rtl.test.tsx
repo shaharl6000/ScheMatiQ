@@ -26,7 +26,7 @@ jest.mock('../../../services/api', () => ({
   },
 }));
 
-import { ChatMessageBody } from './ChatMessageBody';
+import { ChatMessageBody, MARKDOWN_COMPONENTS } from './ChatMessageBody';
 import DocumentPreview from '../../../components/DocumentViewer/DocumentPreview';
 
 const flushPromises = async (ticks = 4) => {
@@ -81,6 +81,21 @@ describe('RTL and bidirectional text support', () => {
     expect(md).not.toBeNull();
     expect(md?.getAttribute('dir')).toBe('auto');
     expect(md?.textContent).toContain('סיכום פסק הדין');
+  });
+
+  it('gives markdown lists their own dir="auto"', () => {
+    const List = MARKDOWN_COMPONENTS?.ul as React.ComponentType<{ children?: React.ReactNode }>;
+    const Ordered = MARKDOWN_COMPONENTS?.ol as React.ComponentType<{ children?: React.ReactNode }>;
+    act(() => {
+      root.render(
+        <>
+          <List><li>נקודה</li></List>
+          <Ordered><li>שלב</li></Ordered>
+        </>,
+      );
+    });
+    expect(container.querySelector('ul')?.getAttribute('dir')).toBe('auto');
+    expect(container.querySelector('ol')?.getAttribute('dir')).toBe('auto');
   });
 
   it('renders plain Hebrew user messages inside a dir="auto" element', () => {
