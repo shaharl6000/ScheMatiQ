@@ -20,7 +20,7 @@ from sentence_transformers import util
 
 from schematiq.core.embedding_model import load_sentence_transformer
 
-from table import Table
+from .table import Table
 
 import nltk
 nltk.download("stopwords")      # download once, then it’s cached locally

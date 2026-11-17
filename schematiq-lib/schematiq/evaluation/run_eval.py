@@ -2,8 +2,8 @@ import json
 from tqdm import tqdm
 import os
 from schematiq.core.model_specs import ModelNames
-from metrics import SchemaRecallMetric
-from metrics_utils import (
+from .metrics import SchemaRecallMetric
+from .metrics_utils import (
     BaseFeaturizer,
     DecontextFeaturizer,
     ExactMatchScorer,
@@ -12,7 +12,7 @@ from metrics_utils import (
     SentenceTransformerAlignmentScorer,
     ValueFeaturizer,
 )
-from table import Table
+from .table import Table
 
 MINE = True
 
