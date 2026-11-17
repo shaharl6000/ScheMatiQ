@@ -104,7 +104,7 @@ import { useAddDocuments } from './hooks/useAddDocuments';
 import { useReextraction } from './hooks/useReextraction';
 import { useWorkspaceLayout } from './hooks/useWorkspaceLayout';
 import { useWorkspaceSocket } from './hooks/useWorkspaceSocket';
-import { SpreadsheetSurface } from './SpreadsheetSurface';
+import { SpreadsheetSurface, type SheetSearchApi } from './SpreadsheetSurface';
 import type {
   CellFormatMap,
   CellUpdate,
@@ -163,6 +163,7 @@ function Workspace() {
   // re-renders) and cleared by the grid's Escape shortcut -- it never needs to
   // trigger a React render itself. `null` when no search is active.
   const activeSearchTermRef = useRef<string | null>(null);
+  const sheetSearchApiRef = useRef<SheetSearchApi | null>(null);
   const [activeSheet, setActiveSheet] = useState<SheetId>('data');
   const [sessionMode, setSessionMode] = useState<WorkspaceSessionMode>(requestedMode);
   // Mirror sessionMode in a ref so refresh() can read and flip the active mode
@@ -1361,10 +1362,9 @@ function Workspace() {
     const term = window.prompt('Find in table')?.trim();
     if (!term) return;
     const hot = hotTableRef.current?.hotInstance;
-    if (!hot) return;
-    activeSearchTermRef.current = term;
-    const results = hot.getPlugin('search').query(term);
-    hot.render();
+    const searchApi = sheetSearchApiRef.current;
+    if (!hot || !searchApi) return;
+    const results = searchApi.find(term);
     if (results.length === 0) {
       toast({ title: 'No matches', description: `Nothing in this sheet matches "${term}".` });
       return;
@@ -1597,6 +1597,7 @@ function Workspace() {
         formatVersion={formatVersion}
         hotTableRef={hotTableRef}
         searchTermRef={activeSearchTermRef}
+        searchApiRef={sheetSearchApiRef}
         onSelectionChange={updateSheetSelection}
         onGroundingHighlight={handleGroundingHighlight}
         onFigureGrounding={handleFigureGrounding}

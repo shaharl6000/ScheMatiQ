@@ -111,6 +111,13 @@ const HotTableHost = memo(
   }),
 );
 
+// Imperative "Find in table" entry point. The grid runs the scan itself so it
+// can record the term as already applied; the next view render then skips the
+// re-scan in reapplySearchHighlight instead of repeating it.
+export interface SheetSearchApi {
+  find: (term: string) => Array<{ row: number; col: number }>;
+}
+
 export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   activeSheet,
   data,
@@ -120,6 +127,7 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   formatVersion,
   hotTableRef,
   searchTermRef,
+  searchApiRef,
   onSelectionChange,
   onGroundingHighlight,
   onFigureGrounding,
@@ -158,6 +166,8 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   // survives unrelated re-renders, and clears it on Escape (see below). `null`
   // when no search is active.
   searchTermRef?: MutableRefObject<string | null>;
+  // Filled by the grid with its search entry point while it is mounted.
+  searchApiRef?: MutableRefObject<SheetSearchApi | null>;
   onSelectionChange: (selection: SheetSelection) => void;
   // Reports all grounding excerpts of the newly selected data cell (or null when
   // the cell has no grounding), so the source panel can highlight them. Passed
@@ -951,6 +961,28 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
     } catch { /* instance may be mid-teardown */ }
     finally { reapplyingSearchRef.current = false; }
   }, [hotTableRef, searchTermRef]);
+
+  const runSearch = useCallback((term: string) => {
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return [];
+    if (searchTermRef) searchTermRef.current = term;
+    const results = hot.getPlugin('search').query(term);
+    // Fresh results are in the cell meta now, so the render below must not
+    // scan again.
+    lastAppliedSearchTermRef.current = term;
+    searchDirtyRef.current = false;
+    hot.render();
+    return results;
+  }, [hotTableRef, searchTermRef]);
+
+  useEffect(() => {
+    if (!searchApiRef) return undefined;
+    const api: SheetSearchApi = { find: runSearch };
+    searchApiRef.current = api;
+    return () => {
+      if (searchApiRef.current === api) searchApiRef.current = null;
+    };
+  }, [runSearch, searchApiRef]);
 
   // Renderer for the active grouping column: plain text plus a count badge on
   // the group's first row. With cells merged, only the top row of a group is
