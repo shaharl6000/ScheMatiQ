@@ -28,6 +28,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services.session_data_store import save_session_data_file, session_write_lock
+from app.services.llm_api_keys import remember_api_keys, restore_api_keys, strip_api_keys
 from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, MAX_DOCUMENTS
@@ -886,8 +887,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         session_dir = self._get_data_dir() / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
         llm_config_file = session_dir / f"continue_discovery_llm_{operation_id}.json"
+        # The key stays in memory only (see llm_api_keys).
+        remember_api_keys(session_id, llm_config)
         with open(llm_config_file, 'w') as f:
-            json.dump(llm_config, f, indent=2)
+            json.dump(strip_api_keys(llm_config), f, indent=2)
 
         # Store additional config for the background task
         config = {
@@ -968,7 +971,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Load LLM config
             llm_config_file = session_dir / f"continue_discovery_llm_{operation_id}.json"
             with open(llm_config_file) as f:
-                llm_config = json.load(f)
+                llm_config = restore_api_keys(operation.session_id, json.load(f))
 
             # Broadcast start
             await self.broadcast_event(
@@ -1454,8 +1457,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             "llm_config": llm_config or operation.llm_config
         }
         extraction_config_file = session_dir / f"extraction_config_{operation_id}.json"
+        remember_api_keys(operation.session_id, extraction_config)
         with open(extraction_config_file, 'w') as f:
-            json.dump(extraction_config, f, indent=2)
+            json.dump(strip_api_keys(extraction_config), f, indent=2)
 
         # Start extraction in background
         task = asyncio.create_task(self._run_incremental_extraction(operation_id))
@@ -1491,7 +1495,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Load extraction config
             extraction_config_file = session_dir / f"extraction_config_{operation_id}.json"
             with open(extraction_config_file) as f:
-                extraction_config = json.load(f)
+                extraction_config = restore_api_keys(operation.session_id, json.load(f))
 
             columns_to_extract = extraction_config["columns"]
             llm_config = extraction_config.get("llm_config") or operation.llm_config

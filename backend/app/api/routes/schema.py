@@ -17,6 +17,7 @@ from app.models.modification import ModificationAction
 from app.services.schema_manager import SchemaManager
 from app.services.reextraction_service import ConfirmedEmptyScopeError
 from app.services.data_editor import DataEditor
+from app.services.llm_api_keys import remember_api_keys, strip_api_keys
 from app.services import session_manager, websocket_manager, concurrency_limiter
 from app.core.exceptions import CapacityExceededError
 from app.core.logging_utils import set_session_context
@@ -441,8 +442,10 @@ async def add_column(
             session_dir = Path(DEFAULT_DATA_DIR) / session_id
             session_dir.mkdir(parents=True, exist_ok=True)
             user_config_file = session_dir / "user_llm_config.json"
+            # The key stays in memory only (see llm_api_keys).
+            remember_api_keys(session_id, add_request.llm_config)
             with open(user_config_file, 'w') as f:
-                json.dump(add_request.llm_config, f, indent=2)
+                json.dump(strip_api_keys(add_request.llm_config), f, indent=2)
             config_for_log = {k: v for k, v in add_request.llm_config.items() if k != 'api_key'}
             has_api_key = 'api_key' in add_request.llm_config and add_request.llm_config['api_key']
             logger.debug(f"Saved user LLM config for add-column: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
@@ -860,8 +863,10 @@ async def start_reextraction(
             session_dir = Path(DEFAULT_DATA_DIR) / session_id
             session_dir.mkdir(parents=True, exist_ok=True)
             user_config_file = session_dir / "user_llm_config.json"
+            # The key stays in memory only (see llm_api_keys).
+            remember_api_keys(session_id, request.llm_config)
             with open(user_config_file, 'w') as f:
-                json.dump(request.llm_config, f, indent=2)
+                json.dump(strip_api_keys(request.llm_config), f, indent=2)
             # Log without exposing full API key
             config_for_log = {k: v for k, v in request.llm_config.items() if k != 'api_key'}
             has_api_key = 'api_key' in request.llm_config and request.llm_config['api_key']

@@ -19,6 +19,7 @@ from app.core.logging_utils import set_session_context
 from app.services import schematiq_thread_pool, concurrency_limiter
 
 from app.services.pipeline.llm_factory import build_llm_interface, enforce_release_llm_config
+from app.services.llm_api_keys import remember_api_keys, restore_api_keys, strip_api_keys
 from app.services.pipeline.callbacks import start_heartbeat
 from app.services.pipeline.config_handler import (
     resolve_docs_paths, convert_config_to_schematiq_format, validate_config as _validate_config,
@@ -381,8 +382,11 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         session_dir = self.work_dir / session_id
         session_dir.mkdir(exist_ok=True)
         config_file = session_dir / "config.json"
+        config_data = config.model_dump()
+        # The key stays in memory only (see llm_api_keys).
+        remember_api_keys(session_id, config_data)
         with open(config_file, 'w') as f:
-            json.dump(config.model_dump(), f, indent=2)
+            json.dump(strip_api_keys(config_data), f, indent=2)
 
     # ── Query ──────────────────────────────────────────────────────
 
@@ -422,7 +426,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             # Initialize write_artifacts from config or DEVELOPER_MODE
             config_file = self.work_dir / session_id / "config.json"
             with open(config_file) as f:
-                config_data = json.load(f)
+                config_data = restore_api_keys(session_id, json.load(f))
             config = ScheMatiQConfig(**config_data)
             session.write_artifacts = config.write_artifacts if config.write_artifacts is not None else DEVELOPER_MODE
             
@@ -439,7 +443,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
             config_file = self.work_dir / session_id / "config.json"
             with open(config_file) as f:
-                config_data = json.load(f)
+                config_data = restore_api_keys(session_id, json.load(f))
             config = ScheMatiQConfig(**config_data)
 
             task = asyncio.create_task(self._execute_schematiq(session_id, config))
@@ -612,8 +616,10 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
         config_data["review_observation_unit"] = False
 
+        # A config.json written before keys moved to memory may still hold one.
+        remember_api_keys(session_id, config_data)
         with open(config_file, 'w') as f:
-            json.dump(config_data, f, indent=2)
+            json.dump(strip_api_keys(config_data), f, indent=2)
 
         for attempt in range(120):
             try:
@@ -708,7 +714,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
             schematiq_config_file = session_dir / "schematiq_config.json"
             with open(schematiq_config_file, 'w') as f:
-                json.dump(schematiq_config, f, indent=2)
+                json.dump(strip_api_keys(schematiq_config), f, indent=2)
             logger.debug("Saved ScheMatiQ config with keys: %s", list(schematiq_config.keys()))
 
             await update_progress("Initializing", 1.0)
