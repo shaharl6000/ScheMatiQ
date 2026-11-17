@@ -1577,6 +1577,15 @@ function Workspace() {
   const skippedTotalDocuments =
     (session?.statistics?.total_documents ?? session?.statistics?.total_rows ?? 0) + skippedDocuments.length;
 
+  // Stable callbacks for SpreadsheetSurface. It is wrapped in React.memo, so an
+  // inline arrow here would give it new props on every Workspace render (chat,
+  // socket progress) and silently defeat the memo.
+  const openSourcePanel = useCallback(() => setShowSourcePanel(true), []);
+  const requestGroundingScroll = useCallback(() => setGroundingScrollNonce((n) => n + 1), []);
+  const refreshSurfaceSilently = useCallback(() => refresh({ silent: true }), [refresh]);
+  const openNewProjectDialog = useCallback(() => setProjectDialogOpen(true), []);
+  const openImportPicker = useCallback(() => importInputRef.current?.click(), []);
+
   const dataGridNode = (
     <div className="workspace-grid-wrap">
       <SpreadsheetSurface
@@ -1591,9 +1600,9 @@ function Workspace() {
         onSelectionChange={updateSheetSelection}
         onGroundingHighlight={handleGroundingHighlight}
         onFigureGrounding={handleFigureGrounding}
-        onRequestSourcePanel={() => setShowSourcePanel(true)}
-        onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
-        onRefresh={() => refresh({ silent: true })}
+        onRequestSourcePanel={openSourcePanel}
+        onGroundingScrollRequest={requestGroundingScroll}
+        onRefresh={refreshSurfaceSilently}
         onSchemaRefresh={refreshSchemaOnly}
         onRefreshData={refreshAfterEdit}
         onOptimisticCellEdit={applyOptimisticCellEdits}
@@ -1607,8 +1616,8 @@ function Workspace() {
         onRetryWrongCells={retryWrongCells}
         applyCellUpdatesRef={applyCellUpdatesRef}
         cellFormatKeyRef={cellFormatKeyRef}
-        onNewProject={() => setProjectDialogOpen(true)}
-        onImportProject={() => importInputRef.current?.click()}
+        onNewProject={openNewProjectDialog}
+        onImportProject={openImportPicker}
         sessionMissing={sessionMissing}
         compactRows={compactRows}
         layoutRevision={gridLayoutRevision}
@@ -1651,8 +1660,8 @@ function Workspace() {
         sessionStatus={chromeStatus}
         canUseProjectActions={Boolean(sessionId)}
         displayOptions={selectedDisplayOptions}
-        onNewProject={() => setProjectDialogOpen(true)}
-        onImportProject={() => importInputRef.current?.click()}
+        onNewProject={openNewProjectDialog}
+        onImportProject={openImportPicker}
         onOpenClassic={() => {
           if (sessionId) navigate(`/visualize/${sessionId}?mode=${sessionMode}`);
         }}

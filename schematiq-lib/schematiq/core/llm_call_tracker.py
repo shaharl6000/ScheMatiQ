@@ -25,12 +25,14 @@ Usage
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import contextvars
 import json
 import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 # Import cost estimator for pricing logic
 try:
@@ -55,22 +57,60 @@ def _provider_for_model(model: str) -> str:
     return "unknown"
 
 
+_scoped_tracker: contextvars.ContextVar[Optional["LLMCallTracker"]] = contextvars.ContextVar(
+    "schematiq_llm_call_tracker", default=None
+)
+
+
 class LLMCallTracker:
-    """Thread-safe singleton that tracks LLM API calls per pipeline stage."""
+    """Thread-safe singleton (or per-run ContextVar scope) that tracks LLM API calls per stage."""
 
     _instance: Optional[LLMCallTracker] = None
     _init_lock = threading.Lock()
 
-    # -- Singleton access -------------------------------------------------- #
+    # -- Singleton / scoped access ----------------------------------------- #
 
     @classmethod
     def get_instance(cls) -> LLMCallTracker:
-        """Return the global tracker instance (created on first call)."""
+        """Return the active run's scoped tracker, or the process-wide fallback."""
+        scoped = _scoped_tracker.get()
+        if scoped is not None:
+            return scoped
         if cls._instance is None:
             with cls._init_lock:
                 if cls._instance is None:
                     cls._instance = cls()
         return cls._instance
+
+    @classmethod
+    def activate(
+        cls, initial_stage: str = "unknown"
+    ) -> Tuple[LLMCallTracker, contextvars.Token]:
+        """Bind a fresh isolated tracker to the current ContextVar context.
+
+        Async tasks and context-propagating worker threads spawned from this
+        context inherit it automatically without locking other concurrent runs.
+        """
+        tracker = cls()
+        if initial_stage != "unknown":
+            tracker.set_stage(initial_stage)
+        token = _scoped_tracker.set(tracker)
+        return tracker, token
+
+    @classmethod
+    def deactivate(cls, token: contextvars.Token) -> None:
+        """Restore the previous ContextVar tracker binding."""
+        _scoped_tracker.reset(token)
+
+    @classmethod
+    @contextmanager
+    def scoped(cls, initial_stage: str = "unknown") -> Iterator[LLMCallTracker]:
+        """Context manager activating an isolated per-run tracker."""
+        tracker, token = cls.activate(initial_stage)
+        try:
+            yield tracker
+        finally:
+            cls.deactivate(token)
 
     # -- Construction ------------------------------------------------------ #
 

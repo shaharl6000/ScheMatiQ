@@ -28,7 +28,8 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services.session_data_store import save_session_data_file, session_write_lock
-from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
+from app.services.data_utils import resolve_session_data_files
+from app.services import schematiq_thread_pool, concurrency_limiter
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, MAX_DOCUMENTS
 from app.core.logging_utils import set_session_context
@@ -929,24 +930,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         # Set session context for logging
         set_session_context(operation.session_id)
 
-        # Held for the entire run (released in the ``finally`` below).
-        # LLMCallTracker.get_instance() is a process-global singleton with no
-        # per-session scoping: set_stage() and _counts are shared by every
-        # concurrent caller. MAX_CONCURRENT_SESSIONS (default 5) means another
-        # reextraction/continue-discovery run could otherwise overlap this one
-        # and both mislabel calls and corrupt the before/after delta below.
-        # See llm_call_tracker_lock's definition for details.
-        await llm_call_tracker_lock.acquire()
-        try:
-            LLMCallTracker.get_instance().set_stage("continue_discovery")
-            # Snapshot the shared tracker's stage counter so we record only this run's
-            # calls (same pattern as _run_reextraction; the singleton may hold counts
-            # from an earlier run). The delta is recorded in the ``finally`` below.
-            llm_calls_before = LLMCallTracker.get_instance().get_counts().get("continue_discovery", 0)
-        except Exception:
-            llm_call_tracker_lock.release()
-            raise
-
+        run_tracker, tracker_token = LLMCallTracker.activate("continue_discovery")
         logger.info(f"_run_continue_discovery started for operation {operation_id}")
 
         try:
@@ -1189,6 +1173,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 # Add null values for new columns in data.jsonl
                 data_file = self._get_data_dir() / operation.session_id / "data.jsonl"
                 async with session_write_lock(operation.session_id):
+                    # After a redeploy the local copy is gone until hydrated.
+                    await resolve_session_data_files(operation.session_id)
                     if data_file.exists():
                         rows = []
                         with open(data_file, 'r') as f:
@@ -1349,8 +1335,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # module-load cycle (chat.deps imports this service) and reuses the
             # single shared runner instance.
             try:
-                llm_calls_after = LLMCallTracker.get_instance().get_counts().get("continue_discovery", 0)
-                delta = max(0, llm_calls_after - llm_calls_before)
+                delta = run_tracker.get_total()
                 if delta > 0:
                     from app.services.orchestration import schematiq_runner
                     record_id = f"continue_discovery-{operation.session_id[:8]}-{int(datetime.now().timestamp())}"
@@ -1360,7 +1345,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             except Exception as exc:
                 logger.debug("Could not record continue-discovery LLM usage: %s", exc)
             finally:
-                llm_call_tracker_lock.release()
+                LLMCallTracker.deactivate(tracker_token)
             await concurrency_limiter.release(operation.session_id)
             # Only cleanup on stopped — failed operations persist for polling,
             # successful operations persist for the confirm/extraction step.
@@ -1478,6 +1463,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         # Set session context for logging
         set_session_context(operation.session_id)
 
+        run_tracker, tracker_token = LLMCallTracker.activate("continue_discovery_extraction")
         logger.info(f"_run_incremental_extraction started for operation {operation_id}")
 
         try:
@@ -1777,6 +1763,23 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 }
             )
         finally:
+            try:
+                delta = run_tracker.get_total()
+                if delta > 0:
+                    from app.services.orchestration import schematiq_runner
+                    record_id = (
+                        f"continue_discovery_extraction-{operation.session_id[:8]}"
+                        f"-{int(datetime.now().timestamp())}"
+                    )
+                    await asyncio.to_thread(
+                        schematiq_runner.record_external_usage,
+                        record_id,
+                        {"continue_discovery_extraction": delta},
+                    )
+            except Exception as exc:
+                logger.debug("Could not record incremental-extraction LLM usage: %s", exc)
+            finally:
+                LLMCallTracker.deactivate(tracker_token)
             await concurrency_limiter.release(operation.session_id)
             self._cleanup_operation(operation_id)
 
@@ -1795,6 +1798,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             return
 
         async with session_write_lock(session_id):
+            # After a redeploy the local copy is gone until hydrated.
+            await resolve_session_data_files(session_id)
             session_dir = self._get_data_dir() / session_id
             data_file = session_dir / "data.jsonl"
 
