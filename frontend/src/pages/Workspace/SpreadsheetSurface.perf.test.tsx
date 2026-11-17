@@ -65,7 +65,7 @@ jest.mock('@/services/api', () => ({
   schematiqAPI: { updateCellsBatch: jest.fn(), updateRow: jest.fn() },
 }));
 
-import { SpreadsheetSurface } from './SpreadsheetSurface';
+import { SpreadsheetSurface, type SheetSearchApi } from './SpreadsheetSurface';
 
 const baseDisplayOptions: TableDisplayOptions = {
   fontFamily: 'Inter',
@@ -242,5 +242,55 @@ describe('SpreadsheetSurface render & search performance', () => {
     props.afterFilter();
     props.beforeViewRender();
     expect(mockHotState.searchQuery).toHaveBeenCalledTimes(4);
+  });
+
+  it('runs a single search.query scan for a new Find term, not one more on the following render', () => {
+    const hotTableRef = { current: null };
+    const searchTermRef: { current: string | null } = { current: null };
+    const searchApiRef: { current: SheetSearchApi | null } = { current: null };
+    mockHotState.searchQuery.mockReturnValue([{ row: 0, col: 0 }]);
+
+    act(() => {
+      root.render(
+        <SpreadsheetSurface
+          activeSheet="data"
+          data={makeData(2)}
+          schema={baseSchema}
+          displayOptions={baseDisplayOptions}
+          cellFormats={{}}
+          formatVersion={0}
+          hotTableRef={hotTableRef}
+          searchTermRef={searchTermRef}
+          searchApiRef={searchApiRef}
+          onSelectionChange={jest.fn()}
+          onRefresh={jest.fn()}
+          onSchemaRefresh={jest.fn()}
+          onRefreshData={jest.fn()}
+          onOptimisticCellEdit={jest.fn()}
+          onEditFollowUp={jest.fn()}
+          onEditEnd={jest.fn()}
+          layoutRevision="rev-1"
+          dataView="by_unit"
+        />,
+      );
+    });
+
+    const props = mockHotState.latestProps!;
+    mockHotState.searchQuery.mockClear();
+
+    const results = searchApiRef.current!.find('gamma');
+    expect(results).toEqual([{ row: 0, col: 0 }]);
+    expect(searchTermRef.current).toBe('gamma');
+    // The render that find() triggers, plus later scroll frames, reuse the scan.
+    props.beforeViewRender();
+    props.beforeViewRender();
+    expect(mockHotState.searchQuery).toHaveBeenCalledTimes(1);
+    expect(mockHotState.searchQuery).toHaveBeenLastCalledWith('gamma');
+
+    // Unmounting releases the entry point.
+    act(() => {
+      root.render(<div />);
+    });
+    expect(searchApiRef.current).toBeNull();
   });
 });
