@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.models.session import VisualizationSession, SessionType, SessionMetadata, PaginatedData, SessionStatus, FilterSortRequest
 from app.services.session_capabilities import has_live_pipeline, is_imported
+from app.services.llm_api_keys import remember_api_keys, strip_api_keys
 from app.models.upload import ColumnMappingRequest
 from app.services.file_parser import FileParser, is_system_file
 from app.services.export_service import (
@@ -1144,8 +1145,10 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
             session_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
             user_config_file = session_dir / "user_llm_config.json"
 
+            # The key stays in memory only (see llm_api_keys).
+            remember_api_keys(session_id, user_llm_config)
             with open(user_config_file, 'w') as f:
-                json.dump(user_llm_config, f, indent=2)
+                json.dump(strip_api_keys(user_llm_config), f, indent=2)
 
         session_manager.update_session(session)
 

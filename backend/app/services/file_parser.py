@@ -21,6 +21,7 @@ from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE
 from app.core.safe_paths import safe_upload_name
 from app.services import row_filtering
 from app.services.session_documents import pending_docs_dir
+from app.services.llm_api_keys import strip_api_keys
 
 # Limits for unpacking a project bundle (CWE-409). Source documents are capped
 # at 25MB on upload, so a larger entry is not a real export. The total stays
@@ -757,7 +758,9 @@ class FileParser:
                     if "query" in data and "schema" in data and isinstance(data["schema"], dict) and "columns" in data["schema"]:
                         metadata_info["query"] = data["query"]
                         if data.get("llm_configuration"):
-                            metadata_info["llm_config"] = data["llm_configuration"]
+                            # Never adopt a key from an imported file: it belongs to
+                            # whoever exported it (see llm_api_keys).
+                            metadata_info["llm_config"] = strip_api_keys(data["llm_configuration"])
                         export_meta = data.get("metadata", {})
                         for field in ("total_documents", "skipped_documents", "session_id", "generated_timestamp", "cloud_dataset", "document_metadata"):
                             if export_meta.get(field):

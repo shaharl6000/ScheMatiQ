@@ -184,6 +184,8 @@ class SessionManager:
             return False
         with self._lock:
             self._sessions.pop(session_id, None)
+        from app.services.llm_api_keys import forget_api_keys
+        forget_api_keys(session_id)
 
         # Remove from storage (this also cleans up associated data)
         import asyncio

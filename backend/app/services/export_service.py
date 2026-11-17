@@ -18,6 +18,7 @@ from app.core.config import DEFAULT_DATA_DIR
 from app.models.session import PaginatedData, VisualizationSession
 from app.services.document_files import gather_source_documents
 from app.services.file_parser import format_column_header
+from app.services.llm_api_keys import strip_api_keys
 from app.services.grounding_flags import (
     UNGROUNDED_COLUMNS_FIELD,
     any_ungrounded,
@@ -98,10 +99,11 @@ def _load_schematiq_llm_configuration(session_id: str) -> Optional[Dict[str, Any
     try:
         with open(schematiq_config_file, encoding="utf-8") as f:
             schematiq_config = json.load(f)
-        return {
+        # Exports are shared files: never write an API key into one.
+        return strip_api_keys({
             "schema_creation_backend": schematiq_config.get("schema_creation_backend"),
             "value_extraction_backend": schematiq_config.get("value_extraction_backend"),
-        }
+        })
     except Exception as e:
         logger.warning("Could not load LLM configuration for session %s: %s", session_id, e)
         return None
@@ -515,9 +517,9 @@ async def export_complete_upload(
                     with open(parsed_schema_file, encoding="utf-8") as f:
                         parsed_schema = json.load(f)
                         if "llm_configuration" in parsed_schema:
-                            schema_data["llm_configuration"] = parsed_schema[
-                                "llm_configuration"
-                            ]
+                            schema_data["llm_configuration"] = strip_api_keys(
+                                parsed_schema["llm_configuration"]
+                            )
                 except Exception:
                     pass
 
