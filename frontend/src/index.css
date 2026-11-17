@@ -96,29 +96,6 @@
   @apply bg-muted-foreground/50;
 }
 
-/* ag-grid theme overrides for dark mode */
-.ag-theme-alpine {
-  --ag-background-color: hsl(var(--background));
-  --ag-foreground-color: hsl(var(--foreground));
-  --ag-header-background-color: hsl(var(--muted));
-  --ag-odd-row-background-color: hsl(var(--muted) / 0.3);
-  --ag-row-hover-color: hsl(var(--primary) / 0.1);
-  --ag-selected-row-background-color: hsl(var(--primary) / 0.2);
-  --ag-border-color: hsl(var(--border));
-  --ag-header-foreground-color: hsl(var(--foreground));
-}
-
-.dark .ag-theme-alpine {
-  --ag-background-color: hsl(var(--background));
-  --ag-foreground-color: hsl(var(--foreground));
-  --ag-header-background-color: hsl(var(--secondary));
-  --ag-odd-row-background-color: hsl(var(--secondary) / 0.5);
-  --ag-row-hover-color: hsl(var(--primary) / 0.2);
-  --ag-selected-row-background-color: hsl(var(--primary) / 0.3);
-  --ag-border-color: hsl(var(--border));
-  --ag-header-foreground-color: hsl(var(--foreground));
-}
-
 /* Respect prefers-reduced-motion for all animations and transitions */
 @media (prefers-reduced-motion: reduce) {
   *,
