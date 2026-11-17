@@ -90,7 +90,13 @@ async def lifespan(app: FastAPI):
     # load in SessionManager._load_session to avoid reading every session from
     # cloud storage at startup.
     warm_up = asyncio.create_task(asyncio.to_thread(_warm_up_docling))
+    # Session saves made on this loop run in the background (they must not
+    # block it on a network upload); flush them before the process exits.
+    from app.services import session_manager
+
+    session_manager.bind_server_loop(asyncio.get_running_loop())
     yield
+    await session_manager.flush_pending_saves()
     warm_up.cancel()
     # Cancelling the task does not stop its thread; killing the worker does
     # (a warm-up blocked on it fails at once), so shutdown doesn't wait on it.

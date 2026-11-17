@@ -8,6 +8,7 @@ import random
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+from app.core.background_tasks import spawn_background
 from app.core.config import DEFAULT_DATA_DIR
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
@@ -1142,7 +1143,7 @@ async def stop_document_processing(session_id: str):
             raise HTTPException(status_code=404, detail=result["message"])
 
         # Background: wait for processing to actually stop, then update status
-        asyncio.create_task(_finalize_upload_stop(session_id))
+        spawn_background(_finalize_upload_stop(session_id), name=f"finalize-upload-stop-{session_id}")
 
         return {"status": "stopping", "message": result["message"], "stopped": True}
 

@@ -7,9 +7,9 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
 import json
-import asyncio
 import logging
 from pathlib import Path
+from app.core.background_tasks import spawn_background
 from app.core.config import DEFAULT_DATA_DIR
 
 from app.models.session import ColumnInfo
@@ -955,7 +955,7 @@ async def stop_reextraction(session_id: str, operation_id: str):
             except Exception:
                 logger.error("Background stop_operation failed for reextraction %s", operation_id, exc_info=True)
 
-        asyncio.create_task(_safe_stop_reextraction())
+        spawn_background(_safe_stop_reextraction(), name=f"stop-reextraction-{operation_id}")
 
         return {"status": "stopping", "message": result["message"]}
 
@@ -1262,7 +1262,7 @@ async def stop_continue_discovery(session_id: str, operation_id: str):
             except Exception:
                 logger.error("Background stop_operation failed for continue discovery %s", operation_id, exc_info=True)
 
-        asyncio.create_task(_safe_stop_continue_discovery())
+        spawn_background(_safe_stop_continue_discovery(), name=f"stop-continue-discovery-{operation_id}")
 
         return {"status": "stopping", "message": result["message"]}
 

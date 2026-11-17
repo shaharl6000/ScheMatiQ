@@ -4,6 +4,7 @@ import { act as legacyAct } from 'react-dom/test-utils';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 
 import type { PaginatedData, ScheMatiQStatus, SchemaData, VisualizationSession } from '@/types';
+import { WORKSPACE_ROW_LIMIT } from './constants';
 
 const mockToast = jest.fn();
 
@@ -359,7 +360,7 @@ describe('Workspace sessionMode refresh & chromeStatus', () => {
     expect(mockLoadGetSession).toHaveBeenCalledTimes(1);
     expect(mockLoadGetSession).toHaveBeenCalledWith('sessionB');
     expect(mockLoadGetData).toHaveBeenCalledTimes(1);
-    expect(mockLoadGetData).toHaveBeenCalledWith('sessionB', 0, 500);
+    expect(mockLoadGetData).toHaveBeenCalledWith('sessionB', 0, WORKSPACE_ROW_LIMIT);
     expect(container.querySelector('[data-testid="chat-panel"]')?.getAttribute('data-session-mode')).toBe('load');
   });
 

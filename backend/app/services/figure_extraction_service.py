@@ -949,7 +949,11 @@ def extract_figures(pdf_path: Path, documents_dir: Path, *, source_document: str
         # guard against a bug in the orchestration itself).
         figures = _verify_and_rematch_captions(figures, tmp_dir)
     except Exception:
-        pass
+        logger.warning(
+            "Caption verification failed for %s; keeping unverified captions",
+            pdf_path.name,
+            exc_info=True,
+        )
 
     return _FigureBuildResult(figures, tmp_dir, status="ok", error=None)
 
@@ -1004,6 +1008,9 @@ def persist_figures(
         os.rename(build_result.tmp_dir, target_dir)  # atomic: same filesystem (both under documents_dir/figures/)
         return target_dir
     except Exception:
+        logger.warning(
+            "Could not save extracted figures for %s", source_document, exc_info=True
+        )
         return None
     finally:
         cleanup_staging_dir(build_result.tmp_dir)

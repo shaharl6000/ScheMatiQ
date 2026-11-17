@@ -32,6 +32,7 @@ from app.services.data_utils import (
 from app.services.session_data_store import (
     file_signatures,
     persist_changed_files,
+    run_to_completion,
     session_write_lock,
 )
 
@@ -208,18 +209,23 @@ class UnitViewService:
         """Run a sync data-file mutation under the session write lock.
 
         Hydrates the data files first, runs *fn* in a worker thread, then
-        persists every file it changed so the edit survives a redeploy.
+        persists every file it changed so the edit survives a redeploy. The
+        section runs to completion even if the caller is cancelled (see
+        ``run_to_completion``), so the lock is never released mid-write.
         """
-        async with session_write_lock(session_id):
-            await resolve_session_data_files(
-                session_id, work_dir=self.work_dir, data_dir=self.data_dir
-            )
-            before = file_signatures(self._get_all_data_files(session_id))
-            result = await asyncio.to_thread(fn, session_id, *args)
-            await persist_changed_files(
-                session_id, before, self._get_all_data_files(session_id)
-            )
-            return result
+        async def locked_section():
+            async with session_write_lock(session_id):
+                await resolve_session_data_files(
+                    session_id, work_dir=self.work_dir, data_dir=self.data_dir
+                )
+                before = file_signatures(self._get_all_data_files(session_id))
+                result = await asyncio.to_thread(fn, session_id, *args)
+                await persist_changed_files(
+                    session_id, before, self._get_all_data_files(session_id)
+                )
+                return result
+
+        return await run_to_completion(locked_section())
 
     async def merge_units_async(
         self, session_id: str, request: MergeUnitsRequest
