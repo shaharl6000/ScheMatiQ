@@ -53,16 +53,19 @@ BACK_PORT="${BACK_PORT:-$((8000 + N))}"
 FRONT_PORT="${FRONT_PORT:-$((3000 + N))}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$ROOT/backend/.venv"
+if [[ ! -x "$VENV/bin/python" && -x "$ROOT/.venv/bin/python" ]]; then
+  VENV="$ROOT/.venv"
+fi
 
 if [[ ! -x "$VENV/bin/python" ]]; then
-  echo "error: backend venv not found at $VENV" >&2
+  echo "error: Python venv not found at $ROOT/backend/.venv or $ROOT/.venv" >&2
   echo "  cd backend && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt" >&2
   exit 1
 fi
 
 if ! "$VENV/bin/python" -c "import multipart" 2>/dev/null; then
   echo "warning: python-multipart not installed — file uploads will fail." >&2
-  echo "  cd backend && .venv/bin/python -m pip install python-multipart" >&2
+  echo "  $VENV/bin/python -m pip install python-multipart" >&2
 fi
 
 # Per-instance CWD: backend code uses ./sessions, ./data, ./schematiq_work (CWD-relative).

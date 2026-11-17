@@ -139,6 +139,11 @@ Untitled
 *\ copy.*
 backend/debug
 .hypothesis/
+.pytest_cache/
+.ruff_cache/
+/data/
+/sessions/
+/schematiq_work/
 
 # Scratch output from backend/scripts/preview_figure_extraction.py
 backend/scripts/_preview_output/
