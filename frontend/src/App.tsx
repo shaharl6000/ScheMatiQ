@@ -1,14 +1,16 @@
+import { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Mail } from 'lucide-react';
 
-import Load from './pages/Load';
-import ScheMatiQConfig from './pages/ScheMatiQConfig';
-import Visualize from './pages/Visualize';
-import Workspace from './pages/Workspace';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ViewModeProvider } from './contexts/ViewModeContext';
 import { NavigationGuardProvider } from './contexts/NavigationGuardContext';
+
+const Load = lazy(() => import('./pages/Load'));
+const ScheMatiQConfig = lazy(() => import('./pages/ScheMatiQConfig'));
+const Visualize = lazy(() => import('./pages/Visualize'));
+const Workspace = lazy(() => import('./pages/Workspace'));
 
 function AppHeader() {
   return (
@@ -46,16 +48,24 @@ function App() {
 
         {/* Main Content */}
         <main className={isWorkspace ? 'flex-1 min-h-0 overflow-hidden' : 'container py-6 flex-1'}>
-          <Routes>
-            <Route path="/" element={<Workspace />} />
-            <Route path="/classic" element={<ScheMatiQConfig />} />
-            <Route path="/load" element={<Load />} />
-            <Route path="/schematiq" element={<Navigate to="/classic" replace />} />
-            <Route path="/visualize/:sessionId" element={<Visualize />} />
-            {/* Bare /workspace redirects to the new default; session URLs keep the prefix. */}
-            <Route path="/workspace" element={<Navigate to="/" replace />} />
-            <Route path="/workspace/:sessionId" element={<Workspace />} />
-          </Routes>
+          <Suspense
+            fallback={
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+                Loading…
+              </div>
+            }
+          >
+            <Routes>
+              <Route path="/" element={<Workspace />} />
+              <Route path="/classic" element={<ScheMatiQConfig />} />
+              <Route path="/load" element={<Load />} />
+              <Route path="/schematiq" element={<Navigate to="/classic" replace />} />
+              <Route path="/visualize/:sessionId" element={<Visualize />} />
+              {/* Bare /workspace redirects to the new default; session URLs keep the prefix. */}
+              <Route path="/workspace" element={<Navigate to="/" replace />} />
+              <Route path="/workspace/:sessionId" element={<Workspace />} />
+            </Routes>
+          </Suspense>
         </main>
 
         {/* Footer */}
