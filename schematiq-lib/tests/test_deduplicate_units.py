@@ -52,3 +52,22 @@ def test_non_numbered_names_still_use_similarity_and_substring_checks():
     units = _units("CD45", "CD45 protein")
     result = PaperProcessor._deduplicate_units(SimpleNamespace(), units)
     assert len(result) == 1  # substring match merges them, as before
+
+
+def test_numbered_units_with_different_numbers_are_not_merged():
+    """Any numbered names, not only figures. 'Patient 1' is a substring of
+    'Patient 12', and 'Experiment 1' / 'Experiment 10' embed above the
+    threshold, so before the generic number check these rows were lost."""
+    names = (
+        "Patient 1", "Patient 2", "Patient 12",
+        "Experiment 1", "Experiment 10",
+        "Table 1", "Table 2",
+    )
+    result = PaperProcessor._deduplicate_units(SimpleNamespace(), _units(*names))
+    assert [u["unit_name"] for u in result] == list(names)
+
+
+def test_same_number_variants_are_still_merged():
+    units = _units("Patient 1", "Patient 1 (control group)")
+    result = PaperProcessor._deduplicate_units(SimpleNamespace(), units)
+    assert len(result) == 1
