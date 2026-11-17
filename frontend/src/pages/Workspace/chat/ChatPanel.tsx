@@ -1048,6 +1048,7 @@ export function ChatPanel({
           </div>
         )}
         <Textarea
+          dir="auto"
           value={input}
           onChange={(event) => setInput(event.target.value)}
           placeholder="Ask ScheMatiQ or type /tools"
