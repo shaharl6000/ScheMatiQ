@@ -346,33 +346,43 @@ class FileParser:
         pending_dir.mkdir(parents=True, exist_ok=True)
         project_json_path = session_dir / "project.json"
 
-        with zipfile.ZipFile(zip_path) as zf:
-            # Pick the entries and check their sizes before writing anything,
-            # so a decompression bomb (CWE-409) is refused up front. file_size
-            # is safe to trust: zipfile never returns more bytes than an entry
-            # declares.
-            wanted = []
-            for info in zf.infolist():
-                if info.is_dir():
-                    continue
-                name = info.filename
-                base = Path(name).name
-                if name == "project.json" or name.endswith("/project.json"):
-                    wanted.append((info, project_json_path))
-                elif (name.startswith("documents/") or "/documents/" in name) and base not in ("", ".", ".."):
-                    wanted.append((info, pending_dir / base))
+        written: List[Path] = []
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                # Pick the entries and check their sizes before writing anything,
+                # so a decompression bomb (CWE-409) is refused up front. file_size
+                # is safe to trust: zipfile never returns more bytes than an entry
+                # declares.
+                wanted = []
+                for info in zf.infolist():
+                    if info.is_dir():
+                        continue
+                    name = info.filename
+                    base = Path(name).name
+                    if name == "project.json" or name.endswith("/project.json"):
+                        wanted.append((info, project_json_path))
+                    elif (name.startswith("documents/") or "/documents/" in name) and base not in ("", ".", ".."):
+                        wanted.append((info, pending_dir / base))
 
-            if any(info.file_size > _BUNDLE_MAX_ENTRY_BYTES for info, _ in wanted):
-                raise ValueError("Project bundle has a file that is too large to import")
-            if sum(info.file_size for info, _ in wanted) > _BUNDLE_MAX_TOTAL_BYTES:
-                raise ValueError("Project bundle is too large to import")
+                if any(info.file_size > _BUNDLE_MAX_ENTRY_BYTES for info, _ in wanted):
+                    raise ValueError("Project bundle has a file that is too large to import")
+                if sum(info.file_size for info, _ in wanted) > _BUNDLE_MAX_TOTAL_BYTES:
+                    raise ValueError("Project bundle is too large to import")
 
-            for info, dest in wanted:
-                # Stream to disk instead of reading the whole entry into memory.
-                with zf.open(info) as src, open(dest, "wb") as out:
-                    shutil.copyfileobj(src, out)
-
-        zip_path.unlink(missing_ok=True)
+                for info, dest in wanted:
+                    written.append(dest)
+                    # Stream to disk instead of reading the whole entry into memory.
+                    with zf.open(info) as src, open(dest, "wb") as out:
+                        shutil.copyfileobj(src, out)
+        except Exception:
+            # Leave nothing half-unpacked behind: a refused bundle, or one whose
+            # entry fails its CRC check mid-stream, must not leave partial files.
+            for path in written:
+                path.unlink(missing_ok=True)
+            raise
+        finally:
+            # The raw upload is never needed again, whether or not unpacking worked.
+            zip_path.unlink(missing_ok=True)
 
         if not project_json_path.exists():
             raise ValueError("Project bundle is missing project.json")

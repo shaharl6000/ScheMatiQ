@@ -60,3 +60,49 @@ def test_bundle_skips_dot_dot_document_names(tmp_path):
     FileParser()._extract_project_bundle(zip_path, session_dir)
 
     assert list((session_dir / "pending_documents").iterdir()) == []
+
+
+def test_refused_bundle_removes_the_uploaded_zip(tmp_path, monkeypatch):
+    monkeypatch.setattr(file_parser, "_BUNDLE_MAX_TOTAL_BYTES", 1000)
+    session_dir = tmp_path / "sid"
+    session_dir.mkdir()
+    zip_path = _bundle(session_dir / "p.zip", {"project.json": "{}", "documents/big.txt": "A" * 5000})
+
+    with pytest.raises(ValueError):
+        FileParser()._extract_project_bundle(zip_path, session_dir)
+
+    assert not zip_path.exists()
+
+
+def test_corrupt_entry_leaves_no_partial_files(tmp_path):
+    session_dir = tmp_path / "sid"
+    session_dir.mkdir()
+    zip_path = _bundle(
+        session_dir / "p.zip",
+        {"project.json": "{}", "documents/a.txt": "hello", "documents/b.txt": "B" * 100_000},
+    )
+    # Declare b.txt smaller than it is: zipfile stops at the declared size and
+    # then fails the CRC check, after part of the entry was already streamed.
+    raw = bytearray(zip_path.read_bytes())
+    with zipfile.ZipFile(zip_path) as zf:
+        info = zf.getinfo("documents/b.txt")
+    local = info.header_offset
+    raw[local + 22:local + 26] = (100).to_bytes(4, "little")
+    for offset in _central_offsets(raw):
+        if raw[offset + 46:offset + 46 + len(b"documents/b.txt")] == b"documents/b.txt":
+            raw[offset + 24:offset + 28] = (100).to_bytes(4, "little")
+    zip_path.write_bytes(bytes(raw))
+
+    with pytest.raises(zipfile.BadZipFile):
+        FileParser()._extract_project_bundle(zip_path, session_dir)
+
+    assert not (session_dir / "project.json").exists()
+    assert list((session_dir / "pending_documents").iterdir()) == []
+    assert not zip_path.exists()
+
+
+def _central_offsets(raw):
+    offset = raw.find(b"PK\x01\x02")
+    while offset != -1:
+        yield offset
+        offset = raw.find(b"PK\x01\x02", offset + 4)
