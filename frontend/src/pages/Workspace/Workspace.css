@@ -895,10 +895,16 @@
   margin: 0 0 8px;
 }
 
+.workspace-chat-markdown p,
+.workspace-chat-markdown li {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
 .workspace-chat-markdown ul,
 .workspace-chat-markdown ol {
   margin: 4px 0 8px;
-  padding-left: 18px;
+  padding-inline-start: 18px;
 }
 
 .workspace-chat-markdown li {
@@ -950,6 +956,8 @@
   background: hsl(var(--muted) / 0.6);
   border-radius: 6px;
   overflow-x: auto;
+  direction: ltr;
+  text-align: left;
 }
 
 .workspace-chat-markdown pre code {
@@ -964,12 +972,15 @@
 
 .workspace-chat-markdown blockquote {
   margin: 6px 0;
-  padding-left: 10px;
-  border-left: 3px solid hsl(var(--border));
+  padding-inline-start: 10px;
+  border-inline-start: 3px solid hsl(var(--border));
   color: hsl(var(--muted-foreground));
 }
 
 .workspace-chat-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: 6px 0;
   font-size: 0.95em;
@@ -979,7 +990,7 @@
 .workspace-chat-markdown td {
   border: 1px solid hsl(var(--border));
   padding: 3px 6px;
-  text-align: left;
+  text-align: start;
 }
 
 .workspace-chat-input {
@@ -1063,7 +1074,8 @@
   font-weight: 400;
   line-height: 1.25rem;
   white-space: normal;
-  text-align: left;
+  unicode-bidi: plaintext;
+  text-align: start;
   box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   pointer-events: none;
 }
@@ -1083,12 +1095,19 @@
   font-size: var(--workspace-table-font-size, 12px);
   font-style: var(--workspace-table-font-style, normal);
   font-weight: var(--workspace-table-font-weight, 400);
-  text-align: var(--workspace-table-text-align, left);
+  unicode-bidi: plaintext;
+  text-align: var(--workspace-table-text-align, start);
   text-decoration: var(--workspace-table-text-decoration, none);
+}
+
+.workspace-hot .handsontable .handsontableInput {
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 
 .workspace-hot .handsontable td.has-grounding {
   position: relative;
+  padding-right: 14px;
 }
 
 .workspace-hot .handsontable td.has-grounding::after {
@@ -1125,6 +1144,7 @@
    cell shows the explanation (see INFO_SELECTOR in SpreadsheetSurface). */
 .workspace-hot .handsontable td.cell-ungrounded {
   position: relative;
+  padding-right: 14px;
   font-style: italic;
   color: hsl(var(--muted-foreground));
 }
@@ -1226,6 +1246,10 @@
 
 .workspace-hot .handsontable td.workspace-cell-strike.workspace-cell-underline-off {
   text-decoration-line: line-through;
+}
+
+.workspace-hot .handsontable td.workspace-cell-align-start {
+  text-align: start;
 }
 
 .workspace-hot .handsontable td.workspace-cell-align-left {

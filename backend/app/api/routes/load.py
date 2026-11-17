@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 from app.core.background_tasks import spawn_background
+from app.core.safe_paths import safe_upload_name
 from app.core.config import DEFAULT_DATA_DIR
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
@@ -566,6 +567,9 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         
         # Process each uploaded file
         total_size = 0
+        # Preprocessing writes {stem}.txt into pending_documents/, so two files
+        # with the same stem in one request would overwrite each other.
+        seen_stems: set = set()
         for i, file in enumerate(files):
             logger.debug(f"Processing file {i+1}/{len(files)}: {file.filename}")
 
@@ -574,23 +578,38 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
                 logger.debug(f"Skipping system file: {file.filename}")
                 continue
             
+            # The client controls file.filename; keep only its last component
+            # so it cannot point outside pending_documents/ (CWE-22).
+            try:
+                filename = safe_upload_name(file.filename)
+            except ValueError:
+                errors.append(f"File name {file.filename!r} is not valid")
+                failed_files.append({"filename": file.filename, "status": "failed: invalid file name"})
+                continue
+
+            if Path(filename).stem in seen_stems:
+                errors.append(_same_stem_error(filename))
+                failed_files.append({"filename": filename, "status": "failed: duplicate name in upload"})
+                continue
+            seen_stems.add(Path(filename).stem)
+
             # Validate file size (25MB limit per file)
             if file.size > 25 * 1024 * 1024:
-                errors.append(f"File '{file.filename}' exceeds 25MB limit")
+                errors.append(f"File '{filename}' exceeds 25MB limit")
                 continue
             
             total_size += file.size
             
             # Validate file type (text files, PDFs, docs, etc.)
             allowed_extensions = {'.txt', '.md', '.pdf', '.doc', '.docx', '.rtf', '.json'}
-            file_ext = Path(file.filename).suffix.lower()
+            file_ext = Path(filename).suffix.lower()
             
             if file_ext not in allowed_extensions:
-                warnings.append(f"File '{file.filename}' has unsupported extension '{file_ext}'. Supported: {', '.join(allowed_extensions)}")
+                warnings.append(f"File '{filename}' has unsupported extension '{file_ext}'. Supported: {', '.join(allowed_extensions)}")
                 # Continue processing - might still be text content
             
             try:
-                file_path = pending_dir / file.filename
+                file_path = pending_dir / filename
                 with open(file_path, 'wb') as f:
                     content = await file.read()
                     f.write(content)
@@ -599,13 +618,13 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
                 # so preprocessing logs keep the session id.
                 display_name, error = await asyncio.to_thread(
                     _preprocess_and_record,
-                    file_path, file.filename, docs_dir, session, document_extraction,
+                    file_path, filename, docs_dir, session, document_extraction,
                 )
                 if error:
                     if "already processed" in error:
                         errors.append(error)
                     else:
-                        failed_files.append({"filename": file.filename, "status": error})
+                        failed_files.append({"filename": filename, "status": error})
                         errors.append(error)
                     continue
 
@@ -613,8 +632,8 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
                 logger.debug(f"Saved file to pending: {file_path}")
 
             except Exception as e:
-                errors.append(f"Failed to save file '{file.filename}': {str(e)}")
-                failed_files.append({"filename": file.filename, "status": f"failed: {e}"})
+                errors.append(f"Failed to save file '{filename}': {str(e)}")
+                failed_files.append({"filename": filename, "status": f"failed: {e}"})
         
         # Check total size limit (100MB total)
         if total_size > 100 * 1024 * 1024:
@@ -786,6 +805,13 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
         if not session.metadata.uploaded_documents:
             raise HTTPException(status_code=404, detail="No uploaded documents found")
 
+        try:
+            safe_name = safe_upload_name(request.filename)
+        except ValueError:
+            safe_name = None
+        if safe_name != request.filename:
+            raise HTTPException(status_code=400, detail="Invalid document name")
+
         if request.filename not in session.metadata.uploaded_documents:
             raise HTTPException(
                 status_code=404,
@@ -911,8 +937,30 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
         errors = []
         failed_files = []
         document_extraction = {}
+        # Keys may name sub-folders, but only the last component is kept
+        # locally, so a/x.pdf and b/x.pdf (or x.pdf and x.docx, which both
+        # become x.txt) would overwrite each other in pending_documents/.
+        seen_stems: set = set()
 
         for filename in request.files:
+            # The storage key comes from the request: refuse absolute keys and
+            # ".." segments before it reaches the storage backend (CWE-22).
+            normalized = (filename or "").replace("\\", "/")
+            if not normalized or normalized.startswith("/") or ".." in normalized.split("/"):
+                errors.append(f"Invalid file name: {filename!r}")
+                failed_files.append({"filename": filename, "status": "failed: invalid file name"})
+                continue
+            try:
+                local_name = safe_upload_name(filename)
+            except ValueError:  # e.g. "folder/" names no file
+                errors.append(f"Invalid file name: {filename!r}")
+                failed_files.append({"filename": filename, "status": "failed: invalid file name"})
+                continue
+            if Path(local_name).stem in seen_stems:
+                errors.append(_same_stem_error(filename))
+                failed_files.append({"filename": filename, "status": "failed: duplicate name in upload"})
+                continue
+            seen_stems.add(Path(local_name).stem)
             try:
                 content = await storage.download_dataset_file(request.dataset, filename)
                 if not content:
@@ -920,7 +968,10 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
                     failed_files.append({"filename": filename, "status": "failed: could not download"})
                     continue
 
-                file_path = pending_dir / filename
+                # filename is the storage key (it may name a sub-folder of the
+                # dataset); only its last component (local_name) is used here,
+                # so it cannot point outside pending_documents/ (CWE-22).
+                file_path = pending_dir / local_name
                 with open(file_path, 'wb') as f:
                     f.write(content)
 
@@ -928,7 +979,7 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
                 # so preprocessing logs keep the session id.
                 display_name, error = await asyncio.to_thread(
                     _preprocess_and_record,
-                    file_path, filename, docs_dir, session, document_extraction,
+                    file_path, local_name, docs_dir, session, document_extraction,
                 )
                 if error:
                     if "already processed" in error:
@@ -1282,6 +1333,13 @@ async def export_schema_only(session_id: str):
     except Exception as e:
         logger.error(f"Exception in export_schema_only: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _same_stem_error(filename: str) -> str:
+    return (
+        f"'{filename}' has the same name as another file in this upload "
+        "(after removing folders and the extension). Rename one of them."
+    )
 
 
 def _preprocess_and_record(
