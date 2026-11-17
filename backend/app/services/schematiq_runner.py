@@ -678,9 +678,8 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 details
             )
 
+        llm_tracker, tracker_token = LLMCallTracker.activate()
         try:
-            llm_tracker = LLMCallTracker.get_instance()
-            llm_tracker.reset()
 
             # Check global LLM usage quota
             if DEVELOPER_MODE:
@@ -1050,6 +1049,8 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 self.session_manager.update_session(session)
             await self.broadcast_error(session_id, user_message)
             raise
+        finally:
+            LLMCallTracker.deactivate(tracker_token)
 
     # ── Private orchestration helpers ──────────────────────────────
 
