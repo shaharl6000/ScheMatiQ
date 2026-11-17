@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 
 import type { DataRow, PaginatedData, ScheMatiQStatus, SchemaData, WebSocketMessage } from '@/types';
 import type { CellUpdate } from './types';
-import { SILENT_REFRESH_MIN_INTERVAL_MS } from './constants';
+import { EMPTY_DATA_RECHECK_MS, SILENT_REFRESH_MIN_INTERVAL_MS } from './constants';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -129,14 +129,17 @@ jest.mock('./SpreadsheetChrome', () => ({
 }));
 
 let mockRenderedRows: string[] = [];
+let mockRenderedSchemaQuery: string | undefined;
 
 jest.mock('./SpreadsheetSurface', () => ({
   SpreadsheetSurface: (props: {
     applyCellUpdatesRef: React.MutableRefObject<((updates: CellUpdate[]) => void) | null>;
     data: PaginatedData;
+    schema: SchemaData | null;
   }) => {
     props.applyCellUpdatesRef.current = mockApplyCellUpdatesSpy;
     mockRenderedRows = props.data.rows.map((r) => String(r.row_name));
+    mockRenderedSchemaQuery = props.schema?.query;
     return null;
   },
 }));
@@ -203,6 +206,7 @@ describe('Workspace row refresh sequencing', () => {
     mockWsHandlers.clear();
     mockCapturedChromeRefresh = null;
     mockRenderedRows = [];
+    mockRenderedSchemaQuery = undefined;
     mockSessionId = 'session-1';
     mockGetStatus.mockReset().mockResolvedValue({
       session_id: 'session-1',
@@ -331,5 +335,86 @@ describe('Workspace row refresh sequencing', () => {
       await flushMicrotasks();
     });
     expect(mockGetData.mock.calls.length).toBe(afterMount + 2);
+  });
+
+  it('a dropped response with onCommitted waits for a pending empty re-check instead of reporting older rows', async () => {
+    mockGetData.mockResolvedValueOnce(mkPaginated([row('initial')]));
+    await act(async () => {
+      root.render(<Workspace />);
+      await flushMicrotasks();
+    });
+    expect(mockRenderedRows).toEqual(['initial']);
+
+    const older = deferred<PaginatedData>();
+    const onCommitted = jest.fn<void, [PaginatedData]>();
+    mockGetData
+      .mockReturnValueOnce(older.promise)
+      .mockResolvedValueOnce(mkPaginated([]));
+
+    let first: Promise<void> | undefined;
+    await act(async () => {
+      first = mockCapturedChromeRefresh!({ silent: true, onCommitted });
+      await flushMicrotasks();
+      // Newer fetch comes back empty (transient rewrite) -> empty re-check scheduled.
+      await mockCapturedChromeRefresh!({ silent: true });
+      await flushMicrotasks();
+    });
+    expect(mockRenderedRows).toEqual(['initial']);
+
+    await act(async () => {
+      older.resolve(mkPaginated([row('older')]));
+      await first;
+      await flushMicrotasks();
+    });
+    // Not called with the pre-rewrite rows.
+    expect(onCommitted).not.toHaveBeenCalled();
+
+    mockGetData.mockResolvedValueOnce(mkPaginated([row('after')]));
+    await act(async () => {
+      jest.advanceTimersByTime(EMPTY_DATA_RECHECK_MS);
+      await flushMicrotasks();
+    });
+    expect(mockRenderedRows).toEqual(['after']);
+    expect(onCommitted).toHaveBeenCalledTimes(1);
+    expect(onCommitted.mock.calls[0][0].rows.map((r) => r.row_name)).toEqual(['after']);
+  });
+
+  it('ignores a structural response (schema/status) for the project the user switched away from', async () => {
+    mockGetSchema.mockImplementation((sid: string) =>
+      Promise.resolve({ query: sid, schema: [{ name: 'colA', definition: 'A', rationale: 'R' }] }),
+    );
+    mockGetData.mockResolvedValue(mkPaginated([row('r')]));
+    await act(async () => {
+      root.render(<Workspace />);
+      await flushMicrotasks();
+    });
+    expect(mockRenderedSchemaQuery).toBe('session-1');
+
+    const staleStatus = deferred<ScheMatiQStatus>();
+    mockGetStatus.mockReturnValueOnce(staleStatus.promise);
+    await act(async () => {
+      emitWs({ type: 'schema_updated', data: {} } as WebSocketMessage);
+      await flushMicrotasks();
+    });
+
+    mockSessionId = 'session-2';
+    await act(async () => {
+      root.render(<Workspace />);
+      await flushMicrotasks();
+    });
+    expect(mockRenderedSchemaQuery).toBe('session-2');
+
+    await act(async () => {
+      staleStatus.resolve({
+        session_id: 'session-1',
+        status: 'completed',
+        progress: 1,
+        current_step: 'Completed',
+        steps_completed: 1,
+        total_steps: 1,
+      });
+      await flushMicrotasks();
+    });
+    expect(mockRenderedSchemaQuery).toBe('session-2');
   });
 });

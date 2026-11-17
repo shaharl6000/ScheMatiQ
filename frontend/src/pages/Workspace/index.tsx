@@ -454,6 +454,12 @@ function Workspace() {
             ...deferredDataRef.current,
             onCommitted: chainDataCommittedCallbacks(deferredDataRef.current.onCommitted, opts.onCommitted),
           };
+        } else if (emptyRecheckTimerRef.current != null) {
+          // The newer response came back empty and is waiting on its re-check,
+          // so nothing newer than lastServerDataRef has been committed yet.
+          // Wait for the re-check's commit instead of reporting the older rows
+          // (the undo recorder would diff against pre-rewrite data).
+          scheduleEmptyRecheck(opts.onCommitted);
         } else if (lastServerDataRef.current) {
           opts.onCommitted(lastServerDataRef.current);
         }
@@ -463,7 +469,7 @@ function Workspace() {
       noteDataFetchSuccess();
       applyData(nextData, opts);
     },
-    [applyData, noteDataFetchSuccess],
+    [applyData, noteDataFetchSuccess, scheduleEmptyRecheck],
   );
 
   // Fetch row data only — no status/schema/session churn. Used after cell edits
@@ -609,6 +615,11 @@ function Workspace() {
   const refresh = useCallback(async (options?: { silent?: boolean; onCommitted?: (data: PaginatedData) => void }) => {
     if (!sessionId) return;
     const silent = Boolean(options?.silent);
+    // The route reuses this component across projects. A structural response
+    // that lands after the user switched projects must not overwrite the new
+    // project's status/schema/session/config (rows are guarded separately by
+    // applyFetchedData).
+    const isStale = () => sessionIdRef.current !== sessionId;
     if (!silent) {
       setLoading(true);
     }
@@ -659,6 +670,7 @@ function Workspace() {
           schematiqAPI.getConfig(sessionId).catch(() => null),
           loadAPI.getSession(sessionId).catch(() => null),
         ]);
+        if (isStale()) return;
         setSessionMissing(false);
         setStatus(nextStatus);
         setSchema(nextSchema);
@@ -671,6 +683,7 @@ function Workspace() {
         );
       } catch (err) {
         const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
+        if (isStale()) return;
         if (!loadSession) {
           // Neither mode can resolve it: the session is gone, not mid-import.
           setSessionMissing(true);
@@ -698,6 +711,7 @@ function Workspace() {
     try {
       if (sessionModeRef.current === 'load') {
         const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
+        if (isStale()) return;
         if (!loadSession) {
           setSessionMissing(true);
           if (!silent) setLoading(false);
