@@ -231,8 +231,7 @@ class SupabaseStorageBackend(StorageInterface):
     # Session Operations
     # ==================
 
-    async def save_session(self, session_id: str, data: Dict[str, Any]) -> bool:
-        """Save session data to Supabase storage."""
+    def _save_session_blocking(self, session_id: str, data: Dict[str, Any]) -> bool:
         try:
             content = json.dumps(data, indent=2, default=str).encode("utf-8")
             path = f"{session_id}.json"
@@ -247,8 +246,11 @@ class SupabaseStorageBackend(StorageInterface):
             logger.error(f"Error saving session {session_id} to Supabase: {e}")
             return False
 
-    async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve session data from Supabase storage."""
+    async def save_session(self, session_id: str, data: Dict[str, Any]) -> bool:
+        """Save session data to Supabase storage."""
+        return await asyncio.to_thread(self._save_session_blocking, session_id, data)
+
+    def _get_session_blocking(self, session_id: str) -> Optional[Dict[str, Any]]:
         try:
             path = f"{session_id}.json"
             response = self.client.storage.from_("sessions").download(path)
@@ -259,12 +261,18 @@ class SupabaseStorageBackend(StorageInterface):
                 logger.error(f"Error loading session {session_id} from Supabase: {e}")
             return None
 
+    async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve session data from Supabase storage."""
+        return await asyncio.to_thread(self._get_session_blocking, session_id)
+
     async def delete_session(self, session_id: str) -> bool:
         """Delete session and all associated data from Supabase."""
         try:
             # Delete session file
             try:
-                self.client.storage.from_("sessions").remove([f"{session_id}.json"])
+                await asyncio.to_thread(
+                    self.client.storage.from_("sessions").remove, [f"{session_id}.json"]
+                )
             except Exception:
                 pass
 
@@ -279,20 +287,32 @@ class SupabaseStorageBackend(StorageInterface):
 
     async def list_sessions(self) -> List[str]:
         """List all session IDs from Supabase storage."""
-        try:
-            files = self._list_all_storage_items("sessions")
-            return [
-                f["name"].replace(".json", "")
-                for f in files
-                if f.get("name", "").endswith(".json")
-            ]
-        except Exception as e:
-            logger.error(f"Error listing sessions from Supabase: {e}")
-            return []
+        return await asyncio.to_thread(self.list_sessions_sync)
 
     # ================
     # File Operations
     # ================
+
+    def _upload_file_blocking(
+        self,
+        bucket: str,
+        path: str,
+        data: bytes,
+        content_type: Optional[str] = None,
+    ) -> str:
+        storage_path = self._get_storage_path(bucket, path)
+
+        options = dict(UPSERT_OPTION)
+        if content_type:
+            options["content-type"] = content_type
+
+        self.client.storage.from_(bucket).upload(
+            storage_path,
+            data,
+            options,
+        )
+
+        return f"{bucket}/{storage_path}"
 
     async def upload_file(
         self,
@@ -303,25 +323,14 @@ class SupabaseStorageBackend(StorageInterface):
     ) -> str:
         """Upload file to Supabase storage."""
         try:
-            storage_path = self._get_storage_path(bucket, path)
-
-            options = dict(UPSERT_OPTION)
-            if content_type:
-                options["content-type"] = content_type
-
-            self.client.storage.from_(bucket).upload(
-                storage_path,
-                data,
-                options
+            return await asyncio.to_thread(
+                self._upload_file_blocking, bucket, path, data, content_type
             )
-
-            return f"{bucket}/{storage_path}"
         except Exception as e:
             logger.error(f"Error uploading file {bucket}/{path} to Supabase: {e}")
             raise
 
-    async def download_file(self, bucket: str, path: str) -> Optional[bytes]:
-        """Download file from Supabase storage."""
+    def _download_file_blocking(self, bucket: str, path: str) -> Optional[bytes]:
         try:
             storage_path = self._get_storage_path(bucket, path)
             return self.client.storage.from_(bucket).download(storage_path)
@@ -330,8 +339,11 @@ class SupabaseStorageBackend(StorageInterface):
                 logger.error(f"Error downloading file {bucket}/{path} from Supabase: {e}")
             return None
 
-    async def delete_file(self, bucket: str, path: str) -> bool:
-        """Delete file from Supabase storage."""
+    async def download_file(self, bucket: str, path: str) -> Optional[bytes]:
+        """Download file from Supabase storage."""
+        return await asyncio.to_thread(self._download_file_blocking, bucket, path)
+
+    def _delete_file_blocking(self, bucket: str, path: str) -> bool:
         try:
             storage_path = self._get_storage_path(bucket, path)
             self.client.storage.from_(bucket).remove([storage_path])
@@ -340,8 +352,11 @@ class SupabaseStorageBackend(StorageInterface):
             logger.error(f"Error deleting file {bucket}/{path} from Supabase: {e}")
             return False
 
-    async def file_exists(self, bucket: str, path: str) -> bool:
-        """Check if file exists in Supabase storage."""
+    async def delete_file(self, bucket: str, path: str) -> bool:
+        """Delete file from Supabase storage."""
+        return await asyncio.to_thread(self._delete_file_blocking, bucket, path)
+
+    def _file_exists_blocking(self, bucket: str, path: str) -> bool:
         try:
             storage_path = self._get_storage_path(bucket, path)
 
@@ -359,21 +374,11 @@ class SupabaseStorageBackend(StorageInterface):
         except Exception:
             return False
 
-    async def list_folder_files(self, bucket: str, folder: str) -> set:
-        """
-        List all file names in a folder (optimized for batch existence checks).
+    async def file_exists(self, bucket: str, path: str) -> bool:
+        """Check if file exists in Supabase storage."""
+        return await asyncio.to_thread(self._file_exists_blocking, bucket, path)
 
-        Returns a set of file names (not full paths) for efficient membership testing.
-        This is much faster than calling file_exists() for each file when checking
-        multiple files in the same folder.
-
-        Args:
-            bucket: Storage bucket name
-            folder: Folder path within the bucket
-
-        Returns:
-            Set of file names in the folder
-        """
+    def _list_folder_files_blocking(self, bucket: str, folder: str) -> set:
         try:
             storage_folder = self._get_storage_path(bucket, folder)
             result = set()
@@ -395,8 +400,24 @@ class SupabaseStorageBackend(StorageInterface):
             logger.error(f"Error listing folder {bucket}/{folder}: {e}")
             return set()
 
-    async def list_files(self, bucket: str, prefix: str = "") -> List[str]:
-        """List files in Supabase bucket with optional prefix filter."""
+    async def list_folder_files(self, bucket: str, folder: str) -> set:
+        """
+        List all file names in a folder (optimized for batch existence checks).
+
+        Returns a set of file names (not full paths) for efficient membership testing.
+        This is much faster than calling file_exists() for each file when checking
+        multiple files in the same folder.
+
+        Args:
+            bucket: Storage bucket name
+            folder: Folder path within the bucket
+
+        Returns:
+            Set of file names in the folder
+        """
+        return await asyncio.to_thread(self._list_folder_files_blocking, bucket, folder)
+
+    def _list_files_blocking(self, bucket: str, prefix: str = "") -> List[str]:
         try:
             storage_prefix = self._get_storage_path(bucket, prefix)
 
@@ -424,13 +445,17 @@ class SupabaseStorageBackend(StorageInterface):
                 else:
                     # It's a folder, recursively list
                     subfolder = f"{storage_prefix}/{f['name']}" if storage_prefix else f["name"]
-                    subfiles = await self.list_files(bucket, subfolder)
+                    subfiles = self._list_files_blocking(bucket, subfolder)
                     result.extend(subfiles)
 
             return result
         except Exception as e:
             logger.error(f"Error listing files {bucket}/{prefix} from Supabase: {e}")
             return []
+
+    async def list_files(self, bucket: str, prefix: str = "") -> List[str]:
+        """List files in Supabase bucket with optional prefix filter."""
+        return await asyncio.to_thread(self._list_files_blocking, bucket, prefix)
 
     # =====================
     # Directory Operations
@@ -444,7 +469,9 @@ class SupabaseStorageBackend(StorageInterface):
 
             if files:
                 # Remove all files
-                self.client.storage.from_(bucket).remove(files)
+                await asyncio.to_thread(
+                    self.client.storage.from_(bucket).remove, files
+                )
 
             return True
         except Exception as e:
@@ -508,8 +535,7 @@ class SupabaseStorageBackend(StorageInterface):
 
         return all_items
 
-    async def list_datasets(self) -> List[DatasetInfo]:
-        """List available datasets from the datasets bucket."""
+    def _list_datasets_blocking(self) -> List[DatasetInfo]:
         try:
             logger.info("Fetching datasets from Supabase 'datasets' bucket...")
             # List top-level folders in datasets bucket with pagination
@@ -550,8 +576,11 @@ class SupabaseStorageBackend(StorageInterface):
             logger.error(f"Error listing datasets from Supabase: {e}", exc_info=True)
             return []
 
-    async def list_dataset_files(self, dataset_name: str) -> List[FileInfo]:
-        """List files in a specific dataset."""
+    async def list_datasets(self) -> List[DatasetInfo]:
+        """List available datasets from the datasets bucket."""
+        return await asyncio.to_thread(self._list_datasets_blocking)
+
+    def _list_dataset_files_blocking(self, dataset_name: str) -> List[FileInfo]:
         try:
             # Use pagination to get all files
             files = self._list_all_storage_items("datasets", dataset_name)
@@ -582,8 +611,11 @@ class SupabaseStorageBackend(StorageInterface):
             logger.error(f"Error listing dataset files from Supabase: {e}")
             return []
 
-    async def download_dataset_file(self, dataset_name: str, filename: str) -> Optional[bytes]:
-        """Download a specific file from a dataset."""
+    async def list_dataset_files(self, dataset_name: str) -> List[FileInfo]:
+        """List files in a specific dataset."""
+        return await asyncio.to_thread(self._list_dataset_files_blocking, dataset_name)
+
+    def _download_dataset_file_blocking(self, dataset_name: str, filename: str) -> Optional[bytes]:
         try:
             path = f"{dataset_name}/{filename}"
             return self.client.storage.from_("datasets").download(path)
@@ -591,13 +623,19 @@ class SupabaseStorageBackend(StorageInterface):
             logger.error(f"Error downloading dataset file {dataset_name}/{filename}: {e}")
             return None
 
+    async def download_dataset_file(self, dataset_name: str, filename: str) -> Optional[bytes]:
+        """Download a specific file from a dataset."""
+        return await asyncio.to_thread(
+            self._download_dataset_file_blocking, dataset_name, filename
+        )
+
     async def download_dataset_to_local(self, dataset_name: str, local_dir: str) -> List[str]:
         """Download all files from a dataset to a local directory.
 
         This is required for ScheMatiQ processing which needs local file access.
         """
         local_path = Path(local_dir)
-        local_path.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(local_path.mkdir, parents=True, exist_ok=True)
 
         created_files = []
         try:
@@ -607,8 +645,7 @@ class SupabaseStorageBackend(StorageInterface):
                 content = await self.download_dataset_file(dataset_name, file_info.name)
                 if content:
                     dest_path = local_path / file_info.name
-                    with open(dest_path, 'wb') as f:
-                        f.write(content)
+                    await asyncio.to_thread(dest_path.write_bytes, content)
                     created_files.append(str(dest_path))
         except Exception as e:
             logger.error(f"Error downloading dataset to local: {e}")
@@ -619,8 +656,7 @@ class SupabaseStorageBackend(StorageInterface):
     # Template Operations
     # =======================
 
-    async def list_templates(self) -> List[TemplateInfo]:
-        """List available template tables from the templates bucket."""
+    def _list_templates_blocking(self) -> List[TemplateInfo]:
         try:
             files = self.client.storage.from_("templates").list()
 
@@ -712,8 +748,11 @@ class SupabaseStorageBackend(StorageInterface):
             logger.error(f"Error listing templates from Supabase: {e}")
             return []
 
-    async def download_template(self, template_name: str) -> Optional[bytes]:
-        """Download a template file."""
+    async def list_templates(self) -> List[TemplateInfo]:
+        """List available template tables from the templates bucket."""
+        return await asyncio.to_thread(self._list_templates_blocking)
+
+    def _download_template_blocking(self, template_name: str) -> Optional[bytes]:
         try:
             # Try different extensions
             for ext in ['.csv', '.json', '.jsonl']:
@@ -734,12 +773,15 @@ class SupabaseStorageBackend(StorageInterface):
             logger.error(f"Error downloading template {template_name}: {e}")
             return None
 
+    async def download_template(self, template_name: str) -> Optional[bytes]:
+        """Download a template file."""
+        return await asyncio.to_thread(self._download_template_blocking, template_name)
+
     # =======================
     # Initial Schema Operations
     # =======================
 
-    async def list_initial_schemas(self) -> List[InitialSchemaInfo]:
-        """List available initial schema files from the initial_schemas bucket."""
+    def _list_initial_schemas_blocking(self) -> List[InitialSchemaInfo]:
         try:
             logger.info("Fetching initial schemas from Supabase 'initial_schemas' bucket...")
             files = self.client.storage.from_("initial_schemas").list()
@@ -793,8 +835,11 @@ class SupabaseStorageBackend(StorageInterface):
             logger.error(f"Error listing initial schemas from Supabase: {e}", exc_info=True)
             return []
 
-    async def download_initial_schema(self, schema_name: str) -> Optional[bytes]:
-        """Download an initial schema file."""
+    async def list_initial_schemas(self) -> List[InitialSchemaInfo]:
+        """List available initial schema files from the initial_schemas bucket."""
+        return await asyncio.to_thread(self._list_initial_schemas_blocking)
+
+    def _download_initial_schema_blocking(self, schema_name: str) -> Optional[bytes]:
         try:
             # Try with .json extension
             try:
@@ -814,6 +859,33 @@ class SupabaseStorageBackend(StorageInterface):
             logger.error(f"Error downloading initial schema {schema_name}: {e}")
             return None
 
+    async def download_initial_schema(self, schema_name: str) -> Optional[bytes]:
+        """Download an initial schema file."""
+        return await asyncio.to_thread(self._download_initial_schema_blocking, schema_name)
+
+    def _upload_initial_schema_blocking(
+        self,
+        schema_name: str,
+        data: bytes,
+        content_type: Optional[str] = None,
+    ) -> str:
+        # Ensure filename has .json extension
+        if not schema_name.endswith('.json'):
+            schema_name = f"{schema_name}.json"
+
+        options = {
+            "content-type": content_type or "application/json",
+            **UPSERT_OPTION,
+        }
+
+        self.client.storage.from_("initial_schemas").upload(
+            schema_name,
+            data,
+            options,
+        )
+
+        return f"initial_schemas/{schema_name}"
+
     async def upload_initial_schema(
         self,
         schema_name: str,
@@ -822,22 +894,9 @@ class SupabaseStorageBackend(StorageInterface):
     ) -> str:
         """Upload an initial schema file to Supabase storage."""
         try:
-            # Ensure filename has .json extension
-            if not schema_name.endswith('.json'):
-                schema_name = f"{schema_name}.json"
-
-            options = {
-                "content-type": content_type or "application/json",
-                **UPSERT_OPTION,
-            }
-
-            self.client.storage.from_("initial_schemas").upload(
-                schema_name,
-                data,
-                options
+            return await asyncio.to_thread(
+                self._upload_initial_schema_blocking, schema_name, data, content_type
             )
-
-            return f"initial_schemas/{schema_name}"
         except Exception as e:
             logger.error(f"Error uploading initial schema {schema_name} to Supabase: {e}")
             raise
