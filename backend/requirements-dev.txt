@@ -4,5 +4,9 @@
 pytest
 pytest-asyncio
 
+# starlette.testclient (FastAPI TestClient) uses httpx2. Without it, it falls
+# back to httpx and emits StarletteDeprecationWarning.
+httpx2
+
 # Builds synthetic PDF fixtures for the column-aware extraction tests
 reportlab>=4.0.0
