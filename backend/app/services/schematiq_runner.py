@@ -143,8 +143,8 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         data_file = self.work_dir / session_id / "extracted_data.jsonl"
         if not data_file.exists():
             return
-        await persist_session_data_file(session_id, data_file)
-        logger.info("Persisted extracted data to storage for session %s", session_id)
+        if await persist_session_data_file(session_id, data_file):
+            logger.info("Persisted extracted data to storage for session %s", session_id)
 
     def _external_usage_total(self, window_days: int = 0, force: bool = False) -> int:
         """Read the cumulative (or windowed) LLM call total from Google Sheets.

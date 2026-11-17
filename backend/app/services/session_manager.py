@@ -143,11 +143,12 @@ class SessionManager:
 
         # Remove from storage (this also cleans up associated data)
         import asyncio
+        from app.core.background_tasks import spawn_background
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # We're in an async context, schedule the deletion
-                asyncio.create_task(self._storage.delete_session(session_id))
+                spawn_background(self._storage.delete_session(session_id), name=f"delete-session-{session_id}")
                 return True
             else:
                 return loop.run_until_complete(self._storage.delete_session(session_id))

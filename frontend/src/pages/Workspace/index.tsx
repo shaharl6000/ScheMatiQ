@@ -69,6 +69,7 @@ import {
   DATA_LOAD_RETRY_MAX_MS,
   emptyData,
   EMPTY_DATA_RECHECK_MS,
+  SILENT_REFRESH_MIN_INTERVAL_MS,
   SHEETS,
   LEGACY_CELL_FORMATS_STORAGE_KEY,
   cellFormatsStorageKey,
@@ -255,6 +256,19 @@ function Workspace() {
   // tear down/reconnect the websocket) on every optimistic edit.
   const dataRef = useRef(data);
   useEffect(() => { dataRef.current = data; }, [data]);
+  // Row fetches can overlap (websocket-driven polls, post-edit refreshes,
+  // structural refreshes) and resolve out of order. Each fetch takes a
+  // sequence number; a response older than the last one applied is dropped so
+  // stale rows never overwrite newer ones. The session id is captured too, so
+  // a fetch still in flight when the user switches projects (the route reuses
+  // this component) never lands in the new project.
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+  const dataFetchSeqRef = useRef(0);
+  const dataAppliedSeqRef = useRef(0);
+  // Last server payload committed to the grid (optimistic edits excluded), so
+  // dataServerVersion is bumped only when the server rows actually changed.
+  const lastServerDataRef = useRef<PaginatedData | null>(null);
   // Snapshot of `data` taken right before a background rewrite (re-extraction,
   // fill-empty-cells) starts, so the rewrite can be diffed into one undo step
   // once it settles. See onReextractionStart/onReextractionSettled below.
@@ -344,10 +358,21 @@ function Workspace() {
     return Boolean(editor?.isOpened?.());
   }, []);
 
-  const commitData = useCallback((nextData: PaginatedData, onCommitted?: (data: PaginatedData) => void) => {
+  const commitData = useCallback((
+    nextData: PaginatedData,
+    onCommitted?: (data: PaginatedData) => void,
+    forceVersionBump?: boolean,
+  ) => {
     dataRowCountRef.current = nextData.rows.length;
+    const serverChanged = !lastServerDataRef.current || !dataEquals(lastServerDataRef.current, nextData);
+    lastServerDataRef.current = nextData;
     setData((current) => (dataEquals(current, nextData) ? current : nextData));
-    setDataServerVersion((v) => v + 1);
+    // Only a real server-side change should refetch the By Unit view; a no-op
+    // poll during extraction used to trigger one unit fetch per event.
+    // Post-edit refreshes always bump: the optimistic patch also wrote unitData,
+    // and when the save failed the server rows equal lastServerDataRef, so
+    // without the bump By Unit would keep showing the unsaved value.
+    if (serverChanged || forceVersionBump) setDataServerVersion((v) => v + 1);
     onCommitted?.(nextData);
   }, []);
 
@@ -399,7 +424,7 @@ function Workspace() {
         return;
       }
       deferredDataRef.current = null;
-      commitData(nextData, opts?.onCommitted);
+      commitData(nextData, opts?.onCommitted, opts?.force);
     },
     [commitData, isCellEditorOpen, scheduleEmptyRecheck],
   );
@@ -415,26 +440,71 @@ function Workspace() {
     commitData(pending.data, pending.onCommitted);
   }, [commitData, scheduleEmptyRecheck]);
 
+  // Start a row fetch: returns a token that applyFetchedData checks before
+  // the response is used (see dataFetchSeqRef above).
+  const beginDataFetch = useCallback(() => ({
+    seq: ++dataFetchSeqRef.current,
+    sessionId: sessionIdRef.current,
+  }), []);
+
+  const applyFetchedData = useCallback(
+    (token: { seq: number; sessionId: string | undefined }, nextData: PaginatedData, opts?: RefreshDataOptions) => {
+      // The user switched projects while this fetch was in flight.
+      if (token.sessionId !== sessionIdRef.current) return;
+      if (token.seq < dataAppliedSeqRef.current) {
+        // A dropped post-edit refresh still owes By Unit its refetch (see
+        // commitData): the newer payload may equal lastServerDataRef.
+        if (opts?.force) setDataServerVersion((v) => v + 1);
+        // A newer response was already applied. Drop these rows, but a caller
+        // waiting on the commit (e.g. the re-extraction undo recorder) still
+        // gets the newer payload, which reflects at least as recent a state.
+        if (!opts?.onCommitted) return;
+        if (deferredDataRef.current) {
+          deferredDataRef.current = {
+            ...deferredDataRef.current,
+            onCommitted: chainDataCommittedCallbacks(deferredDataRef.current.onCommitted, opts.onCommitted),
+          };
+        } else if (emptyRecheckTimerRef.current != null) {
+          // The newer response came back empty and is waiting on its re-check,
+          // so nothing newer than lastServerDataRef has been committed yet.
+          // Wait for the re-check's commit instead of reporting the older rows
+          // (the undo recorder would diff against pre-rewrite data).
+          scheduleEmptyRecheck(opts.onCommitted);
+        } else if (lastServerDataRef.current) {
+          opts.onCommitted(lastServerDataRef.current);
+        }
+        return;
+      }
+      dataAppliedSeqRef.current = token.seq;
+      noteDataFetchSuccess();
+      applyData(nextData, opts);
+    },
+    [applyData, noteDataFetchSuccess, scheduleEmptyRecheck],
+  );
+
   // Fetch row data only — no status/schema/session churn. Used after cell edits
   // and for background polls so a refresh cannot re-render the grid from stale
   // React state while the network round-trip is still in flight.
   const refreshData = useCallback(async (options?: RefreshDataOptions) => {
     if (!sessionId) return;
-    const fetchData = sessionMode === 'load'
+    // Read the mode from the ref (like refresh does): a load -> schematiq
+    // promotion must switch endpoints immediately, and depending on the
+    // sessionMode state re-created this callback and re-subscribed the socket.
+    const fetchData = sessionModeRef.current === 'load'
       ? () => loadAPI.getData(sessionId, 0, 500)
       : () => schematiqAPI.getData(sessionId, 0, 500);
+    const token = beginDataFetch();
     // Keep the rows already on screen when the fetch fails instead of blanking
     // the grid. The columns come from the schema, so falling back to emptyData
     // here is exactly what leaves the user looking at headers with no data.
     // A 503 additionally raises the retry banner (see noteDataFetchError).
     const nextData = await fetchData().catch((err) => {
-      noteDataFetchError(err);
+      if (token.sessionId === sessionIdRef.current) noteDataFetchError(err);
       return null;
     });
     if (!nextData) return;
-    noteDataFetchSuccess();
-    applyData(nextData, options);
-  }, [applyData, noteDataFetchError, noteDataFetchSuccess, sessionId, sessionMode]);
+    applyFetchedData(token, nextData, options);
+  }, [applyFetchedData, beginDataFetch, noteDataFetchError, sessionId]);
 
   // The re-check scheduled by applyData needs the current refreshData without
   // making applyData depend on it (they are mutually recursive by design).
@@ -467,6 +537,52 @@ function Workspace() {
   }, []);
 
   const refreshSilent = useCallback(() => refreshData({ silent: true }), [refreshData]);
+
+  // Background variant for websocket events and fallback polls: at most one
+  // request in flight, at least SILENT_REFRESH_MIN_INTERVAL_MS between starts,
+  // and one trailing request for everything that arrived meanwhile, so the
+  // last event of a burst is always reflected. Stable identity (reads
+  // refreshDataRef), so the socket subscription does not re-register.
+  const silentRefreshStateRef = useRef<{
+    inFlight: boolean;
+    queued: boolean;
+    timer: number | null;
+    lastStart: number;
+  }>({ inFlight: false, queued: false, timer: null, lastStart: 0 });
+
+  const refreshSilentThrottled = useCallback(function scheduleSilentRefresh() {
+    const state = silentRefreshStateRef.current;
+    if (state.inFlight || state.timer != null) {
+      state.queued = true;
+      return;
+    }
+    const run = async () => {
+      state.timer = null;
+      state.queued = false;
+      state.inFlight = true;
+      state.lastStart = Date.now();
+      try {
+        await refreshDataRef.current?.({ silent: true });
+      } finally {
+        state.inFlight = false;
+        if (state.queued) {
+          state.queued = false;
+          scheduleSilentRefresh();
+        }
+      }
+    };
+    const wait = Math.max(0, state.lastStart + SILENT_REFRESH_MIN_INTERVAL_MS - Date.now());
+    if (wait === 0) {
+      void run();
+    } else {
+      state.timer = window.setTimeout(() => { void run(); }, wait);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    const state = silentRefreshStateRef.current;
+    if (state.timer != null) window.clearTimeout(state.timer);
+  }, []);
 
   // Refresh only the schema (column list) without reloading the row data, so an
   // action that changes columns but not the data — a column delete — does not
@@ -509,6 +625,11 @@ function Workspace() {
   const refresh = useCallback(async (options?: { silent?: boolean; onCommitted?: (data: PaginatedData) => void }) => {
     if (!sessionId) return;
     const silent = Boolean(options?.silent);
+    // The route reuses this component across projects. A structural response
+    // that lands after the user switched projects must not overwrite the new
+    // project's status/schema/session/config (rows are guarded separately by
+    // applyFetchedData).
+    const isStale = () => sessionIdRef.current !== sessionId;
     if (!silent) {
       setLoading(true);
     }
@@ -524,6 +645,7 @@ function Workspace() {
       fetchDocuments: () => Promise<DocumentListResponse | null>,
     ) => {
       if (!silent) setDataLoading(true);
+      const token = beginDataFetch();
       try {
         const [nextData, nextDocuments] = await Promise.all([
           // Keep the current rows if the fetch fails (null) rather than blanking
@@ -531,15 +653,13 @@ function Workspace() {
           // structural refresh right after a column delete. A 503 additionally
           // raises the retry banner (see noteDataFetchError).
           fetchData().catch((err) => {
-            noteDataFetchError(err);
+            if (token.sessionId === sessionIdRef.current) noteDataFetchError(err);
             return null;
           }),
           fetchDocuments().catch(() => null),
         ]);
-        if (nextData) {
-          noteDataFetchSuccess();
-          applyData(nextData, options);
-        }
+        if (token.sessionId !== sessionIdRef.current) return;
+        if (nextData) applyFetchedData(token, nextData, options);
         setDocuments(nextDocuments);
       } finally {
         if (!silent) setDataLoading(false);
@@ -560,6 +680,7 @@ function Workspace() {
           schematiqAPI.getConfig(sessionId).catch(() => null),
           loadAPI.getSession(sessionId).catch(() => null),
         ]);
+        if (isStale()) return;
         setSessionMissing(false);
         setStatus(nextStatus);
         setSchema(nextSchema);
@@ -572,6 +693,7 @@ function Workspace() {
         );
       } catch (err) {
         const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
+        if (isStale()) return;
         if (!loadSession) {
           // Neither mode can resolve it: the session is gone, not mid-import.
           setSessionMissing(true);
@@ -599,6 +721,7 @@ function Workspace() {
     try {
       if (sessionModeRef.current === 'load') {
         const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
+        if (isStale()) return;
         if (!loadSession) {
           setSessionMissing(true);
           if (!silent) setLoading(false);
@@ -634,7 +757,7 @@ function Workspace() {
         setLoading(false);
       }
     }
-  }, [applyData, noteDataFetchError, noteDataFetchSuccess, sessionId, updateSessionMode]);
+  }, [applyFetchedData, beginDataFetch, noteDataFetchError, sessionId, updateSessionMode]);
 
   const {
     addDocsFiles,
@@ -751,7 +874,7 @@ function Workspace() {
     sessionId,
     reextraction,
     refresh,
-    refreshSilent,
+    refreshSilent: refreshSilentThrottled,
     setActiveSheet,
     setReextraction,
     toast,
@@ -817,6 +940,17 @@ function Workspace() {
     unitDataRowCountRef.current = 0;
     deferredDataRef.current = null;
     clearEmptyRecheck();
+    // Responses to fetches started for the previous session are ignored
+    // (applyFetchedData checks the session), and its server payload must not
+    // suppress the new session's first dataServerVersion bump.
+    dataAppliedSeqRef.current = dataFetchSeqRef.current;
+    lastServerDataRef.current = null;
+    {
+      const state = silentRefreshStateRef.current;
+      if (state.timer != null) window.clearTimeout(state.timer);
+      state.timer = null;
+      state.queued = false;
+    }
     // The retry loop belongs to the session we are leaving.
     dataRetryAttemptRef.current = 0;
     clearDataRetryTimer();

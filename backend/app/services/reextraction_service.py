@@ -23,6 +23,7 @@ from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services.atomic_jsonl import write_jsonl_atomic
 from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
 from app.services.data_utils import row_name_of
+from app.services.session_data_store import session_write_lock
 from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
 from app.storage.factory import get_storage
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, EXTRACTION_MAX_WORKERS
@@ -269,7 +270,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
         self._data_collection_service = data_collection_service
         self._pubmed_enrichment_service = pubmed_enrichment_service
         self._uniprot_enrichment_service = uniprot_enrichment_service
-        self._incremental_merge_locks: Dict[str, asyncio.Lock] = {}
 
     @staticmethod
     def get_cached_retriever(retriever_config: Optional[Dict[str, Any]] = None):
@@ -2418,9 +2418,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
         return None
 
     def _get_incremental_merge_lock(self, session_id: str) -> asyncio.Lock:
-        if session_id not in self._incremental_merge_locks:
-            self._incremental_merge_locks[session_id] = asyncio.Lock()
-        return self._incremental_merge_locks[session_id]
+        # The shared per-session data-file lock (see session_data_store), not a
+        # private one: unit merge/rename rewrites the same files in a worker
+        # thread under that lock, and a merge here that ignored it could land
+        # between the thread's read and write and be overwritten.
+        return session_write_lock(session_id)
 
     async def _merge_incremental_unit_row(
         self,
