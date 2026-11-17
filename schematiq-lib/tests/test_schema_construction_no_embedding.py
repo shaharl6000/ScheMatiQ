@@ -14,7 +14,7 @@ def _cols(n: int):
 
 
 def test_constructing_schema_does_not_embed(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _fail(_text: str):
+    def _fail(_text: str, _model_name=None):
         raise AssertionError("_embed must not be called when constructing a Schema")
 
     monkeypatch.setattr(schema_mod, "_embed", _fail)
@@ -29,7 +29,7 @@ def test_constructing_schema_does_not_embed(monkeypatch: pytest.MonkeyPatch) -> 
 def test_prune_still_embeds_query_when_cutting(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
-    def _fake_embed(text: str):
+    def _fake_embed(text: str, model_name=None):
         calls.append(text)
         return [1.0, 0.0]
 

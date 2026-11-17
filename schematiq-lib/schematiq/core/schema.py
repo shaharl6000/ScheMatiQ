@@ -12,6 +12,9 @@ from schematiq.core.embedding_model import load_sentence_transformer, serialize_
 # -------------------------------------------------------------------- #
 # Globals                                                              #
 # -------------------------------------------------------------------- #
+# Defaults for column deduplication (merge) and relevance pruning (_prune).
+# A Schema can override both per instance (see Schema.embedding_model and
+# Schema.similarity_threshold), e.g. a multilingual model for non-English corpora.
 EMB_MODEL_NAME = "all-MiniLM-L6-v2"
 SIM_THRESHOLD = 0.9            # paraphrase deduplication
 MAX_KEYS_DEFAULT = None         # unlimited unless specified
@@ -21,18 +24,46 @@ MAX_KEYS_DEFAULT = None         # unlimited unless specified
 # in torch/transformers or downloads model weights, which keeps unrelated imports
 # — tests, CLI tools, the FastAPI app startup — fast and dependency-light.
 _EMB_MODEL = None
-# Guards lazy singleton initialization in _get_emb_model across worker threads.
+# Non-default models, loaded lazily and cached by name.
+_EMB_MODELS: Dict[str, Any] = {}
+# Guards lazy model initialization in _get_emb_model across worker threads.
 _EMB_MODEL_LOCK = threading.Lock()
 
 
-def _get_emb_model():
-    """Return the shared SentenceTransformer, loading it once on first use."""
+def _get_emb_model(model_name: Optional[str] = None):
+    """Return a shared SentenceTransformer, loading it once on first use.
+
+    ``None`` or ``EMB_MODEL_NAME`` returns the default model. Any other name is
+    loaded once and cached, so schemas configured with the same model share it.
+    """
     global _EMB_MODEL
-    if _EMB_MODEL is None:
+    if model_name is None or model_name == EMB_MODEL_NAME:
+        if _EMB_MODEL is None:
+            with _EMB_MODEL_LOCK:
+                if _EMB_MODEL is None:
+                    _EMB_MODEL = load_sentence_transformer(EMB_MODEL_NAME)
+        return _EMB_MODEL
+
+    model = _EMB_MODELS.get(model_name)
+    if model is None:
         with _EMB_MODEL_LOCK:
-            if _EMB_MODEL is None:
-                _EMB_MODEL = load_sentence_transformer(EMB_MODEL_NAME)
-    return _EMB_MODEL
+            model = _EMB_MODELS.get(model_name)
+            if model is None:
+                model = load_sentence_transformer(model_name)
+                _EMB_MODELS[model_name] = model
+    return model
+
+
+def validate_similarity_threshold(value: Optional[float]) -> Optional[float]:
+    """Return ``value`` as a float, or raise if it is not a cosine threshold in (0, 1]."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"similarity_threshold must be a number in (0, 1], got {value!r}")
+    threshold = float(value)
+    if not 0.0 < threshold <= 1.0:
+        raise ValueError(f"similarity_threshold must be in (0, 1], got {threshold}")
+    return threshold
 
 
 _DIGIT_RUN = re.compile(r"\d+")
@@ -51,9 +82,9 @@ def _numbers_conflict(name_a: str, name_b: str) -> bool:
     return bool(nums_a) and bool(nums_b) and nums_a != nums_b
 
 
-def _embed(text: str):
-    """Small helper – add caching in production."""
-    model = _get_emb_model()
+def _embed(text: str, model_name: Optional[str] = None):
+    """Embed ``text`` with ``model_name`` (``None`` = the default model)."""
+    model = _get_emb_model(model_name)
     with serialize_if_mps(model):
         return model.encode(
             text, normalize_embeddings=True, show_progress_bar=False
@@ -247,27 +278,57 @@ class Schema:
     columns     – initial columns, if any.
     max_keys    – keep at most this many after every merge (None = unlimited).
     observation_unit – what constitutes a single row (default: one row per document).
+    embedding_model – SentenceTransformer used by merge and _prune
+                      (None = EMB_MODEL_NAME). Runtime setting, not serialized.
+    similarity_threshold – cosine similarity at which merge treats two column
+                      names as paraphrases (None = SIM_THRESHOLD). Runtime
+                      setting, not serialized.
     """
     query: str
     columns: List[Column] = field(default_factory=list)
     max_keys: Optional[int] = MAX_KEYS_DEFAULT
     observation_unit: Optional[ObservationUnit] = None  # Defines what each row represents
+    embedding_model: Optional[str] = field(default=None, compare=False)
+    similarity_threshold: Optional[float] = field(default=None, compare=False)
 
     # -------------------------------------------------------------- #
     # Life-cycle                                                    #
     # -------------------------------------------------------------- #
     def __post_init__(self):
+        self.similarity_threshold = validate_similarity_threshold(self.similarity_threshold)
         # No embedding work here: _prune embeds the query only when it has to
         # cut columns, so constructing a Schema does not load the model.
         self._prune()  # Enforce max_keys limit immediately
+
+    def apply_embedding_settings(
+        self,
+        embedding_model: Optional[str] = None,
+        similarity_threshold: Optional[float] = None,
+    ) -> "Schema":
+        """Set the dedup/pruning model and threshold in place; ``None`` leaves a setting unchanged."""
+        if embedding_model is not None:
+            self.embedding_model = embedding_model
+        if similarity_threshold is not None:
+            self.similarity_threshold = validate_similarity_threshold(similarity_threshold)
+        return self
 
 
     # ------------------------------------------------------------------ #
     # Merge with paraphrase-aware deduplication + pruning                 #
     # ------------------------------------------------------------------ #
     def merge(self, other: "Schema") -> "Schema":
+        # Settings come from self, else from other, so a configured schema keeps
+        # its settings whichever side of the merge it is on.
+        model_name = self.embedding_model if self.embedding_model is not None else other.embedding_model
+        threshold = (
+            self.similarity_threshold
+            if self.similarity_threshold is not None
+            else other.similarity_threshold
+        )
+        effective_threshold = threshold if threshold is not None else SIM_THRESHOLD
+
         combined: Dict[str, Column] = {c.name: c for c in self.columns}
-        combined_emb = {k: _embed(k) for k in combined}
+        combined_emb = {k: _embed(k, model_name) for k in combined}
 
         for cand in other.columns:
             # 1) Exact match (case-insensitive)
@@ -275,13 +336,13 @@ class Schema:
 
             # 2) Semantic match (never across names whose numbers differ)
             if key is None:
-                c_emb = _embed(cand.name)
+                c_emb = _embed(cand.name, model_name)
                 key = next(
                     (
                         k
                         for k, e in combined_emb.items()
                         if not _numbers_conflict(cand.name, k)
-                        and util.cos_sim(c_emb, e) >= SIM_THRESHOLD
+                        and util.cos_sim(c_emb, e) >= effective_threshold
                     ),
                     None,
                 )
@@ -315,11 +376,18 @@ class Schema:
                     existing.definition = cand.definition
             else:    # brand-new column
                 combined[cand.name] = cand
-                combined_emb[cand.name] = _embed(cand.name)
+                combined_emb[cand.name] = _embed(cand.name, model_name)
 
         # Preserve observation_unit from self (the base schema) or take from other if self doesn't have one
         obs_unit = self.observation_unit or other.observation_unit
-        merged = Schema(columns=list(combined.values()), query=self.query, max_keys=self.max_keys, observation_unit=obs_unit)
+        merged = Schema(
+            columns=list(combined.values()),
+            query=self.query,
+            max_keys=self.max_keys,
+            observation_unit=obs_unit,
+            embedding_model=model_name,
+            similarity_threshold=threshold,
+        )
         merged._prune()        # enforce key budget, if any
         return merged
 
@@ -357,10 +425,10 @@ class Schema:
             return
 
         # --- query-aware scoring ------------------------------------------- #
-        q_emb = _embed(query)
+        q_emb = _embed(query, self.embedding_model)
 
         def _score(col):
-            col_emb = _embed(f"{col.name}: {col.rationale}")
+            col_emb = _embed(f"{col.name}: {col.rationale}", self.embedding_model)
             sim = util.cos_sim(q_emb, col_emb).item()  # relevance
             length_bonus = 0.05 * len(col.rationale) / 100.0  # tiny tie-break
             return sim + length_bonus

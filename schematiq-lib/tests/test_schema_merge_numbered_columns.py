@@ -18,7 +18,7 @@ def always_similar(monkeypatch: pytest.MonkeyPatch) -> None:
     paraphrase pairs also score as similar.
     """
 
-    def _fake_embed(text: str) -> str:
+    def _fake_embed(text: str, model_name=None) -> str:
         text = _PARAPHRASES.get(text, text)
         return schema_mod._DIGIT_RUN.sub("#", text)
 
