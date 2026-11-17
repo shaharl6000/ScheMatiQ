@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from app.core.background_tasks import spawn_background
 from app.core.config import DEFAULT_DATA_DIR, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT
 from app.core.logging_utils import set_session_context
 from app.models.modification import ModificationAction
@@ -930,10 +931,7 @@ class ToolExecutor:
       from app.services.unit_view_service import unit_view_service
 
       request = MergeUnitsRequest(source_units=units, target_unit=target, strategy="rename")
-      loop = asyncio.get_running_loop()
-      response = await loop.run_in_executor(
-          None, unit_view_service.merge_units, session_id, request
-      )
+      response = await unit_view_service.merge_units_async(session_id, request)
 
       if response.success and response.rows_affected:
           # Data-only change: row_completed makes the workspace silently re-fetch
@@ -958,7 +956,8 @@ class ToolExecutor:
   ) -> dict[str, Any]:
       # Rename one row / observation unit in place via unit_view_service.rename_unit,
       # which reuses the merge relabel path (keeps data, records _original_units).
-      # The service is synchronous and touches storage, so run it off the loop.
+      # rename_unit_async holds the session write lock and runs the file
+      # rewrite in a worker thread.
       old_name = (args.get("old_name") or "").strip()
       new_name = (args.get("new_name") or "").strip()
       if not old_name or not new_name:
@@ -966,9 +965,8 @@ class ToolExecutor:
 
       from app.services.unit_view_service import unit_view_service
 
-      loop = asyncio.get_running_loop()
-      response = await loop.run_in_executor(
-          None, unit_view_service.rename_unit, session_id, old_name, new_name
+      response = await unit_view_service.rename_unit_async(
+          session_id, old_name, new_name
       )
 
       if response.success and response.rows_affected:
@@ -1025,7 +1023,7 @@ class ToolExecutor:
       if not DEVELOPER_MODE:
           schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
       await concurrency_limiter.acquire(session_id, "schematiq")
-      asyncio.create_task(self._run_schematiq_task(session_id))
+      spawn_background(self._run_schematiq_task(session_id), name=f"chat-schematiq-run-{session_id}")
       return {"status": "started", "message": "ScheMatiQ execution started."}
 
   async def _run_schematiq_task(self, session_id: str) -> None:
@@ -1153,7 +1151,7 @@ class ToolExecutor:
               "The pipeline is still stopping. Wait a few seconds and try again."
           )
 
-      asyncio.create_task(self._run_schematiq_task(session_id))
+      spawn_background(self._run_schematiq_task(session_id), name=f"chat-schematiq-run-{session_id}")
       return {
           "status": "started",
           "message": (

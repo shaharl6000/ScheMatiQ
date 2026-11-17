@@ -27,6 +27,7 @@ from app.models.session import (
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
+from app.services.session_data_store import save_session_data_file, session_write_lock
 from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, MAX_DOCUMENTS
@@ -1187,21 +1188,20 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
                 # Add null values for new columns in data.jsonl
                 data_file = self._get_data_dir() / operation.session_id / "data.jsonl"
-                if data_file.exists():
-                    rows = []
-                    with open(data_file, 'r') as f:
-                        for line in f:
-                            if line.strip():
-                                row = json.loads(line)
-                                for col_data in new_columns:
-                                    col_name = col_data["name"]
-                                    if col_name not in row:
-                                        row[col_name] = None
-                                rows.append(row)
-                    with open(data_file, 'w') as f:
-                        for row in rows:
-                            f.write(json.dumps(row) + '\n')
-                    logger.info(f"Added null values for {len(new_columns)} new columns in data.jsonl")
+                async with session_write_lock(operation.session_id):
+                    if data_file.exists():
+                        rows = []
+                        with open(data_file, 'r') as f:
+                            for line in f:
+                                if line.strip():
+                                    row = json.loads(line)
+                                    # Rows keep values either nested under 'data' or flat.
+                                    values = row['data'] if isinstance(row.get('data'), dict) else row
+                                    for col_data in new_columns:
+                                        values.setdefault(col_data["name"], None)
+                                    rows.append(row)
+                        await save_session_data_file(operation.session_id, data_file, rows)
+                        logger.info(f"Added null values for {len(new_columns)} new columns in data.jsonl")
 
                 # Update schema_evolution for Statistics chart
                 if session.statistics:
@@ -1794,107 +1794,106 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             logger.debug(f"Extraction file not found: {extraction_file}")
             return
 
-        session_dir = self._get_data_dir() / session_id
-        data_file = session_dir / "data.jsonl"
+        async with session_write_lock(session_id):
+            session_dir = self._get_data_dir() / session_id
+            data_file = session_dir / "data.jsonl"
 
-        if not data_file.exists():
-            logger.debug(f"Data file not found: {data_file}")
-            return
+            if not data_file.exists():
+                logger.debug(f"Data file not found: {data_file}")
+                return
 
-        # Read extracted values indexed by composite key (row_name, source_document)
-        from app.services.data_utils import row_dedup_key, _resolve_source_document
+            # Read extracted values indexed by composite key (row_name, source_document)
+            from app.services.data_utils import row_dedup_key, _resolve_source_document
 
-        extracted_by_key: Dict[tuple, Dict[str, Any]] = {}
-        extracted_by_row_name: Dict[str, List[Dict[str, Any]]] = {}
-        with open(extraction_file, 'r') as f:
-            for line in f:
-                if line.strip():
-                    row_data = json.loads(line)
-                    key = row_dedup_key(row_data)
-                    if key[0]:
-                        extracted_by_key[key] = row_data
-                        extracted_by_row_name.setdefault(key[0], []).append(row_data)
+            extracted_by_key: Dict[tuple, Dict[str, Any]] = {}
+            extracted_by_row_name: Dict[str, List[Dict[str, Any]]] = {}
+            with open(extraction_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        row_data = json.loads(line)
+                        key = row_dedup_key(row_data)
+                        if key[0]:
+                            extracted_by_key[key] = row_data
+                            extracted_by_row_name.setdefault(key[0], []).append(row_data)
 
-        logger.debug(f"Extracted data for {len(extracted_by_key)} rows (composite keys)")
+            logger.debug(f"Extracted data for {len(extracted_by_key)} rows (composite keys)")
 
-        # Build paper stem mapping for fallback matching
-        extracted_by_paper_stem: Dict[str, List[Dict[str, Any]]] = {}
-        for key, row_data in extracted_by_key.items():
-            extracted_by_paper_stem.setdefault(key[0].lower(), []).append(row_data)
+            # Build paper stem mapping for fallback matching
+            extracted_by_paper_stem: Dict[str, List[Dict[str, Any]]] = {}
+            for key, row_data in extracted_by_key.items():
+                extracted_by_paper_stem.setdefault(key[0].lower(), []).append(row_data)
 
-        # Backup existing data
-        import shutil
-        backup_file = session_dir / f"data_backup_incremental_{int(datetime.now().timestamp())}.jsonl"
-        shutil.copy2(data_file, backup_file)
+            # Backup existing data
+            import shutil
+            backup_file = session_dir / f"data_backup_incremental_{int(datetime.now().timestamp())}.jsonl"
+            shutil.copy2(data_file, backup_file)
 
-        # Read and update existing rows
-        updated_rows = []
-        rows_updated = 0
+            # Read and update existing rows
+            updated_rows = []
+            rows_updated = 0
 
-        with open(data_file, 'r') as f:
-            for line in f:
-                if not line.strip():
-                    continue
+            with open(data_file, 'r') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
 
-                row = json.loads(line)
-                row_name = row_name_of(row)
-                row_src = _resolve_source_document(row)
-                papers = row.get('papers') or []
+                    row = json.loads(line)
+                    row_name = row_name_of(row)
+                    row_src = _resolve_source_document(row)
+                    papers = row.get('papers') or []
 
-                # Try composite key match first (row_name + source_document)
-                extracted = None
-                row_key = (row_name, row_src) if row_name else None
-                if row_key and row_key in extracted_by_key:
-                    extracted = extracted_by_key[row_key]
-                elif row_name and row_name in extracted_by_row_name:
-                    candidates = extracted_by_row_name[row_name]
-                    if len(candidates) == 1:
-                        extracted = candidates[0]
-                    else:
+                    # Try composite key match first (row_name + source_document)
+                    extracted = None
+                    row_key = (row_name, row_src) if row_name else None
+                    if row_key and row_key in extracted_by_key:
+                        extracted = extracted_by_key[row_key]
+                    elif row_name and row_name in extracted_by_row_name:
+                        candidates = extracted_by_row_name[row_name]
+                        if len(candidates) == 1:
+                            extracted = candidates[0]
+                        else:
+                            for paper in papers:
+                                paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
+                                for cand in candidates:
+                                    if _resolve_source_document(cand).lower() == paper_stem:
+                                        extracted = cand
+                                        break
+                                if extracted:
+                                    break
+                    if not extracted:
                         for paper in papers:
                             paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                            for cand in candidates:
-                                if _resolve_source_document(cand).lower() == paper_stem:
-                                    extracted = cand
-                                    break
-                            if extracted:
+                            if paper_stem in extracted_by_paper_stem:
+                                candidates = extracted_by_paper_stem[paper_stem]
+                                if len(candidates) == 1:
+                                    extracted = candidates[0]
                                 break
-                if not extracted:
-                    for paper in papers:
-                        paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                        if paper_stem in extracted_by_paper_stem:
-                            candidates = extracted_by_paper_stem[paper_stem]
-                            if len(candidates) == 1:
-                                extracted = candidates[0]
-                            break
 
-                if extracted:
-                    rows_updated += 1
-                    # Add ONLY new columns, preserve existing
-                    for col_name in new_columns:
-                        if col_name in extracted:
-                            if 'data' in row:
-                                row['data'][col_name] = extracted[col_name]
-                            else:
-                                row[col_name] = extracted[col_name]
+                    if extracted:
+                        rows_updated += 1
+                        # Add ONLY new columns, preserve existing
+                        for col_name in new_columns:
+                            if col_name in extracted:
+                                if 'data' in row:
+                                    row['data'][col_name] = extracted[col_name]
+                                else:
+                                    row[col_name] = extracted[col_name]
 
-                updated_rows.append(row)
+                    updated_rows.append(row)
 
-        # Ensure all rows have the new columns (with null if not extracted)
-        for row in updated_rows:
-            for col_name in new_columns:
-                # Check both direct key and nested 'data' structure
-                if 'data' in row:
-                    if col_name not in row['data']:
-                        row['data'][col_name] = None
-                else:
-                    if col_name not in row:
-                        row[col_name] = None
-
-        # Write updated data
-        with open(data_file, 'w') as f:
+            # Ensure all rows have the new columns (with null if not extracted)
             for row in updated_rows:
-                f.write(json.dumps(row) + '\n')
+                for col_name in new_columns:
+                    # Check both direct key and nested 'data' structure
+                    if 'data' in row:
+                        if col_name not in row['data']:
+                            row['data'][col_name] = None
+                    else:
+                        if col_name not in row:
+                            row[col_name] = None
+
+            # Write updated data
+            await save_session_data_file(session_id, data_file, updated_rows)
 
         logger.info(f"Merged incremental data for {len(new_columns)} columns, {rows_updated} rows updated")
 
