@@ -266,9 +266,14 @@ def _clean_column_name(name: str) -> str:
 def _parse_schema_from_llm(raw_text: str,
                            query: str,
                            max_keys_schema: int,
+                           *,
+                           embedding_model: Optional[str] = None,
+                           similarity_threshold: Optional[float] = None,
                            ) -> tuple[Schema, bool, List[Dict[str, Any]]]:
     """
     Parse schema from LLM response, now including document helpfulness assessment.
+    ``embedding_model`` / ``similarity_threshold`` are set on the returned Schema
+    before its construction-time prune runs.
     Returns (Schema, document_helpful_flag, suggested_value_additions)
     """
     cleaned = _extract_json(raw_text)
@@ -345,7 +350,14 @@ def _parse_schema_from_llm(raw_text: str,
                 ))
         print(f"📊 Extracted {len(columns)} columns from fallback parsing")
 
-    return Schema(query=query, max_keys=max_keys_schema, columns=columns), document_helpful, suggested_value_additions
+    schema = Schema(
+        query=query,
+        max_keys=max_keys_schema,
+        columns=columns,
+        embedding_model=embedding_model,
+        similarity_threshold=similarity_threshold,
+    )
+    return schema, document_helpful, suggested_value_additions
 
 
 def _parse_observation_unit_from_llm(raw_text: str) -> ObservationUnit:
@@ -592,8 +604,15 @@ def generate_schema(
     llm_response = llm.generate(trimmed, **generate_kwargs)
 
     # For query-only mode, document_helpful doesn't apply
+    # The new schema uses the same dedup/pruning settings as the schema it refines.
     schema, document_helpful, suggested_value_additions = _parse_schema_from_llm(
-        llm_response, query=query or "", max_keys_schema=max_keys_schema
+        llm_response,
+        query=query or "",
+        max_keys_schema=max_keys_schema,
+        embedding_model=current_schema.embedding_model if current_schema is not None else None,
+        similarity_threshold=(
+            current_schema.similarity_threshold if current_schema is not None else None
+        ),
     )
 
     _drop_unit_name_lists(schema, observation_unit)

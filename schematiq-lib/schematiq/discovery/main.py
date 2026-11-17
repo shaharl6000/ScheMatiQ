@@ -32,6 +32,7 @@ from schematiq.core.schema import (
     Schema,
     SchemaEvolution,
     SchemaSnapshot,
+    validate_similarity_threshold,
 )
 from schematiq.core.schematiq import (
     ObservationUnitDiscoveryError,
@@ -82,6 +83,18 @@ class DiscoveryConfig:
     strict: bool = False
     max_iters: Optional[int] = None
     max_observation_unit_attempts: Optional[int] = _DEFAULT_MAX_OBSERVATION_UNIT_ATTEMPTS
+    # Column dedup (Schema.merge) and relevance pruning (Schema._prune).
+    # None keeps the Schema defaults (EMB_MODEL_NAME, SIM_THRESHOLD). Set a
+    # multilingual SentenceTransformer for non-English corpora; a different
+    # model usually needs its own threshold.
+    schema_embedding_model: Optional[str] = None
+    schema_similarity_threshold: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        # Fail fast on a bad threshold instead of inside a later merge.
+        self.schema_similarity_threshold = validate_similarity_threshold(
+            self.schema_similarity_threshold
+        )
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DiscoveryConfig":
@@ -144,6 +157,8 @@ class DiscoveryConfig:
             strict=bool(data.get("strict", False)),
             max_iters=max_iters,
             max_observation_unit_attempts=max_obs_unit_attempts,
+            schema_embedding_model=data.get("schema_embedding_model") or None,
+            schema_similarity_threshold=data.get("schema_similarity_threshold"),
         )
 
 
@@ -174,10 +189,22 @@ def load_initial_schema_from_config(
     logging a warning and returning ``None``.
     """
     effective_strict = bool(strict or config.strict)
+    # Set at construction so the construction-time prune uses them too.
+    emb_settings = {
+        "embedding_model": config.schema_embedding_model,
+        "similarity_threshold": config.schema_similarity_threshold,
+    }
 
     if config.initial_schema is not None:
         try:
             if isinstance(config.initial_schema, Schema):
+                # Config wins; otherwise keep the passed schema's own settings.
+                if emb_settings["embedding_model"] is None:
+                    emb_settings["embedding_model"] = config.initial_schema.embedding_model
+                if emb_settings["similarity_threshold"] is None:
+                    emb_settings["similarity_threshold"] = (
+                        config.initial_schema.similarity_threshold
+                    )
                 copied_columns = [copy.deepcopy(c) for c in config.initial_schema.columns]
                 copied_unit = (
                     copy.deepcopy(config.initial_schema.observation_unit)
@@ -194,6 +221,7 @@ def load_initial_schema_from_config(
                     columns=copied_columns,
                     max_keys=effective_max_keys,
                     observation_unit=copied_unit,
+                    **emb_settings,
                 )
 
             if isinstance(config.initial_schema, (str, bytes, Mapping)):
@@ -206,7 +234,7 @@ def load_initial_schema_from_config(
                 copy.deepcopy(col) if isinstance(col, Column) else Column.from_dict(col)
                 for col in config.initial_schema
             ]
-            initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
+            initial_schema = Schema(query=query, columns=columns, max_keys=max_keys, **emb_settings)
             logger.info("Loaded inline initial schema with %d columns", len(columns))
             return initial_schema
         except Exception as e:
@@ -223,7 +251,7 @@ def load_initial_schema_from_config(
                 initial_data = json.load(f)
             if isinstance(initial_data, list):
                 columns = [Column.from_dict(col_data) for col_data in initial_data]
-                initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
+                initial_schema = Schema(query=query, columns=columns, max_keys=max_keys, **emb_settings)
             elif isinstance(initial_data, dict) and (
                 "schema" in initial_data or "columns" in initial_data
             ):
@@ -231,7 +259,7 @@ def load_initial_schema_from_config(
                 if not isinstance(raw_cols, list):
                     raise ValueError("Initial schema 'schema'/'columns' field must be a list")
                 columns = [Column.from_dict(col_data) for col_data in raw_cols]
-                initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
+                initial_schema = Schema(query=query, columns=columns, max_keys=max_keys, **emb_settings)
             else:
                 raise ValueError(
                     "Initial schema file must contain a JSON list of columns or an object with 'schema' or 'columns'"
@@ -467,6 +495,11 @@ def discover_schema(
         initial_schema
         if initial_schema is not None
         else Schema(query=query_str, columns=[], max_keys=max_keys)
+    )
+    # Every schema generated from here on inherits these settings, and merge
+    # carries them forward, so setting them on the root schema covers the run.
+    current_schema.apply_embedding_settings(
+        cfg.schema_embedding_model, cfg.schema_similarity_threshold
     )
 
     evolution = SchemaEvolution(snapshots=[], column_sources={})
