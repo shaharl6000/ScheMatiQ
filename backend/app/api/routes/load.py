@@ -2,7 +2,10 @@
 
 import asyncio
 import logging
+import shutil
 import uuid
+import zipfile
+import zlib
 import json
 import random
 from datetime import datetime
@@ -211,8 +214,15 @@ async def upload_file(file: UploadFile = File(...)):
 
         logger.debug(f"Created session: {session_id}")
 
-        # Save file content for processing
-        await parser.save_uploaded_file(session_id, file)
+        # Save file content for processing. An unusable file name, or a project
+        # bundle that is refused (too large, corrupt, no project.json), is the
+        # client's error: answer 400 and remove the half-made session dir.
+        try:
+            await parser.save_uploaded_file(session_id, file)
+        # zlib.error and EOFError come from damaged or truncated compressed data.
+        except (ValueError, zipfile.BadZipFile, zlib.error, EOFError) as exc:
+            shutil.rmtree(parser.data_dir / session_id, ignore_errors=True)
+            raise HTTPException(status_code=400, detail=str(exc))
         logger.debug(f"File saved for session: {session_id}")
 
         # Store session
