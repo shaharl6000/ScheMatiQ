@@ -8,7 +8,6 @@ from .metrics_utils import (
     DecontextFeaturizer,
     ExactMatchScorer,
     JaccardAlignmentScorer,
-    Llama3AlignmentScorer,
     SentenceTransformerAlignmentScorer,
     ValueFeaturizer,
 )
@@ -95,8 +94,8 @@ def load_scorer(scorer_name):
         return JaccardAlignmentScorer(remove_stopwords=True)
     elif scorer_name == "sentence_transformers":
         return SentenceTransformerAlignmentScorer()
-    elif scorer_name == "llama3":
-        return Llama3AlignmentScorer()
+    else:
+        raise ValueError(f"Unknown scorer name: {scorer_name}.")
 
 import numpy as np
 def to_serializable(obj):
