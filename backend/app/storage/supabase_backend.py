@@ -2,11 +2,12 @@
 
 import asyncio
 import base64
+import itertools
 import json
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Coroutine, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Callable, Coroutine, Dict, Iterable, List, Optional, Tuple, TypeVar
 
 from supabase import create_client, Client
 
@@ -119,6 +120,54 @@ def classify_supabase_key(key: str) -> Tuple[str, str]:
 UPSERT_OPTION = {"x-upsert": "true"}
 
 
+class _ObjectWriteOrder:
+    """Keep writes (upload/remove) to the same storage object in call order.
+
+    The supabase client is synchronous, so the async methods below run each
+    call in a worker thread instead of blocking the event loop. Two writes to
+    one object can then race in their threads, and an older payload could land
+    last (a stale session JSON, or a deleted session's file coming back).
+    Each write takes a ticket when it is called; in its thread it runs under
+    the object's lock and is skipped if a write with a later ticket already
+    landed. The newest call therefore always wins.
+    """
+
+    def __init__(self) -> None:
+        self._tickets = itertools.count()
+        self._guard = threading.Lock()
+        self._key_locks: Dict[Tuple[str, str], threading.Lock] = {}
+        self._applied: Dict[Tuple[str, str], int] = {}
+
+    def ticket(self) -> int:
+        with self._guard:
+            return next(self._tickets)
+
+    def _lock_for(self, key: Tuple[str, str]) -> threading.Lock:
+        with self._guard:
+            return self._key_locks.setdefault(key, threading.Lock())
+
+    def run(self, keys: Iterable[Tuple[str, str]], ticket: int, fn: Callable[[], Any]) -> bool:
+        """Run *fn* for *keys* unless a newer write to one of them landed.
+
+        Returns False when skipped. Locks are taken in sorted order, so calls
+        covering several objects cannot deadlock each other.
+        """
+        ordered = sorted(set(keys))
+        locks = [self._lock_for(k) for k in ordered]
+        for lock in locks:
+            lock.acquire()
+        try:
+            if any(self._applied.get(k, -1) > ticket for k in ordered):
+                return False
+            fn()
+            for k in ordered:
+                self._applied[k] = ticket
+            return True
+        finally:
+            for lock in reversed(locks):
+                lock.release()
+
+
 class SupabaseStorageBackend(StorageInterface):
     """Storage backend using Supabase Storage.
 
@@ -131,6 +180,10 @@ class SupabaseStorageBackend(StorageInterface):
 
     # Required buckets for the application
     REQUIRED_BUCKETS = ["sessions", "documents", "data", "exports", "datasets", "templates", "initial_schemas"]
+
+    # Every call is a network round trip. SessionManager uses this to save
+    # sessions in the background instead of waiting on the event loop.
+    saves_over_network = True
 
     # Buckets whose contents are user research data. A Public flag on any of
     # these means the objects are served over an open URL with no key at all,
@@ -150,8 +203,14 @@ class SupabaseStorageBackend(StorageInterface):
         logger.info(f"Initializing Supabase storage backend with URL: {url[:30]}...")
         self._warn_if_publishable_key(key)
         self.client: Client = create_client(url, key)
+        self._writes = _ObjectWriteOrder()
         self._verify_buckets()
         logger.info("Supabase storage backend initialized successfully")
+
+    async def _write(self, keys: List[Tuple[str, str]], fn: Callable[[], Any]) -> bool:
+        """Run a blocking write in a thread, in call order per object."""
+        ticket = self._writes.ticket()
+        return await asyncio.to_thread(self._writes.run, keys, ticket, fn)
 
     @staticmethod
     def _warn_if_publishable_key(key: str) -> None:
@@ -237,10 +296,13 @@ class SupabaseStorageBackend(StorageInterface):
             content = json.dumps(data, indent=2, default=str).encode("utf-8")
             path = f"{session_id}.json"
 
-            self.client.storage.from_("sessions").upload(
-                path,
-                content,
-                {"content-type": "application/json", **UPSERT_OPTION},
+            await self._write(
+                [("sessions", path)],
+                lambda: self.client.storage.from_("sessions").upload(
+                    path,
+                    content,
+                    {"content-type": "application/json", **UPSERT_OPTION},
+                ),
             )
             return True
         except Exception as e:
@@ -251,7 +313,9 @@ class SupabaseStorageBackend(StorageInterface):
         """Retrieve session data from Supabase storage."""
         try:
             path = f"{session_id}.json"
-            response = self.client.storage.from_("sessions").download(path)
+            response = await asyncio.to_thread(
+                self.client.storage.from_("sessions").download, path
+            )
             return json.loads(response.decode("utf-8"))
         except Exception as e:
             # Session not found is expected for new sessions
@@ -263,8 +327,12 @@ class SupabaseStorageBackend(StorageInterface):
         """Delete session and all associated data from Supabase."""
         try:
             # Delete session file
+            session_file = f"{session_id}.json"
             try:
-                self.client.storage.from_("sessions").remove([f"{session_id}.json"])
+                await self._write(
+                    [("sessions", session_file)],
+                    lambda: self.client.storage.from_("sessions").remove([session_file]),
+                )
             except Exception:
                 pass
 
@@ -280,7 +348,7 @@ class SupabaseStorageBackend(StorageInterface):
     async def list_sessions(self) -> List[str]:
         """List all session IDs from Supabase storage."""
         try:
-            files = self._list_all_storage_items("sessions")
+            files = await asyncio.to_thread(self._list_all_storage_items, "sessions")
             return [
                 f["name"].replace(".json", "")
                 for f in files
@@ -309,10 +377,13 @@ class SupabaseStorageBackend(StorageInterface):
             if content_type:
                 options["content-type"] = content_type
 
-            self.client.storage.from_(bucket).upload(
-                storage_path,
-                data,
-                options
+            await self._write(
+                [(bucket, storage_path)],
+                lambda: self.client.storage.from_(bucket).upload(
+                    storage_path,
+                    data,
+                    options
+                ),
             )
 
             return f"{bucket}/{storage_path}"
@@ -324,7 +395,9 @@ class SupabaseStorageBackend(StorageInterface):
         """Download file from Supabase storage."""
         try:
             storage_path = self._get_storage_path(bucket, path)
-            return self.client.storage.from_(bucket).download(storage_path)
+            return await asyncio.to_thread(
+                self.client.storage.from_(bucket).download, storage_path
+            )
         except Exception as e:
             if "not found" not in str(e).lower():
                 logger.error(f"Error downloading file {bucket}/{path} from Supabase: {e}")
@@ -334,7 +407,10 @@ class SupabaseStorageBackend(StorageInterface):
         """Delete file from Supabase storage."""
         try:
             storage_path = self._get_storage_path(bucket, path)
-            self.client.storage.from_(bucket).remove([storage_path])
+            await self._write(
+                [(bucket, storage_path)],
+                lambda: self.client.storage.from_(bucket).remove([storage_path]),
+            )
             return True
         except Exception as e:
             logger.error(f"Error deleting file {bucket}/{path} from Supabase: {e}")
@@ -350,10 +426,10 @@ class SupabaseStorageBackend(StorageInterface):
             parts = storage_path.rsplit("/", 1)
             if len(parts) == 2:
                 folder, filename = parts
-                files = self.client.storage.from_(bucket).list(folder)
+                files = await asyncio.to_thread(self.client.storage.from_(bucket).list, folder)
             else:
                 filename = parts[0]
-                files = self.client.storage.from_(bucket).list()
+                files = await asyncio.to_thread(self.client.storage.from_(bucket).list)
 
             return any(f["name"] == filename for f in files)
         except Exception:
@@ -380,7 +456,8 @@ class SupabaseStorageBackend(StorageInterface):
             offset = 0
             page_size = 1000
             while True:
-                files = self.client.storage.from_(bucket).list(
+                files = await asyncio.to_thread(
+                    self.client.storage.from_(bucket).list,
                     storage_folder or None,
                     {"limit": page_size, "offset": offset},
                 )
@@ -405,7 +482,8 @@ class SupabaseStorageBackend(StorageInterface):
             offset = 0
             page_size = 1000
             while True:
-                files = self.client.storage.from_(bucket).list(
+                files = await asyncio.to_thread(
+                    self.client.storage.from_(bucket).list,
                     storage_prefix or None,
                     {"limit": page_size, "offset": offset},
                 )
@@ -444,7 +522,10 @@ class SupabaseStorageBackend(StorageInterface):
 
             if files:
                 # Remove all files
-                self.client.storage.from_(bucket).remove(files)
+                await self._write(
+                    [(bucket, f) for f in files],
+                    lambda: self.client.storage.from_(bucket).remove(files),
+                )
 
             return True
         except Exception as e:
@@ -513,7 +594,7 @@ class SupabaseStorageBackend(StorageInterface):
         try:
             logger.info("Fetching datasets from Supabase 'datasets' bucket...")
             # List top-level folders in datasets bucket with pagination
-            items = self._list_all_storage_items("datasets")
+            items = await asyncio.to_thread(self._list_all_storage_items, "datasets")
             logger.debug(f"Supabase returned {len(items)} items from datasets bucket")
             # Whole-bucket dump; useful when debugging a listing, far too noisy at INFO.
             logger.debug(f"Raw items: {items}")
@@ -527,7 +608,7 @@ class SupabaseStorageBackend(StorageInterface):
                     logger.debug(f"Found folder (dataset): {dataset_name}")
                     # Count files in the dataset folder with pagination
                     try:
-                        files = self._list_all_storage_items("datasets", dataset_name)
+                        files = await asyncio.to_thread(self._list_all_storage_items, "datasets", dataset_name)
                         file_count = sum(1 for f in files if f.get("id"))
                         logger.debug(f"Dataset '{dataset_name}' has {file_count} files")
                     except Exception as e:
@@ -554,7 +635,7 @@ class SupabaseStorageBackend(StorageInterface):
         """List files in a specific dataset."""
         try:
             # Use pagination to get all files
-            files = self._list_all_storage_items("datasets", dataset_name)
+            files = await asyncio.to_thread(self._list_all_storage_items, "datasets", dataset_name)
 
             result = []
             for f in files:
@@ -586,7 +667,7 @@ class SupabaseStorageBackend(StorageInterface):
         """Download a specific file from a dataset."""
         try:
             path = f"{dataset_name}/{filename}"
-            return self.client.storage.from_("datasets").download(path)
+            return await asyncio.to_thread(self.client.storage.from_("datasets").download, path)
         except Exception as e:
             logger.error(f"Error downloading dataset file {dataset_name}/{filename}: {e}")
             return None
@@ -622,7 +703,7 @@ class SupabaseStorageBackend(StorageInterface):
     async def list_templates(self) -> List[TemplateInfo]:
         """List available template tables from the templates bucket."""
         try:
-            files = self.client.storage.from_("templates").list()
+            files = await asyncio.to_thread(self.client.storage.from_("templates").list)
 
             templates = []
             for f in files:
@@ -636,7 +717,7 @@ class SupabaseStorageBackend(StorageInterface):
                         column_count = None
 
                         try:
-                            content = self.client.storage.from_("templates").download(name)
+                            content = await asyncio.to_thread(self.client.storage.from_("templates").download, name)
                             text = content.decode('utf-8')
 
                             if ext == '.csv':
@@ -719,13 +800,13 @@ class SupabaseStorageBackend(StorageInterface):
             for ext in ['.csv', '.json', '.jsonl']:
                 try:
                     filename = f"{template_name}{ext}"
-                    return self.client.storage.from_("templates").download(filename)
+                    return await asyncio.to_thread(self.client.storage.from_("templates").download, filename)
                 except Exception:
                     continue
 
             # Try exact filename
             try:
-                return self.client.storage.from_("templates").download(template_name)
+                return await asyncio.to_thread(self.client.storage.from_("templates").download, template_name)
             except Exception:
                 pass
 
@@ -742,7 +823,7 @@ class SupabaseStorageBackend(StorageInterface):
         """List available initial schema files from the initial_schemas bucket."""
         try:
             logger.info("Fetching initial schemas from Supabase 'initial_schemas' bucket...")
-            files = self.client.storage.from_("initial_schemas").list()
+            files = await asyncio.to_thread(self.client.storage.from_("initial_schemas").list)
             logger.info(f"Supabase returned {len(files)} items from initial_schemas bucket")
 
             schemas = []
@@ -758,7 +839,7 @@ class SupabaseStorageBackend(StorageInterface):
                         preview = ""
 
                         try:
-                            content = self.client.storage.from_("initial_schemas").download(name)
+                            content = await asyncio.to_thread(self.client.storage.from_("initial_schemas").download, name)
                             data = json.loads(content.decode('utf-8'))
 
                             # Handle both list format and object with columns key
@@ -799,13 +880,13 @@ class SupabaseStorageBackend(StorageInterface):
             # Try with .json extension
             try:
                 filename = f"{schema_name}.json"
-                return self.client.storage.from_("initial_schemas").download(filename)
+                return await asyncio.to_thread(self.client.storage.from_("initial_schemas").download, filename)
             except Exception:
                 pass
 
             # Try exact filename
             try:
-                return self.client.storage.from_("initial_schemas").download(schema_name)
+                return await asyncio.to_thread(self.client.storage.from_("initial_schemas").download, schema_name)
             except Exception:
                 pass
 
@@ -831,10 +912,13 @@ class SupabaseStorageBackend(StorageInterface):
                 **UPSERT_OPTION,
             }
 
-            self.client.storage.from_("initial_schemas").upload(
-                schema_name,
-                data,
-                options
+            await self._write(
+                [("initial_schemas", schema_name)],
+                lambda: self.client.storage.from_("initial_schemas").upload(
+                    schema_name,
+                    data,
+                    options
+                ),
             )
 
             return f"initial_schemas/{schema_name}"

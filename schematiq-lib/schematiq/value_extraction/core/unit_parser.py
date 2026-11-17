@@ -7,10 +7,10 @@ This parser is separate from the value extraction JSON parser because:
 """
 
 import json
-import re
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple
 
+from schematiq.core.json_payload import extract_json_payload
 from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
 
 
@@ -50,10 +50,6 @@ class UnitIdentificationParser:
 
     # Suspicious unit names that indicate format confusion
     SUSPICIOUS_UNIT_NAMES = {"answer", "excerpts", "confidence", "relevant_passages", "observation_units"}
-
-    def __init__(self):
-        self.json_fence_re = re.compile(r"```json(.*?)```", re.S)
-        self.last_json_re = re.compile(r"\{[\s\S]*\}\s*$", re.S)
 
     def parse_response(self, text: str) -> UnitParseResult:
         """Parse an LLM response for observation unit identification.
@@ -125,17 +121,10 @@ class UnitIdentificationParser:
 
     def _extract_json_str(self, text: str) -> str:
         """Extract JSON string from LLM output."""
-        # Try to find JSON in code fence first
-        m = self.json_fence_re.search(text)
-        if m:
-            return m.group(1).strip()
-
-        # Fall back to finding last JSON object
-        m = self.last_json_re.search(text)
-        if m:
-            return m.group(0)
-
-        raise ValueError("No JSON object found in output")
+        payload = extract_json_payload(text)
+        if "{" not in payload:
+            raise ValueError("No JSON object found in output")
+        return payload
 
     def _detect_format(self, data: Dict[str, Any]) -> str:
         """Detect if the response is in correct format, value extraction format, or malformed.
