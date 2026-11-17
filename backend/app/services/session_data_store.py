@@ -22,12 +22,14 @@ Two rules keep those writes safe:
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Awaitable, Dict, Iterable, List, Mapping, Optional, Set, Tuple, TypeVar
 
 from app.services.atomic_jsonl import write_jsonl_atomic
 from app.services.data_utils import persist_session_data_file
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 _session_write_locks: Dict[str, asyncio.Lock] = {}
 
@@ -55,6 +57,24 @@ async def save_session_data_file(
     """
     write_jsonl_atomic(Path(path), rows, ensure_ascii=ensure_ascii)
     await persist_session_data_file(session_id, Path(path))
+
+
+_running_writes: Set["asyncio.Task[Any]"] = set()
+
+
+async def run_to_completion(coro: Awaitable[T]) -> T:
+    """Await *coro* in its own task, so cancelling the caller cannot cut it short.
+
+    For lock-holding sections that hand work to a worker thread: cancelling an
+    ``await asyncio.to_thread(...)`` does not stop the thread, so without this
+    the ``async with session_write_lock(...)`` block would exit (releasing the
+    lock and skipping the persist) while the thread is still rewriting files.
+    The caller still sees ``CancelledError``; the section finishes on its own.
+    """
+    task = asyncio.ensure_future(coro)
+    _running_writes.add(task)
+    task.add_done_callback(_running_writes.discard)
+    return await asyncio.shield(task)
 
 
 FileSignature = Tuple[int, int]
