@@ -28,6 +28,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services.session_data_store import save_session_data_file, session_write_lock
+from app.services.data_utils import resolve_session_data_files
 from app.services import schematiq_thread_pool, concurrency_limiter
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, MAX_DOCUMENTS
@@ -1172,6 +1173,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 # Add null values for new columns in data.jsonl
                 data_file = self._get_data_dir() / operation.session_id / "data.jsonl"
                 async with session_write_lock(operation.session_id):
+                    # After a redeploy the local copy is gone until hydrated.
+                    await resolve_session_data_files(operation.session_id)
                     if data_file.exists():
                         rows = []
                         with open(data_file, 'r') as f:
@@ -1795,6 +1798,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             return
 
         async with session_write_lock(session_id):
+            # After a redeploy the local copy is gone until hydrated.
+            await resolve_session_data_files(session_id)
             session_dir = self._get_data_dir() / session_id
             data_file = session_dir / "data.jsonl"
 
