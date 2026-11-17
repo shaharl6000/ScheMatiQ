@@ -186,6 +186,19 @@ async def upload_file(file: UploadFile = File(...)):
         set_session_context(session_id)
         logger.debug(f"Received file upload: {file.filename}, size: {file.size}")
 
+        # Refuse an oversized upload before any of it is read into memory (CWE-400).
+        limit = FileParser.max_upload_bytes(file.filename)
+        size = file.size
+        if size is None:
+            file.file.seek(0, 2)
+            size = file.file.tell()
+            file.file.seek(0)
+        if size > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File is too large to import (limit {limit // (1024 * 1024)} MB)",
+            )
+
         # Validate file
         parser = FileParser()
         validation = await parser.validate_file(file)
