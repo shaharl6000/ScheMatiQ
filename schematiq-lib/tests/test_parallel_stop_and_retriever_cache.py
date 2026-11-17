@@ -197,6 +197,9 @@ def test_unit_cap_emits_warning_and_early_return_clears_figure_state(tmp_path):
         s_fig._active_norm_captions_cache = ("x", 1, [])
 
     s_fig._load_document_figures.side_effect = fake_load
+    s_fig._delete_document_cache.side_effect = (
+        lambda: PaperProcessor._delete_document_cache(s_fig)
+    )
 
     res = PaperProcessor.extract_values_for_paper_with_units(
         s_fig,

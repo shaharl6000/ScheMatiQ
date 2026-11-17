@@ -2587,6 +2587,3 @@ class PaperProcessor:
             return ExtractionResult(rows=results, stopped=stopped_early)
         finally:
             self._delete_document_cache()
-            self._active_figure_images = []
-            self._active_figures_by_id = {}
-            self._active_norm_captions_cache = None
