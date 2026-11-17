@@ -21,7 +21,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services.atomic_jsonl import write_jsonl_atomic
-from app.services import schematiq_thread_pool, concurrency_limiter, llm_call_tracker_lock
+from app.services import schematiq_thread_pool, concurrency_limiter
 from app.services.data_utils import row_name_of
 from app.services.session_data_store import session_write_lock
 from app.services.llm_api_keys import restore_api_keys
@@ -1891,24 +1891,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         set_session_context(operation.session_id)
 
-        # Held for the entire run (released in the ``finally`` below).
-        # LLMCallTracker.get_instance() is a process-global singleton with no
-        # per-session scoping: set_stage() and _counts are shared by every
-        # concurrent caller. MAX_CONCURRENT_SESSIONS (default 5) means another
-        # reextraction/continue-discovery run could otherwise overlap this one
-        # and both mislabel calls and corrupt the before/after delta below.
-        # See llm_call_tracker_lock's definition for details.
-        await llm_call_tracker_lock.acquire()
-        try:
-            LLMCallTracker.get_instance().set_stage("reextraction")
-            # Snapshot the shared tracker's stage counter so we record only the calls
-            # this run makes. The tracker is a process-global singleton and may
-            # already hold counts from an earlier run; the delta is recorded in the
-            # ``finally`` block below.
-            llm_calls_before = LLMCallTracker.get_instance().get_counts().get("reextraction", 0)
-        except Exception:
-            llm_call_tracker_lock.release()
-            raise
+        run_tracker, tracker_token = LLMCallTracker.activate("reextraction")
         logger.debug(f"_run_reextraction started for operation {operation_id}")
 
         try:
@@ -2316,8 +2299,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             # deferred import breaks the module-load cycle (chat.deps imports this
             # service) and reuses the single shared runner instance.
             try:
-                llm_calls_after = LLMCallTracker.get_instance().get_counts().get("reextraction", 0)
-                delta = max(0, llm_calls_after - llm_calls_before)
+                delta = run_tracker.get_total()
                 if delta > 0:
                     from app.services.orchestration import schematiq_runner
                     record_id = f"reextraction-{operation.session_id[:8]}-{int(datetime.now().timestamp())}"
@@ -2327,7 +2309,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             except Exception as exc:
                 logger.debug("Could not record re-extraction LLM usage: %s", exc)
             finally:
-                llm_call_tracker_lock.release()
+                LLMCallTracker.deactivate(tracker_token)
             await self._release_slot_once(operation)
             self._cleanup_operation(operation_id)
 

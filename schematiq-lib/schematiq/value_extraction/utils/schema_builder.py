@@ -135,3 +135,43 @@ def build_extraction_response_schema(
         "required": [_sanitize_name(col.name) for col in columns],
     }
     return schema, key_map
+
+
+def build_unit_identification_response_schema(
+    include_passages: bool,
+) -> Dict[str, Any]:
+    """Return the Gemini response_schema for unit identification.
+
+    Matches the format in SYSTEM_PROMPT_UNIT_IDENTIFICATION. ``relevant_passages``
+    is included only when the prompt asks for it (retriever enabled). The
+    property order follows the prompt: Gemini otherwise orders keys
+    alphabetically, which would put "notes" before the units.
+    """
+    item_props: Dict[str, Any] = {"unit_name": {"type": "STRING"}}
+    if include_passages:
+        item_props["relevant_passages"] = {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+        }
+    item_props["confidence"] = {
+        "type": "STRING",
+        "enum": ["high", "medium", "low"],
+    }
+    return {
+        "type": "OBJECT",
+        "properties": {
+            "observation_units": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": item_props,
+                    "propertyOrdering": list(item_props),
+                    "required": ["unit_name", "confidence"],
+                },
+            },
+            "total_units_found": {"type": "INTEGER"},
+            "notes": {"type": "STRING"},
+        },
+        "propertyOrdering": ["observation_units", "total_units_found", "notes"],
+        "required": ["observation_units"],
+    }
