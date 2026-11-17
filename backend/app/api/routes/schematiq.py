@@ -157,6 +157,8 @@ async def configure_schematiq(config: ScheMatiQConfig):
             "message": "ScheMatiQ session configured successfully"
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Exception in configure_schematiq: {e}")
         import traceback
@@ -402,6 +404,8 @@ async def get_schematiq_status(session_id: str):
         
         return status
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -417,6 +421,8 @@ async def get_schematiq_schema(session_id: str):
         
         return schema
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -528,6 +534,8 @@ async def update_cell(session_id: str, column: str, value: str,
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

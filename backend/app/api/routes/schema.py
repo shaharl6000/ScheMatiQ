@@ -337,6 +337,8 @@ async def delete_column(session_id: str, column_name: str):
             "message": f"Column '{column_name}' deleted successfully"
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -533,6 +535,8 @@ async def merge_columns(
             "processing": True
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -631,6 +635,8 @@ async def validate_schema(session_id: str) -> SchemaValidationResponse:
             missing_definitions=missing_definitions
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -663,6 +669,8 @@ async def create_schema_backup(session_id: str):
             "timestamp": backup_data["timestamp"]
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -760,6 +768,8 @@ async def get_schema_change_status(session_id: str) -> SchemaChangeStatusRespons
             missing_baseline=changes["missing_baseline"]
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -777,6 +787,8 @@ async def discover_papers(session_id: str) -> PaperDiscoveryResponse:
 
         return PaperDiscoveryResponse(**discovery)
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -830,6 +842,8 @@ async def precheck_document_availability(
             rows_with_missing_docs=result["rows_with_missing_docs"]
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -981,6 +995,8 @@ async def capture_schema_baseline(session_id: str):
             "column_count": len([c for c in session.columns if not c.name.lower().endswith('_excerpt')])
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1018,6 +1034,8 @@ async def upload_missing_papers(
             "uploaded_files": uploaded
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1111,6 +1129,8 @@ async def get_continue_discovery_documents(session_id: str) -> ContinueDiscovery
 
         return ContinueDiscoveryDocumentsResponse(**result)
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

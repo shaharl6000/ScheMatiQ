@@ -224,6 +224,8 @@ async def upload_file(file: UploadFile = File(...)):
             "requires_column_mapping": validation.detected_format == "csv"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Exception in upload_file: {e}")
         import traceback
@@ -344,6 +346,8 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
         
         return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Exception in parse_file: {e}")
         import traceback
@@ -1271,6 +1275,8 @@ async def get_processing_status(session_id: str):
         
         return status_info
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Exception in get_processing_status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
