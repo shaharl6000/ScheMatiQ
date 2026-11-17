@@ -56,3 +56,23 @@ async def test_edit_made_during_lookup_survives_and_result_is_persisted(tmp_path
     assert r2["protein_name"] == "BRCA1"
     assert not r2.get("uniprot_accession")
     assert persisted == [data]
+
+
+async def test_rows_sharing_a_key_are_written_once_each(tmp_path, monkeypatch):
+    data = tmp_path / "data.jsonl"
+    # Same name and source document; no UniProt hit for either.
+    _write(data, [
+        {"_row_name": "r", "_source_document": "d", "protein_name": "XYZ"},
+        {"_row_name": "r", "_source_document": "d", "protein_name": "XYZ"},
+    ])
+
+    async def fake_persist(session_id, local_path, storage=None):
+        pass
+
+    monkeypatch.setattr(session_data_store, "persist_session_data_file", fake_persist)
+    results = [(0, ("r", "d"), "XYZ", None), (1, ("r", "d"), "XYZ", None)]
+
+    applied = await ues._merge_results("s-dup", data, "protein_name", results)
+
+    assert applied == 2
+    assert all("uniprot_accession" in row for row in _read(data))

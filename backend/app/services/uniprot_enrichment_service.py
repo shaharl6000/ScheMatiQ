@@ -244,7 +244,9 @@ async def _merge_results(session_id: str, jsonl_path: Path, pcol, results) -> in
             if key[0]:
                 by_key.setdefault(key, []).append(i)
 
-        applied = 0
+        # A row is written at most once: rows sharing a key are all targets of
+        # each result with that key, and only the first matching result counts.
+        applied: set = set()
         for idx, key, protein, parsed in results:
             if key[0]:
                 targets = by_key.get(key, [])
@@ -253,6 +255,8 @@ async def _merge_results(session_id: str, jsonl_path: Path, pcol, results) -> in
             else:
                 targets = []
             for i in targets:
+                if i in applied:
+                    continue
                 row = rows[i]
                 if row.get("uniprot_accession"):
                     continue
@@ -260,11 +264,11 @@ async def _merge_results(session_id: str, jsonl_path: Path, pcol, results) -> in
                 if current != protein:
                     continue
                 _apply_result(row, parsed)
-                applied += 1
+                applied.add(i)
 
         if applied:
             await save_session_data_file(session_id, jsonl_path, rows, ensure_ascii=False)
-        return applied
+        return len(applied)
 
 
 def _apply_result(row: dict, parsed) -> None:
