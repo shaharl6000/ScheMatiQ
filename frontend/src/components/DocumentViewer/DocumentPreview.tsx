@@ -305,6 +305,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
 
     return (
       <pre
+        dir="auto"
         className="h-full w-full overflow-auto m-0 px-4 py-3 text-xs leading-relaxed text-foreground"
         style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}
       >
@@ -450,7 +451,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
                   className="max-w-full rounded-md border border-border"
                 />
                 {fig.caption && (
-                  <p className="text-sm leading-relaxed mt-2 text-muted-foreground">
+                  <p dir="auto" className="text-sm leading-relaxed mt-2 text-muted-foreground">
                     {fig.caption}
                   </p>
                 )}
