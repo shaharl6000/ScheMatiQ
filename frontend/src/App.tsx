@@ -1,15 +1,20 @@
+import { Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Mail } from 'lucide-react';
 
-import Load from './pages/Load';
-import ScheMatiQConfig from './pages/ScheMatiQConfig';
-import Visualize from './pages/Visualize';
-import Workspace from './pages/Workspace';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ViewModeProvider } from './contexts/ViewModeContext';
 import { NavigationGuardProvider } from './contexts/NavigationGuardContext';
 import AppErrorBoundary from '@/components/shared/AppErrorBoundary';
+import { lazyWithReload } from './lib/lazyWithReload';
+
+// Each route page is its own chunk, so the first visit downloads only the
+// page it opens. A chunk that vanished after a deploy reloads the app once.
+const Load = lazyWithReload(() => import('./pages/Load'));
+const ScheMatiQConfig = lazyWithReload(() => import('./pages/ScheMatiQConfig'));
+const Visualize = lazyWithReload(() => import('./pages/Visualize'));
+const Workspace = lazyWithReload(() => import('./pages/Workspace'));
 
 function AppHeader() {
   return (
@@ -48,16 +53,24 @@ function App() {
         {/* Main Content */}
         <main className={isWorkspace ? 'flex-1 min-h-0 overflow-hidden' : 'container py-6 flex-1'}>
           <AppErrorBoundary resetKey={location.pathname}>
-          <Routes>
-            <Route path="/" element={<Workspace />} />
-            <Route path="/classic" element={<ScheMatiQConfig />} />
-            <Route path="/load" element={<Load />} />
-            <Route path="/schematiq" element={<Navigate to="/classic" replace />} />
-            <Route path="/visualize/:sessionId" element={<Visualize />} />
-            {/* Bare /workspace redirects to the new default; session URLs keep the prefix. */}
-            <Route path="/workspace" element={<Navigate to="/" replace />} />
-            <Route path="/workspace/:sessionId" element={<Workspace />} />
-          </Routes>
+          <Suspense
+            fallback={
+              <div className="flex-1 flex items-center justify-center py-12 text-sm text-muted-foreground">
+                Loading…
+              </div>
+            }
+          >
+            <Routes>
+              <Route path="/" element={<Workspace />} />
+              <Route path="/classic" element={<ScheMatiQConfig />} />
+              <Route path="/load" element={<Load />} />
+              <Route path="/schematiq" element={<Navigate to="/classic" replace />} />
+              <Route path="/visualize/:sessionId" element={<Visualize />} />
+              {/* Bare /workspace redirects to the new default; session URLs keep the prefix. */}
+              <Route path="/workspace" element={<Navigate to="/" replace />} />
+              <Route path="/workspace/:sessionId" element={<Workspace />} />
+            </Routes>
+          </Suspense>
           </AppErrorBoundary>
         </main>
 
