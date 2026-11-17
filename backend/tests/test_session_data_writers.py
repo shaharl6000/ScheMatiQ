@@ -3,6 +3,7 @@ file, and persist every change to storage (so edits survive a redeploy)."""
 
 import asyncio
 import json
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -131,6 +132,37 @@ async def test_unit_mutation_waits_for_the_session_lock(tmp_path, unit_svc, pers
         lock.release()
     await task
     assert _read_jsonl(primary)[0]["_row_name"] == "y"
+
+
+async def test_cancelled_unit_mutation_holds_lock_until_thread_finishes(
+    tmp_path, unit_svc, persisted
+):
+    sid = "cancelled"
+    primary = tmp_path / "work" / sid / "extracted_data.jsonl"
+    _write_jsonl(primary, [{"_row_name": "x", "_source_document": "d"}])
+    started, release = threading.Event(), threading.Event()
+
+    def slow_rewrite(session_id):
+        started.set()
+        release.wait(5)
+        _write_jsonl(primary, [{"_row_name": "renamed", "_source_document": "d"}])
+        return "done"
+
+    task = asyncio.create_task(unit_svc._run_locked_mutation(sid, slow_rewrite))
+    while not started.is_set():
+        await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # The worker thread is still writing: the lock must stay held.
+    lock = session_write_lock(sid)
+    assert lock.locked()
+    release.set()
+    async with lock:
+        pass
+    assert _read_jsonl(primary)[0]["_row_name"] == "renamed"
+    assert persisted == [primary]
 
 
 @pytest.fixture
