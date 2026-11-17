@@ -1,7 +1,9 @@
 """Unit view service for observation unit grouping and merging."""
 
+import asyncio
 import json
 import logging
+import threading
 import time
 from collections import OrderedDict, defaultdict
 from difflib import SequenceMatcher
@@ -24,6 +26,13 @@ from app.services.data_utils import (
     candidate_data_dirs,
     candidate_work_dirs,
     enumerate_session_data_files,
+    resolve_session_data_files,
+    row_dedup_key,
+)
+from app.services.session_data_store import (
+    file_signatures,
+    persist_changed_files,
+    session_write_lock,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,6 +44,9 @@ class UnitViewService:
     # Bounded LRU row cache: session_id -> (rows, file_signatures, cached_at)
     _row_cache: OrderedDict[str, Tuple[List[Dict], Dict[str, Tuple[float, int]], float]] = OrderedDict()
     _CACHE_TTL = 30  # seconds
+    # Reads run on the event loop and in worker threads (asyncio.to_thread),
+    # so every _row_cache access goes through this lock.
+    _cache_lock = threading.RLock()
     _MAX_ROW_CACHE_SESSIONS = 32
 
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
@@ -82,7 +94,8 @@ class UnitViewService:
 
     def _invalidate_cache(self, session_id: str) -> None:
         """Invalidate the row cache for a session (call after mutations)."""
-        self._row_cache.pop(session_id, None)
+        with self._cache_lock:
+            self._row_cache.pop(session_id, None)
 
     def _load_all_rows(self, session_id: str) -> List[Dict]:
         """Load all data rows from all session data files (cached).
@@ -108,13 +121,15 @@ class UnitViewService:
             except OSError:
                 pass
 
-        if session_id in self._row_cache:
-            cached_rows, cached_signatures, cached_at = self._row_cache[session_id]
-            if (now - cached_at) < self._CACHE_TTL and cached_signatures == current_signatures:
-                if isinstance(self._row_cache, OrderedDict):
-                    self._row_cache.move_to_end(session_id)
-                return cached_rows
-            self._row_cache.pop(session_id, None)
+        with self._cache_lock:
+            cached = self._row_cache.get(session_id)
+            if cached is not None:
+                cached_rows, cached_signatures, cached_at = cached
+                if (now - cached_at) < self._CACHE_TTL and cached_signatures == current_signatures:
+                    if isinstance(self._row_cache, OrderedDict):
+                        self._row_cache.move_to_end(session_id)
+                    return cached_rows
+                self._row_cache.pop(session_id, None)
 
         # Cache miss — read from disk
         from app.services.data_utils import row_dedup_key
@@ -147,24 +162,88 @@ class UnitViewService:
                 logger.warning(f"Error reading {data_file}: {e}")
             seen_keys.update(file_keys)
 
-        self._row_cache[session_id] = (rows, current_signatures, now)
-        if isinstance(self._row_cache, OrderedDict):
-            self._row_cache.move_to_end(session_id)
-            while len(self._row_cache) > self._MAX_ROW_CACHE_SESSIONS:
-                self._row_cache.popitem(last=False)
+        with self._cache_lock:
+            self._row_cache[session_id] = (rows, current_signatures, now)
+            if isinstance(self._row_cache, OrderedDict):
+                self._row_cache.move_to_end(session_id)
+                while len(self._row_cache) > self._MAX_ROW_CACHE_SESSIONS:
+                    self._row_cache.popitem(last=False)
         return rows
 
-    def _save_all_rows(self, session_id: str, rows: List[Dict]) -> None:
-        """Save all data rows atomically to a session's JSONL file."""
-        data_file = self._get_data_file(session_id)
-        if not data_file:
-            # Default to schematiq_work directory for new files
-            data_file = self.work_dir / session_id / "extracted_data.jsonl"
+    def _rewrite_data_files(self, session_id: str, transform) -> int:
+        """Apply ``transform(row) -> bool`` to every row of every data file.
 
-        write_jsonl_atomic(data_file, rows, ensure_ascii=False)
+        Each file is read raw and written back to itself (atomically) only when
+        a row changed, so rows never move between files and the transient
+        ``_row_index`` stamped by ``_load_all_rows`` never reaches disk. The
+        cached view is not mutated. Returns the number of affected rows,
+        counting a row duplicated across files once (as the merged view does).
+        """
+        affected_keys: set = set()
+        affected_unkeyed = 0
+        for data_file in self._get_all_data_files(session_id):
+            try:
+                with open(data_file, 'r', encoding='utf-8') as f:
+                    rows = [json.loads(line) for line in f if line.strip()]
+            except FileNotFoundError:
+                continue
+            changed = False
+            for row in rows:
+                key = row_dedup_key(row)
+                if transform(row):
+                    changed = True
+                    if key[0]:
+                        affected_keys.add(key)
+                    else:
+                        affected_unkeyed += 1
+            if changed:
+                for row in rows:
+                    row.pop('_row_index', None)
+                write_jsonl_atomic(data_file, rows, ensure_ascii=False)
 
-        # Invalidate cache since data changed
         self._invalidate_cache(session_id)
+        return len(affected_keys) + affected_unkeyed
+
+    async def _run_locked_mutation(self, session_id: str, fn, *args):
+        """Run a sync data-file mutation under the session write lock.
+
+        Hydrates the data files first, runs *fn* in a worker thread, then
+        persists every file it changed so the edit survives a redeploy.
+        """
+        async with session_write_lock(session_id):
+            await resolve_session_data_files(
+                session_id, work_dir=self.work_dir, data_dir=self.data_dir
+            )
+            before = file_signatures(self._get_all_data_files(session_id))
+            result = await asyncio.to_thread(fn, session_id, *args)
+            await persist_changed_files(
+                session_id, before, self._get_all_data_files(session_id)
+            )
+            return result
+
+    async def merge_units_async(
+        self, session_id: str, request: MergeUnitsRequest
+    ) -> MergeUnitsResponse:
+        return await self._run_locked_mutation(session_id, self.merge_units, request)
+
+    async def rename_unit_async(
+        self, session_id: str, old_name: str, new_name: str
+    ) -> MergeUnitsResponse:
+        return await self._run_locked_mutation(
+            session_id, self.rename_unit, old_name, new_name
+        )
+
+    async def suggest_similar_units_async(
+        self, session_id: str, threshold: float = 0.8, auto_merge: bool = False
+    ) -> UnitSuggestionsResponse:
+        """Pairwise comparison is O(n^2): always run it off the event loop."""
+        if not auto_merge:
+            return await asyncio.to_thread(
+                self.suggest_similar_units, session_id, threshold, False
+            )
+        return await self._run_locked_mutation(
+            session_id, self.suggest_similar_units, threshold, True
+        )
 
     def _get_unit_name(self, row: Dict) -> Optional[str]:
         """Extract unit name from a row, checking multiple possible fields."""
@@ -395,27 +474,28 @@ class UnitViewService:
             )
 
         # Find rows that belong to source units
-        rows_affected = 0
         source_units_lower = {u.lower() for u in request.source_units}
 
-        for row in rows:
+        def relabel(row: Dict) -> bool:
             unit_name = self._get_unit_name(row)
-            if unit_name and unit_name.lower() in source_units_lower:
-                # Store original unit name(s) for undo capability
-                original_units = row.get('_original_units', [])
-                if not original_units:
-                    original_units = [unit_name]
-                elif unit_name not in original_units:
-                    original_units.append(unit_name)
+            if not unit_name or unit_name.lower() not in source_units_lower:
+                return False
+            # Store original unit name(s) for undo capability
+            original_units = row.get('_original_units', [])
+            if not original_units:
+                original_units = [unit_name]
+            elif unit_name not in original_units:
+                original_units.append(unit_name)
 
-                # Update row with new unit name
-                if '_unit_name' in row:
-                    row['_unit_name'] = request.target_unit
-                else:
-                    row['unit_name'] = request.target_unit
-                row['_original_units'] = original_units
+            # Update row with new unit name
+            if '_unit_name' in row:
+                row['_unit_name'] = request.target_unit
+            else:
+                row['unit_name'] = request.target_unit
+            row['_original_units'] = original_units
+            return True
 
-                rows_affected += 1
+        rows_affected = self._rewrite_data_files(session_id, relabel)
 
         if rows_affected == 0:
             return MergeUnitsResponse(
@@ -423,9 +503,6 @@ class UnitViewService:
                 message=f"No rows found for source units: {request.source_units}",
                 rows_affected=0
             )
-
-        # Save updated rows
-        self._save_all_rows(session_id, rows)
 
         # Get updated summary for merged unit
         updated_summary = self.get_units_summary(session_id)
@@ -479,8 +556,8 @@ class UnitViewService:
 
         old_lower = old_name.lower()
         id_fields = ("_row_name", "row_name", "_unit_name", "unit_name")
-        rows_affected = 0
-        for row in rows:
+
+        def rename(row: Dict) -> bool:
             touched = False
             for field in id_fields:
                 value = row.get(field)
@@ -494,8 +571,9 @@ class UnitViewService:
                         row["_original_units"] = original_units
                     row[field] = new_name
                     touched = True
-            if touched:
-                rows_affected += 1
+            return touched
+
+        rows_affected = self._rewrite_data_files(session_id, rename)
 
         if rows_affected == 0:
             return MergeUnitsResponse(
@@ -503,8 +581,6 @@ class UnitViewService:
                 message=f"No rows found for '{old_name}'.",
                 rows_affected=0,
             )
-
-        self._save_all_rows(session_id, rows)
 
         updated_summary = self.get_units_summary(session_id)
         renamed_unit = next(
