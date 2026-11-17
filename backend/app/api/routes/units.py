@@ -26,6 +26,7 @@ from app.services.unit_view_service import unit_view_service
 from app.services import session_manager, pubmed_enrichment_service
 from app.services.data_utils import get_data_dir
 from app.services.session_documents import local_document_dirs, committed_docs_dir, pending_docs_dir
+from app.core.safe_paths import safe_upload_name
 from app.services.file_parser import is_system_file
 from app.services.document_preprocessor import commit_document_to_documents_dir
 from app.storage import get_storage
@@ -472,8 +473,11 @@ async def attach_source_documents(
     attached: list[str] = []
     skipped: list[dict] = []
     for upload in files:
-        name = Path(upload.filename or "").name
-        if not name or is_system_file(name):
+        try:
+            name = safe_upload_name(upload.filename)
+        except ValueError:
+            continue
+        if is_system_file(name):
             continue
         content = await upload.read()
         if len(content) > _MAX_ATTACH_FILE_BYTES:

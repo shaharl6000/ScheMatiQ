@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 from app.models.upload import FileValidationResult, ColumnMappingRequest
 from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SchemaEvolution, SchemaSnapshot
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE
+from app.core.safe_paths import safe_upload_name
 from app.services import row_filtering
 from app.services.session_documents import pending_docs_dir
 from app.services.llm_api_keys import strip_api_keys
@@ -317,8 +318,10 @@ class FileParser:
         """
         session_dir = self.data_dir / session_id
         session_dir.mkdir(exist_ok=True)
-        
-        file_path = session_dir / file.filename
+
+        # The client controls file.filename; keep only its last component so
+        # it cannot point outside the session dir (CWE-22).
+        file_path = session_dir / safe_upload_name(file.filename)
         async with aiofiles.open(file_path, 'wb') as f:
             content = await file.read()
             await f.write(content)
