@@ -9,6 +9,7 @@ import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ViewModeProvider } from './contexts/ViewModeContext';
 import { NavigationGuardProvider } from './contexts/NavigationGuardContext';
+import AppErrorBoundary from '@/components/shared/AppErrorBoundary';
 
 function AppHeader() {
   return (
@@ -46,6 +47,7 @@ function App() {
 
         {/* Main Content */}
         <main className={isWorkspace ? 'flex-1 min-h-0 overflow-hidden' : 'container py-6 flex-1'}>
+          <AppErrorBoundary resetKey={location.pathname}>
           <Routes>
             <Route path="/" element={<Workspace />} />
             <Route path="/classic" element={<ScheMatiQConfig />} />
@@ -56,6 +58,7 @@ function App() {
             <Route path="/workspace" element={<Navigate to="/" replace />} />
             <Route path="/workspace/:sessionId" element={<Workspace />} />
           </Routes>
+          </AppErrorBoundary>
         </main>
 
         {/* Footer */}
