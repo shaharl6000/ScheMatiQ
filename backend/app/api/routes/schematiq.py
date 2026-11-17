@@ -730,6 +730,24 @@ async def list_schema_files():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Exports must contain every row. The first read covers almost every session;
+# a larger one is re-read with its exact row count. The loop is bounded so a
+# table that keeps growing during an export cannot spin forever.
+_EXPORT_FIRST_READ_ROWS = 10000
+_EXPORT_MAX_READS = 5
+
+
+async def _get_all_rows_for_export(session_id: str):
+    page_size = _EXPORT_FIRST_READ_ROWS
+    data = await schematiq_runner.get_data(session_id, page=0, page_size=page_size)
+    for _ in range(_EXPORT_MAX_READS - 1):
+        if not data.has_more:
+            break
+        page_size = max(data.total_count, page_size * 2)
+        data = await schematiq_runner.get_data(session_id, page=0, page_size=page_size)
+    return data
+
+
 @router.get("/export/{session_id}")
 async def export_schematiq_data(
     session_id: str,
@@ -748,7 +766,7 @@ async def export_schematiq_data(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        data = await schematiq_runner.get_data(session_id, page=0, page_size=10000)
+        data = await _get_all_rows_for_export(session_id)
         return export_schematiq_csv(
             session, data, column_order=column_order, tz_offset=tz_offset
         )
@@ -769,7 +787,7 @@ async def export_complete_schematiq_data(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        data = await schematiq_runner.get_data(session_id, page=0, page_size=10000)
+        data = await _get_all_rows_for_export(session_id)
         return await export_complete_schematiq(
             session, session_id, data, format=format, tz_offset=tz_offset
         )
@@ -792,7 +810,7 @@ async def export_schematiq_rich_csv(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        data = await schematiq_runner.get_data(session_id, page=0, page_size=10000)
+        data = await _get_all_rows_for_export(session_id)
         return export_schematiq_rich_csv_data(
             session, session_id, data, tz_offset=tz_offset
         )
