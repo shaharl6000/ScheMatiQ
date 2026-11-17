@@ -9,7 +9,8 @@ This module contains:
 # ArxivDIGESTables metrics
 from .metrics import SchemaRecallMetric, BaseMetric
 from .table import Table
-from .run_eval import main as run_evaluation
+# run_eval is not imported here: it needs the optional 'eval' extra (nltk)
+# and downloads NLTK data on import. Use schematiq.evaluation.run_eval.main.
 
 # ScheMatiQ evaluation framework
 from .schema_evaluator import SchemaEvaluator, SchemaEvaluationResult
@@ -23,7 +24,6 @@ __all__ = [
     'SchemaRecallMetric',
     'BaseMetric',
     'Table',
-    'run_evaluation',
     # ScheMatiQ evaluation
     'SchemaEvaluator',
     'SchemaEvaluationResult',
