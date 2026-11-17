@@ -678,7 +678,7 @@ class SupabaseStorageBackend(StorageInterface):
         This is required for ScheMatiQ processing which needs local file access.
         """
         local_path = Path(local_dir)
-        local_path.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(local_path.mkdir, parents=True, exist_ok=True)
 
         created_files = []
         try:
@@ -688,8 +688,7 @@ class SupabaseStorageBackend(StorageInterface):
                 content = await self.download_dataset_file(dataset_name, file_info.name)
                 if content:
                     dest_path = local_path / file_info.name
-                    with open(dest_path, 'wb') as f:
-                        f.write(content)
+                    await asyncio.to_thread(dest_path.write_bytes, content)
                     created_files.append(str(dest_path))
         except Exception as e:
             logger.error(f"Error downloading dataset to local: {e}")
@@ -705,89 +704,34 @@ class SupabaseStorageBackend(StorageInterface):
         try:
             files = await asyncio.to_thread(self.client.storage.from_("templates").list)
 
-            templates = []
+            candidates = []
             for f in files:
                 if f.get("id"):  # It's a file
                     name = f["name"]
                     ext = Path(name).suffix.lower()
-
                     if ext in ['.csv', '.json', '.jsonl']:
-                        # Try to get row/column count by downloading and parsing
-                        row_count = None
-                        column_count = None
+                        candidates.append((name, ext))
 
-                        try:
-                            content = await asyncio.to_thread(self.client.storage.from_("templates").download, name)
-                            text = content.decode('utf-8')
+            async def describe(name: str, ext: str) -> TemplateInfo:
+                # Row/column counts need the file downloaded and parsed. Both
+                # run in worker threads (pandas on a large CSV would otherwise
+                # stall the event loop), and the templates are fetched
+                # concurrently instead of one after another.
+                try:
+                    content = await asyncio.to_thread(self.client.storage.from_("templates").download, name)
+                    row_count, column_count = await asyncio.to_thread(_template_counts, name, ext, content)
+                except Exception:
+                    row_count, column_count = None, None  # Ignore count errors
+                return TemplateInfo(
+                    name=Path(name).stem,
+                    path=f"templates/{name}",
+                    file_type=ext[1:],
+                    description=f"Template: {Path(name).stem}",
+                    row_count=row_count,
+                    column_count=column_count
+                )
 
-                            if ext == '.csv':
-                                import pandas as pd
-                                import io
-
-                                lines = text.strip().split('\n')
-                                # Skip leading comment lines only
-                                clean_lines = []
-                                past_comments = False
-                                for l in lines:
-                                    stripped = l.strip()
-                                    if not stripped:
-                                        continue
-                                    if not past_comments and stripped.startswith('#'):
-                                        continue
-                                    past_comments = True
-                                    clean_lines.append(l)
-
-                                if clean_lines:
-                                    # Use pandas to parse - handles quoted multi-line fields correctly
-                                    clean_csv_content = '\n'.join(clean_lines)
-                                    df = pd.read_csv(io.StringIO(clean_csv_content))
-                                    row_count = len(df)  # Correct row count from pandas
-                                    logger.info(f"CSV {name}: pandas row_count={row_count}")
-
-                                    # Count columns excluding metadata
-                                    metadata_cols = {'document_directory', 'papers', 'row_name'}
-                                    data_columns = [
-                                        col for col in df.columns
-                                        if not col.endswith('_excerpt') and col not in metadata_cols
-                                    ]
-                                    column_count = len(data_columns)
-                            elif ext == '.jsonl':
-                                lines = [l for l in text.strip().split('\n') if l.strip()]
-                                row_count = len(lines)
-                                if lines:
-                                    first_row = json.loads(lines[0])
-                                    column_count = len(first_row.get('data', first_row).keys())
-                            elif ext == '.json':
-                                data = json.loads(text)
-                                if isinstance(data, list):
-                                    row_count = len(data)
-                                    if data:
-                                        column_count = len(data[0].keys())
-                                elif isinstance(data, dict):
-                                    # ScheMatiQ export format: {data: [...], schema: {columns: [...]}}
-                                    if isinstance(data.get('data'), list):
-                                        row_count = len(data['data'])
-                                    schema = data.get('schema', {})
-                                    columns = schema.get('columns', []) if isinstance(schema, dict) else []
-                                    if columns:
-                                        column_count = len(columns)
-                                    elif row_count and data['data']:
-                                        first_row = data['data'][0]
-                                        inner = first_row.get('data', first_row) if isinstance(first_row, dict) else first_row
-                                        if isinstance(inner, dict):
-                                            column_count = len(inner.keys())
-                        except Exception:
-                            pass  # Ignore count errors
-
-                        templates.append(TemplateInfo(
-                            name=Path(name).stem,
-                            path=f"templates/{name}",
-                            file_type=ext[1:],
-                            description=f"Template: {Path(name).stem}",
-                            row_count=row_count,
-                            column_count=column_count
-                        ))
-
+            templates = await asyncio.gather(*(describe(n, e) for n, e in candidates))
             return sorted(templates, key=lambda t: t.name)
         except Exception as e:
             logger.error(f"Error listing templates from Supabase: {e}")
@@ -925,3 +869,71 @@ class SupabaseStorageBackend(StorageInterface):
         except Exception as e:
             logger.error(f"Error uploading initial schema {schema_name} to Supabase: {e}")
             raise
+
+
+def _template_counts(name: str, ext: str, content: bytes) -> Tuple[Optional[int], Optional[int]]:
+    """Row and column counts of a template file (blocking; run in a thread)."""
+    row_count = None
+    column_count = None
+    try:
+        text = content.decode('utf-8')
+
+        if ext == '.csv':
+            import pandas as pd
+            import io
+
+            lines = text.strip().split('\n')
+            # Skip leading comment lines only
+            clean_lines = []
+            past_comments = False
+            for l in lines:
+                stripped = l.strip()
+                if not stripped:
+                    continue
+                if not past_comments and stripped.startswith('#'):
+                    continue
+                past_comments = True
+                clean_lines.append(l)
+
+            if clean_lines:
+                # Use pandas to parse - handles quoted multi-line fields correctly
+                clean_csv_content = '\n'.join(clean_lines)
+                df = pd.read_csv(io.StringIO(clean_csv_content))
+                row_count = len(df)  # Correct row count from pandas
+                logger.info(f"CSV {name}: pandas row_count={row_count}")
+
+                # Count columns excluding metadata
+                metadata_cols = {'document_directory', 'papers', 'row_name'}
+                data_columns = [
+                    col for col in df.columns
+                    if not col.endswith('_excerpt') and col not in metadata_cols
+                ]
+                column_count = len(data_columns)
+        elif ext == '.jsonl':
+            lines = [l for l in text.strip().split('\n') if l.strip()]
+            row_count = len(lines)
+            if lines:
+                first_row = json.loads(lines[0])
+                column_count = len(first_row.get('data', first_row).keys())
+        elif ext == '.json':
+            data = json.loads(text)
+            if isinstance(data, list):
+                row_count = len(data)
+                if data:
+                    column_count = len(data[0].keys())
+            elif isinstance(data, dict):
+                # ScheMatiQ export format: {data: [...], schema: {columns: [...]}}
+                if isinstance(data.get('data'), list):
+                    row_count = len(data['data'])
+                schema = data.get('schema', {})
+                columns = schema.get('columns', []) if isinstance(schema, dict) else []
+                if columns:
+                    column_count = len(columns)
+                elif row_count and data['data']:
+                    first_row = data['data'][0]
+                    inner = first_row.get('data', first_row) if isinstance(first_row, dict) else first_row
+                    if isinstance(inner, dict):
+                        column_count = len(inner.keys())
+    except Exception:
+        pass  # Ignore count errors
+    return row_count, column_count
