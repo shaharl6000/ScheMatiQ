@@ -212,3 +212,76 @@ def test_unit_cap_emits_warning_and_early_return_clears_figure_state(tmp_path):
     assert s_fig._active_figure_images == []
     assert s_fig._active_figures_by_id == {}
     assert s_fig._active_norm_captions_cache is None
+
+
+def _stub_processor():
+    s = MagicMock()
+    s._active_context_cache = None
+    s._uncached_doc_layout = None
+    s._active_figure_images = []
+    s._active_figures_by_id = {}
+    s._active_norm_captions_cache = None
+    s._create_document_cache.return_value = None
+    s._is_gemini_backend.return_value = False
+    return s
+
+
+def _unit_schema():
+    return Schema(
+        query="q",
+        columns=[Column(name="val", definition="d")],
+        observation_unit=ObservationUnit(name="Unit", definition="u"),
+    )
+
+
+def test_stop_during_identification_is_flagged_not_skipped():
+    s = _stub_processor()
+    s._check_stop_requested.return_value = True
+    s.identify_observation_units.return_value = SimpleNamespace(
+        units=[], skip_reason="Stop requested"
+    )
+
+    res = PaperProcessor.extract_values_for_paper_with_units(
+        s, "docA", "text", _unit_schema(), 100,
+    )
+    assert res.rows == []
+    assert res.stopped is True
+
+
+def test_no_units_without_stop_is_a_plain_skip():
+    s = _stub_processor()
+    s._check_stop_requested.return_value = False
+    s.identify_observation_units.return_value = SimpleNamespace(
+        units=[], skip_reason="nothing here"
+    )
+
+    res = PaperProcessor.extract_values_for_paper_with_units(
+        s, "docA", "text", _unit_schema(), 100,
+    )
+    assert res.stopped is False
+    assert res.skip_reason == "nothing here"
+
+
+def test_stop_during_last_unit_marks_document_partial():
+    s = _stub_processor()
+    # Loop check before the only unit sees no stop; the stop lands while the
+    # unit is being extracted.
+    s._check_stop_requested.side_effect = [False, True]
+    s.identify_observation_units.return_value = SimpleNamespace(
+        units=[{"unit_name": "U1", "relevant_passages": ["text"], "confidence": "high"}],
+        skip_reason=None,
+    )
+    s.extract_values_for_unit.return_value = {"val": "partial"}
+
+    res = PaperProcessor.extract_values_for_paper_with_units(
+        s, "docA", "text", _unit_schema(), 100,
+    )
+    assert res.stopped is True
+
+
+def test_embedding_cache_skips_entry_larger_than_byte_budget():
+    r = EmbeddingRetriever(model=MagicMock(), max_cache_size=10, max_cache_bytes=1024)
+    r._cache_embeddings("small", ["a"], np.zeros(8, dtype=np.float32))
+    r._cache_embeddings("huge", ["b"], np.zeros(1024, dtype=np.float32))
+    assert r._get_cached_embeddings("small") is not None
+    assert r._get_cached_embeddings("huge") is None

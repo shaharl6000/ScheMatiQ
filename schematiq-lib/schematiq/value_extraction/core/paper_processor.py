@@ -2418,6 +2418,13 @@ class PaperProcessor:
                 ident_skip_reason = ident_result.skip_reason
 
             if not units:
+                # A stop during identification also ends here with no units.
+                # Flag it so the caller re-runs the document instead of
+                # reporting it as skipped.
+                if self._check_stop_requested():
+                    return ExtractionResult(
+                        rows=[], skip_reason=ident_skip_reason, stopped=True,
+                    )
                 print("  ⚠️ No units found, skipping document")
                 if known_units is not None:
                     return ExtractionResult(rows=[], skip_reason=KNOWN_UNITS_EMPTY)
@@ -2548,6 +2555,12 @@ class PaperProcessor:
                         "[%s] No values extracted for unit %s, row dropped (%.1fs)",
                         paper_title, unit_name, unit_elapsed,
                     )
+
+            # A stop during the last unit returns that unit's values cut short
+            # (extract_values_for_unit stops between column batches) and the
+            # loop never sees it. Treat it as a partial document.
+            if not stopped_early and self._check_stop_requested():
+                stopped_early = True
 
             self.cache.log_stats()
             if failed_units and not results:

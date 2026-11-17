@@ -351,6 +351,9 @@ class EmbeddingRetriever(Retriever):
         entry_bytes = sum(len(p.encode("utf-8", errors="ignore")) for p in passages) + int(
             getattr(embeddings, "nbytes", 0)
         )
+        if entry_bytes > self.max_cache_bytes:
+            # Caching it would evict every other entry and still exceed the budget.
+            return
         with self._cache_lock:
             if doc_hash in self._embedding_cache:
                 prev = self._embedding_cache.pop(doc_hash)
