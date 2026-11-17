@@ -444,7 +444,7 @@ class TableBuilder:
                 self._stopped = True
                 return
 
-            if paper in processed_papers:
+            if paper in processed_papers or paper.name in processed_papers:
                 continue
 
             if self._skip_out_of_scope_paper(paper, known_units, processed_papers):
@@ -457,8 +457,10 @@ class TableBuilder:
                     max_new_tokens, known_units, unit_targets_by_paper, feedback,
                 )
 
-                # Check for stop after extraction (in case it took a while)
-                if self.should_stop and self.should_stop():
+                # Partial mid-document stop must not commit incomplete rows so
+                # resume=True re-runs the whole paper cleanly. Completed papers
+                # commit even if stop was requested during their final check.
+                if getattr(extraction_result, "stopped", False):
                     self._stopped = True
                     return
 
@@ -466,6 +468,10 @@ class TableBuilder:
                     row_name, paper, extraction_result, doc_to_source, schema,
                     output_path, processed_papers,
                 )
+
+                if self.should_stop and self.should_stop():
+                    self._stopped = True
+                    return
             except Exception as e:
                 self._record_failed_document(paper, e)
 
@@ -662,13 +668,49 @@ class TableBuilder:
         inflight = {}  # future -> job index
         next_submit = 0
         next_commit = 0
+        def _commit_job(idx: int) -> None:
+            kind, value = results.pop(idx)
+            row_name, paper = jobs[idx]
+            if kind == "ok":
+                if getattr(value, "stopped", False):
+                    self._stopped = True
+                else:
+                    try:
+                        units_by_row[row_name] = units_by_row.get(row_name, 0) + self._commit_paper_units(
+                            row_name, paper, value, doc_to_source, schema,
+                            output_path, processed_papers,
+                        )
+                    except Exception as e:
+                        self._record_failed_document(paper, e)
+            elif kind == "error":
+                self._record_failed_document(paper, value)
+            papers_left[row_name] -= 1
+            if papers_left[row_name] == 0 and units_by_row.get(row_name, 0) > 0:
+                written_rows.add(row_name)
+                print(f"✅ Completed {row_name}: {units_by_row[row_name]} observation unit rows written")
+
         executor = ThreadPoolExecutor(max_workers=max_workers)
         try:
             while next_commit < len(jobs):
+                # Commit every finished document that is next in order first.
+                while next_commit in results:
+                    _commit_job(next_commit)
+                    next_commit += 1
+
                 stop = bool(self.should_stop and self.should_stop())
                 if stop:
                     print("🛑 Stop requested during observation unit processing")
                     self._stopped = True
+                    if inflight:
+                        done, _ = wait(list(inflight))
+                        for future in done:
+                            idx = inflight.pop(future)
+                            try:
+                                results[idx] = ("ok", future.result())
+                            except Exception as e:
+                                results[idx] = ("error", e)
+                    for idx in sorted(list(results.keys())):
+                        _commit_job(idx)
                     return
 
                 # Keep up to max_workers documents in flight.
@@ -676,8 +718,10 @@ class TableBuilder:
                     idx = next_submit
                     next_submit += 1
                     _, paper = jobs[idx]
-                    if paper in processed_papers or self._skip_out_of_scope_paper(
-                        paper, known_units, processed_papers
+                    if (
+                        paper in processed_papers
+                        or paper.name in processed_papers
+                        or self._skip_out_of_scope_paper(paper, known_units, processed_papers)
                     ):
                         results[idx] = ("done", None)
                         continue
@@ -697,24 +741,9 @@ class TableBuilder:
                     )
                     inflight[future] = idx
 
-                # Commit every finished document that is next in order.
+                # Commit any immediate done/error entries at next_commit.
                 while next_commit in results:
-                    kind, value = results.pop(next_commit)
-                    row_name, paper = jobs[next_commit]
-                    if kind == "ok":
-                        try:
-                            units_by_row[row_name] = units_by_row.get(row_name, 0) + self._commit_paper_units(
-                                row_name, paper, value, doc_to_source, schema,
-                                output_path, processed_papers,
-                            )
-                        except Exception as e:
-                            self._record_failed_document(paper, e)
-                    elif kind == "error":
-                        self._record_failed_document(paper, value)
-                    papers_left[row_name] -= 1
-                    if papers_left[row_name] == 0 and units_by_row.get(row_name, 0) > 0:
-                        written_rows.add(row_name)
-                        print(f"✅ Completed {row_name}: {units_by_row[row_name]} observation unit rows written")
+                    _commit_job(next_commit)
                     next_commit += 1
 
                 if next_commit >= len(jobs) or not inflight:

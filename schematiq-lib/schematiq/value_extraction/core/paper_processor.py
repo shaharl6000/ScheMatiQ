@@ -2015,8 +2015,9 @@ class PaperProcessor:
                     # --- Layer 2c: Hard cap ---
                     MAX_UNITS = 15
                     if len(units) > MAX_UNITS:
+                        total_found = len(units)
                         logger.warning(
-                            f"[{paper_title}] Unit hard cap: {len(units)} → {MAX_UNITS} "
+                            f"[{paper_title}] Unit hard cap: {total_found} → {MAX_UNITS} "
                             f"(keeping top {MAX_UNITS} by confidence)"
                         )
                         # Sort by confidence priority: high > medium > known > low
@@ -2026,7 +2027,16 @@ class PaperProcessor:
                                 u.get("confidence", "medium"), 2
                             )
                         )
+                        dropped_names = [
+                            u.get("unit_name", "?") for u in units[MAX_UNITS:]
+                        ]
                         units = units[:MAX_UNITS]
+                        self._emit_warning(
+                            paper_title,
+                            "unit_cap_reached",
+                            f"Found {total_found} observation units in {paper_title}; capped to the top "
+                            f"{MAX_UNITS} by confidence (dropped: {', '.join(dropped_names)}).",
+                        )
 
                     logger.info(
                         f"[{paper_title}] Unit identification: {raw_count} raw → "
@@ -2371,79 +2381,84 @@ class PaperProcessor:
         if not observation_unit:
             raise ValueError("observation_unit required in schema for value extraction")
 
-        # Load this document's figure images before identification too — a unit
-        # whose only textual footprint is a figure/caption (e.g. something only
-        # labeled in a diagram) would otherwise never be found, since
-        # identify_observation_units searches paper_text alone. Per-unit
-        # extraction calls below reuse this same load via _generate().
-        self._load_document_figures(figures_dir)
-
-        if known_units is not None:
-            if not known_units:
-                print(f"  ⚠️ No known units listed for {paper_title}, skipping document")
-                return ExtractionResult(rows=[], skip_reason=NO_KNOWN_UNITS)
-            # Skip LLM discovery — use provided unit names directly
-            units = [
-                {
-                    "unit_name": name,
-                    "relevant_passages": [paper_text],
-                    "confidence": "known",
-                }
-                for name in known_units
-            ]
-            print(f"📋 Using {len(units)} known units for {paper_title}: {known_units}")
-        else:
-            # Identify observation units in the document via LLM
-            print(
-                f"🔍 Identifying observation units ({observation_unit.name}) in {paper_title}..."
-            )
-            ident_result = self.identify_observation_units(
-                paper_title, paper_text, observation_unit, schema
-            )
-            units = ident_result.units
-            ident_skip_reason = ident_result.skip_reason
-
-        if not units:
-            print("  ⚠️ No units found, skipping document")
-            if known_units is not None:
-                return ExtractionResult(rows=[], skip_reason=KNOWN_UNITS_EMPTY)
-            return ExtractionResult(rows=[], skip_reason=ident_skip_reason)
-
-        print(
-            f"  📊 Found {len(units)} observation units: {[u['unit_name'] for u in units]}"
-        )
-
-        # Create context cache for this document (Gemini only, reused across units).
-        # The cache is shared by all units, so it keeps the full extraction rules
-        # but names no unit; each call carries the prompt for its own unit.
-        cache_system_prompt = build_val_with_unit_prompt(None)
         self._uncached_doc_layout = None
-        self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
-
-        if self._is_gemini_backend():
-            # Used when there is no cache, and as the fallback if the cache
-            # expires mid-document (see _generate).
-            self._uncached_doc_layout = (cache_system_prompt, paper_text)
-        if self._active_context_cache:
-            print(f"  📦 Created context cache for {paper_title}")
-        elif self._is_gemini_backend():
-            logger.info(
-                "[%s] No context cache; sending the cached-path layout inline "
-                "(document twice)", paper_title,
-            )
-        if self._active_figure_images:
-            print(f"  🖼️ Attached {len(self._active_figure_images)} figure image(s) for {paper_title}")
-
-        # Extract values for each unit
-        import time as time_module
-
-        results = []
-        failed_units = []
-        last_error = None
+        self._active_context_cache = None
         try:
+
+            # Load this document's figure images before identification too — a unit
+            # whose only textual footprint is a figure/caption (e.g. something only
+            # labeled in a diagram) would otherwise never be found, since
+            # identify_observation_units searches paper_text alone. Per-unit
+            # extraction calls below reuse this same load via _generate().
+            self._load_document_figures(figures_dir)
+
+            if known_units is not None:
+                if not known_units:
+                    print(f"  ⚠️ No known units listed for {paper_title}, skipping document")
+                    return ExtractionResult(rows=[], skip_reason=NO_KNOWN_UNITS)
+                # Skip LLM discovery — use provided unit names directly
+                units = [
+                    {
+                        "unit_name": name,
+                        "relevant_passages": [paper_text],
+                        "confidence": "known",
+                    }
+                    for name in known_units
+                ]
+                print(f"📋 Using {len(units)} known units for {paper_title}: {known_units}")
+            else:
+                # Identify observation units in the document via LLM
+                print(
+                    f"🔍 Identifying observation units ({observation_unit.name}) in {paper_title}..."
+                )
+                ident_result = self.identify_observation_units(
+                    paper_title, paper_text, observation_unit, schema
+                )
+                units = ident_result.units
+                ident_skip_reason = ident_result.skip_reason
+
+            if not units:
+                print("  ⚠️ No units found, skipping document")
+                if known_units is not None:
+                    return ExtractionResult(rows=[], skip_reason=KNOWN_UNITS_EMPTY)
+                return ExtractionResult(rows=[], skip_reason=ident_skip_reason)
+
+            print(
+                f"  📊 Found {len(units)} observation units: {[u['unit_name'] for u in units]}"
+            )
+
+            # Create context cache for this document (Gemini only, reused across units).
+            # The cache is shared by all units, so it keeps the full extraction rules
+            # but names no unit; each call carries the prompt for its own unit.
+            cache_system_prompt = build_val_with_unit_prompt(None)
+            self._uncached_doc_layout = None
+            self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
+
+            if self._is_gemini_backend():
+                # Used when there is no cache, and as the fallback if the cache
+                # expires mid-document (see _generate).
+                self._uncached_doc_layout = (cache_system_prompt, paper_text)
+            if self._active_context_cache:
+                print(f"  📦 Created context cache for {paper_title}")
+            elif self._is_gemini_backend():
+                logger.info(
+                    "[%s] No context cache; sending the cached-path layout inline "
+                    "(document twice)", paper_title,
+                )
+            if self._active_figure_images:
+                print(f"  🖼️ Attached {len(self._active_figure_images)} figure image(s) for {paper_title}")
+
+            # Extract values for each unit
+            import time as time_module
+
+            results = []
+            failed_units = []
+            last_error = None
+            stopped_early = False
             for i, unit in enumerate(units, 1):
                 if self._check_stop_requested():
                     print("🛑 Stop requested during unit extraction")
+                    stopped_early = True
                     break
 
                 unit_name = unit.get("unit_name", f"Unit {i}")
@@ -2533,29 +2548,32 @@ class PaperProcessor:
                         "[%s] No values extracted for unit %s, row dropped (%.1fs)",
                         paper_title, unit_name, unit_elapsed,
                     )
+
+            self.cache.log_stats()
+            if failed_units and not results:
+                # No rows at all, so without a reason this document would look like
+                # a success with nothing to extract and miss the skip report. Also
+                # covers failures mixed with units that came back empty.
+                reason = (
+                    f"Extraction failed for {len(failed_units)} of {len(units)} units, "
+                    f"no rows produced. Last error: {last_error}"
+                )
+                print(f"  ⚠️ {paper_title}: {reason}")
+                return ExtractionResult(rows=[], skip_reason=reason, stopped=stopped_early)
+            if failed_units:
+                self._emit_warning(
+                    paper_title,
+                    "unit_extraction_failed",
+                    f"Extraction failed for {len(failed_units)} of {len(units)} units, "
+                    f"which are missing from the output: {', '.join(failed_units)}. "
+                    f"Last error: {last_error}",
+                )
+            print(
+                f"  ✅ Completed {paper_title}: {len(results)} rows from {len(units)} units"
+            )
+            return ExtractionResult(rows=results, stopped=stopped_early)
         finally:
             self._delete_document_cache()
-
-        self.cache.log_stats()
-        if failed_units and not results:
-            # No rows at all, so without a reason this document would look like
-            # a success with nothing to extract and miss the skip report. Also
-            # covers failures mixed with units that came back empty.
-            reason = (
-                f"Extraction failed for {len(failed_units)} of {len(units)} units, "
-                f"no rows produced. Last error: {last_error}"
-            )
-            print(f"  ⚠️ {paper_title}: {reason}")
-            return ExtractionResult(rows=[], skip_reason=reason)
-        if failed_units:
-            self._emit_warning(
-                paper_title,
-                "unit_extraction_failed",
-                f"Extraction failed for {len(failed_units)} of {len(units)} units, "
-                f"which are missing from the output: {', '.join(failed_units)}. "
-                f"Last error: {last_error}",
-            )
-        print(
-            f"  ✅ Completed {paper_title}: {len(results)} rows from {len(units)} units"
-        )
-        return ExtractionResult(rows=results)
+            self._active_figure_images = []
+            self._active_figures_by_id = {}
+            self._active_norm_captions_cache = None
