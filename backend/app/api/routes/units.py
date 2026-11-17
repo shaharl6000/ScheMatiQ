@@ -1,7 +1,9 @@
 """API routes for observation unit view and merge operations."""
 
+import asyncio
 import io
 import json
+import logging
 import mimetypes
 from collections import OrderedDict
 from pathlib import Path
@@ -27,6 +29,8 @@ from app.services.session_documents import local_document_dirs, committed_docs_d
 from app.services.file_parser import is_system_file
 from app.services.document_preprocessor import commit_document_to_documents_dir
 from app.storage import get_storage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -476,16 +480,25 @@ async def attach_source_documents(
             continue
         try:
             written = pending_dir / name
-            written.write_bytes(content)
+            await asyncio.to_thread(written.write_bytes, content)
             # Convert to a lib-readable text form in documents/ (mirroring the
             # ingestion pipeline) so previews render as text with reliable
             # grounding highlights rather than serving raw PDF/office bytes. On
             # conversion failure the original stays in pending_documents/ as a
-            # best-effort fallback.
+            # best-effort fallback. Conversion (PDF->text, Docling figures) can
+            # take seconds to minutes per file, so it runs off the event loop.
             try:
-                commit_document_to_documents_dir(written, documents_dir)
-            except Exception:  # pragma: no cover - defensive; keep the original
-                pass
+                await asyncio.to_thread(
+                    commit_document_to_documents_dir, written, documents_dir
+                )
+            except Exception:
+                logger.warning(
+                    "Could not convert attached document %s for session %s; "
+                    "keeping the original for preview",
+                    name,
+                    session_id,
+                    exc_info=True,
+                )
             attached.append(name)
         except Exception as e:  # pragma: no cover - defensive
             skipped.append({"name": name, "reason": str(e)})

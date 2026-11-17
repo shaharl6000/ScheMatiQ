@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+from app.core.background_tasks import spawn_background
 import logging
 from typing import Dict, Set, Any, List, Optional
 from fastapi import WebSocket
@@ -47,7 +48,7 @@ class WebSocketManager:
             self.connections[session_id].add(websocket)
 
         # Schedule flush of any buffered cell events (outside lock)
-        asyncio.create_task(self._flush_buffered_events(session_id))
+        spawn_background(self._flush_buffered_events(session_id), name=f"ws-flush-{session_id}")
 
     async def remove_connection(self, session_id: str, websocket: WebSocket):
         """Remove a WebSocket connection."""

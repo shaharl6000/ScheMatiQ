@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-import asyncio
+from app.core.background_tasks import spawn_background
 import json
 from datetime import datetime
 from pathlib import Path
@@ -608,7 +608,7 @@ async def stop_schematiq(session_id: str):
             raise HTTPException(status_code=404, detail=result["message"])
 
         # Background safety net: force-cancels task if it doesn't stop within 60s
-        asyncio.create_task(schematiq_runner.stop_execution(session_id))
+        spawn_background(schematiq_runner.stop_execution(session_id), name=f"stop-execution-{session_id}")
 
         return {"status": "stopping", "message": result["message"]}
     except HTTPException:

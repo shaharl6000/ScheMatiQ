@@ -1,6 +1,7 @@
 """Upload API endpoints."""
 
 import asyncio
+from app.core.background_tasks import spawn_background
 import logging
 import uuid
 import json
@@ -1142,7 +1143,7 @@ async def stop_document_processing(session_id: str):
             raise HTTPException(status_code=404, detail=result["message"])
 
         # Background: wait for processing to actually stop, then update status
-        asyncio.create_task(_finalize_upload_stop(session_id))
+        spawn_background(_finalize_upload_stop(session_id), name=f"finalize-upload-stop-{session_id}")
 
         return {"status": "stopping", "message": result["message"], "stopped": True}
 

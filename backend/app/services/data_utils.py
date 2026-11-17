@@ -582,16 +582,22 @@ async def persist_session_data_file(
     session_id: str,
     local_path: Path,
     storage=None,
-) -> None:
-    """Write a data JSONL file back to the active storage backend."""
+) -> bool:
+    """Write a data JSONL file back to the active storage backend.
+
+    Returns True when the file was uploaded. A failed upload is logged as an
+    error (the local copy is still updated, but it will not survive a
+    redeploy) and returns False; it does not raise, so a storage hiccup never
+    fails the user's edit.
+    """
     if not local_path.exists():
-        return
+        return False
 
     clear_missing_session_data_cache(session_id)
 
     storage_path = storage_path_for_data_file(local_path, session_id)
     if not storage_path:
-        return
+        return False
 
     if storage is None:
         from app.storage import get_storage
@@ -607,15 +613,18 @@ async def persist_session_data_file(
             content_type="application/x-ndjson",
         )
     except Exception as exc:
-        logger.warning(
-            "Failed to persist %s to storage data/%s for session %s: %s",
+        logger.error(
+            "Failed to persist %s to storage data/%s for session %s: %s "
+            "(the change is saved locally only and will be lost on redeploy)",
             local_path,
             storage_path,
             session_id,
             exc,
+            exc_info=True,
         )
-    else:
-        clear_missing_session_data_cache(session_id)
+        return False
+    clear_missing_session_data_cache(session_id)
+    return True
 
 
 def rename_column_keys_in_row(row: dict, old_name: str, new_name: str) -> bool:

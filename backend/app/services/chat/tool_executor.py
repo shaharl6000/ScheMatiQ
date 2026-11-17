@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from app.core.background_tasks import spawn_background
 import json
 import logging
 from datetime import datetime
@@ -1025,7 +1026,7 @@ class ToolExecutor:
       if not DEVELOPER_MODE:
           schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
       await concurrency_limiter.acquire(session_id, "schematiq")
-      asyncio.create_task(self._run_schematiq_task(session_id))
+      spawn_background(self._run_schematiq_task(session_id), name=f"chat-schematiq-run-{session_id}")
       return {"status": "started", "message": "ScheMatiQ execution started."}
 
   async def _run_schematiq_task(self, session_id: str) -> None:
@@ -1153,7 +1154,7 @@ class ToolExecutor:
               "The pipeline is still stopping. Wait a few seconds and try again."
           )
 
-      asyncio.create_task(self._run_schematiq_task(session_id))
+      spawn_background(self._run_schematiq_task(session_id), name=f"chat-schematiq-run-{session_id}")
       return {
           "status": "started",
           "message": (
