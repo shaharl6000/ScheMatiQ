@@ -71,11 +71,14 @@ import {
   EMPTY_DATA_RECHECK_MS,
   SILENT_REFRESH_MIN_INTERVAL_MS,
   SHEETS,
+  WORKSPACE_ROW_LIMIT,
+  WORKSPACE_UNIT_LIMIT,
   LEGACY_CELL_FORMATS_STORAGE_KEY,
   cellFormatsStorageKey,
 } from './constants';
 import { DataLoadErrorBanner } from './DataLoadErrorBanner';
 import { DataMissingBanner } from './DataMissingBanner';
+import { RowLimitBanner } from './RowLimitBanner';
 import { useEditHistory } from './hooks/useEditHistory';
 import {
   buildExportFilename,
@@ -491,8 +494,8 @@ function Workspace() {
     // promotion must switch endpoints immediately, and depending on the
     // sessionMode state re-created this callback and re-subscribed the socket.
     const fetchData = sessionModeRef.current === 'load'
-      ? () => loadAPI.getData(sessionId, 0, 500)
-      : () => schematiqAPI.getData(sessionId, 0, 500);
+      ? () => loadAPI.getData(sessionId, 0, WORKSPACE_ROW_LIMIT)
+      : () => schematiqAPI.getData(sessionId, 0, WORKSPACE_ROW_LIMIT);
     const token = beginDataFetch();
     // Keep the rows already on screen when the fetch fails instead of blanking
     // the grid. The columns come from the schema, so falling back to emptyData
@@ -688,7 +691,7 @@ function Workspace() {
         setConfig(nextConfig);
         if (!silent) setLoading(false);
         await loadHeavy(
-          () => schematiqAPI.getData(sessionId, 0, 500),
+          () => schematiqAPI.getData(sessionId, 0, WORKSPACE_ROW_LIMIT),
           () => unitsAPI.getDocuments(sessionId),
         );
       } catch (err) {
@@ -712,7 +715,7 @@ function Workspace() {
         setConfig(null);
         if (!silent) setLoading(false);
         await loadHeavy(
-          () => loadAPI.getData(sessionId, 0, 500),
+          () => loadAPI.getData(sessionId, 0, WORKSPACE_ROW_LIMIT),
           () => unitsAPI.getDocuments(sessionId),
         );
       }
@@ -745,7 +748,7 @@ function Workspace() {
         setConfig(null);
         if (!silent) setLoading(false);
         await loadHeavy(
-          () => loadAPI.getData(sessionId, 0, 500),
+          () => loadAPI.getData(sessionId, 0, WORKSPACE_ROW_LIMIT),
           () => unitsAPI.getDocuments(sessionId),
         );
         return;
@@ -981,7 +984,7 @@ function Workspace() {
     let cancelled = false;
     const timer = window.setTimeout(() => {
       unitsAPI
-        .getData(sessionId, { page: 0, pageSize: 500 })
+        .getData(sessionId, { page: 0, pageSize: WORKSPACE_UNIT_LIMIT })
         .then((res) => {
           if (cancelled) return;
           // Same transient-empty guard as the by-document view: both views read
@@ -1390,6 +1393,18 @@ function Workspace() {
         .filter((name): name is string => Boolean(name) && !name.toLowerCase().endsWith('_excerpt')),
     [schema?.schema],
   );
+  // The grid loads one page (WORKSPACE_ROW_LIMIT rows / WORKSPACE_UNIT_LIMIT
+  // units). When the project has more, say so instead of silently showing a
+  // partial table.
+  const rowLimit = useMemo(() => {
+    if (dataView === 'by_unit') {
+      if (!unitData.has_more) return null;
+      return { shown: unitData.rows.length, total: unitData.total_count, unit: 'units' as const };
+    }
+    if (!data.has_more) return null;
+    return { shown: data.rows.length, total: data.total_count, unit: 'rows' as const };
+  }, [data.has_more, data.rows.length, data.total_count, dataView, unitData.has_more, unitData.rows.length, unitData.total_count]);
+
   const isDataMissing =
     Boolean(sessionId) &&
     !sessionMissing &&
@@ -1695,6 +1710,9 @@ function Workspace() {
               canRerun={allExtractableColumns.length > 0}
               onRerun={() => requestReextraction(allExtractableColumns)}
             />
+          )}
+          {activeSheet === 'data' && !isDataMissing && rowLimit && (
+            <RowLimitBanner shown={rowLimit.shown} total={rowLimit.total} unit={rowLimit.unit} />
           )}
           {activeSheet === 'data' && skippedDocuments.length > 0 && (
             <div style={{ flex: '0 0 auto', padding: '0 8px' }}>
