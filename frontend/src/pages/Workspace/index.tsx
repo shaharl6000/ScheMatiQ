@@ -204,7 +204,7 @@ function Workspace() {
       italic: false,
       underline: false,
       strikethrough: false,
-      align: 'left',
+      align: 'start',
     };
   });
   // Per-project cell formatting (bold, italic, ...), loaded when the session

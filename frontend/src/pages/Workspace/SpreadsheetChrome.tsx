@@ -320,9 +320,16 @@ export function SpreadsheetChrome({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="workspace-menu-content w-32">
-            {(['left', 'center', 'right'] as TableTextAlign[]).map((align) => (
-              <DropdownMenuItem key={align} onClick={() => onApplyFormat({ align })}>
-                {align[0].toUpperCase() + align.slice(1)}
+            {(
+              [
+                { value: 'start', label: 'Auto' },
+                { value: 'left', label: 'Left' },
+                { value: 'center', label: 'Center' },
+                { value: 'right', label: 'Right' },
+              ] as const
+            ).map(({ value, label }) => (
+              <DropdownMenuItem key={value} onClick={() => onApplyFormat({ align: value })}>
+                {label}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
