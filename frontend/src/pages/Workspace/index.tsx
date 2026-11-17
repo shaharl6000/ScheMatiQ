@@ -76,6 +76,7 @@ import {
 import { DataLoadErrorBanner } from './DataLoadErrorBanner';
 import { DataMissingBanner } from './DataMissingBanner';
 import { useEditHistory } from './hooks/useEditHistory';
+import { useSingleFlight } from './hooks/useSingleFlight';
 import {
   buildExportFilename,
   chainDataCommittedCallbacks,
@@ -131,6 +132,22 @@ type RefreshDataOptions = {
   // payload without racing React's async state update.
   onCommitted?: (data: PaginatedData) => void;
 };
+
+// Merges two queued row-refresh requests into the one trailing fetch that
+// serves both: it stays silent (deferrable while a cell editor is open) only
+// if both were silent, applies through the editor if either forced, accepts an
+// empty payload if either was the empty re-check, and notifies both callers.
+function mergeRefreshDataOptions(
+  a?: RefreshDataOptions,
+  b?: RefreshDataOptions,
+): RefreshDataOptions {
+  return {
+    silent: Boolean(a?.silent) && Boolean(b?.silent),
+    force: Boolean(a?.force) || Boolean(b?.force),
+    acceptEmpty: Boolean(a?.acceptEmpty) || Boolean(b?.acceptEmpty),
+    onCommitted: chainDataCommittedCallbacks(a?.onCommitted, b?.onCommitted),
+  };
+}
 
 // Opens a "Save as" dialog (folder + name) where the browser supports it, and
 // falls back to a plain download elsewhere. Returns false if the user cancelled.
@@ -418,7 +435,8 @@ function Workspace() {
   // Fetch row data only — no status/schema/session churn. Used after cell edits
   // and for background polls so a refresh cannot re-render the grid from stale
   // React state while the network round-trip is still in flight.
-  const refreshData = useCallback(async (options?: RefreshDataOptions) => {
+  // Callers go through refreshData below, which serializes these fetches.
+  const runRefreshData = useCallback(async (options?: RefreshDataOptions) => {
     if (!sessionId) return;
     const fetchData = sessionMode === 'load'
       ? () => loadAPI.getData(sessionId, 0, 500)
@@ -435,6 +453,16 @@ function Workspace() {
     noteDataFetchSuccess();
     applyData(nextData, options);
   }, [applyData, noteDataFetchError, noteDataFetchSuccess, sessionId, sessionMode]);
+
+  // Single-flight row refresh. During extraction the socket asks for a full
+  // page refetch on every extracted cell, and nothing stopped those fetches
+  // from piling up in parallel (and landing out of order, so an older payload
+  // could overwrite a newer one). Now at most one fetch runs; requests that
+  // arrive meanwhile collapse into one trailing fetch that starts after it,
+  // with their options merged, so no requested refresh is lost and every
+  // caller's promise resolves once data at least as fresh as its request has
+  // been applied.
+  const refreshData = useSingleFlight(runRefreshData, mergeRefreshDataOptions);
 
   // The re-check scheduled by applyData needs the current refreshData without
   // making applyData depend on it (they are mutually recursive by design).
