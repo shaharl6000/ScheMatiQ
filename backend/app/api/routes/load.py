@@ -624,9 +624,9 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
             
             try:
                 file_path = pending_dir / filename
-                with open(file_path, 'wb') as f:
-                    content = await file.read()
-                    f.write(content)
+                content = await file.read()
+                # Up to 25MB per file: write off the event loop.
+                await asyncio.to_thread(file_path.write_bytes, content)
 
                 # to_thread rather than run_in_executor: it copies the context,
                 # so preprocessing logs keep the session id.
@@ -986,8 +986,7 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
                 # dataset); only its last component (local_name) is used here,
                 # so it cannot point outside pending_documents/ (CWE-22).
                 file_path = pending_dir / local_name
-                with open(file_path, 'wb') as f:
-                    f.write(content)
+                await asyncio.to_thread(file_path.write_bytes, content)
 
                 # to_thread rather than run_in_executor: it copies the context,
                 # so preprocessing logs keep the session id.

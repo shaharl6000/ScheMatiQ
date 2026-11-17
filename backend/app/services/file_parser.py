@@ -1,5 +1,6 @@
 """File parsing and data processing service."""
 
+import asyncio
 import csv
 import json
 import logging
@@ -350,7 +351,11 @@ class FileParser:
                 await f.write(chunk)
 
         if file_path.suffix.lower() == '.zip':
-            return self._extract_project_bundle(file_path, session_dir)
+            # Unpacking can take seconds for a large bundle: keep it off the
+            # event loop.
+            return await asyncio.to_thread(
+                self._extract_project_bundle, file_path, session_dir
+            )
 
         return file_path
 
