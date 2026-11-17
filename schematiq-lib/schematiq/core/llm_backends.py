@@ -543,6 +543,39 @@ class LLMInterface(ABC):
         return get_max_output_tokens(self._provider, model, task=task)
 
 
+# generate() kwargs that only GeminiLLM understands. Shared pipeline code
+# passes some of them to every backend (value extraction always sends
+# response_schema, None for other backends). The chat-completions SDKs raise
+# TypeError on any argument they do not know, so these are never forwarded.
+_GEMINI_ONLY_KWARGS = frozenset(
+    {"thinking_budget", "thinking_level", "response_schema", "images"}
+)
+
+
+def _chat_completion_params(
+    default_args: Dict[str, Any], kwargs: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Map backend-agnostic generate() kwargs to chat.completions.create args.
+
+    ``max_output_tokens`` (the name every caller uses) becomes ``max_tokens``.
+    Gemini-only kwargs are dropped, with a warning when one carries a value
+    the caller relies on (a schema or images). ``None`` values are dropped so
+    they do not override the defaults or reach the API as null.
+    """
+    params = dict(default_args)
+    for key, value in kwargs.items():
+        if key in _GEMINI_ONLY_KWARGS:
+            if key in ("response_schema", "images") and value:
+                logger.warning(
+                    "%s is only supported by the Gemini backend; ignoring it", key
+                )
+            continue
+        if value is None:
+            continue
+        params["max_tokens" if key == "max_output_tokens" else key] = value
+    return params
+
+
 class _OpenAICompatibleChatMixin:
     """Shared chat-completions generation + retry loop for OpenAI-compatible SDKs."""
 
@@ -557,13 +590,17 @@ class _OpenAICompatibleChatMixin:
         prompt : str | list[dict]
             • str  – plain prompt → wrapped as [{'role':'user', 'content': prompt}]
             • list – already‑formatted chat messages (role/content pairs)
+        **kwargs
+            The same kwargs callers pass to GeminiLLM.generate, mapped by
+            _chat_completion_params (max_output_tokens → max_tokens,
+            Gemini-only kwargs dropped).
         """
         prompt_len = sum(
             len(m.get("content", ""))
             for m in (prompt if isinstance(prompt, list) else [{"content": prompt}])
         )
 
-        params = {**self._default_args, **kwargs}
+        params = _chat_completion_params(self._default_args, kwargs)
 
         if isinstance(prompt, list):
             params["messages"] = prompt
@@ -576,7 +613,8 @@ class _OpenAICompatibleChatMixin:
         for attempt in range(max_retries + 1):
             try:
                 resp = self._client.chat.completions.create(**params)
-                content = resp.choices[0].message.content.strip()
+                # content is None when the model refuses or returns no text.
+                content = (resp.choices[0].message.content or "").strip()
 
                 LLMCallTracker.get_instance().increment(
                     model=self.model,
