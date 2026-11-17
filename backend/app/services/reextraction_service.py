@@ -23,7 +23,8 @@ from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services.atomic_jsonl import write_jsonl_atomic
 from app.services import schematiq_thread_pool, concurrency_limiter
 from app.services.data_utils import row_name_of
-from app.services.session_data_store import session_write_lock
+from app.services.session_data_store import save_session_data_file, session_write_lock
+from app.services.llm_api_keys import restore_api_keys
 from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
 from app.storage.factory import get_storage
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR, EXTRACTION_MAX_WORKERS
@@ -997,34 +998,35 @@ class ReextractionService(WebSocketBroadcasterMixin):
         sorted_docs = sorted(local_files)
         logger.debug(f"Backfill - {len(sorted_docs)} documents available for {total_rows} rows")
 
-        # Read all rows
-        rows = []
-        with open(data_file, 'r') as f:
-            for line in f:
-                if line.strip():
-                    rows.append(json.loads(line))
+        async with session_write_lock(session_id):
+            # Read all rows
+            rows = []
+            with open(data_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        rows.append(json.loads(line))
 
-        if not rows:
-            return
+            if not rows:
+                return
 
-        # Match rows to documents by index
-        updated = False
-        for idx, row in enumerate(rows):
-            papers = row.get('papers') or []
-            # Only backfill if papers is empty
-            if not papers and idx < len(sorted_docs):
-                doc_name = sorted_docs[idx]
-                row['papers'] = [doc_name]
-                updated = True
+            # Match rows to documents by index
+            updated = False
+            for idx, row in enumerate(rows):
+                papers = row.get('papers') or []
+                # Only backfill if papers is empty
+                if not papers and idx < len(sorted_docs):
+                    doc_name = sorted_docs[idx]
+                    row['papers'] = [doc_name]
+                    updated = True
 
-        # Write back if any updates were made
-        if updated:
-            # Backup first
-            backup_file = session_dir / f"data_backup_backfill_{int(datetime.now().timestamp())}.jsonl"
-            import shutil
-            shutil.copy2(data_file, backup_file)
+            # Write back if any updates were made
+            if updated:
+                # Backup first
+                backup_file = session_dir / f"data_backup_backfill_{int(datetime.now().timestamp())}.jsonl"
+                import shutil
+                shutil.copy2(data_file, backup_file)
 
-            write_jsonl_atomic(data_file, rows)
+                await save_session_data_file(session_id, data_file, rows)
 
     async def download_cloud_papers(
         self,
@@ -2907,7 +2909,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         f"{user_config.get('provider')} {user_config.get('model')}, "
                         f"api_key={'present' if user_config.get('api_key') else 'MISSING'}"
                     )
-                    enforced = _enforce_release_llm_config(user_config, is_schema_creation=False)
+                    enforced = _enforce_release_llm_config(restore_api_keys(session_id, user_config), is_schema_creation=False)
                     return schematiq_utils.build_llm(enforced)
             except Exception as e:
                 logger.debug(f"Could not load user LLM config: {e}")
@@ -2923,7 +2925,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 backend_config = schematiq_config.get("value_extraction_backend") or schematiq_config.get("schema_creation_backend")
                 if backend_config:
                     logger.debug(f"Using LLM config from schematiq_config.json (work dir): {backend_config.get('provider')} {backend_config.get('model')}")
-                    enforced = _enforce_release_llm_config(backend_config, is_schema_creation=False)
+                    enforced = _enforce_release_llm_config(restore_api_keys(session_id, backend_config), is_schema_creation=False)
                     return schematiq_utils.build_llm(enforced)
         except Exception as e:
             logger.debug(f"Could not load LLM config from schematiq_config.json (work dir): {e}")
@@ -2939,7 +2941,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
                         logger.debug(f"Using LLM config from session metadata: {backend_config.get('provider')} {backend_config.get('model')}")
-                        enforced = _enforce_release_llm_config(backend_config, is_schema_creation=False)
+                        enforced = _enforce_release_llm_config(restore_api_keys(session_id, backend_config), is_schema_creation=False)
                         return schematiq_utils.build_llm(enforced)
         except Exception as e:
             logger.debug(f"Could not load LLM config from session metadata: {e}")
@@ -2956,7 +2958,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
                         logger.debug(f"Using LLM config from parsed_schema.json: {backend_config.get('provider')} {backend_config.get('model')}")
-                        enforced = _enforce_release_llm_config(backend_config, is_schema_creation=False)
+                        enforced = _enforce_release_llm_config(restore_api_keys(session_id, backend_config), is_schema_creation=False)
                         return schematiq_utils.build_llm(enforced)
         except Exception as e:
             logger.debug(f"Could not load LLM config from parsed_schema.json: {e}")
@@ -2971,7 +2973,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 backend_config = schematiq_config.get("value_extraction_backend") or schematiq_config.get("schema_creation_backend")
                 if backend_config:
                     logger.debug(f"Using LLM config from schematiq_config.json (data dir): {backend_config.get('provider')} {backend_config.get('model')}")
-                    enforced = _enforce_release_llm_config(backend_config, is_schema_creation=False)
+                    enforced = _enforce_release_llm_config(restore_api_keys(session_id, backend_config), is_schema_creation=False)
                     return schematiq_utils.build_llm(enforced)
         except Exception as e:
             logger.debug(f"Could not load LLM config from schematiq_config.json (data dir): {e}")

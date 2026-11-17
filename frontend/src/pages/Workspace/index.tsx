@@ -145,6 +145,11 @@ async function downloadAs(path: string, filename: string): Promise<boolean> {
   });
 }
 
+// v2: align default became 'start' (direction-aware). See the migration in
+// the tableDisplay initializer.
+const TABLE_DISPLAY_STORAGE_KEY = 'workspace.tableDisplay.v2';
+const LEGACY_TABLE_DISPLAY_STORAGE_KEY = 'workspace.tableDisplay';
+
 function Workspace() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -191,21 +196,31 @@ function Workspace() {
   const [dataLoading, setDataLoading] = useState(false);
   const [importingProject, setImportingProject] = useState(false);
   const [tableDisplay, setTableDisplay] = useState<TableDisplayOptions>(() => {
-    try {
-      const saved = localStorage.getItem('workspace.tableDisplay');
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Ignore malformed local display preferences.
-    }
-    return {
+    const defaults: TableDisplayOptions = {
       fontFamily: 'Inter',
       fontSize: 12,
       bold: false,
       italic: false,
       underline: false,
       strikethrough: false,
-      align: 'left',
+      align: 'start',
     };
+    try {
+      const saved = localStorage.getItem(TABLE_DISPLAY_STORAGE_KEY);
+      if (saved) return { ...defaults, ...JSON.parse(saved) };
+      // Saves from before direction-aware alignment stored the old default
+      // 'left', which would pin Hebrew/Arabic cells to the left. Carry the
+      // other options over once and reset only that legacy default.
+      const legacy = localStorage.getItem(LEGACY_TABLE_DISPLAY_STORAGE_KEY);
+      if (legacy) {
+        const parsed = { ...defaults, ...JSON.parse(legacy) };
+        if (parsed.align === 'left') parsed.align = 'start';
+        return parsed;
+      }
+    } catch {
+      // Ignore malformed local display preferences.
+    }
+    return defaults;
   });
   // Per-project cell formatting (bold, italic, ...), loaded when the session
   // changes. See cellFormatsStorageKey.
@@ -1121,7 +1136,7 @@ function Workspace() {
 
   const updateTableDisplay = useCallback((next: TableDisplayOptions) => {
     setTableDisplay(next);
-    localStorage.setItem('workspace.tableDisplay', JSON.stringify(next));
+    localStorage.setItem(TABLE_DISPLAY_STORAGE_KEY, JSON.stringify(next));
   }, []);
 
   const updateSheetSelection = useCallback((nextSelection: SheetSelection) => {
@@ -1562,6 +1577,15 @@ function Workspace() {
   const skippedTotalDocuments =
     (session?.statistics?.total_documents ?? session?.statistics?.total_rows ?? 0) + skippedDocuments.length;
 
+  // Stable callbacks for SpreadsheetSurface. It is wrapped in React.memo, so an
+  // inline arrow here would give it new props on every Workspace render (chat,
+  // socket progress) and silently defeat the memo.
+  const openSourcePanel = useCallback(() => setShowSourcePanel(true), []);
+  const requestGroundingScroll = useCallback(() => setGroundingScrollNonce((n) => n + 1), []);
+  const refreshSurfaceSilently = useCallback(() => refresh({ silent: true }), [refresh]);
+  const openNewProjectDialog = useCallback(() => setProjectDialogOpen(true), []);
+  const openImportPicker = useCallback(() => importInputRef.current?.click(), []);
+
   const dataGridNode = (
     <div className="workspace-grid-wrap">
       <SpreadsheetSurface
@@ -1576,9 +1600,9 @@ function Workspace() {
         onSelectionChange={updateSheetSelection}
         onGroundingHighlight={handleGroundingHighlight}
         onFigureGrounding={handleFigureGrounding}
-        onRequestSourcePanel={() => setShowSourcePanel(true)}
-        onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
-        onRefresh={() => refresh({ silent: true })}
+        onRequestSourcePanel={openSourcePanel}
+        onGroundingScrollRequest={requestGroundingScroll}
+        onRefresh={refreshSurfaceSilently}
         onSchemaRefresh={refreshSchemaOnly}
         onRefreshData={refreshAfterEdit}
         onOptimisticCellEdit={applyOptimisticCellEdits}
@@ -1592,8 +1616,8 @@ function Workspace() {
         onRetryWrongCells={retryWrongCells}
         applyCellUpdatesRef={applyCellUpdatesRef}
         cellFormatKeyRef={cellFormatKeyRef}
-        onNewProject={() => setProjectDialogOpen(true)}
-        onImportProject={() => importInputRef.current?.click()}
+        onNewProject={openNewProjectDialog}
+        onImportProject={openImportPicker}
         sessionMissing={sessionMissing}
         compactRows={compactRows}
         layoutRevision={gridLayoutRevision}
@@ -1636,8 +1660,8 @@ function Workspace() {
         sessionStatus={chromeStatus}
         canUseProjectActions={Boolean(sessionId)}
         displayOptions={selectedDisplayOptions}
-        onNewProject={() => setProjectDialogOpen(true)}
-        onImportProject={() => importInputRef.current?.click()}
+        onNewProject={openNewProjectDialog}
+        onImportProject={openImportPicker}
         onOpenClassic={() => {
           if (sessionId) navigate(`/visualize/${sessionId}?mode=${sessionMode}`);
         }}

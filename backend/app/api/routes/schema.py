@@ -17,6 +17,7 @@ from app.models.modification import ModificationAction
 from app.services.schema_manager import SchemaManager
 from app.services.reextraction_service import ConfirmedEmptyScopeError
 from app.services.data_editor import DataEditor
+from app.services.llm_api_keys import remember_api_keys, strip_api_keys
 from app.services import session_manager, websocket_manager, concurrency_limiter
 from app.core.exceptions import CapacityExceededError
 from app.core.logging_utils import set_session_context
@@ -337,6 +338,8 @@ async def delete_column(session_id: str, column_name: str):
             "message": f"Column '{column_name}' deleted successfully"
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -441,8 +444,10 @@ async def add_column(
             session_dir = Path(DEFAULT_DATA_DIR) / session_id
             session_dir.mkdir(parents=True, exist_ok=True)
             user_config_file = session_dir / "user_llm_config.json"
+            # The key stays in memory only (see llm_api_keys).
+            remember_api_keys(session_id, add_request.llm_config)
             with open(user_config_file, 'w') as f:
-                json.dump(add_request.llm_config, f, indent=2)
+                json.dump(strip_api_keys(add_request.llm_config), f, indent=2)
             config_for_log = {k: v for k, v in add_request.llm_config.items() if k != 'api_key'}
             has_api_key = 'api_key' in add_request.llm_config and add_request.llm_config['api_key']
             logger.debug(f"Saved user LLM config for add-column: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
@@ -533,6 +538,8 @@ async def merge_columns(
             "processing": True
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -631,6 +638,8 @@ async def validate_schema(session_id: str) -> SchemaValidationResponse:
             missing_definitions=missing_definitions
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -663,6 +672,8 @@ async def create_schema_backup(session_id: str):
             "timestamp": backup_data["timestamp"]
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -760,6 +771,8 @@ async def get_schema_change_status(session_id: str) -> SchemaChangeStatusRespons
             missing_baseline=changes["missing_baseline"]
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -777,6 +790,8 @@ async def discover_papers(session_id: str) -> PaperDiscoveryResponse:
 
         return PaperDiscoveryResponse(**discovery)
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -830,6 +845,8 @@ async def precheck_document_availability(
             rows_with_missing_docs=result["rows_with_missing_docs"]
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -860,8 +877,10 @@ async def start_reextraction(
             session_dir = Path(DEFAULT_DATA_DIR) / session_id
             session_dir.mkdir(parents=True, exist_ok=True)
             user_config_file = session_dir / "user_llm_config.json"
+            # The key stays in memory only (see llm_api_keys).
+            remember_api_keys(session_id, request.llm_config)
             with open(user_config_file, 'w') as f:
-                json.dump(request.llm_config, f, indent=2)
+                json.dump(strip_api_keys(request.llm_config), f, indent=2)
             # Log without exposing full API key
             config_for_log = {k: v for k, v in request.llm_config.items() if k != 'api_key'}
             has_api_key = 'api_key' in request.llm_config and request.llm_config['api_key']
@@ -981,6 +1000,8 @@ async def capture_schema_baseline(session_id: str):
             "column_count": len([c for c in session.columns if not c.name.lower().endswith('_excerpt')])
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1018,6 +1039,8 @@ async def upload_missing_papers(
             "uploaded_files": uploaded
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1111,6 +1134,8 @@ async def get_continue_discovery_documents(session_id: str) -> ContinueDiscovery
 
         return ContinueDiscoveryDocumentsResponse(**result)
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

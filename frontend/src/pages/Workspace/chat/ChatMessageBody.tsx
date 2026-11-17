@@ -24,10 +24,10 @@ export const ChatMessageBody = memo(function ChatMessageBody({
 }) {
   const isMarkdown = message.role === 'assistant' && message.kind !== 'tool_log';
   if (!isMarkdown) {
-    return <>{message.content}</>;
+    return <div dir="auto">{message.content}</div>;
   }
   return (
-    <div className="workspace-chat-markdown">
+    <div className="workspace-chat-markdown" dir="auto">
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
         {message.content}
       </ReactMarkdown>
