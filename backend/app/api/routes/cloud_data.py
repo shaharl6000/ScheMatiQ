@@ -6,6 +6,7 @@ from typing import List, Optional, Any, Dict, Tuple
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
+from app.core.safe_paths import safe_upload_name
 from app.storage import get_storage
 from app.storage.interface import DatasetInfo
 
@@ -392,7 +393,16 @@ async def upload_initial_schema(file: UploadFile = File(...)):
 
     # Upload the file
     storage = get_storage()
-    schema_name = file.filename.replace('.json', '')
+    # The client controls file.filename and it becomes a storage key; keep
+    # only its last component so it cannot point outside the schemas folder
+    # (CWE-22).
+    try:
+        base_name = safe_upload_name(file.filename)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    schema_name = base_name.removesuffix('.json')
+    if not schema_name:
+        raise HTTPException(status_code=400, detail="Invalid file name")
 
     try:
         path = await storage.upload_initial_schema(schema_name, content, "application/json")
