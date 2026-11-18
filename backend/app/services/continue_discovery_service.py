@@ -1194,24 +1194,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 actual_unique_count = non_excerpt_count
                 logger.debug(f"Column count after adding new columns: {actual_unique_count} (non-excerpt), {len(session.columns)} (total with excerpts)")
 
-                # Add null values for new columns in data.jsonl
-                data_file = self._get_data_dir() / operation.session_id / "data.jsonl"
-                async with session_write_lock(operation.session_id):
-                    # After a redeploy the local copy is gone until hydrated.
-                    await resolve_session_data_files(operation.session_id)
-                    if data_file.exists():
-                        rows = []
-                        with open(data_file, 'r') as f:
-                            for line in f:
-                                if line.strip():
-                                    row = json.loads(line)
-                                    # Rows keep values either nested under 'data' or flat.
-                                    values = row['data'] if isinstance(row.get('data'), dict) else row
-                                    for col_data in new_columns:
-                                        values.setdefault(col_data["name"], None)
-                                    rows.append(row)
-                        await save_session_data_file(operation.session_id, data_file, rows)
-                        logger.info(f"Added null values for {len(new_columns)} new columns in data.jsonl")
+                await self._add_null_columns_to_data_files(
+                    operation.session_id, [c["name"] for c in new_columns]
+                )
 
                 # Update schema_evolution for Statistics chart
                 if session.statistics:
@@ -1808,6 +1793,34 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             await concurrency_limiter.release(operation.session_id)
             self._cleanup_operation(operation_id)
 
+    async def _add_null_columns_to_data_files(
+        self, session_id: str, column_names: List[str]
+    ) -> None:
+        """Add the new columns (null) to every session data file.
+
+        Same file set as _merge_incremental_data (hydrating after a redeploy),
+        so a ScheMatiQ-run session's extracted_data.jsonl gets them too.
+        """
+        async with session_write_lock(session_id):
+            data_files = await resolve_session_data_files(session_id)
+            for data_file in data_files:
+                rows = []
+                with open(data_file, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            row = json.loads(line)
+                            # Rows keep values either nested under 'data' or flat.
+                            values = row['data'] if isinstance(row.get('data'), dict) else row
+                            for name in column_names:
+                                values.setdefault(name, None)
+                            rows.append(row)
+                await save_session_data_file(session_id, data_file, rows)
+            if data_files:
+                logger.info(
+                    f"Added null values for {len(column_names)} new columns "
+                    f"in {len(data_files)} data file(s)"
+                )
+
     async def _merge_incremental_data(
         self,
         session_id: str,
@@ -1896,7 +1909,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 return bool(extracted)
 
             import shutil
-            timestamp = int(datetime.now().timestamp())
+            # Rows found in several files are counted once.
+            updated_keys: set = set()
             rows_updated = 0
             for data_file in data_files:
                 rows = []
@@ -1907,15 +1921,21 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
                 for row in rows:
                     if apply_extracted(row):
-                        rows_updated += 1
+                        key = row_dedup_key(row)
+                        if not key[0]:
+                            rows_updated += 1
+                        elif key not in updated_keys:
+                            updated_keys.add(key)
+                            rows_updated += 1
                     # Ensure every row has the new columns (null if not extracted)
                     values = row['data'] if isinstance(row.get('data'), dict) else row
                     for col_name in new_columns:
                         values.setdefault(col_name, None)
 
-                # Backup next to the file, then write and persist.
+                # Keep one pre-merge copy next to the file (overwritten each
+                # run, so backups do not pile up), then write and persist.
                 backup_file = data_file.with_name(
-                    f"{data_file.stem}_backup_incremental_{timestamp}.jsonl"
+                    f"{data_file.stem}_backup_incremental.jsonl"
                 )
                 shutil.copy2(data_file, backup_file)
                 await save_session_data_file(session_id, data_file, rows)
