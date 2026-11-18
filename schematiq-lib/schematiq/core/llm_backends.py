@@ -1191,12 +1191,7 @@ class GeminiLLM(LLMInterface):
         else:
             prompt_text = prompt
 
-        # Prepend system_prefix if configured
-        if self.system_prefix:
-            if system_instruction:
-                system_instruction = f"{self.system_prefix}\n\n{system_instruction}"
-            else:
-                system_instruction = self.system_prefix
+        system_instruction = self._with_system_prefix(system_instruction)
 
         # Log prompt size for performance correlation
         print(f"🚀 Starting Gemini API call (model: {self.model}, prompt: ~{len(prompt_text):,} chars)")
@@ -1382,6 +1377,14 @@ class GeminiLLM(LLMInterface):
             **_gemini_usage(response),
         )
 
+    def _with_system_prefix(self, system_instruction: Optional[str]) -> Optional[str]:
+        """Prepend the configured ``system_prefix`` to ``system_instruction``."""
+        if not self.system_prefix:
+            return system_instruction
+        if not system_instruction:
+            return self.system_prefix
+        return f"{self.system_prefix}\n\n{system_instruction}"
+
     def create_context_cache(self, system_instruction: str, document_text: str, ttl_seconds: int = 1800):
         """Create a context cache for system prompt + document.
 
@@ -1392,7 +1395,9 @@ class GeminiLLM(LLMInterface):
             cache = self._client.caches.create(
                 model=self.model,
                 config=self.types.CreateCachedContentConfig(
-                    system_instruction=system_instruction,
+                    # Same system prompt as generate(), so cached and uncached
+                    # calls see identical instructions.
+                    system_instruction=self._with_system_prefix(system_instruction),
                     contents=[document_text],
                     ttl=f"{ttl_seconds}s",
                 )
