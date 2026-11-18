@@ -1,5 +1,6 @@
 """File parsing and data processing service."""
 
+import asyncio
 import csv
 import json
 import logging
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 from app.models.upload import FileValidationResult, ColumnMappingRequest
 from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SchemaEvolution, SchemaSnapshot
-from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE, MAX_FILE_SIZE
 from app.core.safe_paths import safe_upload_name
 from app.services import row_filtering
 from app.services.session_documents import pending_docs_dir
@@ -28,6 +29,14 @@ from app.services.llm_api_keys import strip_api_keys
 # generous for developer-mode projects with thousands of documents.
 _BUNDLE_MAX_ENTRY_BYTES = 200 * 1024 * 1024
 _BUNDLE_MAX_TOTAL_BYTES = 5 * 1024 * 1024 * 1024
+# A bundle expanding past this many times its own size is a decompression
+# bomb. Real bundles are mostly PDFs, which barely compress, so 100x leaves a
+# wide margin. Bundles that unpack to less than the floor are never checked.
+_BUNDLE_MAX_EXPANSION_RATIO = 100
+_BUNDLE_RATIO_FLOOR_BYTES = 100 * 1024 * 1024
+# Each document becomes one file on disk; cap the count so a bundle of empty
+# entries cannot exhaust inodes. Well above developer-mode project sizes.
+_BUNDLE_MAX_ENTRIES = 50_000
 
 _COLUMN_DISPLAY_NAMES = {
     '_row_name': 'Doc Name',
@@ -189,14 +198,15 @@ class FileParser:
 
             elif detected_format == "zip":
                 # Project bundle: must be a valid zip containing project.json.
-                import io as _io
                 import zipfile
-                content = await file.read()
+                # Read only the central directory from the spooled upload;
+                # loading a large bundle into memory here is not needed (CWE-400).
                 await file.seek(0)
-                if not zipfile.is_zipfile(_io.BytesIO(content)):
+                if not zipfile.is_zipfile(file.file):
                     errors.append("Invalid project bundle: not a valid .zip file.")
                 else:
-                    with zipfile.ZipFile(_io.BytesIO(content)) as zf:
+                    file.file.seek(0)
+                    with zipfile.ZipFile(file.file) as zf:
                         names = zf.namelist()
                         if not any(n == "project.json" or n.endswith("/project.json") for n in names):
                             errors.append("Project bundle is missing project.json.")
@@ -315,6 +325,19 @@ class FileParser:
 
         return result
 
+    @staticmethod
+    def max_upload_bytes(filename: Optional[str]) -> int:
+        """Largest accepted upload for this file name (CWE-400).
+
+        Tables (CSV/JSON) are parsed in memory, so they keep MAX_FILE_SIZE, the
+        same cap the classic upload page enforces. A project bundle carries the
+        project's documents and can be much larger; its compressed size cannot
+        legitimately exceed the unpacked-size cap the bundle import enforces.
+        """
+        if (filename or "").lower().endswith(".zip"):
+            return _BUNDLE_MAX_TOTAL_BYTES
+        return MAX_FILE_SIZE
+
     async def save_uploaded_file(self, session_id: str, file: UploadFile):
         """Save uploaded file to data directory.
 
@@ -329,12 +352,18 @@ class FileParser:
         # The client controls file.filename; keep only its last component so
         # it cannot point outside the session dir (CWE-22).
         file_path = session_dir / safe_upload_name(file.filename)
+        # Stream in chunks so a large bundle never sits in memory whole.
+        await file.seek(0)
         async with aiofiles.open(file_path, 'wb') as f:
-            content = await file.read()
-            await f.write(content)
+            while chunk := await file.read(1024 * 1024):
+                await f.write(chunk)
 
         if file_path.suffix.lower() == '.zip':
-            return self._extract_project_bundle(file_path, session_dir)
+            # Unpacking can take seconds for a large bundle: keep it off the
+            # event loop.
+            return await asyncio.to_thread(
+                self._extract_project_bundle, file_path, session_dir
+            )
 
         return file_path
 
@@ -350,6 +379,7 @@ class FileParser:
         pending_dir.mkdir(parents=True, exist_ok=True)
         project_json_path = session_dir / "project.json"
 
+        zip_size = zip_path.stat().st_size
         written: List[Path] = []
         try:
             with zipfile.ZipFile(zip_path) as zf:
@@ -370,8 +400,13 @@ class FileParser:
 
                 if any(info.file_size > _BUNDLE_MAX_ENTRY_BYTES for info, _ in wanted):
                     raise ValueError("Project bundle has a file that is too large to import")
-                if sum(info.file_size for info, _ in wanted) > _BUNDLE_MAX_TOTAL_BYTES:
+                if len(wanted) > _BUNDLE_MAX_ENTRIES:
+                    raise ValueError("Project bundle has too many files to import")
+                total = sum(info.file_size for info, _ in wanted)
+                if total > _BUNDLE_MAX_TOTAL_BYTES:
                     raise ValueError("Project bundle is too large to import")
+                if total > _BUNDLE_RATIO_FLOOR_BYTES and total > zip_size * _BUNDLE_MAX_EXPANSION_RATIO:
+                    raise ValueError("Project bundle expands too much to import")
 
                 for info, dest in wanted:
                     written.append(dest)
