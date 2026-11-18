@@ -1380,7 +1380,10 @@ def _preprocess_and_record(
     Returns (display_name, None) on success, or (None, error_message) on failure.
     The caller is responsible for writing file_path to disk before calling this.
     """
-    from app.services.document_preprocessor import preprocess_uploaded_file
+    from app.services.document_preprocessor import (
+        preprocess_uploaded_file,
+        session_figures_enabled,
+    )
 
     txt_stem_name = Path(filename).stem + ".txt"
     if (docs_dir / txt_stem_name).exists() or (docs_dir / filename).exists():
@@ -1392,7 +1395,12 @@ def _preprocess_and_record(
     # Extract figures next to the .txt in pending_documents/ (documents_dir=None
     # resolves to source_path.parent) so they ride the pending -> committed
     # commit together with the text (see SchematiqRunner._move_pending_documents).
-    result = preprocess_uploaded_file(file_path, original_filename=filename, documents_dir=None)
+    result = preprocess_uploaded_file(
+        file_path,
+        original_filename=filename,
+        documents_dir=None,
+        enable_figure_extraction=session_figures_enabled(session),
+    )
     if not result.success:
         file_path.unlink(missing_ok=True)
         return None, f"{filename}: {result.status}"

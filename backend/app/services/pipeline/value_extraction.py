@@ -10,6 +10,7 @@ from datetime import datetime
 
 from app.core.config import EXTRACTION_MAX_WORKERS
 from app.services import schematiq_thread_pool
+from app.services.document_preprocessor import session_figures_enabled
 from app.services.pipeline.callbacks import create_value_extracted_callback, create_warning_callback
 from app.services.reference_context import build_reference_context
 from app.models.session import SkippedDocumentInfo
@@ -76,6 +77,7 @@ async def run_value_extraction(
     on_warning = create_warning_callback(ws_manager, session_id, loop)
 
     reference_context = await build_reference_context(session)
+    enable_figures = session_figures_enabled(session)
 
     extraction_result = {}
 
@@ -99,6 +101,7 @@ async def run_value_extraction(
             on_warning=on_warning,
             write_skip_rationale_artifact=write_artifacts,
             reference_context=reference_context,
+            enable_figures=enable_figures,
         )
         return extraction_result
 

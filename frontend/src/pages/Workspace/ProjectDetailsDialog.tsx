@@ -57,6 +57,7 @@ export function ProjectDetailsDialog({
       ? [{ label: 'Documents per batch', value: config?.documents_batch_size ?? '' }]
       : []),
     { label: 'Max schema columns', value: config?.max_keys_schema ?? '' },
+    { label: 'Extract figures & tables', value: config?.enable_figure_extraction === false ? 'Off' : 'On' },
   ];
 
   const provenanceRows = [

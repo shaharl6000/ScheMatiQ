@@ -197,7 +197,7 @@ def test_commit_bytes_stages_inside_temp_dir(tmp_path, monkeypatch, evil):
         document_preprocessor.tempfile, "mkdtemp", lambda prefix="": str(stage_root)
     )
 
-    def fake_commit(path, documents_dir, worker_id=None):
+    def fake_commit(path, documents_dir, worker_id=None, enable_figure_extraction=True):
         staged.append(path)
         return documents_dir / path.name
 

@@ -260,6 +260,7 @@ export interface ScheMatiQConfig {
   document_randomization_seed: number;
   convergence_threshold?: number;  // Batches without schema change to determine convergence (developer mode)
   skip_value_extraction?: boolean;  // Schema discovery only mode
+  enable_figure_extraction?: boolean;  // Extract & attach PDF figures/tables per project
   review_observation_unit?: boolean;  // Pause after observation unit discovery for user review
   previous_session_id?: string;  // Session ID to copy uploaded files from
   opt_out_data_collection?: boolean;  // User opted out of research data archival

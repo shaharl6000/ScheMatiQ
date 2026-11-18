@@ -73,6 +73,7 @@ const DEFAULT_CONFIG: ScheMatiQConfig = {
   output_path: 'outputs/visualization_output.json',
   document_randomization_seed: DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
   skip_value_extraction: false,
+  enable_figure_extraction: true,
 };
 
 export function normalizeRestoredRetriever(ret?: RetrieverConfig): RetrieverConfig | undefined {
@@ -326,6 +327,7 @@ const ScheMatiQConfigPage = () => {
       document_randomization_seed: restoredConfig.document_randomization_seed ?? DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
       convergence_threshold: restoredConfig.convergence_threshold,
       skip_value_extraction: restoredConfig.skip_value_extraction ?? false,
+      enable_figure_extraction: restoredConfig.enable_figure_extraction ?? true,
       schema_creation_backend: restoredConfig.schema_creation_backend || prev.schema_creation_backend,
       value_extraction_backend: restoredConfig.value_extraction_backend || prev.value_extraction_backend,
       retriever: normalizeRestoredRetriever(restoredConfig.retriever) || prev.retriever,
@@ -467,6 +469,7 @@ const ScheMatiQConfigPage = () => {
   // stay unchanged.
   const advancedValue: AdvancedSettingsValue = useMemo(() => ({
     skipValueExtraction: config.skip_value_extraction ?? false,
+    enableFigureExtraction: config.enable_figure_extraction ?? true,
     maxKeysSchema: config.max_keys_schema,
     batchStrategy: config.batch_strategy ?? 'smart',
     documentsBatchSize: config.documents_batch_size,
@@ -494,6 +497,7 @@ const ScheMatiQConfigPage = () => {
 
   const applyAdvancedSettings = (patch: Partial<AdvancedSettingsValue>) => {
     if (patch.skipValueExtraction !== undefined) handleConfigChange('skip_value_extraction', patch.skipValueExtraction);
+    if (patch.enableFigureExtraction !== undefined) handleConfigChange('enable_figure_extraction', patch.enableFigureExtraction);
     if (patch.maxKeysSchema !== undefined) handleConfigChange('max_keys_schema', patch.maxKeysSchema);
     if (patch.documentsBatchSize !== undefined) handleConfigChange('documents_batch_size', patch.documentsBatchSize);
     if (patch.batchStrategy !== undefined) handleConfigChange('batch_strategy', patch.batchStrategy);
@@ -711,6 +715,7 @@ const ScheMatiQConfigPage = () => {
     if (config.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED) return true;
     if (config.convergence_threshold != null && config.convergence_threshold !== DEFAULT_CONVERGENCE_THRESHOLD) return true;
     if (config.skip_value_extraction) return true;
+    if (config.enable_figure_extraction === false) return true;
     if (config.schema_creation_backend.provider !== DEFAULT_CONFIG.schema_creation_backend.provider ||
         config.schema_creation_backend.model !== DEFAULT_CONFIG.schema_creation_backend.model ||
         config.schema_creation_backend.temperature !== DEFAULT_CONFIG.schema_creation_backend.temperature) return true;

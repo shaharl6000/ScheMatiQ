@@ -581,7 +581,7 @@ def test_commit_pdf_forwards_documents_dir_to_preprocess(pending_dir, tmp_path, 
     documents_dir through to preprocess_uploaded_file(), which does."""
     captured = {}
 
-    def fake_preprocess(source_path, *, worker_id=None, original_filename=None, documents_dir=None, figure_stem=None):
+    def fake_preprocess(source_path, *, worker_id=None, original_filename=None, documents_dir=None, figure_stem=None, enable_figure_extraction=True):
         captured["documents_dir"] = documents_dir
         captured["figure_stem"] = figure_stem
         return dp.ExtractionResult(

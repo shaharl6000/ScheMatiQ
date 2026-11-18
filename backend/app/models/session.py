@@ -196,6 +196,7 @@ class SessionMetadata(BaseModel):
     original_row_count: Optional[int] = None  # Original uploaded data row count
     additional_rows_added: int = 0  # Rows added through document processing
     cloud_dataset: Optional[str] = None  # Original cloud dataset name (e.g., "nes_full_text")
+    enable_figure_extraction: bool = True  # Per-project opt-out for Docling figure extraction & vision attachment
     document_metadata: Dict[str, Dict[str, Any]] = Field(default_factory=dict)  # Per-document metadata: filename -> { "url": str, ... }
     # Stems of user-uploaded files — never attach PubMed/EuropePMC URLs to these
     pubmed_link_suppressed_stems: List[str] = Field(default_factory=list)

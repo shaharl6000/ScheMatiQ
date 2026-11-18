@@ -1277,12 +1277,20 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         shared commit path; a failed conversion leaves both the text and the
         artifacts in pending rather than orphaning artifacts in documents/.
         """
-        from app.services.document_preprocessor import commit_pending_documents
+        from app.services.document_preprocessor import (
+            commit_pending_documents,
+            session_figures_enabled,
+        )
 
+        session = self.session_manager.get_session(session_id)
         data_session_dir = Path(DEFAULT_DATA_DIR) / session_id
         pending_dir = pending_docs_dir(data_session_dir)
         completed_docs_dir = committed_docs_dir(data_session_dir)
-        moved_count = commit_pending_documents(pending_dir, completed_docs_dir)
+        moved_count = commit_pending_documents(
+            pending_dir,
+            completed_docs_dir,
+            enable_figure_extraction=session_figures_enabled(session),
+        )
         if moved_count:
             logger.info(
                 "Committed %d file(s) from pending_documents/ to documents/ for session %s",

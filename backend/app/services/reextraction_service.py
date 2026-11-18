@@ -1044,6 +1044,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
             List of successfully downloaded paper names
         """
         storage = get_storage()
+        session = self.session_manager.get_session(session_id)
+        from app.services.document_preprocessor import session_figures_enabled
+        figures_enabled = session_figures_enabled(session)
         session_dir = Path(DEFAULT_DATA_DIR) / session_id
         docs_dir = committed_docs_dir(session_dir)
         docs_dir.mkdir(parents=True, exist_ok=True)
@@ -1056,7 +1059,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     from app.services.document_preprocessor import commit_bytes_to_documents_dir
                     # Ensure paper_name has the correct extension
                     local_filename = paper_name if '.' in paper_name else f"{paper_name}.txt"
-                    committed = commit_bytes_to_documents_dir(content, local_filename, docs_dir)
+                    committed = commit_bytes_to_documents_dir(
+                        content,
+                        local_filename,
+                        docs_dir,
+                        enable_figure_extraction=figures_enabled,
+                    )
                     if committed:
                         downloaded.append(paper_name)
                         logger.debug(f"Downloaded {paper_name} from Supabase to {committed}")
@@ -2156,6 +2164,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                 # Load reference context before entering the sync extraction thread.
                 reference_context = await build_reference_context(session)
+                from app.services.document_preprocessor import session_figures_enabled
+                figures_enabled = session_figures_enabled(session)
 
                 def run_extraction():
                     return build_table_jsonl(
@@ -2177,6 +2187,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         write_skip_rationale_artifact=session.write_artifacts,
                         reference_context=reference_context,
                         feedback=operation.feedback,
+                        enable_figures=figures_enabled,
                     )
 
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)

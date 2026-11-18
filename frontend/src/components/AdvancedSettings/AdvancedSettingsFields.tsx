@@ -35,6 +35,7 @@ import type { InitialSchemaColumn } from '@/types';
  */
 export interface AdvancedSettingsValue {
   skipValueExtraction: boolean;
+  enableFigureExtraction: boolean;
   maxKeysSchema: number;
   batchStrategy: 'smart' | 'fixed';
   documentsBatchSize: number;
@@ -77,6 +78,7 @@ export const RETRIEVER_DEFAULTS = {
 
 export const DEFAULT_ADVANCED_SETTINGS: AdvancedSettingsValue = {
   skipValueExtraction: false,
+  enableFigureExtraction: true,
   maxKeysSchema: DEFAULT_MAX_KEYS_SCHEMA,
   batchStrategy: 'smart',
   documentsBatchSize: DEFAULT_DOCUMENTS_BATCH_SIZE,
@@ -159,6 +161,19 @@ export function AdvancedSettingsFields({
         <Label htmlFor="adv-skip-value" className="text-sm cursor-pointer inline-flex items-center gap-1.5">
           Discover columns only (skip data extraction)
           <InfoTooltip text="Discover only the table schema without extracting data values. Faster and lower cost." />
+        </Label>
+      </div>
+
+      {/* Figure & table extraction */}
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="adv-enable-figures"
+          checked={value.enableFigureExtraction}
+          onCheckedChange={(checked) => onChange({ enableFigureExtraction: checked === true })}
+        />
+        <Label htmlFor="adv-enable-figures" className="text-sm cursor-pointer inline-flex items-center gap-1.5">
+          Extract figures and tables from PDFs
+          <InfoTooltip text="Parse captioned figures and tables from PDF documents and include them during extraction. Turn off for text-only documents (such as court rulings) for faster uploads and lower token usage." />
         </Label>
       </div>
 

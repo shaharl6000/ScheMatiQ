@@ -52,7 +52,7 @@ async def test_attach_source_documents_converts_off_the_event_loop(tmp_path, mon
     loop_thread = threading.get_ident()
     seen_threads: list[int] = []
 
-    def fake_commit(written: Path, documents_dir: Path):
+    def fake_commit(written: Path, documents_dir: Path, enable_figure_extraction: bool = True):
         seen_threads.append(threading.get_ident())
         raise ValueError("conversion failed")  # original must still be kept
 

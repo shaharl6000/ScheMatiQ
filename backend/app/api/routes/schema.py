@@ -1026,11 +1026,20 @@ async def upload_missing_papers(
         uploaded = []
         # Handle file uploads if provided
         if files:
-            from app.services.document_preprocessor import commit_bytes_to_documents_dir
+            from app.services.document_preprocessor import (
+                commit_bytes_to_documents_dir,
+                session_figures_enabled,
+            )
+            figures_enabled = session_figures_enabled(session)
             for file in files:
                 if hasattr(file, 'filename') and hasattr(file, 'read'):
                     content = await file.read()
-                    committed = commit_bytes_to_documents_dir(content, file.filename, docs_dir)
+                    committed = commit_bytes_to_documents_dir(
+                        content,
+                        file.filename,
+                        docs_dir,
+                        enable_figure_extraction=figures_enabled,
+                    )
                     if committed:
                         uploaded.append(file.filename)
 
