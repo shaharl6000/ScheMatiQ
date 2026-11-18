@@ -19,6 +19,10 @@ _ORIGINAL_CWD = os.getcwd()
 _TEST_CWD = tempfile.mkdtemp(prefix="schematiq-tests-")
 os.chdir(_TEST_CWD)
 
+# Tests call LLM-starting endpoints freely; rate limits are tested on their own
+# in test_rate_limit.py, which enables them explicitly.
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+
 import pytest  # noqa: E402
 
 from app.services import session_manager  # noqa: E402

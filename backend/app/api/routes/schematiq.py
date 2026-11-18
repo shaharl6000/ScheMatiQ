@@ -8,7 +8,8 @@ from pathlib import Path
 from app.core.background_tasks import spawn_background
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
 from typing import Any, List, Optional
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, Depends
+from app.core.rate_limit import limit_llm_runs
 from pydantic import BaseModel
 
 from app.models.session import VisualizationSession, SessionType, SessionStatus, SessionMetadata, FilterSortRequest
@@ -281,7 +282,7 @@ async def estimate_schematiq_cost_preview(request: CostEstimateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/run/{session_id}")
+@router.post("/run/{session_id}", dependencies=[Depends(limit_llm_runs)])
 async def run_schematiq(session_id: str, background_tasks: BackgroundTasks):
     """Start ScheMatiQ execution."""
     try:
@@ -319,7 +320,7 @@ async def run_schematiq(session_id: str, background_tasks: BackgroundTasks):
         await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/resume/{session_id}")
+@router.post("/resume/{session_id}", dependencies=[Depends(limit_llm_runs)])
 async def resume_schematiq(session_id: str, background_tasks: BackgroundTasks):
     """Resume ScheMatiQ execution after observation unit review or rediscover schema.
 

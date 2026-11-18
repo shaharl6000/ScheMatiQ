@@ -172,7 +172,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition"],  # Allow frontend to read download filename
+    # Content-Disposition: download filename. Retry-After: rate-limit (429) wait time.
+    expose_headers=["Content-Disposition", "Retry-After"],
 )
 
 # Include routers
