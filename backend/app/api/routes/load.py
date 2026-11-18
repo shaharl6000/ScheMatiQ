@@ -2,7 +2,10 @@
 
 import asyncio
 import logging
+import shutil
 import uuid
+import zipfile
+import zlib
 import json
 import random
 from datetime import datetime
@@ -186,6 +189,19 @@ async def upload_file(file: UploadFile = File(...)):
         set_session_context(session_id)
         logger.debug(f"Received file upload: {file.filename}, size: {file.size}")
 
+        # Refuse an oversized upload before any of it is read into memory (CWE-400).
+        limit = FileParser.max_upload_bytes(file.filename)
+        size = file.size
+        if size is None:
+            file.file.seek(0, 2)
+            size = file.file.tell()
+            file.file.seek(0)
+        if size > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File is too large to import (limit {limit // (1024 * 1024)} MB)",
+            )
+
         # Validate file
         parser = FileParser()
         validation = await parser.validate_file(file)
@@ -211,8 +227,15 @@ async def upload_file(file: UploadFile = File(...)):
 
         logger.debug(f"Created session: {session_id}")
 
-        # Save file content for processing
-        await parser.save_uploaded_file(session_id, file)
+        # Save file content for processing. An unusable file name, or a project
+        # bundle that is refused (too large, corrupt, no project.json), is the
+        # client's error: answer 400 and remove the half-made session dir.
+        try:
+            await parser.save_uploaded_file(session_id, file)
+        # zlib.error and EOFError come from damaged or truncated compressed data.
+        except (ValueError, zipfile.BadZipFile, zlib.error, EOFError) as exc:
+            shutil.rmtree(parser.data_dir / session_id, ignore_errors=True)
+            raise HTTPException(status_code=400, detail=str(exc))
         logger.debug(f"File saved for session: {session_id}")
 
         # Store session
