@@ -2,7 +2,8 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from app.core.rate_limit import limit_chat
 
 from app.models.chat import (
     ChatConfirmRequest,
@@ -76,7 +77,7 @@ async def get_chat_messages(session_id: str) -> ChatMessagesResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.post("/{session_id}/message", response_model=ChatMessageResponse)
+@router.post("/{session_id}/message", response_model=ChatMessageResponse, dependencies=[Depends(limit_chat)])
 async def send_chat_message(
     session_id: str,
     request: ChatMessageRequest,
@@ -107,7 +108,7 @@ async def send_chat_message(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.post("/{session_id}/confirm", response_model=ChatMessageResponse)
+@router.post("/{session_id}/confirm", response_model=ChatMessageResponse, dependencies=[Depends(limit_chat)])
 async def confirm_chat_action(
     session_id: str,
     request: ChatConfirmRequest,

@@ -4,7 +4,8 @@ Handles adding and removing observation units (rows) from extraction results.
 """
 
 import logging
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from app.core.rate_limit import limit_llm_runs
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
@@ -199,7 +200,7 @@ async def remove_bulk_observation_units(
     )
 
 
-@router.post("/add/{session_id}")
+@router.post("/add/{session_id}", dependencies=[Depends(limit_llm_runs)])
 async def add_observation_unit(
     session_id: str,
     request: AddObservationUnitRequest,

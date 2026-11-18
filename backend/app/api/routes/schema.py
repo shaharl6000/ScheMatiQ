@@ -2,7 +2,8 @@
 Schema editing API endpoints for ScheMatiQ.
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from app.core.rate_limit import limit_llm_runs
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
@@ -543,7 +544,7 @@ async def merge_columns(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/reprocess/{session_id}")
+@router.post("/reprocess/{session_id}", dependencies=[Depends(limit_llm_runs)])
 async def reprocess_documents(
     session_id: str, 
     reprocess_request: ReprocessRequest,
@@ -851,7 +852,7 @@ async def precheck_document_availability(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/reextract/{session_id}")
+@router.post("/reextract/{session_id}", dependencies=[Depends(limit_llm_runs)])
 async def start_reextraction(
     session_id: str,
     request: ReextractionRequest,
@@ -1140,7 +1141,7 @@ async def get_continue_discovery_documents(session_id: str) -> ContinueDiscovery
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/continue-discovery/start/{session_id}")
+@router.post("/continue-discovery/start/{session_id}", dependencies=[Depends(limit_llm_runs)])
 async def start_continue_discovery(
     session_id: str,
     request: ContinueDiscoveryRequest,
