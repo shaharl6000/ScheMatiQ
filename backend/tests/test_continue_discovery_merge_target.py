@@ -109,3 +109,37 @@ def test_extraction_scope_loads_rows_from_all_files_once(tmp_path):
     rows = cds._load_session_rows([work_file, data_file])
 
     assert [r["_row_name"] for r in rows] == ["r1", "r2"]
+
+
+async def test_repeated_merges_keep_one_backup_per_file(tmp_path, monkeypatch):
+    sid = "s-backup"
+    svc, _ = _service(tmp_path, monkeypatch, sid)
+    work_file = tmp_path / "work" / sid / "extracted_data.jsonl"
+    _write(work_file, [{"_row_name": "r1", "_source_document": "doc1"}])
+    extraction = tmp_path / "out.jsonl"
+    _write(extraction, [{"_row_name": "r1", "_source_document": "doc1", "c1": "v", "c2": "w"}])
+
+    await svc._merge_incremental_data(sid, ["c1"], extraction)
+    await svc._merge_incremental_data(sid, ["c2"], extraction)
+
+    backups = sorted(p.name for p in work_file.parent.iterdir() if "backup" in p.name)
+    assert backups == ["extracted_data_backup_incremental.jsonl"]
+    # The backup is the state right before the latest merge.
+    assert _read(work_file.parent / backups[0])[0]["c1"] == "v"
+    assert "c2" not in _read(work_file.parent / backups[0])[0]
+
+
+async def test_discovery_adds_null_columns_to_every_data_file(tmp_path, monkeypatch):
+    sid = "s-nulls"
+    svc, persisted = _service(tmp_path, monkeypatch, sid)
+    work_file = tmp_path / "work" / sid / "extracted_data.jsonl"
+    data_file = tmp_path / "data" / sid / "data.jsonl"
+    _write(work_file, [{"_row_name": "r1", "_source_document": "doc1", "c1": "keep"}])
+    _write(data_file, [{"_row_name": "r2", "_source_document": "doc2", "data": {}}])
+
+    await svc._add_null_columns_to_data_files(sid, ["c1", "c2"])
+
+    w = _read(work_file)[0]
+    assert w["c1"] == "keep" and w["c2"] is None
+    assert _read(data_file)[0]["data"] == {"c1": None, "c2": None}
+    assert sorted(persisted) == sorted([work_file, data_file])
