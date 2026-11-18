@@ -856,6 +856,18 @@ class HuggingFaceLLM(LLMInterface):
 # 4. Google Gemini implementation (using new google.genai SDK)              #
 ##############################################################################
 
+
+def _prepend_system_prefix(
+    system_prefix: Optional[str], system_instruction: Optional[str]
+) -> Optional[str]:
+    """Prepend a configured string ``system_prefix`` to ``system_instruction``."""
+    if isinstance(system_prefix, str) and system_prefix:
+        if system_instruction:
+            return f"{system_prefix}\n\n{system_instruction}"
+        return system_prefix
+    return system_instruction
+
+
 class GeminiLLM(LLMInterface):
     """
     Gemini LLM using the new google.genai SDK.
@@ -1192,11 +1204,9 @@ class GeminiLLM(LLMInterface):
             prompt_text = prompt
 
         # Prepend system_prefix if configured
-        if self.system_prefix:
-            if system_instruction:
-                system_instruction = f"{self.system_prefix}\n\n{system_instruction}"
-            else:
-                system_instruction = self.system_prefix
+        system_instruction = _prepend_system_prefix(
+            getattr(self, "system_prefix", None), system_instruction
+        )
 
         # Log prompt size for performance correlation
         print(f"🚀 Starting Gemini API call (model: {self.model}, prompt: ~{len(prompt_text):,} chars)")
@@ -1389,10 +1399,13 @@ class GeminiLLM(LLMInterface):
         Requires minimum ~1,024 tokens of cached content for Flash models.
         """
         try:
+            effective_system_instruction = _prepend_system_prefix(
+                getattr(self, "system_prefix", None), system_instruction
+            )
             cache = self._client.caches.create(
                 model=self.model,
                 config=self.types.CreateCachedContentConfig(
-                    system_instruction=system_instruction,
+                    system_instruction=effective_system_instruction,
                     contents=[document_text],
                     ttl=f"{ttl_seconds}s",
                 )
