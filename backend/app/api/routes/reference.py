@@ -10,7 +10,8 @@ consult. The extracted text is stored inline on the session.
 import logging
 from typing import List
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
+from app.core.rate_limit import limit_llm_runs
 from pydantic import BaseModel
 
 from app.services import session_manager, websocket_manager
@@ -124,7 +125,7 @@ class FillColumnRequest(BaseModel):
     reference_id: str
 
 
-@router.post("/{session_id}/fill-column")
+@router.post("/{session_id}/fill-column", dependencies=[Depends(limit_llm_runs)])
 async def fill_column_from_reference(session_id: str, body: FillColumnRequest) -> dict:
     """Start a background job that fills `column` for every row from a reference,
     running the model once per row and streaming cells as they complete. Returns

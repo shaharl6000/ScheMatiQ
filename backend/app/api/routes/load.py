@@ -14,7 +14,8 @@ from pathlib import Path
 from app.core.background_tasks import spawn_background
 from app.core.safe_paths import safe_upload_name
 from app.core.config import DEFAULT_DATA_DIR
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Query, Depends
+from app.core.rate_limit import limit_llm_runs
 from pydantic import BaseModel
 
 from app.models.session import VisualizationSession, SessionType, SessionMetadata, PaginatedData, SessionStatus, FilterSortRequest
@@ -706,7 +707,7 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/rediscover/{session_id}", response_model=dict)
+@router.post("/rediscover/{session_id}", response_model=dict, dependencies=[Depends(limit_llm_runs)])
 async def rediscover_imported_session(session_id: str, background_tasks: BackgroundTasks):
     """Run schema rediscovery for an imported (UPLOAD-type) session.
 
@@ -1081,7 +1082,7 @@ async def confirm_websocket_ready(session_id: str):
     return {"status": "ready", "connections": conn_count, "session_id": session_id}
 
 
-@router.post("/process-documents/{session_id}", response_model=dict)
+@router.post("/process-documents/{session_id}", response_model=dict, dependencies=[Depends(limit_llm_runs)])
 async def process_documents(session_id: str, background_tasks: BackgroundTasks, request: Optional[DocumentProcessingRequest] = None):
     """Start processing uploaded documents with extracted schema using ScheMatiQ pipeline."""
     try:

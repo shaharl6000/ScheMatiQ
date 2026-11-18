@@ -915,9 +915,18 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       addLog('info', 'ScheMatiQ execution started');
       // Stay in 'starting' state until we receive progress updates
     } catch (error: unknown) {
-      const status = (error as { response?: { status?: number } })?.response?.status;
+      const response = (error as { response?: { status?: number; headers?: Record<string, string> } })?.response;
+      const status = response?.status;
+      // A 429 with Retry-After is the per-client rate limit (temporary);
+      // without it, the deployment-wide LLM quota is exhausted.
+      const isRateLimited = status === 429 && Boolean(response?.headers?.['retry-after']);
 
-      if (status === 429) {
+      if (isRateLimited) {
+        setProcessingState('idle');
+        const message = extractApiErrorMessage(error, 'Too many requests. Please wait a few minutes and try again.');
+        setCapacityMessage(message);
+        addLog('warning', 'Rate limit reached, retry shortly');
+      } else if (status === 429) {
         // Quota exceeded — show orange banner
         setProcessingState('idle');
         setQuotaExceeded(true);
