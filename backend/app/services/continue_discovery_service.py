@@ -35,7 +35,12 @@ from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, MAX_DOCUMENTS
 from app.core.logging_utils import set_session_context
 from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
-from app.services.document_preprocessor import read_document_text, MATERIALIZABLE_EXTENSIONS, commit_bytes_to_documents_dir
+from app.services.document_preprocessor import (
+    read_document_text,
+    MATERIALIZABLE_EXTENSIONS,
+    commit_bytes_to_documents_dir,
+    session_figures_enabled,
+)
 from app.services.data_utils import extract_papers, row_name_of
 
 # ScheMatiQ library imports
@@ -701,13 +706,19 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 raise ValueError("cloud_dataset required for cloud document source")
 
             storage = get_storage()
+            figures_enabled = session_figures_enabled(self.session_manager.get_session(session_id))
             try:
                 files = await storage.list_files('datasets', cloud_dataset)
                 for file_path in files:
                     filename = file_path.rsplit('/', 1)[-1]
                     content = await storage.download_file('datasets', file_path)
                     if content:
-                        committed = commit_bytes_to_documents_dir(content, filename, docs_dir)
+                        committed = commit_bytes_to_documents_dir(
+                            content,
+                            filename,
+                            docs_dir,
+                            enable_figure_extraction=figures_enabled,
+                        )
                         if committed:
                             text_content = read_document_text(committed)
                             if text_content:
@@ -1668,6 +1679,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             if filtered_docs_dir.exists() and doc_count > 0:
                 logger.info(f"Starting incremental extraction for {len(columns_to_extract)} columns on {doc_count} documents")
 
+                figures_enabled = session_figures_enabled(session)
+
                 def run_extraction():
                     return build_table_jsonl(
                         schema_path=schema_file,
@@ -1682,6 +1695,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         on_value_extracted=on_value_extracted,
                         should_stop=should_stop,
                         write_skip_rationale_artifact=session.write_artifacts,
+                        enable_figures=figures_enabled,
                     )
 
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)

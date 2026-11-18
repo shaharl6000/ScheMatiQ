@@ -102,6 +102,7 @@ class ScheMatiQConfig(BaseModel):
     document_randomization_seed: int = 42
     convergence_threshold: Optional[int] = None  # Batches without schema change to determine convergence
     skip_value_extraction: bool = False  # Schema discovery only mode
+    enable_figure_extraction: bool = True  # Extract & attach PDF figures/tables per project
     review_observation_unit: bool = False  # Pause after observation unit discovery for user review
     previous_session_id: Optional[str] = None  # Session ID to copy uploaded files from
     count_toward_quota: bool = True  # If False, this session's LLM calls won't count toward the global quota

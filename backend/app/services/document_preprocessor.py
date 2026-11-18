@@ -70,11 +70,21 @@ def unique_dest_path(dest_dir: Path, filename: str) -> Path:
     return dest_path
 
 
+def session_figures_enabled(session: Any) -> bool:
+    """Return True when PDF figure/table extraction is enabled for ``session``."""
+    if session is None:
+        return True
+    meta = getattr(session, "metadata", None)
+    val = getattr(meta, "enable_figure_extraction", None)
+    return True if val is None else bool(val)
+
+
 def commit_document_to_documents_dir(
     source_path: Path,
     documents_dir: Path,
     *,
     worker_id: Optional[str] = None,
+    enable_figure_extraction: bool = True,
 ) -> Optional[Path]:
     """Convert if needed and place a lib-readable document in documents/.
 
@@ -114,12 +124,14 @@ def commit_document_to_documents_dir(
         # figures/{stem}/ folder — the dedup below (which the .txt file itself
         # benefits from) only runs after that damage is done.
         reserved_stem = unique_dest_path(documents_dir, f"{source_path.stem}.txt").stem
+        extra_kwargs = {"enable_figure_extraction": False} if not enable_figure_extraction else {}
         result = preprocess_uploaded_file(
             source_path,
             worker_id=worker_id,
             original_filename=source_path.name,
             documents_dir=documents_dir,
             figure_stem=reserved_stem,
+            **extra_kwargs,
         )
         if not result.success:
             logger.warning(
@@ -141,7 +153,12 @@ def commit_document_to_documents_dir(
     return None
 
 
-def commit_pending_documents(pending_dir: Path, documents_dir: Path) -> int:
+def commit_pending_documents(
+    pending_dir: Path,
+    documents_dir: Path,
+    *,
+    enable_figure_extraction: bool = True,
+) -> int:
     """Commit every document in ``pending_dir`` into ``documents_dir`` with its artifacts.
 
     Converts/moves each pending file into documents/ (see
@@ -166,9 +183,14 @@ def commit_pending_documents(pending_dir: Path, documents_dir: Path) -> int:
     documents_dir.mkdir(parents=True, exist_ok=True)
     moved_count = 0
     committed_stems: set[str] = set()
+    extra_kwargs = {"enable_figure_extraction": False} if not enable_figure_extraction else {}
     for file_path in sorted(pending_dir.iterdir()):
         if file_path.is_file():
-            dest = commit_document_to_documents_dir(file_path, documents_dir)
+            dest = commit_document_to_documents_dir(
+                file_path,
+                documents_dir,
+                **extra_kwargs,
+            )
             if dest:
                 moved_count += 1
                 committed_stems.add(dest.stem)
@@ -202,6 +224,7 @@ def commit_bytes_to_documents_dir(
     documents_dir: Path,
     *,
     worker_id: Optional[str] = None,
+    enable_figure_extraction: bool = True,
 ) -> Optional[Path]:
     """Persist downloaded/uploaded bytes into documents/ as a lib-readable file.
 
@@ -223,8 +246,12 @@ def commit_bytes_to_documents_dir(
     try:
         staged = staging_dir / safe_name
         staged.write_bytes(content)
+        extra_kwargs = {"enable_figure_extraction": False} if not enable_figure_extraction else {}
         return commit_document_to_documents_dir(
-            staged, documents_dir, worker_id=worker_id
+            staged,
+            documents_dir,
+            worker_id=worker_id,
+            **extra_kwargs,
         )
     except Exception as e:
         logger.warning("Could not commit bytes for %s: %s", filename, e)
@@ -359,6 +386,7 @@ def preprocess_uploaded_file(
     original_filename: Optional[str] = None,
     documents_dir: Optional[Path] = None,
     figure_stem: Optional[str] = None,
+    enable_figure_extraction: bool = True,
 ) -> ExtractionResult:
     """Convert an uploaded file to plain text in-place.
 
@@ -416,7 +444,7 @@ def preprocess_uploaded_file(
     figures_dir = documents_dir if documents_dir is not None else pending_dir
 
     figure_build = None
-    if ext == ".pdf":
+    if ext == ".pdf" and enable_figure_extraction:
         from app.services.figure_extraction_service import extract_figures
         # Must run before the original PDF is deleted below. Never raises.
         figure_build = extract_figures(source_path, figures_dir, source_document=orig_name)

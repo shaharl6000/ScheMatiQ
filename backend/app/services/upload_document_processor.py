@@ -32,6 +32,7 @@ from app.core.config import DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEFAUL
 # Max seconds to wait for build_table_jsonl to observe should_stop() after user stop
 MAX_UPLOAD_EXTRACTION_STOP_WAIT = 120.0
 from app.core.logging_utils import set_session_context
+from app.services.document_preprocessor import session_figures_enabled
 from app.services.session_documents import committed_docs_dir, pending_docs_dir
 
 logger = logging.getLogger(__name__)
@@ -250,6 +251,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         on_document_started=on_document_started,
                         should_stop=should_stop,  # Allow graceful stop
                         write_skip_rationale_artifact=session.write_artifacts,
+                        enable_figures=session_figures_enabled(session),
                     )
                     logger.info(f"EXTRACTION COMPLETED for session {session_id}")
                     return result
@@ -670,11 +672,19 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         # figures) from pending_documents/ to documents/ via the shared commit
         # path, so this finalizer commits artifacts identically to the post-run
         # mover.
-        from app.services.document_preprocessor import commit_pending_documents
+        from app.services.document_preprocessor import (
+            commit_pending_documents,
+            session_figures_enabled,
+        )
 
+        session = self.session_manager.get_session(session_id)
         pending_dir = pending_docs_dir(session_dir)
         docs_dir = committed_docs_dir(session_dir)
-        commit_pending_documents(pending_dir, docs_dir)
+        commit_pending_documents(
+            pending_dir,
+            docs_dir,
+            enable_figure_extraction=session_figures_enabled(session),
+        )
 
         # Persist the merged data.jsonl to durable storage so documents added to
         # an imported project survive a redeploy. Without this the read path would

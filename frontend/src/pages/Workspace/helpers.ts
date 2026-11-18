@@ -509,6 +509,7 @@ export function buildConfig(
     output_path: 'outputs/workspace_output.json',
     document_randomization_seed: advanced.seed,
     skip_value_extraction: advanced.skipValueExtraction,
+    enable_figure_extraction: advanced.enableFigureExtraction ?? true,
     initial_observation_unit: observationUnitFromValue(advanced),
     review_observation_unit: advanced.observationUnitMode === 'auto' ? advanced.reviewObservationUnit : undefined,
     initial_schema: advanced.initialSchemaData ?? undefined,

@@ -28,7 +28,10 @@ from app.services.data_utils import get_data_dir
 from app.services.session_documents import local_document_dirs, committed_docs_dir, pending_docs_dir
 from app.core.safe_paths import safe_upload_name
 from app.services.file_parser import is_system_file
-from app.services.document_preprocessor import commit_document_to_documents_dir
+from app.services.document_preprocessor import (
+    commit_document_to_documents_dir,
+    session_figures_enabled,
+)
 from app.storage import get_storage
 
 logger = logging.getLogger(__name__)
@@ -493,8 +496,16 @@ async def attach_source_documents(
             # best-effort fallback. Conversion (PDF->text, Docling figures) can
             # take seconds to minutes per file, so it runs off the event loop.
             try:
+                commit_kwargs = (
+                    {"enable_figure_extraction": False}
+                    if not session_figures_enabled(session)
+                    else {}
+                )
                 await asyncio.to_thread(
-                    commit_document_to_documents_dir, written, documents_dir
+                    commit_document_to_documents_dir,
+                    written,
+                    documents_dir,
+                    **commit_kwargs,
                 )
             except Exception:
                 logger.warning(

@@ -138,7 +138,10 @@ async def configure_schematiq(config: ScheMatiQConfig):
         
         # Create session
         session_id = str(uuid.uuid4())
-        metadata = SessionMetadata(source=f"ScheMatiQ Query: {config.query[:50]}...")
+        metadata = SessionMetadata(
+            source=f"ScheMatiQ Query: {config.query[:50]}...",
+            enable_figure_extraction=config.enable_figure_extraction,
+        )
         
         session = VisualizationSession(
             id=session_id,
@@ -231,6 +234,7 @@ async def estimate_schematiq_cost_preview(request: CostEstimateRequest):
             "docs_path": config.docs_path,
             "documents_batch_size": config.documents_batch_size,
             "skip_value_extraction": config.skip_value_extraction,
+            "enable_figure_extraction": config.enable_figure_extraction,
             "schema_creation_backend": {
                 "provider": config.schema_creation_backend.provider,
                 "model": config.schema_creation_backend.model,

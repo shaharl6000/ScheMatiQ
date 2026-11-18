@@ -42,7 +42,8 @@ class TableBuilder:
                  on_warning: Optional[OnWarningCallback] = None,
                  on_document_started: Optional[Callable[[str, int], None]] = None,
                  write_skip_rationale_artifact: Optional[bool] = None,
-                 reference_context: Optional[str] = None):
+                 reference_context: Optional[str] = None,
+                 enable_figures: bool = True):
         self.llm = llm
         self.retriever = retriever
         self.cache = cache or LLMCache()
@@ -51,6 +52,7 @@ class TableBuilder:
         self.should_stop = should_stop
         self.on_warning = on_warning
         self.on_document_started = on_document_started
+        self.enable_figures = bool(enable_figures)
         self._write_skip_rationale_artifact = (
             write_skip_rationale_artifact
             if write_skip_rationale_artifact is not None
@@ -560,7 +562,7 @@ class TableBuilder:
             retrieval_k=retrieval_k,
             known_units=paper_known_units,
             unit_targets=paper_unit_targets,
-            figures_dir=source_dir / "figures" / paper.stem,
+            figures_dir=(source_dir / "figures" / paper.stem) if getattr(self, "enable_figures", True) else None,
             feedback=feedback,
         )
 

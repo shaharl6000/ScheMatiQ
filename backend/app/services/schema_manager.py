@@ -51,6 +51,7 @@ def _row_has_column(row: Dict[str, Any], column_name: str) -> bool:
 # ScheMatiQ library imports
 from schematiq.value_extraction.config.constants import DISABLE_RETRIEVER
 from schematiq.value_extraction.main import build_table_jsonl
+from app.services.document_preprocessor import session_figures_enabled
 from app.services.session_documents import committed_docs_dir
 
 
@@ -186,6 +187,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         max_workers=1,
                         should_stop=should_stop,
                         write_skip_rationale_artifact=session.write_artifacts,
+                        enable_figures=session_figures_enabled(session),
                     )
                 )
 
@@ -644,6 +646,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         max_workers=1,
                         should_stop=should_stop,
                         write_skip_rationale_artifact=session.write_artifacts,
+                        enable_figures=session_figures_enabled(session),
                     )
                 )
                 

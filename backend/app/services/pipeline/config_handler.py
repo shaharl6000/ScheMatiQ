@@ -131,6 +131,7 @@ def convert_config_to_schematiq_format(
         "output_path": str(session_dir / "discovered_schema.json"),
         "document_randomization_seed": config.document_randomization_seed,
         "skip_value_extraction": config.skip_value_extraction,
+        "enable_figure_extraction": config.enable_figure_extraction,
         "convergence_threshold": config.convergence_threshold,
         "schema_creation_backend": {
             "provider": config.schema_creation_backend.provider,

@@ -42,6 +42,7 @@ def build_table_jsonl(
     write_skip_rationale_artifact: Optional[bool] = None,
     reference_context: Optional[str] = None,
     feedback: Optional[str] = None,
+    enable_figures: bool = True,
 ) -> Dict[str, Any]:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
@@ -83,6 +84,7 @@ def build_table_jsonl(
         on_document_started=on_document_started,
         write_skip_rationale_artifact=write_skip_rationale_artifact,
         reference_context=reference_context,
+        enable_figures=enable_figures,
     )
     table_builder.build_table_jsonl_multi_dirs(
         schema_path,
