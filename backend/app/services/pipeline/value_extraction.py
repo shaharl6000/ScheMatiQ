@@ -77,9 +77,7 @@ async def run_value_extraction(
     on_warning = create_warning_callback(ws_manager, session_id, loop)
 
     reference_context = await build_reference_context(session)
-    enable_figures = bool(
-        schematiq_config.get("enable_figure_extraction", session_figures_enabled(session))
-    )
+    enable_figures = session_figures_enabled(session)
 
     extraction_result = {}
 

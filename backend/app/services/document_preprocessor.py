@@ -9,7 +9,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from app.core.safe_paths import safe_upload_name
 
@@ -124,14 +124,13 @@ def commit_document_to_documents_dir(
         # figures/{stem}/ folder — the dedup below (which the .txt file itself
         # benefits from) only runs after that damage is done.
         reserved_stem = unique_dest_path(documents_dir, f"{source_path.stem}.txt").stem
-        extra_kwargs = {"enable_figure_extraction": False} if not enable_figure_extraction else {}
         result = preprocess_uploaded_file(
             source_path,
             worker_id=worker_id,
             original_filename=source_path.name,
             documents_dir=documents_dir,
             figure_stem=reserved_stem,
-            **extra_kwargs,
+            enable_figure_extraction=enable_figure_extraction,
         )
         if not result.success:
             logger.warning(
@@ -183,13 +182,12 @@ def commit_pending_documents(
     documents_dir.mkdir(parents=True, exist_ok=True)
     moved_count = 0
     committed_stems: set[str] = set()
-    extra_kwargs = {"enable_figure_extraction": False} if not enable_figure_extraction else {}
     for file_path in sorted(pending_dir.iterdir()):
         if file_path.is_file():
             dest = commit_document_to_documents_dir(
                 file_path,
                 documents_dir,
-                **extra_kwargs,
+                enable_figure_extraction=enable_figure_extraction,
             )
             if dest:
                 moved_count += 1
@@ -246,12 +244,11 @@ def commit_bytes_to_documents_dir(
     try:
         staged = staging_dir / safe_name
         staged.write_bytes(content)
-        extra_kwargs = {"enable_figure_extraction": False} if not enable_figure_extraction else {}
         return commit_document_to_documents_dir(
             staged,
             documents_dir,
             worker_id=worker_id,
-            **extra_kwargs,
+            enable_figure_extraction=enable_figure_extraction,
         )
     except Exception as e:
         logger.warning("Could not commit bytes for %s: %s", filename, e)

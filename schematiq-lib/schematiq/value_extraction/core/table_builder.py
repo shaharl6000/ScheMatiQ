@@ -562,7 +562,7 @@ class TableBuilder:
             retrieval_k=retrieval_k,
             known_units=paper_known_units,
             unit_targets=paper_unit_targets,
-            figures_dir=(source_dir / "figures" / paper.stem) if getattr(self, "enable_figures", True) else None,
+            figures_dir=(source_dir / "figures" / paper.stem) if self.enable_figures else None,
             feedback=feedback,
         )
 

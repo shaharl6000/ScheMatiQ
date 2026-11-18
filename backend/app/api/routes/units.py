@@ -496,16 +496,11 @@ async def attach_source_documents(
             # best-effort fallback. Conversion (PDF->text, Docling figures) can
             # take seconds to minutes per file, so it runs off the event loop.
             try:
-                commit_kwargs = (
-                    {"enable_figure_extraction": False}
-                    if not session_figures_enabled(session)
-                    else {}
-                )
                 await asyncio.to_thread(
                     commit_document_to_documents_dir,
                     written,
                     documents_dir,
-                    **commit_kwargs,
+                    enable_figure_extraction=session_figures_enabled(session),
                 )
             except Exception:
                 logger.warning(

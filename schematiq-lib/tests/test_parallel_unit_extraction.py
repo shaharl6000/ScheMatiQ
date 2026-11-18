@@ -40,6 +40,7 @@ class FakeProcessor:
 def _builder(processor, should_stop=None):
     tb = object.__new__(TableBuilder)
     tb.paper_processor = processor
+    tb.enable_figures = True
     tb.should_stop = should_stop
     tb._skipped_documents = []
     tb._stopped = False

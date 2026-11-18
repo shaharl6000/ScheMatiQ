@@ -1395,16 +1395,11 @@ def _preprocess_and_record(
     # Extract figures next to the .txt in pending_documents/ (documents_dir=None
     # resolves to source_path.parent) so they ride the pending -> committed
     # commit together with the text (see SchematiqRunner._move_pending_documents).
-    extra_kwargs = (
-        {"enable_figure_extraction": False}
-        if not session_figures_enabled(session)
-        else {}
-    )
     result = preprocess_uploaded_file(
         file_path,
         original_filename=filename,
         documents_dir=None,
-        **extra_kwargs,
+        enable_figure_extraction=session_figures_enabled(session),
     )
     if not result.success:
         file_path.unlink(missing_ok=True)
