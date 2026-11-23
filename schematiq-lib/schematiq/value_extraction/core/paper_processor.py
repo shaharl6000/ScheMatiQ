@@ -29,12 +29,39 @@ def _ungrounded_policy_from_env() -> str:
         )
         return DEFAULT_UNGROUNDED_POLICY
     return raw
+
+
+# Unit deduplication (_deduplicate_units) merges unit names whose embeddings are
+# at least this similar. The default model (all-MiniLM-L6-v2) is English-only,
+# so a non-English corpus (e.g. Hebrew names with titles and initials) should
+# set a multilingual model and recalibrate the threshold. Override per
+# PaperProcessor, or with SCHEMATIQ_UNIT_DEDUP_MODEL and
+# SCHEMATIQ_UNIT_DEDUP_THRESHOLD.
+DEFAULT_UNIT_DEDUP_THRESHOLD = 0.85
+
+
+def _unit_dedup_model_from_env() -> Optional[str]:
+    return os.getenv("SCHEMATIQ_UNIT_DEDUP_MODEL", "").strip() or None
+
+
+def _unit_dedup_threshold_from_env() -> float:
+    raw = os.getenv("SCHEMATIQ_UNIT_DEDUP_THRESHOLD", "").strip()
+    if not raw:
+        return DEFAULT_UNIT_DEDUP_THRESHOLD
+    try:
+        return validate_similarity_threshold(float(raw))
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid SCHEMATIQ_UNIT_DEDUP_THRESHOLD=%r (use a number in (0, 1])", raw
+        )
+        return DEFAULT_UNIT_DEDUP_THRESHOLD
 from schematiq.core.schema import (
     Schema,
     Column,
     ObservationUnit,
     _embed,
     _numbers_conflict,
+    validate_similarity_threshold,
 )
 from schematiq.core.thread_local import ThreadLocalAttribute
 from schematiq.core.results import UnitIdentificationResult, ExtractionResult
@@ -262,8 +289,17 @@ class PaperProcessor:
         on_warning: Optional[OnWarningCallback] = None,
         reference_context: Optional[str] = None,
         ungrounded_policy: Optional[str] = None,
+        unit_dedup_model: Optional[str] = None,
+        unit_dedup_threshold: Optional[float] = None,
     ):
         self.llm = llm
+        # None = SCHEMATIQ_UNIT_DEDUP_MODEL / _THRESHOLD, then the defaults.
+        self.unit_dedup_model = unit_dedup_model or _unit_dedup_model_from_env()
+        self.unit_dedup_threshold = (
+            validate_similarity_threshold(unit_dedup_threshold)
+            if unit_dedup_threshold is not None
+            else _unit_dedup_threshold_from_env()
+        )
         if ungrounded_policy is not None and ungrounded_policy not in UNGROUNDED_POLICIES:
             raise ValueError(f"ungrounded_policy must be one of {UNGROUNDED_POLICIES}")
         self.ungrounded_policy = ungrounded_policy or _ungrounded_policy_from_env()
@@ -1735,13 +1771,15 @@ class PaperProcessor:
                 print(f"⚠️  Warning callback error: {e}")
 
     def _deduplicate_units(
-        self, units: List[Dict[str, Any]], sim_threshold: float = 0.85
+        self, units: List[Dict[str, Any]], sim_threshold: Optional[float] = None
     ) -> List[Dict[str, Any]]:
         """Deduplicate units using semantic similarity and substring containment.
 
-        Uses the same embedding model (all-MiniLM-L6-v2) used for schema column
-        deduplication, but with a slightly lower threshold (0.85 vs 0.9) since
-        unit names are shorter and more varied.
+        The model and threshold come from ``self.unit_dedup_model`` and
+        ``self.unit_dedup_threshold`` (see DEFAULT_UNIT_DEDUP_THRESHOLD); an
+        explicit ``sim_threshold`` overrides the threshold. The defaults are
+        all-MiniLM-L6-v2 at 0.85, slightly below schema column dedup (0.9)
+        since unit names are shorter and more varied.
 
         Greedy merge: iterate in order, merge into first matching cluster.
         Keeps the highest-confidence representative, combines relevant_passages.
@@ -1750,10 +1788,13 @@ class PaperProcessor:
             return units
 
         conf_priority = {"high": 0, "known": 1, "medium": 2, "low": 3}
+        model_name = getattr(self, "unit_dedup_model", None)
+        if sim_threshold is None:
+            sim_threshold = getattr(self, "unit_dedup_threshold", DEFAULT_UNIT_DEDUP_THRESHOLD)
 
         # Compute embeddings for all unit names
         names = [u.get("unit_name", "") for u in units]
-        embeddings = [_embed(name) for name in names]
+        embeddings = [_embed(name, model_name) for name in names]
 
         # Greedy clustering
         clusters: List[List[int]] = []  # each cluster is a list of indices
@@ -1821,9 +1862,13 @@ class PaperProcessor:
                         unique_passages.append(p)
                 representative["relevant_passages"] = unique_passages
 
+                # INFO, not DEBUG: a wrong merge silently drops a unit's row,
+                # so the merged names must be visible in normal run logs.
                 merged_names = [names[idx] for idx in cluster]
-                logger.debug(
-                    f"Merged units: {merged_names} → {representative['unit_name']}"
+                logger.info(
+                    "Merged units %s -> %r (model=%s, threshold=%.2f)",
+                    merged_names, representative["unit_name"],
+                    model_name or "default", sim_threshold,
                 )
 
             deduped.append(representative)
