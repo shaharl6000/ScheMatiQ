@@ -120,6 +120,7 @@ from ..utils.schema_builder import (
 from ..utils.reference_retrieval import ReferenceRetriever
 from ..utils.reference_grounder import ReferenceGrounder
 from ..utils.excerpt_grounder import ExcerptGrounder, _PreparedSource
+from ..utils.unit_names import is_mostly_latin, names_contained
 
 # Type alias for warning callback: (paper_title, warning_type, message) -> None
 OnWarningCallback = Callable[[str, str, str], None]
@@ -1773,7 +1774,14 @@ class PaperProcessor:
     def _deduplicate_units(
         self, units: List[Dict[str, Any]], sim_threshold: Optional[float] = None
     ) -> List[Dict[str, Any]]:
-        """Deduplicate units using semantic similarity and substring containment.
+        """Deduplicate units using name containment and semantic similarity.
+
+        A pair merges when one name is contained in the other (as a substring
+        or as a set of words), or when their embeddings are similar enough.
+        Names whose numbers differ never merge. Embeddings are used only for
+        mostly Latin-script names unless a model is configured: the default
+        model is English-only, and two different Hebrew names scored 0.86
+        with it (one row lost).
 
         The model and threshold come from ``self.unit_dedup_model`` and
         ``self.unit_dedup_threshold`` (see DEFAULT_UNIT_DEDUP_THRESHOLD); an
@@ -1792,9 +1800,18 @@ class PaperProcessor:
         if sim_threshold is None:
             sim_threshold = getattr(self, "unit_dedup_threshold", DEFAULT_UNIT_DEDUP_THRESHOLD)
 
-        # Compute embeddings for all unit names
         names = [u.get("unit_name", "") for u in units]
-        embeddings = [_embed(name, model_name) for name in names]
+        use_embeddings = [model_name is not None or is_mostly_latin(n) for n in names]
+        # Computed on first use, so a document that needs none never loads the model.
+        embeddings: Dict[int, Any] = {}
+
+        def embedding(idx: int):
+            if idx not in embeddings:
+                embeddings[idx] = _embed(names[idx], model_name)
+            return embeddings[idx]
+
+        # Index of a merged unit -> (seed index, reason, cosine or None).
+        merge_reasons: Dict[int, Tuple[int, str, Optional[float]]] = {}
 
         # Greedy clustering
         clusters: List[List[int]] = []  # each cluster is a list of indices
@@ -1819,20 +1836,28 @@ class PaperProcessor:
                 if _numbers_conflict(names[i], names[j]):
                     continue
 
-                # Check semantic similarity
-                sim = st_util.cos_sim(embeddings[i], embeddings[j]).item()
-                is_similar = sim >= sim_threshold
+                reason, sim = None, None
 
-                # Check substring containment (case-insensitive)
+                # Substring containment (case-insensitive)
                 name_i = names[i].lower().strip()
                 name_j = names[j].lower().strip()
-                is_substring = (name_i in name_j or name_j in name_i) and min(
+                if (name_i in name_j or name_j in name_i) and min(
                     len(name_i), len(name_j)
-                ) > 2
+                ) > 2:
+                    reason = "substring"
+                # Word containment: same check by words, in any order
+                elif names_contained(names[i], names[j]):
+                    reason = "words"
+                # Semantic similarity, only where the model can read the script
+                elif use_embeddings[i] and use_embeddings[j]:
+                    sim = st_util.cos_sim(embedding(i), embedding(j)).item()
+                    if sim >= sim_threshold:
+                        reason = "embedding"
 
-                if is_similar or is_substring:
+                if reason:
                     cluster.append(j)
                     assigned.add(j)
+                    merge_reasons[j] = (i, reason, sim)
 
             clusters.append(cluster)
 
@@ -1863,13 +1888,19 @@ class PaperProcessor:
                 representative["relevant_passages"] = unique_passages
 
                 # INFO, not DEBUG: a wrong merge silently drops a unit's row,
-                # so the merged names must be visible in normal run logs.
-                merged_names = [names[idx] for idx in cluster]
-                logger.info(
-                    "Merged units %s -> %r (model=%s, threshold=%.2f)",
-                    merged_names, representative["unit_name"],
-                    model_name or "default", sim_threshold,
-                )
+                # so every merged pair and its reason must be in the run log.
+                for idx in cluster:
+                    if idx not in merge_reasons:
+                        continue
+                    seed, reason, score = merge_reasons[idx]
+                    logger.info(
+                        "Merged unit %r into %r -> kept %r (by %s%s)",
+                        names[idx], names[seed], representative["unit_name"], reason,
+                        "" if score is None else (
+                            f", cosine={score:.3f} >= {sim_threshold:.2f}, "
+                            f"model={model_name or 'default'}"
+                        ),
+                    )
 
             deduped.append(representative)
 
