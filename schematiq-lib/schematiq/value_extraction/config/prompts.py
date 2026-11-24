@@ -467,26 +467,15 @@ extract answers **strictly from the provided passages** and **only for this unit
   with empty excerpts (`[]`). This tells the system you looked and confirmed the value is
   absent for this unit. Do **not** invent placeholders like "not provided", "unknown",
   "N/A", and do **not** borrow a value from another unit to avoid returning `null`.
-- Do **not** extract values from other units mentioned in the document.
-- **Section/span isolation:** When a document contains separate sections or entries for
-  different units, extract values **only from {unit_obj}'s own section** or sentences
-  that directly name and describe {unit_obj}. Do **not** copy background facts, findings,
-  or conclusions narrated only in another unit's separate section unless {unit_obj} itself
-  states or explicitly adopts that specific fact.
-- **Contrasting or opposing units:** Never copy values, outcomes, or reasoning from a
-  contrasting, competing, or opposing unit.
-- **Excerpt attribution:** Every supporting quote in `"excerpts"` must come from text that
-  belongs to or directly describes {unit_obj} — never cite a quote from another unit's
-  section as evidence for {unit_obj}.
+- Do **not** extract values from other units mentioned in the document
 - When several units are described close together in the same sentence or passage,
   attach each attribute to the unit the passage actually states it for. Proximity in
   the text does not imply the value belongs to {unit_obj}: a number, property, or
   outcome mentioned near this unit's name may in fact describe a different unit. Trace
   each value back to the unit it is grammatically predicated of before assigning it.
-  Only assign a shared value if the passage explicitly states that {unit_obj} shares that
-  specific property or outcome with another unit (e.g., it is explicitly grouped with or
-  stated to share that exact outcome); otherwise do not copy another unit's value onto
-  this one.
+  If the passage explicitly states that this unit shares a property or outcome with
+  another (e.g. it is grouped with or acts identically to another unit), give this unit
+  that shared value; otherwise do not copy another unit's value onto this one.
 - Output **only JSON**, no prose, no markdown fences
 
 ### Handling allowed_values (value constraints)
