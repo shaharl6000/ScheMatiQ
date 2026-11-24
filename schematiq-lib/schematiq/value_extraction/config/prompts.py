@@ -463,10 +463,7 @@ extract answers **strictly from the provided passages** and **only for this unit
 
 ### Rules (MUST follow)
 - Extract values ONLY for the {unit_ref}
-- If a column's answer is **not stated for {unit_obj}** in the passages, set `"answer": null`
-  with empty excerpts (`[]`). This tells the system you looked and confirmed the value is
-  absent for this unit. Do **not** invent placeholders like "not provided", "unknown",
-  "N/A", and do **not** borrow a value from another unit to avoid returning `null`.
+- If a column's answer is **not in the passages for this unit**, **omit that column**
 - Do **not** extract values from other units mentioned in the document
 - When several units are described close together in the same sentence or passage,
   attach each attribute to the unit the passage actually states it for. Proximity in

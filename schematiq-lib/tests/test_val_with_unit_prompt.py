@@ -29,7 +29,7 @@ def test_cache_prompt_keeps_rules_and_names_no_unit():
     assert "Extract values ONLY for the unit named in the current request" in p
     assert 'unit named "' not in p
     assert "{unit_" not in p
-    assert '"answer": null' in p
+    assert "omit that column" in p
     assert len(p) > 0.9 * len(SYSTEM_PROMPT_VAL_WITH_UNIT)
 
 
@@ -39,7 +39,6 @@ def test_retry_prompts_preserve_unit_scoping():
     for prompt in (reextract, strict):
         assert "**Unit Name**: Unit X" in prompt
         assert 'unit named "Unit X"' in prompt
-        assert '"answer": null' in prompt
     assert "Re-examination Pass" in reextract
     assert "Strict Fallback Pass" in strict
 
