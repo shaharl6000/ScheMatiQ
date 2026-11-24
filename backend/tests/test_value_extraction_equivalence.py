@@ -137,8 +137,15 @@ class FakeExtractionLLM(LLMInterface):
             )
 
         if "ValueLLM" in system:
-            is_reextract = "re-examining a document" in system or "MISSED" in system
-            is_strict = "directly supported by the text" in system
+            is_reextract = (
+                "re-examining a document" in system
+                or "MISSED" in system
+                or "Re-examination Pass" in system
+            )
+            is_strict = (
+                "directly supported by the text" in system
+                or "Strict Fallback Pass" in system
+            )
             pass_kind = (
                 "reextract" if is_reextract else ("strict" if is_strict else "initial")
             )
