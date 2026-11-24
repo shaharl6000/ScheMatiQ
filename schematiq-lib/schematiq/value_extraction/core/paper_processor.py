@@ -2558,28 +2558,16 @@ class PaperProcessor:
             self._uncached_doc_layout = None
             self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
 
-            # Only use the two-copy uncached layout when (a) a context cache is active
-            # (fallback if it expires mid-document) or (b) the document is short
-            # (< 4096 chars, too small for a cache, where #547 found the layout helps).
-            # When caching is unavailable/unsupported on a large document (e.g., models
-            # that return 404 on caches.create), sending the full document twice per
-            # unit call doubles input tokens and cost for zero caching benefit.
-            if self._is_gemini_backend() and (
-                self._active_context_cache is not None or len(paper_text) < 4096
-            ):
+            if self._is_gemini_backend():
+                # Used when there is no cache, and as the fallback if the cache
+                # expires mid-document (see _generate).
                 self._uncached_doc_layout = (cache_system_prompt, paper_text)
             if self._active_context_cache:
                 print(f"  📦 Created context cache for {paper_title}")
-            elif self._is_gemini_backend() and self._uncached_doc_layout is not None:
-                logger.info(
-                    "[%s] No context cache (short doc); sending the cached-path layout inline "
-                    "(document twice)", paper_title,
-                )
             elif self._is_gemini_backend():
                 logger.info(
-                    "[%s] No context cache (large doc, %d chars); sending document once per unit call",
-                    paper_title,
-                    len(paper_text),
+                    "[%s] No context cache; sending the cached-path layout inline "
+                    "(document twice)", paper_title,
                 )
             if self._active_figure_images:
                 print(f"  🖼️ Attached {len(self._active_figure_images)} figure image(s) for {paper_title}")

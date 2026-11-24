@@ -468,16 +468,13 @@ extract answers **strictly from the provided passages** and **only for this unit
   absent for this unit. Do **not** invent placeholders like "not provided", "unknown",
   "N/A", and do **not** borrow a value from another unit to avoid returning `null`.
 - Do **not** extract values from other units mentioned in the document.
-- **Section/span isolation:** When a document contains separate sections, entries, or
-  opinions for different units (e.g., separate opinions by different authors/justices,
-  separate case reports, separate study arms), extract values **only from {unit_obj}'s own
-  section** or sentences that directly name and describe {unit_obj}. Do **not** copy
-  background facts, procedural history, findings, or conclusions narrated only in another
-  unit's separate section unless {unit_obj} itself states or explicitly adopts that specific
-  fact.
-- **Opposing or contrasting units:** Never copy values, outcomes, or reasoning from an
-  opposing, dissenting, or contrasting unit (for example, a dissenting opinion does not
-  inherit the majority's holdings or orders).
+- **Section/span isolation:** When a document contains separate sections or entries for
+  different units, extract values **only from {unit_obj}'s own section** or sentences
+  that directly name and describe {unit_obj}. Do **not** copy background facts, findings,
+  or conclusions narrated only in another unit's separate section unless {unit_obj} itself
+  states or explicitly adopts that specific fact.
+- **Contrasting or opposing units:** Never copy values, outcomes, or reasoning from a
+  contrasting, competing, or opposing unit.
 - **Excerpt attribution:** Every supporting quote in `"excerpts"` must come from text that
   belongs to or directly describes {unit_obj} — never cite a quote from another unit's
   section as evidence for {unit_obj}.

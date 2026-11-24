@@ -31,17 +31,17 @@ def test_cache_prompt_keeps_rules_and_names_no_unit():
     assert "{unit_" not in p
     assert '"answer": null' in p
     assert "Section/span isolation" in p
-    assert "Opposing or contrasting units" in p
+    assert "Contrasting or opposing units" in p
     assert "Excerpt attribution" in p
     assert len(p) > 0.9 * len(SYSTEM_PROMPT_VAL_WITH_UNIT)
 
 
 def test_retry_prompts_preserve_unit_scoping():
-    reextract = build_val_with_unit_retry_prompt("Justice X", strict=False)
-    strict = build_val_with_unit_retry_prompt("Justice X", strict=True)
+    reextract = build_val_with_unit_retry_prompt("Unit X", strict=False)
+    strict = build_val_with_unit_retry_prompt("Unit X", strict=True)
     for prompt in (reextract, strict):
-        assert "**Unit Name**: Justice X" in prompt
-        assert 'unit named "Justice X"' in prompt
+        assert "**Unit Name**: Unit X" in prompt
+        assert 'unit named "Unit X"' in prompt
         assert "Section/span isolation" in prompt
         assert '"answer": null' in prompt
     assert "Re-examination Pass" in reextract
