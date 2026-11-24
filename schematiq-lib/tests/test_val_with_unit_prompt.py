@@ -34,11 +34,17 @@ def test_cache_prompt_keeps_rules_and_names_no_unit():
 
 
 def test_retry_prompts_preserve_unit_scoping():
+    pass1 = build_val_with_unit_prompt("Unit X")
+    assert "omit that column" in pass1
+    assert '"answer": null' not in pass1
+
     reextract = build_val_with_unit_retry_prompt("Unit X", strict=False)
     strict = build_val_with_unit_retry_prompt("Unit X", strict=True)
     for prompt in (reextract, strict):
         assert "**Unit Name**: Unit X" in prompt
         assert 'unit named "Unit X"' in prompt
+        assert '"answer": null' in prompt
+        assert "omit that column" not in prompt
     assert "Re-examination Pass" in reextract
     assert "Strict Fallback Pass" in strict
 

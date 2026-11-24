@@ -560,6 +560,15 @@ def build_val_with_unit_prompt(unit_name: Optional[str]) -> str:
     )
 
 
+_UNIT_OMIT_RULE_LINE = (
+    "- If a column's answer is **not in the passages for this unit**, **omit that column**"
+)
+_UNIT_NULL_RULE_LINE = (
+    '- If a column\'s answer is **not in the passages for this unit**, '
+    'set `"answer": null` with empty excerpts (`[]`)'
+)
+
+
 def build_val_with_unit_retry_prompt(
     unit_name: Optional[str], *, strict: bool = False
 ) -> str:
@@ -567,9 +576,14 @@ def build_val_with_unit_retry_prompt(
 
     Preserves every unit-isolation rule from ``SYSTEM_PROMPT_VAL_WITH_UNIT`` so
     Passes 2-4 never fall back to document-level prompts that pull values from
-    other units in the same document.
+    other units in the same document, while replacing the pass-1 omit rule with
+    an explicit ``null`` rule so the retry prompt is internally consistent.
     """
     base = build_val_with_unit_prompt(unit_name)
+    assert _UNIT_OMIT_RULE_LINE in base, (
+        "Expected pass-1 omit rule line not found in rendered SYSTEM_PROMPT_VAL_WITH_UNIT"
+    )
+    base = base.replace(_UNIT_OMIT_RULE_LINE, _UNIT_NULL_RULE_LINE, 1)
     unit_label = f'"{unit_name}"' if unit_name else "the unit named in the current request"
     if strict:
         addendum = (
