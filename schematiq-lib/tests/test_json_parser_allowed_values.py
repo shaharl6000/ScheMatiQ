@@ -122,3 +122,21 @@ def test_number_constraint_flags_what_it_cannot_read(answer):
 
 def test_range_constraint_reads_thousands_before_clamping():
     assert _norm("1,500", ["0-100"])[:2] == ("100.0", True)
+
+
+def test_allowed_value_matching_placeholder_word_is_kept_without_excerpts():
+    parser = JSONResponseParser()
+    parsed = {
+        "intensity": {"answer": "none", "excerpts": []},
+        "notes": {"answer": "none", "excerpts": []},
+    }
+    cleaned, _ = parser.postprocess(
+        parsed,
+        requested_cols=["intensity", "notes"],
+        column_allowed_values={"intensity": ["none", "low", "medium", "high"]},
+    )
+    # "none" is an explicit allowed value for intensity -> kept (no spurious retry)
+    assert cleaned["intensity"]["answer"] == "none"
+    assert cleaned["intensity"]["normalized_to_allowed"] is True
+    # "none" without allowed_values and without excerpts -> still filtered as placeholder
+    assert "notes" not in cleaned

@@ -463,16 +463,33 @@ extract answers **strictly from the provided passages** and **only for this unit
 
 ### Rules (MUST follow)
 - Extract values ONLY for the {unit_ref}
-- If a column's answer is **not in the passages for this unit**, **omit that column**
-- Do **not** extract values from other units mentioned in the document
+- If a column's answer is **not stated for {unit_obj}** in the passages, set `"answer": null`
+  with empty excerpts (`[]`). This tells the system you looked and confirmed the value is
+  absent for this unit. Do **not** invent placeholders like "not provided", "unknown",
+  "N/A", and do **not** borrow a value from another unit to avoid returning `null`.
+- Do **not** extract values from other units mentioned in the document.
+- **Section/span isolation:** When a document contains separate sections, entries, or
+  opinions for different units (e.g., separate opinions by different authors/justices,
+  separate case reports, separate study arms), extract values **only from {unit_obj}'s own
+  section** or sentences that directly name and describe {unit_obj}. Do **not** copy
+  background facts, procedural history, findings, or conclusions narrated only in another
+  unit's separate section unless {unit_obj} itself states or explicitly adopts that specific
+  fact.
+- **Opposing or contrasting units:** Never copy values, outcomes, or reasoning from an
+  opposing, dissenting, or contrasting unit (for example, a dissenting opinion does not
+  inherit the majority's holdings or orders).
+- **Excerpt attribution:** Every supporting quote in `"excerpts"` must come from text that
+  belongs to or directly describes {unit_obj} — never cite a quote from another unit's
+  section as evidence for {unit_obj}.
 - When several units are described close together in the same sentence or passage,
   attach each attribute to the unit the passage actually states it for. Proximity in
   the text does not imply the value belongs to {unit_obj}: a number, property, or
   outcome mentioned near this unit's name may in fact describe a different unit. Trace
   each value back to the unit it is grammatically predicated of before assigning it.
-  If the passage explicitly states that this unit shares a property or outcome with
-  another (e.g. it is grouped with or acts identically to another unit), give this unit
-  that shared value; otherwise do not copy another unit's value onto this one.
+  Only assign a shared value if the passage explicitly states that {unit_obj} shares that
+  specific property or outcome with another unit (e.g., it is explicitly grouped with or
+  stated to share that exact outcome); otherwise do not copy another unit's value onto
+  this one.
 - Output **only JSON**, no prose, no markdown fences
 
 ### Handling allowed_values (value constraints)
@@ -558,3 +575,37 @@ def build_val_with_unit_prompt(unit_name: Optional[str]) -> str:
         unit_ref=f'unit named "{unit_name}"',
         unit_obj=f'"{unit_name}"',
     )
+
+
+def build_val_with_unit_retry_prompt(
+    unit_name: Optional[str], *, strict: bool = False
+) -> str:
+    """Render a unit-scoped system prompt for retry passes (reordered / fallback).
+
+    Preserves every unit-isolation rule from ``SYSTEM_PROMPT_VAL_WITH_UNIT`` so
+    Passes 2-4 never fall back to document-level prompts that pull values from
+    other units in the same document.
+    """
+    base = build_val_with_unit_prompt(unit_name)
+    unit_label = f'"{unit_name}"' if unit_name else "the unit named in the current request"
+    if strict:
+        addendum = (
+            "\n\n### Strict Fallback Pass\n"
+            f"- Include a non-null answer ONLY if you can provide at least one supporting "
+            f"excerpt from text that belongs to or directly describes {unit_label} "
+            "(or a `figure_refs` entry for an attached image).\n"
+            f"- If the column is not stated for {unit_label}, set `\"answer\": null` with "
+            "empty excerpts — never borrow a value from another unit."
+        )
+    else:
+        addendum = (
+            "\n\n### Re-examination Pass\n"
+            f"- Re-examine the passages carefully for {unit_label} only (including tables, "
+            "figures, captions, and footnotes, as well as synonyms or differently-phrased "
+            "mentions).\n"
+            f"- If an `<ALREADY_EXTRACTED_VALUES>` block is provided, use it as context for "
+            f"{unit_label}.\n"
+            f"- If a column is genuinely not stated for {unit_label}, set `\"answer\": null` "
+            "with empty excerpts — never pull a value from another unit."
+        )
+    return base + addendum

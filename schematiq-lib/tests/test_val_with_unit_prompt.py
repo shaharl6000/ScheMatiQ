@@ -5,6 +5,7 @@ import inspect
 from schematiq.value_extraction.config.prompts import (
     SYSTEM_PROMPT_VAL_WITH_UNIT,
     build_val_with_unit_prompt,
+    build_val_with_unit_retry_prompt,
 )
 from schematiq.value_extraction.core import paper_processor
 
@@ -28,8 +29,23 @@ def test_cache_prompt_keeps_rules_and_names_no_unit():
     assert "Extract values ONLY for the unit named in the current request" in p
     assert 'unit named "' not in p
     assert "{unit_" not in p
-    assert "omit that column" in p
+    assert '"answer": null' in p
+    assert "Section/span isolation" in p
+    assert "Opposing or contrasting units" in p
+    assert "Excerpt attribution" in p
     assert len(p) > 0.9 * len(SYSTEM_PROMPT_VAL_WITH_UNIT)
+
+
+def test_retry_prompts_preserve_unit_scoping():
+    reextract = build_val_with_unit_retry_prompt("Justice X", strict=False)
+    strict = build_val_with_unit_retry_prompt("Justice X", strict=True)
+    for prompt in (reextract, strict):
+        assert "**Unit Name**: Justice X" in prompt
+        assert 'unit named "Justice X"' in prompt
+        assert "Section/span isolation" in prompt
+        assert '"answer": null' in prompt
+    assert "Re-examination Pass" in reextract
+    assert "Strict Fallback Pass" in strict
 
 
 def test_paper_processor_renders_only_through_the_helper():
