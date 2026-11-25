@@ -417,8 +417,20 @@ class JSONResponseParser:
             # A figure_refs citation counts as "they gave evidence" the same
             # way a text excerpt does — an image-backed answer legitimately
             # has no text excerpt, and shouldn't be treated as an unsupported
-            # placeholder just because exs is empty.
-            if self._is_placeholder(ans, exs or figs) or (isinstance(ans, str) and not ans.strip()):
+            # placeholder just because exs is empty. Likewise, if the column's
+            # allowed_values explicitly includes this value (e.g. "none",
+            # "not_applicable", "unknown"), keep it instead of discarding it
+            # as a placeholder and triggering spurious retry passes.
+            allowed_for_col = column_allowed_values.get(col)
+            is_explicit_allowed = bool(
+                allowed_for_col
+                and isinstance(ans, str)
+                and ans.strip()
+                and self._normalize_to_allowed_values(ans, allowed_for_col)[1]
+            )
+            if (isinstance(ans, str) and not ans.strip()) or (
+                not is_explicit_allowed and self._is_placeholder(ans, exs or figs)
+            ):
                 continue
             # normalize types
             if not isinstance(ans, str):

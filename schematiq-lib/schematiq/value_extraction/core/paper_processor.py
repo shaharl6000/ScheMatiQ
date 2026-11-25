@@ -112,6 +112,7 @@ from ..config.prompts import (
     USER_PROMPT_TMPL_UNIT_IDENTIFICATION,
     SYSTEM_PROMPT_VAL_REEXTRACT,
     build_val_with_unit_prompt,
+    build_val_with_unit_retry_prompt,
 )
 from ..utils.schema_builder import (
     build_extraction_response_schema,
@@ -1055,6 +1056,8 @@ class PaperProcessor:
         paper_title: str,
         base_k: int = 8,
         already_extracted: Dict[str, str] | None = None,
+        system_prompt_override: Optional[str] = None,
+        reference_query: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Extract multiple columns in a single LLM call with combined retrieval.
 
@@ -1111,7 +1114,10 @@ class PaperProcessor:
             mode="all",
             strict=True,  # strict for fallback
             already_extracted=already_extracted,
+            reference_query=reference_query,
         )
+        if system_prompt_override:
+            msgs[0]["content"] = system_prompt_override
 
         # Skip truncation for long context models
         should_truncate = not self._should_skip_truncation()
@@ -1179,6 +1185,8 @@ class PaperProcessor:
         retrieval_k: int = 8,
         row_name: Optional[str] = None,
         system_prompt_override: Optional[str] = None,
+        strict_system_prompt_override: Optional[str] = None,
+        reference_query: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Shared retry logic for passes 2-4 (reordered → batch fallback → snippet).
 
@@ -1235,6 +1243,7 @@ class PaperProcessor:
                     mode="all",
                     strict=True,
                     already_extracted=already_flat,
+                    reference_query=reference_query,
                 )
                 reorder_msgs[0]["content"] = (
                     system_prompt_override or SYSTEM_PROMPT_VAL_REEXTRACT
@@ -1348,6 +1357,8 @@ class PaperProcessor:
                         paper_title=paper_title,
                         base_k=expanded_k,
                         already_extracted=already_flat,
+                        system_prompt_override=strict_system_prompt_override,
+                        reference_query=reference_query,
                     )
                     for col in batch:
                         col_res = batch_results.get(col.name)
@@ -1385,6 +1396,8 @@ class PaperProcessor:
                         paper_title=paper_title,
                         base_k=expanded_k,
                         already_extracted=already_flat,
+                        system_prompt_override=strict_system_prompt_override,
+                        reference_query=reference_query,
                     )
                     for col in batch:
                         col_res = batch_results.get(col.name)
@@ -2384,7 +2397,8 @@ class PaperProcessor:
 
         # Passes 2-4: reordered → batch fallback → snippet fallback.
         # Retry against the (possibly narrowed) effective_schema so already-filled
-        # columns excluded above are not re-requested as "missing".
+        # columns excluded above are not re-requested as "missing", while preserving
+        # unit-scoped system prompts so retries never leak values from other units.
         fallback_text = paper_text or eff
         self._retry_missing_columns(
             all_cleaned,
@@ -2393,6 +2407,13 @@ class PaperProcessor:
             paper_text=fallback_text,
             effective_text=eff,
             max_new_tokens=effective_max,
+            system_prompt_override=build_val_with_unit_retry_prompt(
+                unit_name, strict=False
+            ),
+            strict_system_prompt_override=build_val_with_unit_retry_prompt(
+                unit_name, strict=True
+            ),
+            reference_query=unit_name,
         )
 
         # When the unit came back completely empty after all passes, log the
