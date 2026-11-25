@@ -1,6 +1,8 @@
 """Rendering of SYSTEM_PROMPT_VAL_WITH_UNIT for a unit and for the shared cache."""
 
 import inspect
+import json
+from pathlib import Path
 
 from schematiq.value_extraction.config.prompts import (
     SYSTEM_PROMPT_VAL_WITH_UNIT,
@@ -54,3 +56,18 @@ def test_paper_processor_renders_only_through_the_helper():
     assert "cache_system_prompt = build_val_with_unit_prompt(None)" in src
     assert "system_prompt = build_val_with_unit_prompt(unit_name)" in src
     assert "SYSTEM_PROMPT_VAL_WITH_UNIT.format" not in src
+
+
+def test_rendered_unit_prompts_match_baseline_fixture_byte_for_byte():
+    fixture_path = Path(__file__).parent / "fixtures" / "val_with_unit_prompts.json"
+    expected = json.loads(fixture_path.read_text(encoding="utf-8"))
+    actual = {}
+    for u in ("X", None):
+        actual[f"pass1_{u}"] = build_val_with_unit_prompt(u)
+        for s in (False, True):
+            actual[f"retry_{u}_strict_{s}"] = build_val_with_unit_retry_prompt(u, strict=s)
+    assert set(actual.keys()) == set(expected.keys())
+    for key in expected:
+        assert actual[key].encode("utf-8") == expected[key].encode("utf-8"), (
+            f"Rendered prompt {key!r} drifted from baseline fixture"
+        )
