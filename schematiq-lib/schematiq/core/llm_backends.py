@@ -1390,7 +1390,13 @@ class GeminiLLM(LLMInterface):
 
         Returns cache object or None on failure.
         Requires minimum ~1,024 tokens of cached content for Flash models.
+
+        A 404 on create means this model has no explicit context caching. The
+        first one is remembered for this instance, so later documents skip the
+        call (and its warning) and go straight to the uncached path.
         """
+        if getattr(self, "_context_cache_unsupported", False):
+            return None
         try:
             cache = self._client.caches.create(
                 model=self.model,
@@ -1417,6 +1423,15 @@ class GeminiLLM(LLMInterface):
                 )
             return cache
         except Exception as e:
+            if _status_code(e) == 404:
+                self._context_cache_unsupported = True
+                logger.warning(
+                    "Gemini context caching is not available for model=%s (404 on create): %s. "
+                    "Extraction continues without a cache for the rest of this run, which "
+                    "sends each document inline and costs about twice the input tokens.",
+                    self.model, e,
+                )
+                return None
             logger.warning("Gemini context cache creation FAILED (model=%s, doc_chars=%d): %s", self.model, len(document_text), e)
             return None
 

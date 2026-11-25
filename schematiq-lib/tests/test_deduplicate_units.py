@@ -71,3 +71,38 @@ def test_same_number_variants_are_still_merged():
     units = _units("Patient 1", "Patient 1 (control group)")
     result = PaperProcessor._deduplicate_units(SimpleNamespace(), units)
     assert len(result) == 1
+
+
+def test_different_hebrew_names_are_not_merged():
+    """Regression: two different justices scored 0.864 with the default
+    English-only model (above 0.85) and one opinion was lost. Non-Latin names
+    are not compared by embedding unless a model is configured."""
+    names = (
+        "השופט א' רובינשטיין", "השופט א' גרוניס", "השופט ע' פוגלמן",
+        "השופט ע' גרוסקופף", "השופט י' עמית", "השופט י' אלרון",
+        "חלבון p53", "חלבון BRCA1",
+    )
+    result = PaperProcessor._deduplicate_units(SimpleNamespace(), _units(*names))
+    assert [u["unit_name"] for u in result] == list(names)
+
+
+def test_hebrew_name_contained_in_another_is_merged():
+    units = _units("השופט א' רובינשטיין", "השופט רובינשטיין", "חלבון p53", "p53")
+    result = PaperProcessor._deduplicate_units(SimpleNamespace(), units)
+    assert [u["unit_name"] for u in result] == ["השופט א' רובינשטיין", "חלבון p53"]
+
+
+def test_non_latin_names_do_not_load_the_default_model(monkeypatch):
+    from schematiq.value_extraction.core import paper_processor as pp_mod
+
+    def fail(*args, **kwargs):
+        raise AssertionError("embedding computed for non-Latin names")
+
+    monkeypatch.setattr(pp_mod, "_embed", fail)
+    units = _units("השופט נ' סולברג", "השופט נ' הנדל", "קבוצת ביקורת", "קבוצת טיפול")
+    assert len(PaperProcessor._deduplicate_units(SimpleNamespace(), units)) == 4
+
+
+def test_latin_names_still_use_embeddings():
+    units = _units("colour", "color")
+    assert len(PaperProcessor._deduplicate_units(SimpleNamespace(), units)) == 1
