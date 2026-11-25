@@ -21,6 +21,7 @@ import {
   Underline,
 } from 'lucide-react';
 
+import { ScheMatiQLogo } from '@/components/shared/ScheMatiQLogo';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -153,7 +154,7 @@ export function SpreadsheetChrome({
           title="ScheMatiQ home"
           aria-label="ScheMatiQ home"
         >
-          <img src="/icon.png" alt="" className="workspace-file-mark-logo" />
+          <ScheMatiQLogo className="workspace-file-mark-logo" />
           <span className="workspace-file-mark-name">ScheMatiQ</span>
         </button>
         <div className="workspace-file-title">
