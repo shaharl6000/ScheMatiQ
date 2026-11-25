@@ -446,7 +446,9 @@ USER_PROMPT_TMPL_UNIT_IDENTIFICATION = USER_PROMPT_TMPL_UNIT_IDENTIFICATION.repl
 # VALUE EXTRACTION WITH UNIT CONTEXT
 # ============================================================================
 
-SYSTEM_PROMPT_VAL_WITH_UNIT = """
+# Template with the @@MISSING_VALUE_RULE@@ slot. Use SYSTEM_PROMPT_VAL_WITH_UNIT
+# or the build_val_with_unit_* functions below, never this template directly.
+_SYSTEM_PROMPT_VAL_WITH_UNIT_TEMPLATE = """
 You are *ValueLLM*, a meticulous data curator extracting values for a SPECIFIC observation unit.
 
 ### Context
@@ -463,7 +465,7 @@ extract answers **strictly from the provided passages** and **only for this unit
 
 ### Rules (MUST follow)
 - Extract values ONLY for the {unit_ref}
-- If a column's answer is **not in the passages for this unit**, **omit that column**
+@@MISSING_VALUE_RULE@@
 - Do **not** extract values from other units mentioned in the document
 - When several units are described close together in the same sentence or passage,
   attach each attribute to the unit the passage actually states it for. Proximity in
@@ -534,9 +536,44 @@ SYSTEM_PROMPT_VAL_REEXTRACT = SYSTEM_PROMPT_VAL_REEXTRACT.replace(
 SYSTEM_PROMPT_VAL_STRICT = SYSTEM_PROMPT_VAL_STRICT.replace(
     _CATEGORICAL_RULE_SLOT, CATEGORICAL_ALLOWED_VALUES_RULE
 )
-SYSTEM_PROMPT_VAL_WITH_UNIT = SYSTEM_PROMPT_VAL_WITH_UNIT.replace(
+_SYSTEM_PROMPT_VAL_WITH_UNIT_TEMPLATE = _SYSTEM_PROMPT_VAL_WITH_UNIT_TEMPLATE.replace(
     _CATEGORICAL_RULE_SLOT, CATEGORICAL_ALLOWED_VALUES_RULE
 )
+
+_MISSING_VALUE_RULE_SLOT = "@@MISSING_VALUE_RULE@@"
+_UNIT_OMIT_RULE_LINE = (
+    "- If a column's answer is **not in the passages for this unit**, **omit that column**"
+)
+_UNIT_NULL_RULE_LINE = (
+    '- If a column\'s answer is **not in the passages for this unit**, '
+    'set `"answer": null` with empty excerpts (`[]`)'
+)
+
+_SYSTEM_PROMPT_VAL_WITH_UNIT_PASS1 = _SYSTEM_PROMPT_VAL_WITH_UNIT_TEMPLATE.replace(
+    _MISSING_VALUE_RULE_SLOT, _UNIT_OMIT_RULE_LINE
+)
+_SYSTEM_PROMPT_VAL_WITH_UNIT_RETRY = _SYSTEM_PROMPT_VAL_WITH_UNIT_TEMPLATE.replace(
+    _MISSING_VALUE_RULE_SLOT, _UNIT_NULL_RULE_LINE
+)
+
+# Public name keeps its value from before the slot was added: the pass-1
+# prompt template (unit placeholders unfilled, no slot left).
+SYSTEM_PROMPT_VAL_WITH_UNIT = _SYSTEM_PROMPT_VAL_WITH_UNIT_PASS1
+
+
+def _render_unit_prompt(template: str, unit_name: Optional[str]) -> str:
+    if unit_name is None:
+        return template.format(
+            unit_header="given in each request below",
+            unit_ref="unit named in the current request",
+            unit_obj="the unit named in the current request",
+        )
+    return template.format(
+        unit_header=unit_name,
+        unit_ref=f'unit named "{unit_name}"',
+        unit_obj=f'"{unit_name}"',
+    )
+
 
 def build_val_with_unit_prompt(unit_name: Optional[str]) -> str:
     """Render SYSTEM_PROMPT_VAL_WITH_UNIT for one unit, or unit-neutral.
@@ -547,14 +584,39 @@ def build_val_with_unit_prompt(unit_name: Optional[str]) -> str:
     Naming the unit type there (e.g. "A judge") contradicted the specific unit
     named in each call.
     """
-    if unit_name is None:
-        return SYSTEM_PROMPT_VAL_WITH_UNIT.format(
-            unit_header="given in each request below",
-            unit_ref="unit named in the current request",
-            unit_obj="the unit named in the current request",
+    return _render_unit_prompt(_SYSTEM_PROMPT_VAL_WITH_UNIT_PASS1, unit_name)
+
+
+def build_val_with_unit_retry_prompt(
+    unit_name: Optional[str], *, strict: bool = False
+) -> str:
+    """Render a unit-scoped system prompt for retry passes (reordered / fallback).
+
+    Preserves every unit-isolation rule from ``SYSTEM_PROMPT_VAL_WITH_UNIT`` so
+    Passes 2-4 never fall back to document-level prompts that pull values from
+    other units in the same document, while filling the missing-value rule slot
+    with an explicit ``null`` rule so the retry prompt is internally consistent.
+    """
+    base = _render_unit_prompt(_SYSTEM_PROMPT_VAL_WITH_UNIT_RETRY, unit_name)
+    unit_label = f'"{unit_name}"' if unit_name else "the unit named in the current request"
+    if strict:
+        addendum = (
+            "\n\n### Strict Fallback Pass\n"
+            f"- Include a non-null answer ONLY if you can provide at least one supporting "
+            f"excerpt from text that belongs to or directly describes {unit_label} "
+            "(or a `figure_refs` entry for an attached image).\n"
+            f"- If the column is not stated for {unit_label}, set `\"answer\": null` with "
+            "empty excerpts — never borrow a value from another unit."
         )
-    return SYSTEM_PROMPT_VAL_WITH_UNIT.format(
-        unit_header=unit_name,
-        unit_ref=f'unit named "{unit_name}"',
-        unit_obj=f'"{unit_name}"',
-    )
+    else:
+        addendum = (
+            "\n\n### Re-examination Pass\n"
+            f"- Re-examine the passages carefully for {unit_label} only (including tables, "
+            "figures, captions, and footnotes, as well as synonyms or differently-phrased "
+            "mentions).\n"
+            f"- If an `<ALREADY_EXTRACTED_VALUES>` block is provided, use it as context for "
+            f"{unit_label}.\n"
+            f"- If a column is genuinely not stated for {unit_label}, set `\"answer\": null` "
+            "with empty excerpts — never pull a value from another unit."
+        )
+    return base + addendum

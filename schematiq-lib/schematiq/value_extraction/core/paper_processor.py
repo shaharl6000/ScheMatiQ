@@ -29,12 +29,39 @@ def _ungrounded_policy_from_env() -> str:
         )
         return DEFAULT_UNGROUNDED_POLICY
     return raw
+
+
+# Unit deduplication (_deduplicate_units) merges unit names whose embeddings are
+# at least this similar. The default model (all-MiniLM-L6-v2) is English-only,
+# so a non-English corpus (e.g. Hebrew names with titles and initials) should
+# set a multilingual model and recalibrate the threshold. Override per
+# PaperProcessor, or with SCHEMATIQ_UNIT_DEDUP_MODEL and
+# SCHEMATIQ_UNIT_DEDUP_THRESHOLD.
+DEFAULT_UNIT_DEDUP_THRESHOLD = 0.85
+
+
+def _unit_dedup_model_from_env() -> Optional[str]:
+    return os.getenv("SCHEMATIQ_UNIT_DEDUP_MODEL", "").strip() or None
+
+
+def _unit_dedup_threshold_from_env() -> float:
+    raw = os.getenv("SCHEMATIQ_UNIT_DEDUP_THRESHOLD", "").strip()
+    if not raw:
+        return DEFAULT_UNIT_DEDUP_THRESHOLD
+    try:
+        return validate_similarity_threshold(float(raw))
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid SCHEMATIQ_UNIT_DEDUP_THRESHOLD=%r (use a number in (0, 1])", raw
+        )
+        return DEFAULT_UNIT_DEDUP_THRESHOLD
 from schematiq.core.schema import (
     Schema,
     Column,
     ObservationUnit,
     _embed,
     _numbers_conflict,
+    validate_similarity_threshold,
 )
 from schematiq.core.thread_local import ThreadLocalAttribute
 from schematiq.core.results import UnitIdentificationResult, ExtractionResult
@@ -85,6 +112,7 @@ from ..config.prompts import (
     USER_PROMPT_TMPL_UNIT_IDENTIFICATION,
     SYSTEM_PROMPT_VAL_REEXTRACT,
     build_val_with_unit_prompt,
+    build_val_with_unit_retry_prompt,
 )
 from ..utils.schema_builder import (
     build_extraction_response_schema,
@@ -93,6 +121,7 @@ from ..utils.schema_builder import (
 from ..utils.reference_retrieval import ReferenceRetriever
 from ..utils.reference_grounder import ReferenceGrounder
 from ..utils.excerpt_grounder import ExcerptGrounder, _PreparedSource
+from ..utils.unit_names import is_mostly_latin, names_contained
 
 # Type alias for warning callback: (paper_title, warning_type, message) -> None
 OnWarningCallback = Callable[[str, str, str], None]
@@ -262,8 +291,17 @@ class PaperProcessor:
         on_warning: Optional[OnWarningCallback] = None,
         reference_context: Optional[str] = None,
         ungrounded_policy: Optional[str] = None,
+        unit_dedup_model: Optional[str] = None,
+        unit_dedup_threshold: Optional[float] = None,
     ):
         self.llm = llm
+        # None = SCHEMATIQ_UNIT_DEDUP_MODEL / _THRESHOLD, then the defaults.
+        self.unit_dedup_model = unit_dedup_model or _unit_dedup_model_from_env()
+        self.unit_dedup_threshold = (
+            validate_similarity_threshold(unit_dedup_threshold)
+            if unit_dedup_threshold is not None
+            else _unit_dedup_threshold_from_env()
+        )
         if ungrounded_policy is not None and ungrounded_policy not in UNGROUNDED_POLICIES:
             raise ValueError(f"ungrounded_policy must be one of {UNGROUNDED_POLICIES}")
         self.ungrounded_policy = ungrounded_policy or _ungrounded_policy_from_env()
@@ -1018,6 +1056,8 @@ class PaperProcessor:
         paper_title: str,
         base_k: int = 8,
         already_extracted: Dict[str, str] | None = None,
+        system_prompt_override: Optional[str] = None,
+        reference_query: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Extract multiple columns in a single LLM call with combined retrieval.
 
@@ -1074,7 +1114,10 @@ class PaperProcessor:
             mode="all",
             strict=True,  # strict for fallback
             already_extracted=already_extracted,
+            reference_query=reference_query,
         )
+        if system_prompt_override:
+            msgs[0]["content"] = system_prompt_override
 
         # Skip truncation for long context models
         should_truncate = not self._should_skip_truncation()
@@ -1142,6 +1185,8 @@ class PaperProcessor:
         retrieval_k: int = 8,
         row_name: Optional[str] = None,
         system_prompt_override: Optional[str] = None,
+        strict_system_prompt_override: Optional[str] = None,
+        reference_query: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Shared retry logic for passes 2-4 (reordered → batch fallback → snippet).
 
@@ -1198,6 +1243,7 @@ class PaperProcessor:
                     mode="all",
                     strict=True,
                     already_extracted=already_flat,
+                    reference_query=reference_query,
                 )
                 reorder_msgs[0]["content"] = (
                     system_prompt_override or SYSTEM_PROMPT_VAL_REEXTRACT
@@ -1311,6 +1357,8 @@ class PaperProcessor:
                         paper_title=paper_title,
                         base_k=expanded_k,
                         already_extracted=already_flat,
+                        system_prompt_override=strict_system_prompt_override,
+                        reference_query=reference_query,
                     )
                     for col in batch:
                         col_res = batch_results.get(col.name)
@@ -1348,6 +1396,8 @@ class PaperProcessor:
                         paper_title=paper_title,
                         base_k=expanded_k,
                         already_extracted=already_flat,
+                        system_prompt_override=strict_system_prompt_override,
+                        reference_query=reference_query,
                     )
                     for col in batch:
                         col_res = batch_results.get(col.name)
@@ -1735,13 +1785,22 @@ class PaperProcessor:
                 print(f"⚠️  Warning callback error: {e}")
 
     def _deduplicate_units(
-        self, units: List[Dict[str, Any]], sim_threshold: float = 0.85
+        self, units: List[Dict[str, Any]], sim_threshold: Optional[float] = None
     ) -> List[Dict[str, Any]]:
-        """Deduplicate units using semantic similarity and substring containment.
+        """Deduplicate units using name containment and semantic similarity.
 
-        Uses the same embedding model (all-MiniLM-L6-v2) used for schema column
-        deduplication, but with a slightly lower threshold (0.85 vs 0.9) since
-        unit names are shorter and more varied.
+        A pair merges when one name is contained in the other (as a substring
+        or as a set of words), or when their embeddings are similar enough.
+        Names whose numbers differ never merge. Embeddings are used only for
+        mostly Latin-script names unless a model is configured: the default
+        model is English-only, and two different Hebrew names scored 0.86
+        with it (one row lost).
+
+        The model and threshold come from ``self.unit_dedup_model`` and
+        ``self.unit_dedup_threshold`` (see DEFAULT_UNIT_DEDUP_THRESHOLD); an
+        explicit ``sim_threshold`` overrides the threshold. The defaults are
+        all-MiniLM-L6-v2 at 0.85, slightly below schema column dedup (0.9)
+        since unit names are shorter and more varied.
 
         Greedy merge: iterate in order, merge into first matching cluster.
         Keeps the highest-confidence representative, combines relevant_passages.
@@ -1750,10 +1809,22 @@ class PaperProcessor:
             return units
 
         conf_priority = {"high": 0, "known": 1, "medium": 2, "low": 3}
+        model_name = getattr(self, "unit_dedup_model", None)
+        if sim_threshold is None:
+            sim_threshold = getattr(self, "unit_dedup_threshold", DEFAULT_UNIT_DEDUP_THRESHOLD)
 
-        # Compute embeddings for all unit names
         names = [u.get("unit_name", "") for u in units]
-        embeddings = [_embed(name) for name in names]
+        use_embeddings = [model_name is not None or is_mostly_latin(n) for n in names]
+        # Computed on first use, so a document that needs none never loads the model.
+        embeddings: Dict[int, Any] = {}
+
+        def embedding(idx: int):
+            if idx not in embeddings:
+                embeddings[idx] = _embed(names[idx], model_name)
+            return embeddings[idx]
+
+        # Index of a merged unit -> (seed index, reason, cosine or None).
+        merge_reasons: Dict[int, Tuple[int, str, Optional[float]]] = {}
 
         # Greedy clustering
         clusters: List[List[int]] = []  # each cluster is a list of indices
@@ -1778,20 +1849,28 @@ class PaperProcessor:
                 if _numbers_conflict(names[i], names[j]):
                     continue
 
-                # Check semantic similarity
-                sim = st_util.cos_sim(embeddings[i], embeddings[j]).item()
-                is_similar = sim >= sim_threshold
+                reason, sim = None, None
 
-                # Check substring containment (case-insensitive)
+                # Substring containment (case-insensitive)
                 name_i = names[i].lower().strip()
                 name_j = names[j].lower().strip()
-                is_substring = (name_i in name_j or name_j in name_i) and min(
+                if (name_i in name_j or name_j in name_i) and min(
                     len(name_i), len(name_j)
-                ) > 2
+                ) > 2:
+                    reason = "substring"
+                # Word containment: same check by words, in any order
+                elif names_contained(names[i], names[j]):
+                    reason = "words"
+                # Semantic similarity, only where the model can read the script
+                elif use_embeddings[i] and use_embeddings[j]:
+                    sim = st_util.cos_sim(embedding(i), embedding(j)).item()
+                    if sim >= sim_threshold:
+                        reason = "embedding"
 
-                if is_similar or is_substring:
+                if reason:
                     cluster.append(j)
                     assigned.add(j)
+                    merge_reasons[j] = (i, reason, sim)
 
             clusters.append(cluster)
 
@@ -1821,10 +1900,20 @@ class PaperProcessor:
                         unique_passages.append(p)
                 representative["relevant_passages"] = unique_passages
 
-                merged_names = [names[idx] for idx in cluster]
-                logger.debug(
-                    f"Merged units: {merged_names} → {representative['unit_name']}"
-                )
+                # INFO, not DEBUG: a wrong merge silently drops a unit's row,
+                # so every merged pair and its reason must be in the run log.
+                for idx in cluster:
+                    if idx not in merge_reasons:
+                        continue
+                    seed, reason, score = merge_reasons[idx]
+                    logger.info(
+                        "Merged unit %r into %r -> kept %r (by %s%s)",
+                        names[idx], names[seed], representative["unit_name"], reason,
+                        "" if score is None else (
+                            f", cosine={score:.3f} >= {sim_threshold:.2f}, "
+                            f"model={model_name or 'default'}"
+                        ),
+                    )
 
             deduped.append(representative)
 
@@ -2308,7 +2397,8 @@ class PaperProcessor:
 
         # Passes 2-4: reordered → batch fallback → snippet fallback.
         # Retry against the (possibly narrowed) effective_schema so already-filled
-        # columns excluded above are not re-requested as "missing".
+        # columns excluded above are not re-requested as "missing", while preserving
+        # unit-scoped system prompts so retries never leak values from other units.
         fallback_text = paper_text or eff
         self._retry_missing_columns(
             all_cleaned,
@@ -2317,6 +2407,13 @@ class PaperProcessor:
             paper_text=fallback_text,
             effective_text=eff,
             max_new_tokens=effective_max,
+            system_prompt_override=build_val_with_unit_retry_prompt(
+                unit_name, strict=False
+            ),
+            strict_system_prompt_override=build_val_with_unit_retry_prompt(
+                unit_name, strict=True
+            ),
+            reference_query=unit_name,
         )
 
         # When the unit came back completely empty after all passes, log the
