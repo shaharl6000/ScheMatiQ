@@ -1726,10 +1726,9 @@ function Workspace() {
         <section className="workspace-sheet-pane" data-hidden={isSheetHidden}>
           {isHomeScreen ? (
             <StartHub
-              onCreated={() => {
-                setActiveSheet('data');
-                refresh();
-              }}
+              // No refresh() here: sessionId is still undefined in this render,
+              // so it would no-op. The navigate to /workspace/:id loads the project.
+              onCreated={() => setActiveSheet('data')}
             />
           ) : (
           <>

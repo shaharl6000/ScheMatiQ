@@ -109,6 +109,9 @@ export function StartHub({
   const [serverHasKeys, setServerHasKeys] = useState(false);
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
   const [estimating, setEstimating] = useState(false);
+  const [estimateError, setEstimateError] = useState<string | null>(null);
+  // Bumped to re-run a failed estimate without the user having to edit inputs.
+  const [estimateRetry, setEstimateRetry] = useState(0);
   const [costDetailsOpen, setCostDetailsOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -181,7 +184,11 @@ export function StartHub({
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
           target.tagName === 'SELECT' ||
-          target.isContentEditable)
+          target.isContentEditable ||
+          // A focused button or link owns Space for activation. Letters still
+          // route into the question, so type-anywhere keeps working after a click.
+          (e.key === ' ' &&
+            target.closest('button, a[href], [role="button"], [role="menuitem"], [role="tab"]')))
       ) {
         return;
       }
@@ -262,14 +269,20 @@ export function StartHub({
   }, [canIdleNudge, hasQuery, hasDocuments]);
 
   // Live debounced automatic cost estimation once both slots + API key are ready.
+  // `estimating` is raised immediately (not when the debounce fires) so the
+  // Build button stays disabled while the shown estimate is stale: a run must
+  // never start without the user having seen the cost of these exact inputs.
   useEffect(() => {
     if (!canStart) {
       setEstimate(null);
+      setEstimating(false);
+      setEstimateError(null);
       return undefined;
     }
     let cancelled = false;
+    setEstimating(true);
+    setEstimateError(null);
     const timer = window.setTimeout(async () => {
-      setEstimating(true);
       try {
         const docs: DocumentSourceInput = documentSource === 'cloud'
           ? { mode: 'cloud', datasets: selectedDatasets }
@@ -282,8 +295,11 @@ export function StartHub({
             : files.map((file) => ({ name: file.webkitRelativePath || file.name, size: file.size })),
         );
         if (!cancelled) setEstimate(result);
-      } catch {
-        if (!cancelled) setEstimate(null);
+      } catch (err: any) {
+        if (!cancelled) {
+          setEstimate(null);
+          setEstimateError(err?.response?.data?.detail || err?.message || 'Failed to estimate this project');
+        }
       } finally {
         if (!cancelled) setEstimating(false);
       }
@@ -292,19 +308,32 @@ export function StartHub({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [advanced, apiKey, canStart, documentSource, files, query, selectedDatasets]);
+  }, [advanced, apiKey, canStart, documentSource, estimateRetry, files, query, selectedDatasets]);
 
   const mergeIncomingFiles = useCallback((incoming: File[]) => {
-    const valid = incoming.filter((f) => {
+    // Hidden files (.DS_Store and the like) are dropped silently; anything else
+    // that is filtered out is reported so files never vanish without a trace.
+    const visible = incoming.filter((f) => !f.name.startsWith('.'));
+    const valid = visible.filter((f) => {
       const lower = f.name.toLowerCase();
-      return !f.name.startsWith('.') && ACCEPTED_EXTS.some((ext) => lower.endsWith(ext));
+      return ACCEPTED_EXTS.some((ext) => lower.endsWith(ext));
     });
+    const skipped = visible.length - valid.length;
+    if (skipped > 0) {
+      toast({
+        title: `Skipped ${skipped} unsupported file${skipped === 1 ? '' : 's'}`,
+        description: `Supported: ${ACCEPTED_EXTS.map((ext) => ext.slice(1).toUpperCase()).join(', ')}.`,
+      });
+    }
     if (valid.length === 0) return;
+    // Key on the relative path inside a picked folder, not the bare name, so two
+    // same-named files in different subfolders are both kept.
+    const fileKey = (f: File) => `${f.webkitRelativePath || f.name}:${f.size}`;
     setFiles((prev) => {
-      const seen = new Set(prev.map((f) => `${f.name}:${f.size}`));
+      const seen = new Set(prev.map(fileKey));
       const next = [...prev];
       for (const f of valid) {
-        const key = `${f.name}:${f.size}`;
+        const key = fileKey(f);
         if (!seen.has(key)) {
           seen.add(key);
           next.push(f);
@@ -314,7 +343,7 @@ export function StartHub({
     });
     setDocumentSource('upload');
     setError(null);
-  }, []);
+  }, [toast]);
 
   const removeFileAt = (idx: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
@@ -349,10 +378,22 @@ export function StartHub({
   const handleBuildTable = useCallback(async () => {
     if (creating || !bothSlotsFilled) return;
     if (!hasApiKey) {
-      setApiKeyHint(true);
-      apiKeyInputRef.current?.focus();
+      // The key field is hidden when SHOW_API_KEY_FIELD is off, so the hint and
+      // focus alone would make this click a silent no-op. Always say why.
+      setError('Add an API key or configure server-side API keys before starting.');
+      if (SHOW_API_KEY_FIELD) {
+        setApiKeyHint(true);
+        apiKeyInputRef.current?.focus();
+      }
       return;
     }
+    // A failed estimate makes this click a retry instead of a dead end.
+    if (estimateError) {
+      setEstimateRetry((n) => n + 1);
+      return;
+    }
+    // Never start a paid run without a current estimate on screen.
+    if (estimating || !estimate) return;
     if (!dataCollectionEnabled || developerMode) {
       await runCreate(false);
       return;
@@ -363,7 +404,7 @@ export function StartHub({
       return;
     }
     setConsentOpen(true);
-  }, [bothSlotsFilled, creating, dataCollectionEnabled, developerMode, hasApiKey, runCreate]);
+  }, [bothSlotsFilled, creating, dataCollectionEnabled, developerMode, estimate, estimateError, estimating, hasApiKey, runCreate]);
 
   const handleQuestionPaste = (e: ClipboardEvent<HTMLSpanElement>) => {
     e.preventDefault();
@@ -744,9 +785,9 @@ export function StartHub({
               </div>
             )}
 
-            {error && (
+            {(error || estimateError) && (
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                {error}
+                {error || `Could not estimate cost: ${estimateError}. Click Build Table to retry.`}
               </div>
             )}
 
@@ -755,7 +796,9 @@ export function StartHub({
                 type="button"
                 size="lg"
                 onClick={() => void handleBuildTable()}
-                disabled={creating}
+                // Without an API key the click stays enabled so it can explain why
+                // nothing starts; with one, it waits for a current estimate (or retries a failed one).
+                disabled={creating || (hasApiKey && !estimateError && (estimating || !estimate))}
                 className="h-12 px-8 rounded-xl text-sm font-semibold gap-2 shadow-md shadow-primary/20"
               >
                 {creating ? (

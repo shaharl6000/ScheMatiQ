@@ -71,14 +71,16 @@ export function OpenProjectPopover({
       Promise.all(
         ids.map((id) =>
           loadAPI.getSession(id).then(
-            (session) => ({ id, session: session as VisualizationSession | null }),
-            () => ({ id, session: null as VisualizationSession | null }),
+            (session) => ({ id, session: session as VisualizationSession | null, gone: false }),
+            // Only a 404 means the project was deleted. A network error or a
+            // backend restart must not wipe the browser's recent list.
+            (err: any) => ({ id, session: null as VisualizationSession | null, gone: err?.response?.status === 404 }),
           ),
         ),
       )
         .then((results) => {
           if (cancelled) return;
-          const missing = results.filter((r) => r.session === null).map((r) => r.id);
+          const missing = results.filter((r) => r.gone).map((r) => r.id);
           if (missing.length > 0) forgetProjects(missing);
           const found = results
             .map((r) => r.session)
