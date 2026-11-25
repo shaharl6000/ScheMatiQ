@@ -71,3 +71,21 @@ def test_rendered_unit_prompts_match_baseline_fixture_byte_for_byte():
         assert actual[key].encode("utf-8") == expected[key].encode("utf-8"), (
             f"Rendered prompt {key!r} drifted from baseline fixture"
         )
+
+
+def test_public_prompt_constants_have_no_unfilled_slots():
+    """No exported prompt string may still contain an @@...@@ slot."""
+    import re
+
+    from schematiq.value_extraction.config import prompts
+
+    leftovers = {
+        name: re.findall(r"@@[A-Z_]+@@", value)
+        for name, value in vars(prompts).items()
+        if not name.startswith("_") and isinstance(value, str)
+    }
+    assert {k: v for k, v in leftovers.items() if v} == {}
+
+
+def test_public_unit_prompt_keeps_pass1_rule():
+    assert "**omit that column**" in SYSTEM_PROMPT_VAL_WITH_UNIT

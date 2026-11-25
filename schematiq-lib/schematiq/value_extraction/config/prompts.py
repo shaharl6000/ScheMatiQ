@@ -446,7 +446,9 @@ USER_PROMPT_TMPL_UNIT_IDENTIFICATION = USER_PROMPT_TMPL_UNIT_IDENTIFICATION.repl
 # VALUE EXTRACTION WITH UNIT CONTEXT
 # ============================================================================
 
-SYSTEM_PROMPT_VAL_WITH_UNIT = """
+# Template with the @@MISSING_VALUE_RULE@@ slot. Use SYSTEM_PROMPT_VAL_WITH_UNIT
+# or the build_val_with_unit_* functions below, never this template directly.
+_SYSTEM_PROMPT_VAL_WITH_UNIT_TEMPLATE = """
 You are *ValueLLM*, a meticulous data curator extracting values for a SPECIFIC observation unit.
 
 ### Context
@@ -534,7 +536,7 @@ SYSTEM_PROMPT_VAL_REEXTRACT = SYSTEM_PROMPT_VAL_REEXTRACT.replace(
 SYSTEM_PROMPT_VAL_STRICT = SYSTEM_PROMPT_VAL_STRICT.replace(
     _CATEGORICAL_RULE_SLOT, CATEGORICAL_ALLOWED_VALUES_RULE
 )
-SYSTEM_PROMPT_VAL_WITH_UNIT = SYSTEM_PROMPT_VAL_WITH_UNIT.replace(
+_SYSTEM_PROMPT_VAL_WITH_UNIT_TEMPLATE = _SYSTEM_PROMPT_VAL_WITH_UNIT_TEMPLATE.replace(
     _CATEGORICAL_RULE_SLOT, CATEGORICAL_ALLOWED_VALUES_RULE
 )
 
@@ -547,12 +549,16 @@ _UNIT_NULL_RULE_LINE = (
     'set `"answer": null` with empty excerpts (`[]`)'
 )
 
-_SYSTEM_PROMPT_VAL_WITH_UNIT_PASS1 = SYSTEM_PROMPT_VAL_WITH_UNIT.replace(
+_SYSTEM_PROMPT_VAL_WITH_UNIT_PASS1 = _SYSTEM_PROMPT_VAL_WITH_UNIT_TEMPLATE.replace(
     _MISSING_VALUE_RULE_SLOT, _UNIT_OMIT_RULE_LINE
 )
-_SYSTEM_PROMPT_VAL_WITH_UNIT_RETRY = SYSTEM_PROMPT_VAL_WITH_UNIT.replace(
+_SYSTEM_PROMPT_VAL_WITH_UNIT_RETRY = _SYSTEM_PROMPT_VAL_WITH_UNIT_TEMPLATE.replace(
     _MISSING_VALUE_RULE_SLOT, _UNIT_NULL_RULE_LINE
 )
+
+# Public name keeps its value from before the slot was added: the pass-1
+# prompt template (unit placeholders unfilled, no slot left).
+SYSTEM_PROMPT_VAL_WITH_UNIT = _SYSTEM_PROMPT_VAL_WITH_UNIT_PASS1
 
 
 def _render_unit_prompt(template: str, unit_name: Optional[str]) -> str:
