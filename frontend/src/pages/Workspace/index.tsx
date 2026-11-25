@@ -100,6 +100,7 @@ import { KeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
 import { ProjectDetailsDialog } from './ProjectDetailsDialog';
 import ReportIssueDialog from '@/components/ReportIssueDialog/ReportIssueDialog';
 import { SpreadsheetChrome } from './SpreadsheetChrome';
+import { StartHub } from './StartHub';
 import { useAddDocuments } from './hooks/useAddDocuments';
 import { useReextraction } from './hooks/useReextraction';
 import { useWorkspaceLayout } from './hooks/useWorkspaceLayout';
@@ -176,7 +177,7 @@ function Workspace() {
     sessionModeRef.current = next;
     setSessionMode(next);
   }, []);
-  const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [citeOpen, setCiteOpen] = useState(false);
@@ -908,7 +909,7 @@ function Workspace() {
   });
 
   useEffect(() => {
-    setProjectDialogOpen(!sessionId);
+    setProjectDialogOpen(false);
     updateSessionMode(requestedMode);
   }, [requestedMode, sessionId, updateSessionMode]);
 
@@ -1450,24 +1451,27 @@ function Workspace() {
       }),
     [sessionId, loading, sessionMissing, status, sessionMode, data.total_count, schema],
   );
+  const isHomeScreen = !sessionId && !sessionMissing;
   // Below the stacked breakpoint the panes sit one above the other and the
   // divider is display:none, so a chat width measured in pixels no longer says
   // anything about whether a pane is collapsed. Left live, the default 380px
   // chat satisfied `chatWidth >= innerWidth - 80` on any viewport under 460px,
   // which hid the sheet and -- with the divider removed from the grid flow --
   // dropped the chat into the 8px divider track, rendering an empty workspace.
-  const isSheetHidden = !isStacked && chatWidth >= viewportWidth - 80;
-  const isChatHidden = isChatCollapsed || (!isStacked && chatWidth <= 24);
+  const isSheetHidden = !isHomeScreen && !isStacked && chatWidth >= viewportWidth - 80;
+  const isChatHidden = isHomeScreen || isChatCollapsed || (!isStacked && chatWidth <= 24);
   // Undefined while stacked so the inline style does not outrank the
   // `max-width: 900px` rule in Workspace.css, which is what silently defeated
   // the responsive layout before.
-  const bodyGridColumns = isStacked
-    ? undefined
-    : isSheetHidden
-      ? '0px 8px minmax(0, 1fr)'
-      : isChatHidden
-        ? 'minmax(0, 1fr) 8px 0px'
-        : `minmax(0, 1fr) 8px ${chatWidth}px`;
+  const bodyGridColumns = isHomeScreen
+    ? 'minmax(0, 1fr)'
+    : isStacked
+      ? undefined
+      : isSheetHidden
+        ? '0px 8px minmax(0, 1fr)'
+        : isChatHidden
+          ? 'minmax(0, 1fr) 8px 0px'
+          : `minmax(0, 1fr) 8px ${chatWidth}px`;
   // The stacked layout's bottom row is otherwise a fixed 340px from
   // Workspace.css. Only override it (same axis the media query controls) to
   // collapse the row when chat is explicitly closed -- there's no drag
@@ -1478,7 +1482,7 @@ function Workspace() {
   // crosses the breakpoint, where reading it would collapse the row for a
   // frame with nothing to bring it back (no CSS fallback exists on this axis).
   const bodyGridRows = isStacked
-    ? (isChatCollapsed ? 'minmax(0, 1fr) 0px' : 'minmax(0, 1fr) 340px')
+    ? (isHomeScreen || isChatCollapsed ? 'minmax(0, 1fr) 0px' : 'minmax(0, 1fr) 340px')
     : undefined;
   // Reopening has to cover both ways chat gets hidden: an explicit close
   // (isChatCollapsed) and dragging the divider shut in split view, which
@@ -1663,6 +1667,10 @@ function Workspace() {
         displayOptions={selectedDisplayOptions}
         onNewProject={openNewProjectDialog}
         onImportProject={openImportPicker}
+        onOpenSession={(id, mode) => {
+          const suffix = mode === 'load' ? '?mode=load' : '';
+          navigate(`/workspace/${id}${suffix}`, { replace: true });
+        }}
         onOpenClassic={() => {
           if (sessionId) navigate(`/visualize/${sessionId}?mode=${sessionMode}`);
         }}
@@ -1687,6 +1695,7 @@ function Workspace() {
         onReportIssue={() => setReportOpen(true)}
         onCite={() => setCiteOpen(true)}
         rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
+        minimalChrome={isHomeScreen}
       />
 
       {pendingRerunKind && (
@@ -1715,6 +1724,15 @@ function Workspace() {
         style={{ gridTemplateColumns: bodyGridColumns, gridTemplateRows: bodyGridRows }}
       >
         <section className="workspace-sheet-pane" data-hidden={isSheetHidden}>
+          {isHomeScreen ? (
+            <StartHub
+              onCreated={() => {
+                setActiveSheet('data');
+                refresh();
+              }}
+            />
+          ) : (
+          <>
           {activeSheet === 'data' && (
             <div
               className="workspace-data-toolbar"
@@ -1908,47 +1926,54 @@ function Workspace() {
               />
             </div>
           )}
+          </>
+          )}
         </section>
 
-        <div
-          className="workspace-resizer"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize sheet and chat panes"
-          onPointerDown={startDividerDrag}
-          data-dragging={isDraggingDivider}
-        />
+        {!isHomeScreen && (
+          <>
+            <div
+              className="workspace-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sheet and chat panes"
+              onPointerDown={startDividerDrag}
+              data-dragging={isDraggingDivider}
+            />
 
-        <div className="workspace-chat-pane" data-hidden={isChatHidden} data-manual-close={isChatCollapsed}>
-          <ChatPanel
-            key={sessionId ?? 'no-session'}
-            sessionId={sessionId}
-            sessionMode={sessionMode}
-            status={status}
-            schema={schema}
-            data={data}
-            onRefresh={refreshSilent}
-            onEditFollowUp={notifyEditFollowUp}
-            onRegisterCancelPending={(cancel) => {
-              cancelChatPendingRef.current = cancel;
-            }}
-            onClose={closeChat}
-          />
-        </div>
+            <div className="workspace-chat-pane" data-hidden={isChatHidden} data-manual-close={isChatCollapsed}>
+              <ChatPanel
+                key={sessionId ?? 'no-session'}
+                sessionId={sessionId}
+                sessionMode={sessionMode}
+                status={status}
+                schema={schema}
+                data={data}
+                onRefresh={refreshSilent}
+                onEditFollowUp={notifyEditFollowUp}
+                onRegisterCancelPending={(cancel) => {
+                  cancelChatPendingRef.current = cancel;
+                }}
+                onClose={closeChat}
+              />
+            </div>
 
-        {isChatHidden && (
-          <button
-            type="button"
-            className="workspace-chat-reopen"
-            onClick={openChat}
-            title="Open chat"
-            aria-label="Open chat"
-          >
-            <Bot className="h-4 w-4" />
-          </button>
+            {isChatHidden && (
+              <button
+                type="button"
+                className="workspace-chat-reopen"
+                onClick={openChat}
+                title="Open chat"
+                aria-label="Open chat"
+              >
+                <Bot className="h-4 w-4" />
+              </button>
+            )}
+          </>
         )}
       </div>
 
+      {!isHomeScreen && (
       <div className="workspace-bottombar">
         <div className="workspace-bottombar-tabs">
           {SHEETS.map((sheet, index, sheets) => (
@@ -2051,18 +2076,19 @@ function Workspace() {
             </div>
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <input
-          ref={importInputRef}
-          type="file"
-          className="hidden"
-          accept=".json,.jsonl,.csv,.zip,.schematiq.json,application/json,text/csv,application/zip"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) importExistingProject(file);
-          }}
-        />
       </div>
+      )}
+
+      <input
+        ref={importInputRef}
+        type="file"
+        className="hidden"
+        accept=".json,.jsonl,.csv,.zip,.schematiq.json,application/json,text/csv,application/zip"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) importExistingProject(file);
+        }}
+      />
 
       <NewProjectDialog
         open={projectDialogOpen}
