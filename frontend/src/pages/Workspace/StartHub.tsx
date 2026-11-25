@@ -1,10 +1,10 @@
 // Full-canvas Start Hub: Minimal Living-Sentence Interface.
 // A single responsive sentence owns the entire landing screen:
 //
-//   Structure [ your documents ] around [ your question ]
+//   Structure [ your documents ] around [ any research question ]
 //
 // Works in either order (question first or documents first):
-//   - Type directly inline inside [ your question ] (wraps naturally if long).
+//   - Type directly inline inside [ any research question ] (wraps naturally if long).
 //   - Drop files anywhere on the screen or click [ your documents ] to pick
 //     files, folders, or cloud datasets.
 //   - Unfilled slots shimmer gently (~9.5s cycle) and rock softly after ~9s idle
@@ -693,7 +693,7 @@ export function StartHub({
               suppressContentEditableWarning
               spellCheck
               data-empty={hasQuery ? undefined : 'true'}
-              data-placeholder="your question"
+              data-placeholder="any research question"
               className="starthub-inline-input"
               onFocus={() => {
                 setDocsPopoverOpen(false);
