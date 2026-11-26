@@ -906,8 +906,17 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
             # Step 6b: Value extraction
             skipped_documents: List[SkippedDocumentInfo] = []
+            # An empty schema leaves nothing to extract: every row would be dropped,
+            # yet extraction would still pay one unit-identification call per
+            # document. Skip it and tell the user (see the completion message).
+            no_columns_discovered = not discovered_schema.columns
             if schematiq_config.get("skip_value_extraction", False) or not has_documents:
                 logger.info("Skipping value extraction (schema-only mode)")
+            elif no_columns_discovered:
+                logger.warning(
+                    "Skipping value extraction: schema discovery found no columns for %d document(s)",
+                    total_docs,
+                )
             else:
                 current_step += 1
                 await update_progress("Extracting values", 0.0)
@@ -1007,17 +1016,26 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             await update_progress("Finalizing results", 1.0)
 
             # Broadcast completion
-            schema_only = schematiq_config.get("skip_value_extraction", False) or not has_documents
+            schema_only = (
+                schematiq_config.get("skip_value_extraction", False)
+                or not has_documents
+                or no_columns_discovered
+            )
             skipped_discovery_batches = (
                 sum(schema_evolution.skipped_batches_by_reason.values())
                 if schema_evolution and schema_evolution.skipped_batches_by_reason
                 else 0
             )
-            base_completion_message = (
-                "Schema discovery completed (value extraction skipped)"
-                if schema_only
-                else "ScheMatiQ execution completed successfully"
-            )
+            if no_columns_discovered:
+                base_completion_message = (
+                    "Schema discovery found no columns for this question "
+                    "(value extraction skipped). Try rephrasing the question."
+                )
+            elif schema_only:
+                base_completion_message = "Schema discovery completed (value extraction skipped)"
+            else:
+                base_completion_message = "ScheMatiQ execution completed successfully"
+
             completion_message = format_discovery_completion_message(
                 base_completion_message, skipped_discovery_batches
             )
@@ -1025,6 +1043,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 "total_documents": total_docs,
                 "schema_columns": len(discovered_schema.columns),
                 "schema_only": schema_only,
+                "no_columns_discovered": no_columns_discovered,
                 "skipped_discovery_batches": skipped_discovery_batches,
                 "elapsed_seconds": int(time.time() - schematiq_start_time),
                 "llm_stats": session.metadata.processing_stats.get("llm_stats", {}),
