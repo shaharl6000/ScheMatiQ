@@ -4,6 +4,7 @@
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, Bot, Check, FileText, Loader2, Paperclip, Square, X } from 'lucide-react';
 
+import { ScheMatiQLogo } from '@/components/shared/ScheMatiQLogo';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ModelSelector } from '@/components/ModelSelector';
@@ -955,12 +956,7 @@ export function ChatPanel({
         {busy && !assistantHasReplied && (
           <div className="workspace-chat-message" data-role="assistant">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <img
-                src="/icon.png"
-                alt=""
-                aria-hidden="true"
-                className="workspace-chat-thinking-logo h-5 w-5"
-              />
+              <ScheMatiQLogo className="workspace-chat-thinking-logo h-5 w-5 shrink-0" />
               <span>Thinking…</span>
             </div>
           </div>

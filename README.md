@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="frontend/public/icon.png" alt="ScheMatiQ logo" width="100">
+<img src="frontend/public/logo.svg" alt="ScheMatiQ logo" width="88">
 
 # ScheMatiQ
 

@@ -7,6 +7,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { ScheMatiQLogo } from '@/components/shared/ScheMatiQLogo';
 import { Button } from '@/components/ui/button';
 
 interface WelcomeDialogProps {
@@ -62,7 +63,10 @@ export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-xl">Welcome to ScheMatiQ!</DialogTitle>
+          <DialogTitle className="flex items-center gap-2 text-xl">
+            <ScheMatiQLogo className="h-6 w-6 shrink-0" />
+            <span>Welcome to ScheMatiQ!</span>
+          </DialogTitle>
           <DialogDescription className="text-base pt-2">
             Turn your documents into structured data in three simple steps:
           </DialogDescription>

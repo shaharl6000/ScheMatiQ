@@ -79,9 +79,9 @@
 }
 
 .workspace-file-mark-logo {
-  width: 26px;
-  height: 26px;
-  object-fit: contain;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
   display: block;
 }
 
