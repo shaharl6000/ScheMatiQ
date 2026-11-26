@@ -9,16 +9,22 @@ import {
   Bold,
   ChevronDown,
   Download,
+  FolderPlus,
   Italic,
   LifeBuoy,
+  Plus,
   Printer,
   Quote,
+  Redo2,
   RotateCw,
+  Rows3,
   Save,
   Search,
   Sparkles,
   Strikethrough,
+  Type,
   Underline,
+  Undo2,
 } from 'lucide-react';
 
 import {
@@ -27,6 +33,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 import { CellLegend } from './CellLegend';
 import { TABLE_FONT_OPTIONS, TABLE_FONT_SIZE_OPTIONS, WORKSPACE_MENUS } from './constants';
@@ -64,6 +71,7 @@ export function SpreadsheetChrome({
   onSaveProjectWithDocs,
   onHome,
   onSearch,
+  onOpenCommandPalette,
   onUndo,
   onRedo,
   onEstimateCost,
@@ -77,6 +85,10 @@ export function SpreadsheetChrome({
   onReportIssue,
   onCite,
   rerunDisabled,
+  compactRows,
+  canUndo,
+  canRedo,
+  onAddColumn,
 }: {
   projectTitle: string;
   sessionStatus: string;
@@ -93,6 +105,7 @@ export function SpreadsheetChrome({
   onSaveProjectWithDocs: () => void;
   onHome: () => void;
   onSearch: () => void;
+  onOpenCommandPalette?: () => void;
   onUndo: () => void;
   onRedo: () => void;
   onEstimateCost: () => void;
@@ -102,10 +115,14 @@ export function SpreadsheetChrome({
   onKeyboardShortcuts: () => void;
   onRunPendingEdits: () => void;
   onAddDocuments: () => void;
+  onAddColumn?: () => void;
   onApplyFormat: (patch: Partial<TableDisplayOptions>) => void;
   onReportIssue: () => void;
   onCite: () => void;
   rerunDisabled: boolean;
+  compactRows?: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }) {
   // Exhaustive by construction: Record<WorkspaceMenuAction, ...> makes TypeScript
   // reject a new menu action that has no handler, which is what previously let
@@ -132,9 +149,6 @@ export function SpreadsheetChrome({
     reportIssue: onReportIssue,
     cite: onCite,
   };
-
-  // Fallback guards a malformed align value restored from localStorage.
-  const activeAlign = TABLE_ALIGN_META[displayOptions.align] ?? TABLE_ALIGN_META.start;
 
   const isDisabled = (item: WorkspaceMenuItem) => {
     // Re-extract has its own gating (no session, nothing pending, or already
@@ -246,12 +260,34 @@ export function SpreadsheetChrome({
       </div>
 
       <div className="workspace-toolbar-row">
-        <button className="workspace-toolbar-icon" type="button" onClick={onPrint} title="Print">
+        <button
+          className="workspace-toolbar-icon"
+          type="button"
+          onClick={onUndo}
+          disabled={!canUseProjectActions || canUndo === false}
+          title="Undo (⌘Z)"
+          aria-label="Undo"
+        >
+          <Undo2 className="h-3.5 w-3.5" />
+        </button>
+        <button
+          className="workspace-toolbar-icon"
+          type="button"
+          onClick={onRedo}
+          disabled={!canUseProjectActions || canRedo === false}
+          title="Redo (⇧⌘Z)"
+          aria-label="Redo"
+        >
+          <Redo2 className="h-3.5 w-3.5" />
+        </button>
+        <span className="workspace-toolbar-separator" />
+
+        <button className="workspace-toolbar-icon" type="button" onClick={onPrint} title="Print" aria-label="Print">
           <Printer className="h-3.5 w-3.5" />
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="workspace-toolbar-icon" type="button" disabled={!canUseProjectActions} title="Export">
+            <button className="workspace-toolbar-icon" type="button" disabled={!canUseProjectActions} title="Export / Save" aria-label="Export or save project">
               <Download className="h-3.5 w-3.5" />
             </button>
           </DropdownMenuTrigger>
@@ -282,71 +318,140 @@ export function SpreadsheetChrome({
 
         <span className="workspace-toolbar-separator" />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="workspace-toolbar-select workspace-toolbar-font" type="button">
-              {displayOptions.fontFamily}
-              <ChevronDown className="h-3.5 w-3.5" />
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              className="workspace-toolbar-action"
+              type="button"
+              title="Text formatting (font, size, bold, align — saved locally)"
+            >
+              <Type className="h-3.5 w-3.5" />
+              <span>Format</span>
+              <ChevronDown className="h-3 w-3 opacity-60" />
             </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="workspace-menu-content w-40">
-            {TABLE_FONT_OPTIONS.map((font) => (
-              <DropdownMenuItem key={font} onClick={() => onApplyFormat({ fontFamily: font })}>
-                {font}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="workspace-toolbar-select workspace-toolbar-size" type="button">
-              {displayOptions.fontSize}
-              <ChevronDown className="h-3.5 w-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="workspace-menu-content w-28">
-            {TABLE_FONT_SIZE_OPTIONS.map((size) => (
-              <DropdownMenuItem key={size} onClick={() => onApplyFormat({ fontSize: size })}>
-                {size}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-72 p-3 space-y-3">
+            <div className="text-xs font-semibold text-foreground">Cell &amp; Table Formatting</div>
+            <div className="flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="workspace-toolbar-select flex-1" type="button">
+                    {displayOptions.fontFamily}
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="workspace-menu-content w-40">
+                  {TABLE_FONT_OPTIONS.map((font) => (
+                    <DropdownMenuItem key={font} onClick={() => onApplyFormat({ fontFamily: font })}>
+                      {font}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="workspace-toolbar-select w-16" type="button">
+                    {displayOptions.fontSize}
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="workspace-menu-content w-24">
+                  {TABLE_FONT_SIZE_OPTIONS.map((size) => (
+                    <DropdownMenuItem key={size} onClick={() => onApplyFormat({ fontSize: size })}>
+                      {size}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <div className="flex items-center gap-1">
+              <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.bold} aria-pressed={displayOptions.bold} onClick={() => onApplyFormat({ bold: !displayOptions.bold })} title="Bold">
+                <Bold className="h-3.5 w-3.5" />
+              </button>
+              <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.italic} aria-pressed={displayOptions.italic} onClick={() => onApplyFormat({ italic: !displayOptions.italic })} title="Italic">
+                <Italic className="h-3.5 w-3.5" />
+              </button>
+              <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.underline} aria-pressed={displayOptions.underline} onClick={() => onApplyFormat({ underline: !displayOptions.underline })} title="Underline">
+                <Underline className="h-3.5 w-3.5" />
+              </button>
+              <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.strikethrough} aria-pressed={displayOptions.strikethrough} onClick={() => onApplyFormat({ strikethrough: !displayOptions.strikethrough })} title="Strikethrough">
+                <Strikethrough className="h-3.5 w-3.5" />
+              </button>
+              <span className="workspace-toolbar-separator" />
+              {TABLE_ALIGN_ORDER.map((value) => {
+                const Meta = TABLE_ALIGN_META[value];
+                return (
+                  <button
+                    key={value}
+                    className="workspace-toolbar-icon"
+                    type="button"
+                    data-active={displayOptions.align === value}
+                    aria-pressed={displayOptions.align === value}
+                    onClick={() => onApplyFormat({ align: value })}
+                    title={`Align: ${Meta.label}`}
+                  >
+                    <Meta.Icon className="h-3.5 w-3.5" />
+                  </button>
+                );
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <button
+          className="workspace-toolbar-action"
+          type="button"
+          data-active={compactRows}
+          aria-pressed={Boolean(compactRows)}
+          onClick={onToggleCompactRows}
+          disabled={!canUseProjectActions}
+          title={compactRows ? 'Switch to comfortable auto-height rows' : 'Switch to compact single-line rows'}
+        >
+          <Rows3 className="h-3.5 w-3.5" />
+          <span>{compactRows ? 'Compact' : 'Comfortable'}</span>
+        </button>
 
         <span className="workspace-toolbar-separator" />
 
-        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.bold} onClick={() => onApplyFormat({ bold: !displayOptions.bold })} title="Bold">
-          <Bold className="h-3.5 w-3.5" />
-        </button>
-        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.italic} onClick={() => onApplyFormat({ italic: !displayOptions.italic })} title="Italic">
-          <Italic className="h-3.5 w-3.5" />
-        </button>
-        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.underline} onClick={() => onApplyFormat({ underline: !displayOptions.underline })} title="Underline">
-          <Underline className="h-3.5 w-3.5" />
-        </button>
-        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.strikethrough} onClick={() => onApplyFormat({ strikethrough: !displayOptions.strikethrough })} title="Strikethrough">
-          <Strikethrough className="h-3.5 w-3.5" />
+        {onAddColumn && (
+          <button
+            className="workspace-toolbar-action"
+            type="button"
+            onClick={onAddColumn}
+            disabled={!canUseProjectActions}
+            title="Add a new schema column"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Add column</span>
+          </button>
+        )}
+        <button
+          className="workspace-toolbar-action"
+          type="button"
+          onClick={onAddDocuments}
+          disabled={!canUseProjectActions}
+          title="Add more source documents to this project"
+        >
+          <FolderPlus className="h-3.5 w-3.5" />
+          <span>Add docs</span>
         </button>
 
         <span className="workspace-toolbar-separator" />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="workspace-toolbar-icon" type="button" title={`Align: ${activeAlign.label}`}>
-              <activeAlign.Icon className="h-3.5 w-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="workspace-menu-content w-32">
-            {TABLE_ALIGN_ORDER.map((value) => (
-              <DropdownMenuItem key={value} onClick={() => onApplyFormat({ align: value })}>
-                {TABLE_ALIGN_META[value].label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <button className="workspace-toolbar-icon" type="button" onClick={onSearch} title="Find in workspace">
+        <button className="workspace-toolbar-icon" type="button" onClick={onSearch} title="Find in sheet (⌘F)" aria-label="Find in sheet">
           <Search className="h-3.5 w-3.5" />
         </button>
+        {onOpenCommandPalette && (
+          <button
+            className="workspace-cmdk-trigger"
+            type="button"
+            onClick={onOpenCommandPalette}
+            title="Open Command Palette (⌘K)"
+          >
+            <span>Commands</span>
+            <kbd className="workspace-cmdk-kbd">⌘K</kbd>
+          </button>
+        )}
         <CellLegend />
 
         <span className="workspace-toolbar-spacer" />
@@ -356,7 +461,7 @@ export function SpreadsheetChrome({
           Estimate
         </button>
         <button
-          className="workspace-toolbar-action"
+          className={`workspace-toolbar-action${!rerunDisabled ? ' is-primary-pulse' : ''}`}
           type="button"
           onClick={onRunPendingEdits}
           disabled={rerunDisabled}

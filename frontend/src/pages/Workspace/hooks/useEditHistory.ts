@@ -35,9 +35,18 @@ const DEFAULT_LIMIT = 100;
  * actions (client-only format changes and server-backed value edits) share one
  * ordered history.
  */
-export function useEditHistory(limit: number = DEFAULT_LIMIT): EditHistory {
+export function useEditHistory(
+  limit: number = DEFAULT_LIMIT,
+  onDepthChange?: (undoDepth: number, redoDepth: number) => void,
+): EditHistory {
   const undoRef = useRef<EditCommand[]>([]);
   const redoRef = useRef<EditCommand[]>([]);
+  const onDepthChangeRef = useRef(onDepthChange);
+  onDepthChangeRef.current = onDepthChange;
+
+  const notify = useCallback(() => {
+    onDepthChangeRef.current?.(undoRef.current.length, redoRef.current.length);
+  }, []);
 
   const push = useCallback((command: EditCommand) => {
     undoRef.current.push(command);
@@ -47,28 +56,32 @@ export function useEditHistory(limit: number = DEFAULT_LIMIT): EditHistory {
     // A fresh action invalidates the redo branch, matching every editor's
     // behaviour (you cannot redo once you have diverged).
     redoRef.current = [];
-  }, [limit]);
+    notify();
+  }, [limit, notify]);
 
   const undo = useCallback(() => {
     const command = undoRef.current.pop();
     if (!command) return false;
     redoRef.current.push(command);
+    notify();
     void command.undo();
     return true;
-  }, []);
+  }, [notify]);
 
   const redo = useCallback(() => {
     const command = redoRef.current.pop();
     if (!command) return false;
     undoRef.current.push(command);
+    notify();
     void command.redo();
     return true;
-  }, []);
+  }, [notify]);
 
   const clear = useCallback(() => {
     undoRef.current = [];
     redoRef.current = [];
-  }, []);
+    notify();
+  }, [notify]);
 
   return useMemo(() => ({ push, undo, redo, clear }), [push, undo, redo, clear]);
 }

@@ -3,15 +3,28 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { type HotTableClass } from '@handsontable/react';
 
 import {
+  ArrowUpDown,
   Bot,
   Check,
   ChevronDown,
+  Columns3,
+  Download,
+  FileText,
   FileUp,
+  FolderPlus,
+  Keyboard,
   Loader2,
   MoreVertical,
   PanelLeft,
+  Plus,
+  Redo2,
+  RotateCw,
+  Rows3,
+  Save,
+  Search,
   Sparkles,
   Table2,
+  Undo2,
   X,
 } from 'lucide-react';
 
@@ -45,10 +58,11 @@ import SkippedDocumentsBanner from '@/components/DataTable/SkippedDocumentsBanne
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
-import api, { configAPI, loadAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
+import api, { configAPI, loadAPI, schemaAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
 import { rememberProject } from '@/utils/recentProjects';
 import { saveBlobAs } from '@/utils/saveFile';
 import type {
+  ColumnInfo,
   CostEstimate,
   DataRow,
   FigureExcerpt,
@@ -64,6 +78,7 @@ import type { DocumentListResponse } from '@/types/unit';
 import { applyPatches, enablePatches, produceWithPatches } from 'immer';
 
 import { ChatPanel } from './chat/ChatPanel';
+import { ColumnInspectorDrawer } from './ColumnInspectorDrawer';
 import {
   DATA_LOAD_RETRY_BASE_MS,
   DATA_LOAD_RETRY_MAX_MS,
@@ -82,11 +97,14 @@ import { RowLimitBanner } from './RowLimitBanner';
 import { useEditHistory } from './hooks/useEditHistory';
 import {
   buildExportFilename,
+  categoryAllowedKeys,
   chainDataCommittedCallbacks,
   dataEquals,
+  dataRowFormatIds,
   diffPaginatedData,
   documentDisplayName,
   formatWorkspaceChromeStatus,
+  isOffListValue,
   patchDataCell,
   schemaFromLoadSession,
   selectionArea,
@@ -96,6 +114,8 @@ import {
 import { NewProjectDialog } from './NewProjectDialog';
 import { PendingRerunBanner } from './PendingRerunBanner';
 import { CiteDialog } from './CiteDialog';
+import { CommandPalette, type CommandPaletteItem } from './CommandPalette';
+import { InlineSearchBar, type SearchMatch } from './InlineSearchBar';
 import { KeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
 import { ProjectDetailsDialog } from './ProjectDetailsDialog';
 import ReportIssueDialog from '@/components/ReportIssueDialog/ReportIssueDialog';
@@ -190,6 +210,12 @@ function Workspace() {
   const [config, setConfig] = useState<ScheMatiQConfig | null>(null);
   const [developerMode, setDeveloperMode] = useState(false);
   const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
+  const [flatSortMode, setFlatSortMode] = useState(false);
+  const [inlineSearchOpen, setInlineSearchOpen] = useState(false);
+  const [inlineSearchQuery, setInlineSearchQuery] = useState('');
+  const [inlineSearchMatches, setInlineSearchMatches] = useState<SearchMatch[]>([]);
+  const [inlineSearchIndex, setInlineSearchIndex] = useState(0);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   // Separate from `loading`: structure (status/schema) is ready and the grid
   // chrome is shown, but the heavy row payload is still streaming in. Lets the
@@ -232,7 +258,19 @@ function Workspace() {
   const cellFormatKeyRef = useRef<((visualRow: number, visualCol: number) => string | null) | null>(null);
   // Undo/redo stack for reversible edits (formatting + cell-value edits),
   // following the Command pattern; each entry owns its inverse and forward.
-  const editHistory = useEditHistory();
+  const [historyCounts, setHistoryCounts] = useState({ undo: 0, redo: 0 });
+  const editHistory = useEditHistory(100, (undo, redo) => {
+    setHistoryCounts((prev) => (prev.undo === undo && prev.redo === redo ? prev : { undo, redo }));
+  });
+  // Per-project human-verified cells ("rowId:colKey"), stored in localStorage.
+  const [verifiedCells, setVerifiedCells] = useState<Set<string>>(() => new Set());
+  // Slide-over Column Inspector drawer state.
+  const [columnInspector, setColumnInspector] = useState<{
+    open: boolean;
+    mode: 'create' | 'edit';
+    columnName: string | null;
+  }>({ open: false, mode: 'edit', columnName: null });
+  const healthJumpCursorRef = useRef<Record<string, number>>({});
   // Bumped only when authoritative server data is applied (applyData /
   // flushDeferredData), never on an optimistic cell edit. The By Unit view keys
   // its refetch off this instead of `data` so an optimistic edit, which mutates
@@ -955,6 +993,13 @@ function Workspace() {
     setDocuments(null);
     setConfig(null);
     setCostEstimate(null);
+    setFlatSortMode(false);
+    setInlineSearchOpen(false);
+    setInlineSearchQuery('');
+    setInlineSearchMatches([]);
+    setInlineSearchIndex(0);
+    setColumnInspector({ open: false, mode: 'edit', columnName: null });
+    healthJumpCursorRef.current = {};
     setDataView('by_document');
     setUnitData(emptyData);
     setSheetSelection(null);
@@ -1358,24 +1403,77 @@ function Workspace() {
   const undoEdit = useCallback(() => { editHistory.undo(); }, [editHistory]);
   const redoEdit = useCallback(() => { editHistory.redo(); }, [editHistory]);
 
-  const searchPage = useCallback(() => {
-    const term = window.prompt('Find in table')?.trim();
-    if (!term) return;
+  const runInlineSearch = useCallback((term: string) => {
+    setInlineSearchQuery(term);
     const hot = hotTableRef.current?.hotInstance;
     const searchApi = sheetSearchApiRef.current;
-    if (!hot || !searchApi) return;
-    const results = searchApi.find(term);
-    if (results.length === 0) {
-      toast({ title: 'No matches', description: `Nothing in this sheet matches "${term}".` });
+    if (!hot || !searchApi) {
+      setInlineSearchMatches([]);
+      setInlineSearchIndex(0);
       return;
     }
-    const [first] = results;
-    hot.selectCell(first.row, first.col);
-    toast({
-      title: results.length === 1 ? '1 match' : `${results.length} matches`,
-      description: 'Jumped to the first one.',
-    });
-  }, [toast]);
+    const trimmed = term.trim();
+    if (!trimmed) {
+      searchApi.find('');
+      setInlineSearchMatches([]);
+      setInlineSearchIndex(0);
+      return;
+    }
+    const results = searchApi.find(trimmed);
+    setInlineSearchMatches(results);
+    setInlineSearchIndex(0);
+    if (results.length > 0) {
+      hot.selectCell(results[0].row, results[0].col);
+    }
+  }, []);
+
+  const stepInlineSearch = useCallback((delta: 1 | -1) => {
+    if (inlineSearchMatches.length === 0) return;
+    const nextIdx = (inlineSearchIndex + delta + inlineSearchMatches.length) % inlineSearchMatches.length;
+    setInlineSearchIndex(nextIdx);
+    const target = inlineSearchMatches[nextIdx];
+    hotTableRef.current?.hotInstance?.selectCell(target.row, target.col);
+  }, [inlineSearchIndex, inlineSearchMatches]);
+
+  const closeInlineSearch = useCallback(() => {
+    setInlineSearchOpen(false);
+    setInlineSearchQuery('');
+    setInlineSearchMatches([]);
+    setInlineSearchIndex(0);
+    sheetSearchApiRef.current?.find('');
+  }, []);
+
+  useEffect(() => {
+    // Switching sheets invalidates active inline search highlights.
+    if (inlineSearchOpen) closeInlineSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSheet]);
+
+  const searchPage = useCallback(() => {
+    setInlineSearchOpen(true);
+  }, []);
+
+  // Global Cmd/Ctrl+K (Command Palette) and Cmd/Ctrl+F (Inline Sheet Find).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === 'k') {
+        event.preventDefault();
+        setCommandPaletteOpen((open) => !open);
+        return;
+      }
+      if (key === 'f' && (activeSheet === 'data' || activeSheet === 'schema' || activeSheet === 'unit')) {
+        const target = event.target as HTMLElement | null;
+        // Let the user use native/document search if focused inside the source document panel.
+        if (target?.closest('.workspace-source-panel')) return;
+        event.preventDefault();
+        setInlineSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeSheet]);
 
   const importExistingProject = useCallback(async (file: File) => {
     setImportingProject(true);
@@ -1586,8 +1684,115 @@ function Workspace() {
   const openNewProjectDialog = useCallback(() => setProjectDialogOpen(true), []);
   const openImportPicker = useCallback(() => importInputRef.current?.click(), []);
 
+  // Load per-project verified cells from localStorage when session changes.
+  useEffect(() => {
+    if (!sessionId) {
+      setVerifiedCells(new Set());
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(`workspace.verifiedCells.${sessionId}`);
+      const parsed = saved ? JSON.parse(saved) : [];
+      setVerifiedCells(new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []));
+    } catch {
+      setVerifiedCells(new Set());
+    }
+  }, [sessionId]);
+
+  // Active rows & non-excerpt schema columns used for health metrics,
+  // command palette, and column inspector.
+  const activeDataSet = useMemo(
+    () => (dataView === 'by_unit' ? alignedUnitData : alignedDocData),
+    [alignedDocData, alignedUnitData, dataView],
+  );
+  const nonExcerptSchemaCols = useMemo<ColumnInfo[]>(
+    () =>
+      ((schema?.schema ?? []) as ColumnInfo[]).filter(
+        (c) => !c.name.toLowerCase().endsWith('_excerpt'),
+      ),
+    [schema?.schema],
+  );
+  const activeRowIds = useMemo(() => dataRowFormatIds(activeDataSet.rows), [activeDataSet.rows]);
+
+  // Table health scan: exact coordinates of ungrounded, off-list, confirmed-empty, and verified cells.
+  const tableHealth = useMemo(() => {
+    const ungrounded: Array<{ row: number; col: number }> = [];
+    const offlist: Array<{ row: number; col: number }> = [];
+    const confirmedEmpty: Array<{ row: number; col: number }> = [];
+    const verified: Array<{ row: number; col: number }> = [];
+    const rows = activeDataSet.rows || [];
+    if (rows.length === 0 || nonExcerptSchemaCols.length === 0) {
+      return { ungrounded, offlist, confirmedEmpty, verified };
+    }
+    const allowedByCol = new Map<string, Set<string>>();
+    nonExcerptSchemaCols.forEach((col) => {
+      const keys = categoryAllowedKeys(col);
+      if (keys) allowedByCol.set(col.name, keys);
+    });
+    rows.forEach((row, rIdx) => {
+      const rowData = row.data || {};
+      const rowId = activeRowIds[rIdx];
+      nonExcerptSchemaCols.forEach((col, cIdx) => {
+        const gridCol = cIdx + 2; // 2 provenance cols before schema cols
+        const raw = rowData[col.name];
+        if (raw && typeof raw === 'object') {
+          if ((raw as { _ungrounded?: boolean })._ungrounded) ungrounded.push({ row: rIdx, col: gridCol });
+          if ((raw as { _confirmed_empty?: boolean })._confirmed_empty) confirmedEmpty.push({ row: rIdx, col: gridCol });
+        }
+        const allowed = allowedByCol.get(col.name);
+        if (allowed && isOffListValue(raw, allowed)) offlist.push({ row: rIdx, col: gridCol });
+        if (rowId !== undefined && verifiedCells.has(`${rowId}:${col.name}`)) {
+          verified.push({ row: rIdx, col: gridCol });
+        }
+      });
+    });
+    return { ungrounded, offlist, confirmedEmpty, verified };
+  }, [activeDataSet.rows, activeRowIds, nonExcerptSchemaCols, verifiedCells]);
+
+  const jumpToHealthCell = useCallback((kind: 'ungrounded' | 'offlist' | 'confirmedEmpty' | 'verified') => {
+    const list = tableHealth[kind];
+    if (list.length === 0) return;
+    const prev = healthJumpCursorRef.current[kind] ?? -1;
+    const nextIdx = (prev + 1) % list.length;
+    healthJumpCursorRef.current[kind] = nextIdx;
+    const target = list[nextIdx];
+    setActiveSheet('data');
+    if (kind === 'ungrounded' || kind === 'offlist') setShowSourcePanel(true);
+    window.requestAnimationFrame(() => {
+      const hot = hotTableRef.current?.hotInstance;
+      if (!hot) return;
+      const visualRow = typeof hot.toVisualRow === 'function' ? hot.toVisualRow(target.row) : target.row;
+      const r = visualRow != null && visualRow >= 0 ? visualRow : target.row;
+      hot.selectCell(r, target.col);
+      hot.scrollViewportTo(r, target.col);
+    });
+  }, [tableHealth]);
+
+  const handleOpenColumnInspector = useCallback((columnName: string) => {
+    setColumnInspector({ open: true, mode: 'edit', columnName });
+  }, []);
+
+  const handleAddColumnAction = useCallback(() => {
+    setColumnInspector({ open: true, mode: 'create', columnName: null });
+  }, []);
+
+  const inspectedColumnObj = useMemo(
+    () => (columnInspector.columnName ? nonExcerptSchemaCols.find((c) => c.name === columnInspector.columnName) ?? null : null),
+    [columnInspector.columnName, nonExcerptSchemaCols],
+  );
+
   const dataGridNode = (
     <div className="workspace-grid-wrap">
+      <InlineSearchBar
+        open={inlineSearchOpen}
+        query={inlineSearchQuery}
+        matches={inlineSearchMatches}
+        activeIndex={inlineSearchIndex}
+        onQueryChange={runInlineSearch}
+        onNext={() => stepInlineSearch(1)}
+        onPrev={() => stepInlineSearch(-1)}
+        onClose={closeInlineSearch}
+      />
       <SpreadsheetSurface
         activeSheet={activeSheet}
         data={activeSheet === 'data' && dataView === 'by_unit' ? alignedUnitData : alignedDocData}
@@ -1621,6 +1826,9 @@ function Workspace() {
         onImportProject={openImportPicker}
         sessionMissing={sessionMissing}
         compactRows={compactRows}
+        flatSortMode={flatSortMode}
+        verifiedCells={verifiedCells}
+        onInspectColumn={handleOpenColumnInspector}
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
       />
@@ -1654,8 +1862,248 @@ function Workspace() {
     </div>
   );
 
+  const jumpToColumn = useCallback((columnName: string) => {
+    setActiveSheet('data');
+    window.requestAnimationFrame(() => {
+      const hot = hotTableRef.current?.hotInstance;
+      if (!hot) return;
+      const schemaCols = (schema?.schema ?? []).filter((c) => !c.name.toLowerCase().endsWith('_excerpt'));
+      const colIdx = schemaCols.findIndex((c) => c.name === columnName);
+      if (colIdx < 0) return;
+      // Data grid has 2 provenance columns (_source_document / _row_name) before schema columns.
+      const gridCol = colIdx + 2;
+      const rowCount = hot.countRows();
+      if (rowCount > 0) {
+        hot.selectCell(0, gridCol);
+        hot.scrollViewportTo(0, gridCol);
+      }
+    });
+  }, [schema?.schema]);
+
+  const jumpToDocument = useCallback((docName: string) => {
+    setActiveSheet('data');
+    setShowSourcePanel(true);
+    window.requestAnimationFrame(() => {
+      const hot = hotTableRef.current?.hotInstance;
+      const rows = (dataView === 'by_unit' ? unitData : data).rows || [];
+      const rowIdx = rows.findIndex((r) => {
+        const raw = r._source_document || r._parent_document || (Array.isArray(r.papers) ? r.papers[0] : '');
+        return raw === docName || documentDisplayName(raw) === documentDisplayName(docName);
+      });
+      if (hot && rowIdx >= 0) {
+        hot.selectCell(rowIdx, 0);
+        hot.scrollViewportTo(rowIdx, 0);
+      }
+    });
+  }, [data, dataView, unitData]);
+
+  const commandPaletteItems = useMemo<CommandPaletteItem[]>(() => {
+    const hasProject = Boolean(sessionId);
+    const items: CommandPaletteItem[] = [
+      {
+        id: 'act-new',
+        label: 'New project',
+        subtitle: 'Create a new extraction project from documents',
+        group: 'Actions',
+        icon: <Plus className="h-4 w-4" />,
+        onSelect: openNewProjectDialog,
+      },
+      {
+        id: 'act-import',
+        label: 'Import project file',
+        subtitle: 'Open .schematiq.json, .zip bundle, or CSV',
+        group: 'Actions',
+        icon: <FileUp className="h-4 w-4" />,
+        onSelect: openImportPicker,
+      },
+      {
+        id: 'act-find',
+        label: 'Find in sheet',
+        group: 'Actions',
+        shortcut: '⌘F',
+        icon: <Search className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: searchPage,
+      },
+      {
+        id: 'act-source',
+        label: showSourcePanel ? 'Hide source document panel' : 'Show source document panel',
+        group: 'Actions',
+        icon: <PanelLeft className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: () => {
+          setActiveSheet('data');
+          setShowSourcePanel((v) => !v);
+        },
+      },
+      {
+        id: 'act-compact',
+        label: compactRows ? 'Switch to comfortable row height' : 'Switch to compact rows',
+        group: 'Actions',
+        icon: <Rows3 className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: toggleCompactRows,
+      },
+      {
+        id: 'act-sort-mode',
+        label: flatSortMode ? 'Group rows by document / unit' : 'Unmerge rows to enable column sorting',
+        group: 'Actions',
+        icon: <ArrowUpDown className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: () => {
+          setActiveSheet('data');
+          setFlatSortMode((v) => !v);
+        },
+      },
+      {
+        id: 'act-chat',
+        label: isChatHidden ? 'Open AI Assistant chat' : 'Reset split view (Table + Chat)',
+        group: 'Actions',
+        icon: <Bot className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: isChatHidden ? openChat : splitView,
+      },
+      {
+        id: 'act-add-col',
+        label: 'Add new column',
+        subtitle: 'Open column inspector to define a new schema field',
+        group: 'Actions',
+        icon: <Plus className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: handleAddColumnAction,
+      },
+      {
+        id: 'act-add-docs',
+        label: 'Add more documents',
+        group: 'Actions',
+        icon: <FolderPlus className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: () => setActiveSheet('documents'),
+      },
+      {
+        id: 'act-reextract',
+        label: 'Re-extract table',
+        group: 'Actions',
+        icon: <RotateCw className="h-4 w-4" />,
+        disabled: !hasProject || !pendingRerunKind || rerunStarting,
+        onSelect: runPendingEdits,
+      },
+      {
+        id: 'act-estimate',
+        label: 'Estimate project cost',
+        group: 'Actions',
+        icon: <Sparkles className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: estimateCurrentCost,
+      },
+      {
+        id: 'act-undo',
+        label: 'Undo last edit',
+        group: 'Actions',
+        shortcut: '⌘Z',
+        icon: <Undo2 className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: undoEdit,
+      },
+      {
+        id: 'act-redo',
+        label: 'Redo edit',
+        group: 'Actions',
+        shortcut: '⇧⌘Z',
+        icon: <Redo2 className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: redoEdit,
+      },
+      {
+        id: 'act-csv',
+        label: 'Download table (.csv)',
+        group: 'Actions',
+        icon: <Download className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: exportCurrentProject,
+      },
+      {
+        id: 'act-save-bundle',
+        label: 'Save project with documents (.zip)',
+        group: 'Actions',
+        icon: <Save className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: saveProjectWithDocuments,
+      },
+      {
+        id: 'act-shortcuts',
+        label: 'Keyboard shortcuts',
+        group: 'Actions',
+        icon: <Keyboard className="h-4 w-4" />,
+        onSelect: () => setShortcutsOpen(true),
+      },
+    ];
+
+    SHEETS.forEach((sheet) => {
+      items.push({
+        id: `sheet-${sheet.id}`,
+        label: `Go to ${sheet.label}`,
+        group: 'Sheets',
+        icon: <Table2 className="h-4 w-4" />,
+        onSelect: () => setActiveSheet(sheet.id),
+      });
+    });
+
+    nonExcerptSchemaCols.forEach((col) => {
+      items.push({
+        id: `col-${col.name}`,
+        label: col.display_name || col.name,
+        subtitle: col.definition,
+        group: 'Columns',
+        keywords: `${col.name} ${col.value_kind ?? ''}`,
+        icon: <Columns3 className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: () => jumpToColumn(col.name),
+      });
+    });
+
+    (documents?.documents ?? []).forEach((doc) => {
+      items.push({
+        id: `doc-${doc.name}`,
+        label: documentDisplayName(doc.name),
+        subtitle: `${doc.rowCount} row${doc.rowCount === 1 ? '' : 's'}`,
+        group: 'Documents',
+        icon: <FileText className="h-4 w-4" />,
+        disabled: !hasProject,
+        onSelect: () => jumpToDocument(doc.name),
+      });
+    });
+
+    return items;
+  }, [
+    compactRows,
+    documents?.documents,
+    estimateCurrentCost,
+    exportCurrentProject,
+    flatSortMode,
+    handleAddColumnAction,
+    isChatHidden,
+    jumpToColumn,
+    jumpToDocument,
+    nonExcerptSchemaCols,
+    openChat,
+    openImportPicker,
+    openNewProjectDialog,
+    pendingRerunKind,
+    redoEdit,
+    rerunStarting,
+    runPendingEdits,
+    saveProjectWithDocuments,
+    searchPage,
+    sessionId,
+    showSourcePanel,
+    splitView,
+    toggleCompactRows,
+    undoEdit,
+  ]);
+
   return (
-    <div className="workspace-root h-full w-full">
+    <div className="workspace-root h-full w-full" data-semantic-grid="true">
       <SpreadsheetChrome
         projectTitle={projectTitle}
         sessionStatus={chromeStatus}
@@ -1674,6 +2122,7 @@ function Workspace() {
         onSaveProjectWithDocs={saveProjectWithDocuments}
         onHome={() => navigate('/workspace')}
         onSearch={searchPage}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         onToggleCompactRows={toggleCompactRows}
         onKeyboardShortcuts={() => setShortcutsOpen(true)}
         onUndo={undoEdit}
@@ -1683,10 +2132,14 @@ function Workspace() {
         onSplitView={splitView}
         onRunPendingEdits={runPendingEdits}
         onAddDocuments={() => setActiveSheet('documents')}
+        onAddColumn={handleAddColumnAction}
         onApplyFormat={applyTableFormat}
         onReportIssue={() => setReportOpen(true)}
         onCite={() => setCiteOpen(true)}
         rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
+        compactRows={compactRows}
+        canUndo={historyCounts.undo > 0}
+        canRedo={historyCounts.redo > 0}
       />
 
       {pendingRerunKind && (
@@ -1716,15 +2169,28 @@ function Workspace() {
       >
         <section className="workspace-sheet-pane" data-hidden={isSheetHidden}>
           {activeSheet === 'data' && (
-            <div
-              className="workspace-data-toolbar"
-              style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderBottom: '1px solid #e2e8e2' }}
-            >
+            <div className="workspace-data-toolbar">
               <ViewModeToggle
                 viewMode={dataView === 'by_unit' ? 'by_unit' : 'standard'}
                 onViewModeChange={(mode) => setDataView(mode === 'by_unit' ? 'by_unit' : 'by_document')}
               />
-              <span style={{ width: 1, alignSelf: 'stretch', background: '#e2e8e2', margin: '2px 4px' }} />
+              <span className="workspace-data-toolbar-sep" />
+              <Button
+                size="sm"
+                variant={flatSortMode ? 'secondary' : 'outline'}
+                onClick={() => setFlatSortMode((v) => !v)}
+                className="gap-1.5"
+                aria-pressed={flatSortMode}
+                title={
+                  flatSortMode
+                    ? 'Flat rows active (all columns sortable). Click to restore merged group spans.'
+                    : 'Unmerge grouped rows so you can sort by any column'
+                }
+              >
+                <ArrowUpDown className="h-3.5 w-3.5" />
+                {flatSortMode ? 'Flat (sortable)' : 'Sort rows'}
+              </Button>
+              <span className="workspace-data-toolbar-sep" />
               <Button
                 size="sm"
                 variant={showSourcePanel ? 'secondary' : 'outline'}
@@ -1737,6 +2203,50 @@ function Workspace() {
                 {showSourcePanel ? 'Hide source' : 'Show source document'}
               </Button>
               <span style={{ flex: 1 }} />
+              {sessionId && (
+                <div className="workspace-health-pills">
+                  {tableHealth.ungrounded.length > 0 && (
+                    <button
+                      type="button"
+                      className="workspace-health-pill is-ungrounded"
+                      onClick={() => jumpToHealthCell('ungrounded')}
+                      title="Jump to next ungrounded cell (no supporting quote)"
+                    >
+                      ? Ungrounded ({tableHealth.ungrounded.length})
+                    </button>
+                  )}
+                  {tableHealth.offlist.length > 0 && (
+                    <button
+                      type="button"
+                      className="workspace-health-pill is-offlist"
+                      onClick={() => jumpToHealthCell('offlist')}
+                      title="Jump to next value outside column allowed_values"
+                    >
+                      Off-list ({tableHealth.offlist.length})
+                    </button>
+                  )}
+                  {tableHealth.confirmedEmpty.length > 0 && (
+                    <button
+                      type="button"
+                      className="workspace-health-pill is-empty"
+                      onClick={() => jumpToHealthCell('confirmedEmpty')}
+                      title="Jump to next confirmed-empty cell"
+                    >
+                      Not found ({tableHealth.confirmedEmpty.length})
+                    </button>
+                  )}
+                  {tableHealth.verified.length > 0 && (
+                    <button
+                      type="button"
+                      className="workspace-health-pill is-verified"
+                      onClick={() => jumpToHealthCell('verified')}
+                      title="Jump to next human-verified cell"
+                    >
+                      ✓ Verified ({tableHealth.verified.length})
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {activeSheet === 'data' && isDataMissing && (
@@ -2074,6 +2584,44 @@ function Workspace() {
       />
 
       <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        items={commandPaletteItems}
+      />
+
+      <ColumnInspectorDrawer
+        open={columnInspector.open}
+        mode={columnInspector.mode}
+        column={inspectedColumnObj}
+        sessionId={sessionId}
+        data={activeDataSet}
+        onOpenChange={(open) => setColumnInspector((prev) => ({ ...prev, open }))}
+        onSaved={(colName) => {
+          notifyEditFollowUp('schema', [colName]);
+          void refresh({ silent: true });
+        }}
+        onSaveAndReextract={(colName) => {
+          void refresh({ silent: true }).then(() => {
+            requestReextraction([colName]);
+          });
+        }}
+        onDeleteColumn={async (colName) => {
+          if (!sessionId) return;
+          try {
+            await schemaAPI.deleteColumn(sessionId, colName);
+            toast({ title: 'Column deleted', description: colName });
+            await refreshSchemaOnly();
+          } catch (err: any) {
+            toast({
+              title: 'Column delete failed',
+              description: err?.response?.data?.detail || err?.message || 'Could not delete column.',
+              variant: 'destructive',
+            });
+          }
+        }}
+      />
 
       <ProjectDetailsDialog
         open={detailsDialogOpen}

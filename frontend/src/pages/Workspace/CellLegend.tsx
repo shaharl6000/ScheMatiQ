@@ -27,7 +27,19 @@ const LEGEND_ITEMS: Array<{ sample: ReactNode; text: string }> = [
   },
 ];
 
+const EXTRA_SEMANTIC_ITEMS: Array<{ sample: ReactNode; text: string }> = [
+  {
+    sample: <span className="workspace-legend-sample workspace-legend-verified">value</span>,
+    text: 'Verified by you in this browser.',
+  },
+  {
+    sample: <span className="workspace-legend-sample workspace-legend-edited">value</span>,
+    text: 'Manually edited value (human override).',
+  },
+];
+
 export function CellLegend() {
+  const items = [...LEGEND_ITEMS, ...EXTRA_SEMANTIC_ITEMS];
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -38,7 +50,7 @@ export function CellLegend() {
       <PopoverContent align="end" className="workspace-legend w-80 p-3">
         <div className="workspace-legend-title">Cell marks in the Data sheet</div>
         <ul className="workspace-legend-list">
-          {LEGEND_ITEMS.map((item) => (
+          {items.map((item) => (
             <li key={item.text} className="workspace-legend-item">
               {item.sample}
               <span>{item.text}</span>

@@ -101,6 +101,42 @@ const OFF_LIST_CELL_TOOLTIP =
 const CONFIRMED_EMPTY_CELL_TOOLTIP =
   'The model checked the document and found no value for this cell.';
 
+// Deterministic palette bucket (0..7) so category values always render with
+// the same accessible pill tint across rows, filters, and light/dark themes.
+function categoryHueBucket(raw: string): number {
+  let hash = 2166136261;
+  const normalized = raw.trim().toLowerCase();
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash) % 8;
+}
+
+function renderCategoryPillCell(
+  _instance: unknown,
+  td: HTMLTableCellElement,
+  _row: number,
+  _col: number,
+  _prop: string | number,
+  value: unknown,
+): void {
+  const text = value == null ? '' : String(value).trim();
+  td.textContent = '';
+  if (!text) return;
+  // Long prose shouldn't be wrapped in a tiny badge pill.
+  if (text.length > 48) {
+    td.textContent = text;
+    return;
+  }
+  const pill = document.createElement('span');
+  pill.className = 'workspace-cat-pill';
+  pill.setAttribute('data-bucket', String(categoryHueBucket(text)));
+  pill.setAttribute('dir', 'auto');
+  pill.textContent = text;
+  td.appendChild(pill);
+}
+
 // @handsontable/react's HotTable extends React.Component (not PureComponent) and
 // unconditionally calls hotInstance.updateSettings(newGlobalSettings) on every
 // componentDidUpdate. Memoizing this host boundary prevents parent callback
@@ -151,6 +187,9 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   onImportProject,
   sessionMissing,
   compactRows,
+  flatSortMode,
+  verifiedCells,
+  onInspectColumn,
   layoutRevision,
   dataView,
 }: {
@@ -251,6 +290,13 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   // Session id is present in the URL but the backend cannot resolve it.
   sessionMissing?: boolean;
   compactRows?: boolean;
+  // When true, disables visual cell merging on the Data sheet so Handsontable
+  // column sorting works safely even when documents/units span multiple rows.
+  flatSortMode?: boolean;
+  // Cell keys ("rowId:colKey") marked human-verified in this browser.
+  verifiedCells?: Set<string>;
+  // Opens the slide-over Column Inspector drawer for the given schema column.
+  onInspectColumn?: (columnName: string) => void;
   layoutRevision: string;
   // Current Data-sheet grouping. Drives the visual cell-merge of the leftmost
   // grouping column: 'by_unit' merges unit_name, 'by_document' merges the
@@ -661,6 +707,56 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
     });
   }, [data.rows, schemaColumns]);
 
+  // Per-cell "human edited" flags: values explicitly edited by a user.
+  const dataHumanEdited = useMemo(() => {
+    return data.rows.map((row) => {
+      const perColumn: Record<string, boolean> = {};
+      const rowData = row.data || {};
+      for (const key of Object.keys(rowData)) {
+        const value = rowData[key] as { manually_edited?: boolean } | undefined;
+        if (value && typeof value === 'object' && value.manually_edited) {
+          perColumn[key] = true;
+        }
+      }
+      return perColumn;
+    });
+  }, [data.rows]);
+
+  // Per-column health stats for the 3px quality bar rendered inside Data column
+  // headers via afterGetColHeader (stored in a ref so `colHeaders` never rebuilds
+  // when rows append).
+  const colHealthMap = useMemo(() => {
+    const map = new Map<string, { groundedPct: number; ungroundedPct: number; filledPct: number; total: number }>();
+    const total = data.rows.length;
+    if (activeSheet !== 'data' || total === 0) return map;
+    for (const col of dataColumnNames) {
+      let grounded = 0;
+      let ungrounded = 0;
+      let filled = 0;
+      for (let i = 0; i < total; i += 1) {
+        const val = dataRows[i]?.[col];
+        if (val && val.trim() !== '') {
+          filled += 1;
+          if (dataUngrounded[i]?.[col]) ungrounded += 1;
+          else if (dataGrounding[i]?.[col]) grounded += 1;
+        }
+      }
+      map.set(col, {
+        groundedPct: Math.round((grounded / total) * 100),
+        ungroundedPct: Math.round((ungrounded / total) * 100),
+        filledPct: Math.round((filled / total) * 100),
+        total,
+      });
+    }
+    return map;
+  }, [activeSheet, data.rows.length, dataColumnNames, dataGrounding, dataRows, dataUngrounded]);
+  const colHealthRef = useRef(colHealthMap);
+  colHealthRef.current = colHealthMap;
+  const semanticGrid = true;
+  const semanticGridRef = useRef(true);
+  const inspectColumnRef = useRef(onInspectColumn);
+  inspectColumnRef.current = onInspectColumn;
+
   // --- Grouped cell merging (By Unit / By Document) ------------------------
   // Mirror the classic flow's grouped views: the leftmost grouping column
   // visually merges consecutive rows that share the same value, with a small
@@ -735,7 +831,7 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   const applyGroupMerges = useCallback(() => {
     const hot = hotTableRef.current?.hotInstance;
     if (!hot) return;
-    if (activeSheet !== 'data' || groupKeys.length === 0) {
+    if (activeSheet !== 'data' || groupKeys.length === 0 || flatSortMode) {
       try { hot.updateSettings({ mergeCells: false }); } catch { /* plugin may be mid-teardown */ }
       return;
     }
@@ -756,7 +852,7 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
     try {
       hot.updateSettings({ mergeCells: ranges.length ? ranges : true });
     } catch { /* plugin may be mid-teardown */ }
-  }, [activeSheet, groupColIndex, groupKeyAtVisual, groupKeys.length, hotTableRef]);
+  }, [activeSheet, flatSortMode, groupColIndex, groupKeyAtVisual, groupKeys.length, hotTableRef]);
 
   // Keep the column filter alive across React re-renders.
   //
@@ -965,11 +1061,12 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   const runSearch = useCallback((term: string) => {
     const hot = hotTableRef.current?.hotInstance;
     if (!hot) return [];
-    if (searchTermRef) searchTermRef.current = term;
+    const normalized = term || null;
+    if (searchTermRef) searchTermRef.current = normalized;
     const results = hot.getPlugin('search').query(term);
     // Fresh results are in the cell meta now, so the render below must not
     // scan again.
-    lastAppliedSearchTermRef.current = term;
+    lastAppliedSearchTermRef.current = normalized;
     searchDirtyRef.current = false;
     hot.render();
     return results;
@@ -1000,7 +1097,7 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
       const text = value == null ? '' : String(value);
       td.textContent = text;
       td.style.verticalAlign = 'top';
-      if (activeSheet !== 'data') return;
+      if (activeSheet !== 'data' || flatSortMode) return;
 
       const key = groupKeyAtVisual(hot, visualRow);
       if (!key) return;
@@ -1039,7 +1136,7 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
       wrap.appendChild(badge);
       td.appendChild(wrap);
     },
-    [activeSheet, groupBadgeNoun, groupKeyAtVisual],
+    [activeSheet, flatSortMode, groupBadgeNoun, groupKeyAtVisual],
   );
 
   const schemaRows = useMemo(() => {
@@ -1172,7 +1269,10 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
 
     // Order the two provenance columns so the active grouping column is
     // leftmost (and carries the merge + badge renderer); the other follows.
-    const unitNameCol = { key: '_row_name', label: 'unit_name', width: 220, readOnly: true };
+    const unitLabel = semanticGrid
+      ? (schema?.observation_unit?.name ? formatColumnName(schema.observation_unit.name) : 'Observation Unit')
+      : 'unit_name';
+    const unitNameCol = { key: '_row_name', label: unitLabel, width: 220, readOnly: true };
     const sourceDocCol = { key: '_source_document', label: 'Source Document', width: 220, readOnly: true };
     const groupCol = dataView === 'by_unit' ? unitNameCol : sourceDocCol;
     const otherCol = dataView === 'by_unit' ? sourceDocCol : unitNameCol;
@@ -1183,16 +1283,22 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
       ...dataColumnNames.map((name) => {
         // Mirror the legacy DataTable header behaviour: the data column's
         // header explains itself with the schema definition on hover.
-        const definition = schemaColumns.find((c) => c.name === name)?.definition?.trim();
+        const colMeta = schemaColumns.find((c) => c.name === name);
+        const definition = colMeta?.definition?.trim();
+        const isCategory =
+          Boolean(semanticGrid) &&
+          (colMeta?.value_kind === 'category' ||
+            (Array.isArray(colMeta?.allowed_values) && colMeta.allowed_values.length > 1));
         return {
           key: name,
           label: columnDisplayLabel(name),
           width: 190,
           headerTooltip: definition || undefined,
+          ...(isCategory ? { renderer: renderCategoryPillCell } : {}),
         };
       }),
     ];
-  }, [activeSheet, dataColumnNames, columnDisplayLabel, schemaColumns, dataView, renderGroupCell]);
+  }, [activeSheet, dataColumnNames, columnDisplayLabel, schemaColumns, schema?.observation_unit?.name, semanticGrid, dataView, renderGroupCell]);
 
   const sheet = useMemo((): { rows: Record<string, any>[]; columns: SheetColumn[]; minSpareRows?: number } => {
     if (activeSheet === 'schema') {
@@ -1245,6 +1351,14 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
     };
   }, [cellFormatKeyRef, formatKeyAt, hotTableRef]);
 
+  const valueKindByColumn = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of schemaColumns) {
+      if (c.value_kind) map.set(c.name, c.value_kind);
+    }
+    return map;
+  }, [schemaColumns]);
+
   const cellsCallback = useCallback((row: number, col: number) => {
     const props: { readOnly?: boolean; className?: string } = {};
     const column = sheet.columns[col];
@@ -1260,21 +1374,41 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
     }
     const formatKey = formatKeyAt(row, col);
     const formatClasses = formatKey ? getCellFormatClasses(cellFormats[formatKey]) : '';
-    if (formatClasses) props.className = formatClasses;
-    if (activeSheet === 'data' && column && dataGrounding[row]?.[column.key]) {
-      props.className = [props.className, 'has-grounding'].filter(Boolean).join(' ');
+    const classes: string[] = [];
+    if (formatClasses) classes.push(formatClasses);
+
+    if (activeSheet === 'data' && column) {
+      const rowId = dataRowIds[row];
+      const cellKey = rowId !== undefined ? `${rowId}:${column.key}` : '';
+      if (dataGrounding[row]?.[column.key]) classes.push('has-grounding');
+      if (dataConfirmedEmpty[row]?.[column.key]) classes.push('cell-confirmed-empty');
+      if (dataUngrounded[row]?.[column.key]) classes.push('cell-ungrounded');
+      if (dataOffList[row]?.[column.key]) classes.push('cell-off-list');
+      if (semanticGrid) {
+        const kind = valueKindByColumn.get(column.key);
+        if (kind === 'number' || kind === 'date') classes.push('workspace-cell-numeric');
+        if (dataHumanEdited[row]?.[column.key]) classes.push('cell-human-edited');
+        if (cellKey && verifiedCells?.has(cellKey)) classes.push('cell-verified');
+      }
     }
-    if (activeSheet === 'data' && column && dataConfirmedEmpty[row]?.[column.key]) {
-      props.className = [props.className, 'cell-confirmed-empty'].filter(Boolean).join(' ');
-    }
-    if (activeSheet === 'data' && column && dataUngrounded[row]?.[column.key]) {
-      props.className = [props.className, 'cell-ungrounded'].filter(Boolean).join(' ');
-    }
-    if (activeSheet === 'data' && column && dataOffList[row]?.[column.key]) {
-      props.className = [props.className, 'cell-off-list'].filter(Boolean).join(' ');
-    }
+    if (classes.length > 0) props.className = classes.join(' ');
     return props;
-  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataUngrounded, formatKeyAt, schemaColumns, sheet]);
+  }, [
+    activeSheet,
+    cellFormats,
+    dataConfirmedEmpty,
+    dataGrounding,
+    dataHumanEdited,
+    dataOffList,
+    dataRowIds,
+    dataUngrounded,
+    formatKeyAt,
+    schemaColumns,
+    semanticGrid,
+    sheet,
+    valueKindByColumn,
+    verifiedCells,
+  ]);
 
   const cellsCallbackRef = useRef(cellsCallback);
   cellsCallbackRef.current = cellsCallback;
@@ -1313,6 +1447,22 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
       } catch { /* selection may be invalid mid-teardown */ }
     }
   }, [applyGroupMerges, formatVersion, gridSize, hotTableRef, sheet.rows, sheetColumns, stableCells]);
+
+  // Repaint cell decorations (verified/AI-updated/extracting badges and
+  // column quality bars) in place when those sets change, preserving scroll
+  // and selection.
+  const firstOverlayRenderRef = useRef(true);
+  useEffect(() => {
+    if (firstOverlayRenderRef.current) {
+      firstOverlayRenderRef.current = false;
+      return;
+    }
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+    try {
+      hot.render();
+    } catch { /* instance may be mid-teardown */ }
+  }, [hotTableRef, verifiedCells]);
 
   // Recompute row heights in place when the compact-rows toggle flips.
   //
@@ -2111,6 +2261,19 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   // native "Clear column". Built with a stable identity (see menuActionsRef).
   const customColumnMenuItems = useMemo(
     () => ({
+      inspect_schema_column: {
+        name: 'Edit column schema…',
+        hidden(this: any): boolean {
+          return !inspectColumnRef.current;
+        },
+        disabled(this: any): boolean {
+          return menuActionsRef.current.selectedNames(this).length !== 1;
+        },
+        callback(this: any): void {
+          const names = menuActionsRef.current.selectedNames(this);
+          if (names.length === 1) inspectColumnRef.current?.(names[0]);
+        },
+      },
       delete_schema_column: {
         name(this: any): string {
           return menuActionsRef.current.selectedNames(this).length > 1 ? 'Delete columns' : 'Delete column';
@@ -2404,6 +2567,38 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
     h.onRequestSourcePanel?.();
   }, [hotTableRef]);
 
+  // Paint a subtle 3px completeness/grounding quality bar along the bottom edge
+  // of each Data schema column header when semanticGrid is enabled. Lives in
+  // afterGetColHeader reading refs so `colHeaders` never rebuilds on row appends.
+  const handleHotAfterGetColHeader = useCallback((col: number, TH: HTMLTableCellElement) => {
+    const existing = TH.querySelector<HTMLElement>('.workspace-col-health-bar');
+    const h = hotHandlersRef.current;
+    if (!semanticGridRef.current || h.activeSheet !== 'data' || col < 0) {
+      existing?.remove();
+      return;
+    }
+    const column = h.sheetColumns[col];
+    if (!column || column.key.startsWith('_')) {
+      existing?.remove();
+      return;
+    }
+    const health = colHealthRef.current.get(column.key);
+    if (!health || health.total === 0) {
+      existing?.remove();
+      return;
+    }
+    const bar = existing ?? document.createElement('div');
+    if (!existing) {
+      bar.className = 'workspace-col-health-bar';
+      TH.appendChild(bar);
+    }
+    const plainFilledPct = Math.max(0, health.filledPct - health.groundedPct - health.ungroundedPct);
+    bar.title = `${health.filledPct}% filled · ${health.groundedPct}% grounded · ${health.ungroundedPct}% ungrounded`;
+    bar.style.setProperty('--pct-grounded', `${health.groundedPct}%`);
+    bar.style.setProperty('--pct-plain', `${health.groundedPct + plainFilledPct}%`);
+    bar.style.setProperty('--pct-ungrounded', `${health.filledPct}%`);
+  }, []);
+
   if (!sessionId || sessionMissing) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
@@ -2450,7 +2645,7 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
     >
       <HotTableHost
         ref={hotTableRef}
-        key={`${activeSheet}-${activeSheet === 'data' ? dataView : 'x'}`}
+        key={`${activeSheet}-${activeSheet === 'data' ? `${dataView}-${flatSortMode ? 'flat' : 'grp'}` : 'x'}`}
         className="workspace-hot"
         theme="ht-theme-main"
         data={sheet.rows}
@@ -2477,7 +2672,7 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
         filters
         dropdownMenu={dropdownMenuConfig}
         modifyFiltersMultiSelectValue={filterValueCountLabeler}
-        columnSorting={!hasMultiRowGroup}
+        columnSorting={flatSortMode || !hasMultiRowGroup}
         copyPaste
         sanitizer={sanitizeCellHtml}
         // Required for the highlight, not for the query. getPlugin('search')
@@ -2509,6 +2704,7 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
         afterDeselect={handleHotAfterDeselect}
         afterSelectionEnd={handleHotAfterSelectionEnd}
         afterOnCellMouseDown={handleHotAfterOnCellMouseDown}
+        afterGetColHeader={handleHotAfterGetColHeader}
         cells={stableCells}
       />
     </div>

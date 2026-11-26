@@ -20,6 +20,13 @@ type Shortcut = { keys: string[]; label: string };
 
 const GROUPS: { title: string; items: Shortcut[] }[] = [
   {
+    title: 'Navigation & AI Workspace',
+    items: [
+      { keys: ['Mod', 'K'], label: 'Open Command Palette (jump to columns, documents, actions)' },
+      { keys: ['Mod', 'F'], label: 'Find in current sheet (inline search bar)' },
+    ],
+  },
+  {
     title: 'Formatting',
     items: [
       { keys: ['Mod', 'B'], label: 'Bold the selected cells' },

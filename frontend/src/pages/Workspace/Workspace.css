@@ -1676,3 +1676,375 @@
   font-size: 0.75rem;
   color: hsl(var(--muted-foreground));
 }
+
+/* Data sub-toolbar (replaces hardcoded light inline borders) */
+.workspace-data-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+}
+
+.workspace-data-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: hsl(var(--border));
+  margin: 0 2px;
+}
+
+/* Inline floating Find bar inside the grid wrap */
+.workspace-inline-search {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover) / 0.97);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.16), 0 2px 6px rgb(0 0 0 / 0.08);
+  min-width: 270px;
+  max-width: min(380px, calc(100% - 24px));
+}
+
+.workspace-inline-search-input {
+  flex: 1 1 auto;
+  min-width: 110px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 12.5px;
+  outline: none;
+}
+
+.workspace-inline-search-input::placeholder {
+  color: hsl(var(--muted-foreground) / 0.7);
+}
+
+.workspace-inline-search-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+}
+
+.workspace-inline-search-count.is-empty {
+  color: hsl(var(--destructive));
+}
+
+.workspace-inline-search-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-left: 1px solid hsl(var(--border));
+  padding-left: 4px;
+}
+
+.workspace-inline-search-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+}
+
+.workspace-inline-search-btn:hover:not(:disabled) {
+  background: hsl(var(--accent));
+}
+
+.workspace-inline-search-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Command palette dialog polish */
+.workspace-cmd-dialog > button[class*="absolute"] {
+  display: none;
+}
+
+/* Compact Cmd+K trigger button in toolbar */
+.workspace-cmdk-trigger {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.workspace-cmdk-trigger:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.workspace-cmdk-kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.7);
+  color: hsl(var(--muted-foreground));
+}
+
+/* Highlighted Re-extract action when schema/unit edits are pending */
+.workspace-toolbar-action.is-primary-pulse {
+  border-color: hsl(152 55% 40%);
+  background: hsl(152 60% 94%);
+  color: hsl(152 62% 24%);
+  font-weight: 600;
+}
+
+.workspace-toolbar-action.is-primary-pulse:hover {
+  background: hsl(152 58% 89%);
+}
+
+.workspace-toolbar-action[data-active="true"] {
+  border-color: hsl(var(--primary) / 0.45);
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+}
+
+/* Health filter pills inside Data sub-toolbar */
+.workspace-health-pills {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.workspace-health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.45);
+  color: hsl(var(--foreground));
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+}
+
+.workspace-health-pill:hover {
+  transform: translateY(-0.5px);
+}
+
+.workspace-health-pill.is-ungrounded {
+  border-color: hsl(38 80% 72%);
+  background: hsl(38 95% 95%);
+  color: hsl(32 80% 30%);
+}
+
+.workspace-health-pill.is-ungrounded:hover {
+  background: hsl(38 95% 90%);
+}
+
+.workspace-health-pill.is-offlist {
+  border-color: hsl(24 80% 72%);
+  background: hsl(24 95% 95%);
+  color: hsl(20 78% 32%);
+}
+
+.workspace-health-pill.is-offlist:hover {
+  background: hsl(24 95% 90%);
+}
+
+.workspace-health-pill.is-empty {
+  border-color: hsl(var(--border));
+  background: hsl(var(--muted) / 0.6);
+  color: hsl(var(--muted-foreground));
+}
+
+.workspace-health-pill.is-verified {
+  border-color: hsl(152 55% 68%);
+  background: hsl(152 65% 94%);
+  color: hsl(152 64% 25%);
+}
+
+/* =========================================================================
+   Semantic Grid Mode (data-semantic-grid="true"): unified modern research
+   palette, category pills, column quality micro-bars, stronger provenance.
+   ========================================================================= */
+
+.workspace-root[data-semantic-grid="true"] .workspace-chrome {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  border-bottom-color: hsl(var(--border));
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-toolbar-row {
+  border-top-color: hsl(var(--border) / 0.7);
+  background: hsl(var(--muted) / 0.22);
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-sheet-pane {
+  background: hsl(var(--background));
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-hot .handsontable .htCore thead th {
+  position: relative;
+  background: hsl(210 25% 97%);
+  border-color: hsl(var(--border));
+  color: hsl(222 30% 22%);
+  font-weight: 600;
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-hot .handsontable .htCore tbody th {
+  background: hsl(210 22% 98%);
+  border-color: hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(even) > td:not(.current):not(.area):not(.highlight) {
+  background: hsl(210 25% 99%);
+}
+
+/* 3px quality micro-bar along bottom edge of each Data schema column header */
+.workspace-col-health-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    hsl(152 62% 42%) 0%,
+    hsl(152 62% 42%) var(--pct-grounded, 0%),
+    hsl(214 60% 62%) var(--pct-grounded, 0%),
+    hsl(214 60% 62%) var(--pct-plain, 0%),
+    hsl(38 92% 52%) var(--pct-plain, 0%),
+    hsl(38 92% 52%) var(--pct-ungrounded, 0%),
+    hsl(var(--border) / 0.55) var(--pct-ungrounded, 0%),
+    hsl(var(--border) / 0.55) 100%
+  );
+}
+
+/* Category value pill chips */
+.workspace-cat-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.92em;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid transparent;
+}
+
+.workspace-cat-pill[data-bucket="0"] { background: hsl(214 88% 94%); color: hsl(217 70% 30%); border-color: hsl(214 70% 85%); }
+.workspace-cat-pill[data-bucket="1"] { background: hsl(152 68% 92%); color: hsl(154 64% 24%); border-color: hsl(152 52% 82%); }
+.workspace-cat-pill[data-bucket="2"] { background: hsl(266 80% 94%); color: hsl(266 56% 34%); border-color: hsl(266 64% 85%); }
+.workspace-cat-pill[data-bucket="3"] { background: hsl(34 92% 93%);  color: hsl(26 78% 30%);  border-color: hsl(34 78% 82%); }
+.workspace-cat-pill[data-bucket="4"] { background: hsl(342 82% 94%); color: hsl(342 66% 34%); border-color: hsl(342 68% 85%); }
+.workspace-cat-pill[data-bucket="5"] { background: hsl(186 72% 92%); color: hsl(188 68% 26%); border-color: hsl(186 58% 80%); }
+.workspace-cat-pill[data-bucket="6"] { background: hsl(84 65% 92%);  color: hsl(88 60% 24%);  border-color: hsl(84 52% 80%); }
+.workspace-cat-pill[data-bucket="7"] { background: hsl(220 20% 93%); color: hsl(222 25% 28%); border-color: hsl(220 16% 84%); }
+
+/* Tabular numbers for numeric / date columns */
+.workspace-hot .handsontable td.workspace-cell-numeric {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Stronger provenance markers under semanticGrid */
+.workspace-root[data-semantic-grid="true"] .workspace-hot .handsontable td.has-grounding::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: hsl(152 62% 42%);
+  opacity: 0.72;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-hot .handsontable td.has-grounding:hover::after {
+  transform: scale(1.4);
+  opacity: 1;
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-hot .handsontable td.cell-ungrounded {
+  background: hsl(38 95% 52% / 0.1) !important;
+  color: hsl(32 62% 28%);
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-hot .handsontable td.cell-ungrounded::after {
+  content: '?';
+  top: 2px;
+  right: 4px;
+  color: hsl(32 86% 42%);
+  font-weight: 700;
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-hot .handsontable td.cell-off-list {
+  text-decoration: underline dashed hsl(24 85% 48%);
+  background: hsl(24 92% 52% / 0.08) !important;
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-hot .handsontable td.cell-human-edited {
+  box-shadow: inset 3px 0 0 hsl(214 88% 54%);
+}
+
+.workspace-root[data-semantic-grid="true"] .workspace-hot .handsontable td.cell-verified::after {
+  content: '✓';
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+  color: hsl(152 68% 36%);
+  opacity: 1;
+}
+
+/* Extra legend samples */
+.workspace-legend-verified::after {
+  content: '✓';
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: hsl(152 68% 36%);
+}
+
+.workspace-legend-edited {
+  box-shadow: inset 3px 0 0 hsl(214 88% 54%);
+}
