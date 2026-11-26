@@ -31,6 +31,7 @@ import {
 
 import { CellLegend } from './CellLegend';
 import { TABLE_FONT_OPTIONS, TABLE_FONT_SIZE_OPTIONS, WORKSPACE_MENUS } from './constants';
+import { OpenProjectPopover } from './OpenProjectPopover';
 import type {
   TableDisplayOptions,
   TableTextAlign,
@@ -56,6 +57,7 @@ export function SpreadsheetChrome({
   displayOptions,
   onNewProject,
   onImportProject,
+  onOpenSession,
   onOpenClassic,
   onProjectDetails,
   onRefresh,
@@ -78,6 +80,7 @@ export function SpreadsheetChrome({
   onReportIssue,
   onCite,
   rerunDisabled,
+  minimalChrome,
 }: {
   projectTitle: string;
   sessionStatus: string;
@@ -85,6 +88,7 @@ export function SpreadsheetChrome({
   displayOptions: TableDisplayOptions;
   onNewProject: () => void;
   onImportProject: () => void;
+  onOpenSession?: (sessionId: string, mode: 'load' | 'schematiq') => void;
   onOpenClassic: () => void;
   onProjectDetails: () => void;
   onRefresh: () => void;
@@ -107,6 +111,7 @@ export function SpreadsheetChrome({
   onReportIssue: () => void;
   onCite: () => void;
   rerunDisabled: boolean;
+  minimalChrome?: boolean;
 }) {
   // Exhaustive by construction: Record<WorkspaceMenuAction, ...> makes TypeScript
   // reject a new menu action that has no handler, which is what previously let
@@ -145,7 +150,12 @@ export function SpreadsheetChrome({
   };
 
   return (
-    <div className="workspace-chrome" role="toolbar" aria-label="Spreadsheet menu and formatting toolbar">
+    <div
+      className="workspace-chrome"
+      data-minimal={minimalChrome ? 'true' : undefined}
+      role="toolbar"
+      aria-label={minimalChrome ? 'ScheMatiQ navigation bar' : 'Spreadsheet menu and formatting toolbar'}
+    >
       <div className="workspace-chrome-titlebar">
         <button
           type="button"
@@ -157,42 +167,49 @@ export function SpreadsheetChrome({
           <ScheMatiQLogo className="workspace-file-mark-logo" />
           <span className="workspace-file-mark-name">ScheMatiQ</span>
         </button>
-        <div className="workspace-file-title">
-          <div className="workspace-file-name">{projectTitle}</div>
-          <div className="workspace-file-status">{sessionStatus}</div>
-        </div>
-        <div className="workspace-menu-row">
-          {WORKSPACE_MENUS.map((menu) => (
-            <DropdownMenu key={menu.label}>
-              <DropdownMenuTrigger asChild>
-                <button className="workspace-menu-button" type="button">
-                  {menu.label}
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="workspace-menu-content w-56">
-                {menu.items.map((item) => (
-                  <DropdownMenuItem
-                    key={item.action}
-                    disabled={isDisabled(item)}
-                    onClick={menuActions[item.action]}
-                  >
-                    {item.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ))}
-        </div>
+        {!minimalChrome && (
+          <>
+            <div className="workspace-file-title">
+              <div className="workspace-file-name">{projectTitle}</div>
+              <div className="workspace-file-status">{sessionStatus}</div>
+            </div>
+            <div className="workspace-menu-row">
+              {WORKSPACE_MENUS.map((menu) => (
+                <DropdownMenu key={menu.label}>
+                  <DropdownMenuTrigger asChild>
+                    <button className="workspace-menu-button" type="button">
+                      {menu.label}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="workspace-menu-content w-56">
+                    {menu.items.map((item) => (
+                      <DropdownMenuItem
+                        key={item.action}
+                        disabled={isDisabled(item)}
+                        onClick={menuActions[item.action]}
+                      >
+                        {item.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ))}
+            </div>
+          </>
+        )}
         <div className="workspace-chrome-links">
+          <OpenProjectPopover
+            onImportProject={onImportProject}
+            onOpenSession={onOpenSession}
+          />
           <button
             type="button"
-            className="workspace-report-issue"
+            className="workspace-chrome-link cursor-pointer"
             onClick={onReportIssue}
             title="Report an issue"
             aria-label="Report an issue"
           >
             <LifeBuoy size={15} aria-hidden="true" />
-            <span>Report an issue</span>
           </button>
           <a
             href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
@@ -246,6 +263,7 @@ export function SpreadsheetChrome({
         </div>
       </div>
 
+      {!minimalChrome && (
       <div className="workspace-toolbar-row">
         <button className="workspace-toolbar-icon" type="button" onClick={onPrint} title="Print">
           <Printer className="h-3.5 w-3.5" />
@@ -367,6 +385,7 @@ export function SpreadsheetChrome({
           Re-extract
         </button>
       </div>
+      )}
     </div>
   );
 }
