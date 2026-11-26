@@ -45,6 +45,7 @@ const GROUPS: { title: string; items: Shortcut[] }[] = [
   {
     title: 'Selection',
     items: [
+      { keys: ['Alt', 'E'], label: 'Toggle Evidence / Source document panel on Data sheet' },
       { keys: ['Mod', 'A'], label: 'Select the whole sheet' },
       { keys: ['↑', '↓', '←', '→'], label: 'Move between cells' },
       { keys: ['Tab'], label: 'Move to the next cell' },

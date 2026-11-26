@@ -907,9 +907,14 @@ export const unitsAPI = {
    * reuses the configured base URL, credentials, and interceptors). Used by the
    * highlight-capable preview to render text documents in a DOM we control.
    */
-  getDocumentContentText: async (sessionId: string, name: string): Promise<string> => {
+  getDocumentContentText: async (
+    sessionId: string,
+    name: string,
+    format?: 'text',
+  ): Promise<string> => {
+    const query = format ? `&format=${encodeURIComponent(format)}` : '';
     const response = await api.get<string>(
-      `/units/document-content/${encodeURIComponent(sessionId)}?name=${encodeURIComponent(name)}`,
+      `/units/document-content/${encodeURIComponent(sessionId)}?name=${encodeURIComponent(name)}${query}`,
       { responseType: 'text', transformResponse: [(d) => d] },
     );
     return typeof response.data === 'string' ? response.data : String(response.data ?? '');

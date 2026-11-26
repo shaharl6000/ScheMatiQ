@@ -268,6 +268,32 @@ async def _load_document_bytes(session, session_id: str, name: str) -> Tuple[Opt
     return None, None
 
 
+def _find_local_text_document(session_id: str, name: str) -> Optional[Path]:
+    """Prefer a plain-text sibling (e.g. converted .txt/.md) when text view is requested."""
+    text_exts = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".log"}
+    for doc_dir in local_document_dirs(session_id):
+        for f in doc_dir.iterdir():
+            if not f.is_file() or f.name.startswith("."):
+                continue
+            if f.suffix.lower() in text_exts and _doc_names_match(name, f.name):
+                return f
+    return None
+
+
+def _extract_pdf_text_sync(pdf_bytes: bytes) -> str:
+    """Extract plain text from raw PDF bytes under the shared PyMuPDF lock."""
+    import fitz  # PyMuPDF
+    from app.services.pymupdf_lock import PYMUPDF_LOCK
+
+    with PYMUPDF_LOCK:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            pages = [page.get_text("text") for page in doc]
+        finally:
+            doc.close()
+    return "\n\n".join(p.strip() for p in pages if p and p.strip())
+
+
 @router.get(
     "/document-content/{session_id}",
     summary="Serve a source document inline",
@@ -276,6 +302,7 @@ async def _load_document_bytes(session, session_id: str, name: str) -> Tuple[Opt
 async def get_document_content(
     session_id: str,
     name: str = Query(..., description="Source document filename"),
+    format: Optional[str] = Query(None, description="Optional 'text' to request plain text for excerpt highlighting"),
 ):
     """Serve an uploaded source document's raw bytes for the document viewer.
 
@@ -293,9 +320,27 @@ async def get_document_content(
     if name not in known:
         raise HTTPException(status_code=404, detail="Document not found in this session")
 
-    content, media_type = await _load_document_bytes(session, session_id, name)
-    if content is None:
-        raise HTTPException(status_code=404, detail="Document file is not available")
+    if format == "text":
+        local_text = _find_local_text_document(session_id, name)
+        if local_text is not None:
+            content = local_text.read_bytes()
+            media_type = "text/plain; charset=utf-8"
+        else:
+            content, media_type = await _load_document_bytes(session, session_id, name)
+            if content is None:
+                raise HTTPException(status_code=404, detail="Document file is not available")
+            if content.startswith(b"%PDF-"):
+                try:
+                    extracted = await asyncio.to_thread(_extract_pdf_text_sync, content)
+                    content = extracted.encode("utf-8")
+                    media_type = "text/plain; charset=utf-8"
+                except Exception as exc:
+                    logger.warning("PDF text extraction failed for %s: %s", name, exc)
+                    raise HTTPException(status_code=422, detail="Could not extract text from PDF")
+    else:
+        content, media_type = await _load_document_bytes(session, session_id, name)
+        if content is None:
+            raise HTTPException(status_code=404, detail="Document file is not available")
 
     # HTTP headers must be latin-1 encodable, but document names often contain
     # non-latin-1 characters (e.g. the curly apostrophe in "Dep't"). Use an

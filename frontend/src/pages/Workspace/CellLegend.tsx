@@ -25,6 +25,10 @@ const LEGEND_ITEMS: Array<{ sample: ReactNode; text: string }> = [
     sample: <span className="workspace-legend-sample workspace-legend-off-list">value</span>,
     text: "Not in the column's allowed values. Add it in the Schema sheet, or edit the cell.",
   },
+  {
+    sample: <span className="workspace-legend-sample workspace-legend-ai-updated">value</span>,
+    text: 'Recently updated by AI re-extraction or chat. Click Undo in the toolbar to revert.',
+  },
 ];
 
 export function CellLegend() {

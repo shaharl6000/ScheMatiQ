@@ -120,6 +120,7 @@ export type WrongCellScope = {
   rows: string[];
   columns: string[];
   previousValue?: string;
+  customHint?: string;
 };
 export type NewProjectDialogProps = {
   open: boolean;

@@ -46,12 +46,12 @@ type UseReextractionOptions = {
 // of it being duplicated/drifting here.
 // Undefined `previousValue` (a multi-cell selection, where a single prior
 // value wouldn't apply to every cell in scope) falls back to a generic note.
-function buildWrongAnswerFeedback(previousValue?: string): string {
-  if (previousValue === undefined) {
-    return 'One or more of these values were marked wrong.';
-  }
-  const quoted = previousValue ? `"${previousValue}"` : '(nothing -- marked not found)';
-  return `The previous (incorrect) answer was: ${quoted}.`;
+function buildWrongAnswerFeedback(previousValue?: string, customHint?: string): string {
+  const base =
+    previousValue === undefined
+      ? 'One or more of these values were marked wrong.'
+      : `The previous (incorrect) answer was: ${previousValue ? `"${previousValue}"` : '(nothing -- marked not found)'}.`;
+  return customHint?.trim() ? `${base} User hint: ${customHint.trim()}` : base;
 }
 
 // Owns re-extraction progress, pending-rerun banners, and confirm-dialog state.
@@ -326,7 +326,7 @@ export function useReextraction({
   // cell's current value.
   const retryWrongCells = useCallback((scope: WrongCellScope) => {
     if (scope.rows.length === 0 || scope.columns.length === 0) return;
-    const feedback = buildWrongAnswerFeedback(scope.previousValue);
+    const feedback = buildWrongAnswerFeedback(scope.previousValue, scope.customHint);
     void startReextraction(scope.columns, { rows: scope.rows, onlyEmpty: false, feedback });
   }, [startReextraction]);
 

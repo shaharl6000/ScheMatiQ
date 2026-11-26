@@ -2,7 +2,7 @@
 // Parent: Workspace (index.tsx).
 
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Bot, Check, FileText, Loader2, Paperclip, Square, X } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Bot, Check, FileText, Loader2, Paperclip, Pin, Sparkles, Square, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -27,7 +27,7 @@ import {
 } from '../constants';
 import { formatToolsList, mapChatTurnMessage } from '../helpers';
 import type { PendingChatAction, PendingRerunKind, WorkspaceMessage, WorkspaceSessionMode } from '../types';
-import { ChatMessageBody } from './ChatMessageBody';
+import { ChatMessageBody, type ChatLinkTargets } from './ChatMessageBody';
 import { ToolActivityGroup } from './ToolActivityGroup';
 import { useChatTurn } from './hooks/useChatTurn';
 
@@ -95,6 +95,16 @@ const INITIAL_WELCOME_MESSAGE: WorkspaceMessage = {
     'Ask me to inspect or edit this project. I use workspace tools to read schema and data before making changes. Type /tools to list available tools.',
 };
 
+export interface ChatSelectionContext {
+  label: string;
+  contextText: string;
+}
+
+export interface ChatStarterPrompt {
+  label: string;
+  prompt: string;
+}
+
 export function ChatPanel({
   sessionId,
   sessionMode,
@@ -102,6 +112,16 @@ export function ChatPanel({
   onEditFollowUp,
   onRegisterCancelPending,
   onClose,
+  pinnedSelection,
+  liveSelection,
+  onPinLiveSelection,
+  onClearPinnedSelection,
+  starterPrompts,
+  linkTargets,
+  onJumpToTarget,
+  onBeforeChatMutation,
+  onAfterChatMutation,
+  focusRequestNonce,
 }: {
   sessionId?: string;
   sessionMode: WorkspaceSessionMode;
@@ -112,6 +132,16 @@ export function ChatPanel({
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
   onRegisterCancelPending?: (cancel: (() => Promise<boolean>) | null) => void;
   onClose: () => void;
+  pinnedSelection?: ChatSelectionContext | null;
+  liveSelection?: ChatSelectionContext | null;
+  onPinLiveSelection?: () => void;
+  onClearPinnedSelection?: () => void;
+  starterPrompts?: ChatStarterPrompt[];
+  linkTargets?: ChatLinkTargets;
+  onJumpToTarget?: (kind: 'column' | 'row' | 'doc', name: string) => void;
+  onBeforeChatMutation?: () => void;
+  onAfterChatMutation?: () => void;
+  focusRequestNonce?: number;
 }) {
   const [messages, setMessages] = useState<WorkspaceMessage[]>([INITIAL_WELCOME_MESSAGE]);
   // Grouped once per messages change, so renders from other state (typing in
@@ -139,6 +169,12 @@ export function ChatPanel({
   } | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!focusRequestNonce) return;
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, [focusRequestNonce]);
   // Which session's persisted transcript we've already tried to load, so a model
   // switch (which resets chatId) or a re-render doesn't refetch and repaint.
   const historyLoadedForRef = useRef<string | null>(null);
@@ -683,6 +719,7 @@ export function ChatPanel({
 
     if (completedTools.some((message) => CHAT_MUTATION_TOOLS.has(message.tool_name!))) {
       onRefresh();
+      onAfterChatMutation?.();
     }
 
     const alreadyFollowedUp =
@@ -704,7 +741,7 @@ export function ChatPanel({
         onEditFollowUp('schema', editedColumns);
       }
     }
-  }, [appendCompletedMessages, onEditFollowUp, onRefresh]);
+  }, [appendCompletedMessages, onAfterChatMutation, onEditFollowUp, onRefresh]);
 
   const showToolsList = useCallback(async () => {
     try {
@@ -728,14 +765,20 @@ export function ChatPanel({
     }
   }, [appendMessages, loadTools, runTurn]);
 
-  const ask = useCallback(async () => {
-    const text = input.trim();
+  const sendText = useCallback(async (rawText: string) => {
+    const text = rawText.trim();
     if (!text || busy) return;
     // The user is now driving this conversation; block any in-flight history
     // restore from overwriting what they produce.
     conversationStartedRef.current = true;
     setInput('');
-    appendMessages([{ id: `${Date.now()}-user`, role: 'user', content: text }]);
+    const activePin = pinnedSelection ?? null;
+    const displayContent = activePin ? `[${activePin.label}]\n${text}` : text;
+    const payloadMessage = activePin
+      ? `[User table selection context: ${activePin.contextText}]\n\n${text}`
+      : text;
+    if (activePin) onClearPinnedSelection?.();
+    appendMessages([{ id: `${Date.now()}-user`, role: 'user', content: displayContent }]);
 
     if (text.toLowerCase().startsWith('/tools')) {
       await showToolsList();
@@ -753,6 +796,9 @@ export function ChatPanel({
       return;
     }
 
+    // Snapshot data before the turn so any AI table edits can be highlighted/undone.
+    onBeforeChatMutation?.();
+
     // A new turn re-opens the live stream that a prior Stop had muted.
     suppressStreamRef.current = false;
     try {
@@ -760,7 +806,7 @@ export function ChatPanel({
         chatAPI.sendMessage(
           sessionId,
           {
-            message: text,
+            message: payloadMessage,
             chat_id: chatId || undefined,
             session_mode: sessionMode,
             pinned_tool: pinnedTool || undefined,
@@ -786,13 +832,19 @@ export function ChatPanel({
     busy,
     chatId,
     chatModel,
-    input,
+    onBeforeChatMutation,
+    onClearPinnedSelection,
+    pinnedSelection,
     pinnedTool,
     runTurn,
     sessionId,
     sessionMode,
     showToolsList,
   ]);
+
+  const ask = useCallback(() => {
+    void sendText(input);
+  }, [input, sendText]);
 
   const confirmPendingAction = useCallback(async () => {
     if (!pendingAction || !sessionId) return;
@@ -894,9 +946,19 @@ export function ChatPanel({
             provider="gemini"
             value={chatModel}
             onChange={(nextModel) => {
+              if (nextModel === chatModel) return;
               setChatModel(nextModel);
               // Chat sessions are bound to a model at creation, so start a
               // fresh session to make the switch take effect on the next turn.
+              if (chatId) {
+                appendMessages([
+                  {
+                    id: `${Date.now()}-model-switch`,
+                    role: 'assistant',
+                    content: `Switched model to \`${nextModel}\`. Your next message starts a fresh thread with this model.`,
+                  },
+                ]);
+              }
               setChatId(null);
             }}
             disabled={busy}
@@ -947,10 +1009,39 @@ export function ChatPanel({
               className="workspace-chat-message"
               data-role={item.message.role}
             >
-              <ChatMessageBody message={item.message} />
+              <ChatMessageBody
+                message={item.message}
+                linkTargets={linkTargets}
+                onJumpToTarget={onJumpToTarget}
+              />
             </div>
           ),
         )}
+
+        {sessionId &&
+          !busy &&
+          starterPrompts &&
+          starterPrompts.length > 0 &&
+          !messages.some((m) => m.role === 'user') && (
+            <div className="workspace-chat-starters">
+              <div className="workspace-chat-starters-title">
+                <Sparkles className="h-3 w-3" />
+                <span>Suggested for this table</span>
+              </div>
+              <div className="workspace-chat-starters-grid">
+                {starterPrompts.map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    className="workspace-chat-starter-chip"
+                    onClick={() => void sendText(chip.prompt)}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
         {busy && !assistantHasReplied && (
           <div className="workspace-chat-message" data-role="assistant">
@@ -995,13 +1086,17 @@ export function ChatPanel({
         )}
 
         {pendingAction && (
-          <div className="rounded-md border bg-muted/30 p-3 text-sm">
-            <div className="font-medium">{pendingAction.label}</div>
-            <div className="mt-1 text-muted-foreground">{pendingAction.description}</div>
+          <div className="workspace-chat-confirm-card">
+            <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-amber-500/35 bg-amber-500/15 px-2 py-0.5 text-[10.5px] font-semibold text-amber-700">
+              <AlertTriangle className="h-3 w-3" />
+              <span>Runs LLM · Confirmation required</span>
+            </div>
+            <div className="font-medium text-sm">{pendingAction.label}</div>
+            <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{pendingAction.description}</div>
             <div className="mt-3 flex gap-2">
               <Button size="sm" onClick={confirmPendingAction} disabled={busy}>
                 <Check className="h-4 w-4" />
-                Confirm
+                Confirm &amp; run
               </Button>
               <Button size="sm" variant="outline" onClick={cancelPendingAction} disabled={busy}>
                 <X className="h-4 w-4" />
@@ -1013,6 +1108,36 @@ export function ChatPanel({
       </div>
 
       <div className="workspace-chat-input">
+        {(pinnedSelection || liveSelection) && (
+          <div className="mb-2 flex items-center gap-1.5 flex-wrap">
+            {pinnedSelection ? (
+              <span className="workspace-chat-selection-chip is-pinned">
+                <Pin className="h-3 w-3 shrink-0" />
+                <span className="truncate">{pinnedSelection.label}</span>
+                {onClearPinnedSelection && (
+                  <button
+                    type="button"
+                    onClick={onClearPinnedSelection}
+                    className="ml-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 p-0.5"
+                    aria-label="Remove selection context"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            ) : liveSelection && onPinLiveSelection ? (
+              <button
+                type="button"
+                className="workspace-chat-selection-chip"
+                onClick={onPinLiveSelection}
+                title="Include the currently selected table cells with your next message"
+              >
+                <Pin className="h-3 w-3 shrink-0" />
+                <span className="truncate">+ Attach selection: {liveSelection.label}</span>
+              </button>
+            ) : null}
+          </div>
+        )}
         {(references.length > 0 || referenceError) && (
           <div className="mb-2 flex flex-col gap-1">
             {references.length > 0 && (
@@ -1048,10 +1173,15 @@ export function ChatPanel({
           </div>
         )}
         <Textarea
+          ref={composerRef}
           dir="auto"
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask ScheMatiQ or type /tools"
+          placeholder={
+            pinnedSelection
+              ? `Ask about ${pinnedSelection.label}…`
+              : 'Ask ScheMatiQ or type /tools'
+          }
           rows={3}
           disabled={busy}
           onKeyDown={(event) => {

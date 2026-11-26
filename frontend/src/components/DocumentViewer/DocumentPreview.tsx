@@ -1,5 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FileText, ExternalLink, Download, FileX, Upload, Loader2 } from 'lucide-react';
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  FileText,
+  FileX,
+  Loader2,
+  Quote,
+  RotateCw,
+  Search,
+  Upload,
+  X,
+} from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
 import type { TextExcerpt } from '../../types';
@@ -54,6 +68,17 @@ interface FigureItem {
   caption?: string;
 }
 
+/** Metadata describing the currently selected Data cell shown in the Evidence Inspector. */
+export interface EvidenceCellMeta {
+  rowName: string;
+  columnKey: string;
+  columnLabel: string;
+  value: string;
+  status: 'grounded' | 'ungrounded' | 'confirmed_empty' | 'empty' | 'edited';
+  isVerified: boolean;
+  verifyKey: string;
+}
+
 interface DocumentPreviewProps {
   sessionId: string | null | undefined;
   /** Source-document name (raw value, as returned by the documents endpoint). */
@@ -81,11 +106,6 @@ interface DocumentPreviewProps {
    * Grounding excerpts to highlight in the document. Passing this prop at all
    * (even `null`/`[]`) enables the highlight-capable inline text renderer for
    * text-based formats; the Documents tab omits it and keeps the plain iframe.
-   * All excerpts are marked; the first found match is scrolled into view.
-   * When an excerpt carries `char_start`/`char_end` (the backend already
-   * located it via ExcerptGrounder), that span is used directly instead of
-   * re-searching for `text` client-side -- the backend's matching tolerates
-   * paraphrasing that the frontend's own search does not.
    */
   highlightTexts?: TextExcerpt[] | null;
   /**
@@ -97,11 +117,21 @@ interface DocumentPreviewProps {
   /**
    * The selected cell's figure citations (if any), rendered as a stacked
    * gallery below the document (or on their own, full-height, when there's no
-   * document to show). Unlike the document body, figures render directly with
-   * no HEAD-probe/availability gate — the same approach ContentModal's popup
-   * already uses successfully, and simpler: an <img> either loads or doesn't.
+   * document to show).
    */
   figures?: FigureItem[] | null;
+  /** Enables the upgraded Evidence Inspector header, 1/N stepper, in-doc search, PDF text toggle, and select-to-fill. */
+  enhancedEvidence?: boolean;
+  /** Selected cell context displayed in the Evidence Inspector header. */
+  evidenceMeta?: EvidenceCellMeta | null;
+  /** Toggle human-verified state on the selected cell. */
+  onToggleVerify?: (verifyKey: string) => void;
+  /** Trigger "Wrong, try again" on the selected cell with an optional user hint. */
+  onRetryCell?: (hint?: string) => void;
+  /** Direct manipulation: set selected cell's value from text highlighted in the document. */
+  onUseSelectionAsValue?: (selectedText: string) => void;
+  /** Disable retry controls while an extraction is already running. */
+  retryBusy?: boolean;
 }
 
 /**
@@ -136,6 +166,12 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   highlightTexts,
   scrollNonce,
   figures,
+  enhancedEvidence,
+  evidenceMeta,
+  onToggleVerify,
+  onRetryCell,
+  onUseSelectionAsValue,
+  retryBusy,
 }) => {
   const contentUrl = useMemo(() => {
     if (!sessionId || !documentName) return null;
@@ -170,37 +206,45 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   const needsSandbox = SANDBOX_EXTENSIONS.has(ext);
 
   // Highlight mode is opt-in (the prop is present) and only applies to text
-  // formats we can render and annotate ourselves.
+  // formats we can render and annotate ourselves — plus PDFs when enhancedEvidence
+  // switches into extracted-text mode (`pdfViewMode === 'text'`).
   const highlightEnabled = highlightTexts !== undefined;
+  const isPdf = ext === 'pdf';
+  const [pdfViewMode, setPdfViewMode] = useState<'text' | 'pdf'>('text');
+  const [activeExcerptIdx, setActiveExcerptIdx] = useState(0);
+  const [docSearchOpen, setDocSearchOpen] = useState(false);
+  const [docSearchQuery, setDocSearchQuery] = useState('');
+  const [docSearchIdx, setDocSearchIdx] = useState(0);
+  const [retryHintOpen, setRetryHintOpen] = useState(false);
+  const [retryHint, setRetryHint] = useState('');
+  const [selectedSnippet, setSelectedSnippet] = useState('');
+
+  // Reset per-cell transient controls when cell or document changes.
+  useEffect(() => {
+    setActiveExcerptIdx(0);
+    setRetryHintOpen(false);
+    setRetryHint('');
+    setSelectedSnippet('');
+  }, [documentName, evidenceMeta?.columnKey, evidenceMeta?.rowName, highlightTexts]);
+
+  useEffect(() => {
+    setDocSearchQuery('');
+    setDocSearchIdx(0);
+  }, [documentName]);
+
   const isTextRenderable = ext === '' || TEXT_EXTENSIONS.has(ext);
-  const useInlineText = highlightEnabled && isTextRenderable;
+  const usePdfTextMode = Boolean(enhancedEvidence && highlightEnabled && isPdf && pdfViewMode === 'text');
+  const useInlineText = highlightEnabled && (isTextRenderable || usePdfTextMode);
 
   const hasDocument = Boolean(contentUrl);
   const hasFigures = Boolean(figures && figures.length > 0);
   const hasTextGrounding = Boolean(highlightTexts && highlightTexts.length > 0);
-  // Only suppress the document section when we're in cell-grounding mode
-  // (highlightEnabled -- never true for the plain Documents tab, which never
-  // passes highlightTexts) AND this specific cell's citation is figure-only:
-  // a real text excerpt (or not being grounding-driven at all) always keeps
-  // the document visible.
   const showDocumentSection = hasDocument && !(highlightEnabled && hasFigures && !hasTextGrounding);
   const showOpenFull = showDocumentSection && availability === 'ok';
 
   const [text, setText] = useState<string | null>(null);
   const [textError, setTextError] = useState(false);
-  // A recorded name may lack a usable extension (internal periods), so the
-  // text path can be reached for a file the server actually serves as binary
-  // (e.g. a raw PDF whose conversion failed). Detect that and fall back to the
-  // native iframe instead of rendering raw bytes as gibberish.
   const [contentIsBinary, setContentIsBinary] = useState(false);
-  // Which documentName `text` was actually fetched for. `text` is cleared by
-  // this same effect on a documentName change, but only on the NEXT effect
-  // pass -- for one render, `text` can still hold the PREVIOUS document's
-  // content while `highlightTexts` (a prop, updated in the same render as
-  // the new documentName) already reflects the new selection. Comparing
-  // against this ref -- set synchronously, so it's already up to date by
-  // the time the warning effect below runs in the same commit -- stops that
-  // transient mismatch from firing a false "no highlight found" warning.
   const textDocumentRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -217,7 +261,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     setContentIsBinary(false);
     textDocumentRef.current = null;
     unitsAPI
-      .getDocumentContentText(sessionId, documentName)
+      .getDocumentContentText(sessionId, documentName, usePdfTextMode ? 'text' : undefined)
       .then((content) => {
         if (cancelled) return;
         if (content.startsWith('%PDF-') || content.indexOf('\u0000') !== -1) {
@@ -233,20 +277,34 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [useInlineText, sessionId, documentName, availability, reloadToken]);
+  }, [useInlineText, usePdfTextMode, sessionId, documentName, availability, reloadToken]);
 
   const highlightRanges = useMemo(
     () => (useInlineText ? findHighlightRanges(text, highlightTexts) : []),
     [useInlineText, text, highlightTexts],
   );
 
+  // In-document plain-text search matches (case-insensitive).
+  const docSearchRanges = useMemo<Array<[number, number]>>(() => {
+    const q = docSearchQuery.trim().toLowerCase();
+    if (!enhancedEvidence || !useInlineText || !text || q.length < 2) return [];
+    const lower = text.toLowerCase();
+    const out: Array<[number, number]> = [];
+    let pos = 0;
+    while (pos < lower.length && out.length < 200) {
+      const idx = lower.indexOf(q, pos);
+      if (idx < 0) break;
+      out.push([idx, idx + q.length]);
+      pos = idx + q.length;
+    }
+    return out;
+  }, [docSearchQuery, enhancedEvidence, text, useInlineText]);
+
   useEffect(() => {
-    // textDocumentRef guards against a transient one-render mismatch: on a
-    // documentName change, highlightTexts (a prop) already reflects the new
-    // selection, but `text` can still hold the PREVIOUS document's content
-    // until the fetch effect above clears it. Without this check, that
-    // stale combination would spuriously warn about excerpts that are
-    // perfectly fine once the correct document's text loads.
+    setDocSearchIdx(0);
+  }, [docSearchQuery]);
+
+  useEffect(() => {
     const textMatchesCurrentDocument = textDocumentRef.current === documentName;
     if (
       useInlineText && text && textMatchesCurrentDocument &&
@@ -259,12 +317,42 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     }
   }, [useInlineText, text, documentName, highlightTexts, highlightRanges]);
 
-  const firstMarkRef = useRef<HTMLElement | null>(null);
+  const markRefs = useRef<Array<HTMLElement | null>>([]);
+  const searchMarkRefs = useRef<Array<HTMLElement | null>>([]);
+  const preRef = useRef<HTMLPreElement | null>(null);
+
   useEffect(() => {
-    if (firstMarkRef.current) {
-      firstMarkRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const idx = Math.min(activeExcerptIdx, Math.max(0, highlightRanges.length - 1));
+    const target = markRefs.current[idx];
+    if (target) {
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
-  }, [highlightRanges, text, scrollNonce]);
+  }, [activeExcerptIdx, highlightRanges, text, scrollNonce]);
+
+  useEffect(() => {
+    if (docSearchRanges.length === 0) return;
+    const idx = Math.min(docSearchIdx, docSearchRanges.length - 1);
+    const target = searchMarkRefs.current[idx];
+    if (target) {
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [docSearchIdx, docSearchRanges]);
+
+  const handleTextMouseUp = () => {
+    if (!enhancedEvidence || !onUseSelectionAsValue) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) {
+      setSelectedSnippet('');
+      return;
+    }
+    const anchorInside = preRef.current && sel.anchorNode && preRef.current.contains(sel.anchorNode);
+    if (!anchorInside) {
+      setSelectedSnippet('');
+      return;
+    }
+    const cleaned = sel.toString().replace(/\s+/g, ' ').trim();
+    setSelectedSnippet(cleaned.length >= 1 ? cleaned : '');
+  };
 
   const renderInlineText = () => {
     if (textError) {
@@ -282,35 +370,110 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
       );
     }
 
+    // Merge grounding highlights and in-document search highlights cleanly.
+    type StyledSpan = { start: number; end: number; kind: 'excerpt' | 'search'; index: number };
+    const spans: StyledSpan[] = [];
+    highlightRanges.forEach(([start, end], i) => spans.push({ start, end, kind: 'excerpt', index: i }));
+    docSearchRanges.forEach(([start, end], i) => spans.push({ start, end, kind: 'search', index: i }));
+    spans.sort((a, b) => a.start - b.start || (a.kind === 'excerpt' ? -1 : 1));
+
+    const merged: StyledSpan[] = [];
+    let lastEnd = -1;
+    for (const span of spans) {
+      if (span.start >= lastEnd) {
+        merged.push(span);
+        lastEnd = span.end;
+      }
+    }
+
+    markRefs.current = [];
+    searchMarkRefs.current = [];
+
     let body: React.ReactNode = text;
-    if (highlightRanges.length > 0) {
+    if (merged.length > 0) {
       const nodes: React.ReactNode[] = [];
       let cursor = 0;
-      highlightRanges.forEach(([start, end], i) => {
-        if (start > cursor) nodes.push(text.slice(cursor, start));
-        nodes.push(
-          <mark
-            key={`mark-${start}-${end}`}
-            ref={i === 0 ? firstMarkRef : undefined}
-            style={{ backgroundColor: '#fde047', color: '#1f2937', padding: '0 1px', borderRadius: 2 }}
-          >
-            {text.slice(start, end)}
-          </mark>,
-        );
-        cursor = end;
+      merged.forEach((span) => {
+        if (span.start > cursor) nodes.push(text.slice(cursor, span.start));
+        if (span.kind === 'excerpt') {
+          const isCurrent = enhancedEvidence && span.index === activeExcerptIdx;
+          nodes.push(
+            <mark
+              key={`mark-${span.start}-${span.end}`}
+              ref={(el) => { markRefs.current[span.index] = el; }}
+              style={{
+                backgroundColor: isCurrent ? '#facc15' : '#fde047',
+                color: '#1f2937',
+                padding: '0 2px',
+                borderRadius: 3,
+                outline: isCurrent && highlightRanges.length > 1 ? '2px solid #d97706' : undefined,
+              }}
+            >
+              {text.slice(span.start, span.end)}
+            </mark>,
+          );
+        } else {
+          const isCurrentSearch = span.index === docSearchIdx;
+          nodes.push(
+            <mark
+              key={`search-${span.start}-${span.end}`}
+              ref={(el) => { searchMarkRefs.current[span.index] = el; }}
+              style={{
+                backgroundColor: isCurrentSearch ? '#a78bfa' : '#ddd6fe',
+                color: '#1f2937',
+                padding: '0 1px',
+                borderRadius: 2,
+              }}
+            >
+              {text.slice(span.start, span.end)}
+            </mark>,
+          );
+        }
+        cursor = span.end;
       });
       if (cursor < text.length) nodes.push(text.slice(cursor));
       body = <>{nodes}</>;
     }
 
     return (
-      <pre
-        dir="auto"
-        className="h-full w-full overflow-auto m-0 px-4 py-3 text-xs leading-relaxed text-foreground"
-        style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}
-      >
-        {body}
-      </pre>
+      <div className="relative h-full w-full flex flex-col">
+        {enhancedEvidence && selectedSnippet && onUseSelectionAsValue && evidenceMeta && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 border-b border-primary/25 text-xs shrink-0">
+            <Quote className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span className="truncate flex-1 text-foreground">
+              &ldquo;{selectedSnippet}&rdquo;
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                onUseSelectionAsValue(selectedSnippet);
+                setSelectedSnippet('');
+                window.getSelection()?.removeAllRanges();
+              }}
+              className="shrink-0 rounded bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground hover:opacity-90"
+            >
+              Use as value
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedSnippet('')}
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label="Clear selected quote"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+        <pre
+          ref={preRef}
+          dir="auto"
+          onMouseUp={handleTextMouseUp}
+          className="flex-1 min-h-0 w-full overflow-auto m-0 px-4 py-3 text-xs leading-relaxed text-foreground"
+          style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}
+        >
+          {body}
+        </pre>
+      </div>
     );
   };
 
@@ -392,7 +555,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   const showHighlightUnsupportedNote =
     highlightEnabled &&
     Boolean(highlightTexts && highlightTexts.length > 0) &&
-    !isTextRenderable &&
+    !useInlineText &&
     availability === 'ok' &&
     canRenderInline;
 
@@ -403,13 +566,58 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     ? (documentName || 'Document')
     : figureLabel || documentName || 'No document selected';
 
+  const statusMeta: Record<EvidenceCellMeta['status'], { label: string; cls: string }> = {
+    grounded: { label: 'Grounded', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' },
+    ungrounded: { label: 'Ungrounded', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30' },
+    confirmed_empty: { label: 'Not found', cls: 'bg-muted text-muted-foreground border-border' },
+    empty: { label: 'Blank', cls: 'bg-muted text-muted-foreground border-border' },
+    edited: { label: 'Edited', cls: 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30' },
+  };
+
   return (
     <div className="flex-1 min-w-0 h-full flex flex-col">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border text-xs">
-        <span className="truncate text-muted-foreground" title={headerLabel}>
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border text-xs">
+        <span className="truncate font-medium text-foreground" title={headerLabel}>
           {headerLabel}
         </span>
         <span className="flex-1" />
+        {enhancedEvidence && isPdf && highlightEnabled && availability === 'ok' && (
+          <div className="inline-flex items-center rounded-md border border-border overflow-hidden text-[11px]">
+            <button
+              type="button"
+              onClick={() => setPdfViewMode('text')}
+              className={`px-2 py-0.5 transition-colors ${
+                pdfViewMode === 'text' ? 'bg-primary text-primary-foreground font-medium' : 'text-muted-foreground hover:bg-muted'
+              }`}
+              title="View extracted text with highlighted quotes"
+            >
+              Text
+            </button>
+            <button
+              type="button"
+              onClick={() => setPdfViewMode('pdf')}
+              className={`px-2 py-0.5 transition-colors ${
+                pdfViewMode === 'pdf' ? 'bg-primary text-primary-foreground font-medium' : 'text-muted-foreground hover:bg-muted'
+              }`}
+              title="View original PDF"
+            >
+              PDF
+            </button>
+          </div>
+        )}
+        {enhancedEvidence && useInlineText && availability === 'ok' && (
+          <button
+            type="button"
+            onClick={() => setDocSearchOpen((v) => !v)}
+            className={`inline-flex items-center justify-center h-6 w-6 rounded-md border border-border transition-colors ${
+              docSearchOpen ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+            }`}
+            title="Search inside this document"
+            aria-label="Search inside document"
+          >
+            <Search className="h-3.5 w-3.5" />
+          </button>
+        )}
         {showOpenFull && (
           <a
             href={contentUrl as string}
@@ -423,9 +631,187 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
         )}
       </div>
 
+      {/* Pinned Evidence Inspector card (selected cell + 1/N excerpt stepper + Verify/Retry) */}
+      {enhancedEvidence && evidenceMeta && (
+        <div className="px-3 py-2 border-b border-border bg-muted/35 text-xs space-y-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="font-semibold text-foreground truncate">{evidenceMeta.columnLabel}</span>
+            <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium leading-none ${statusMeta[evidenceMeta.status].cls}`}>
+              {statusMeta[evidenceMeta.status].label}
+            </span>
+            {evidenceMeta.isVerified && (
+              <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-emerald-700 dark:text-emerald-300">
+                ✓ Verified
+              </span>
+            )}
+            <span className="flex-1" />
+            {highlightRanges.length > 0 && (
+              <div className="inline-flex items-center gap-0.5 rounded-md border border-border bg-background px-1 py-0.5 text-[11px] tabular-nums">
+                <span className="px-1 text-muted-foreground">
+                  Quote {Math.min(activeExcerptIdx + 1, highlightRanges.length)}/{highlightRanges.length}
+                </span>
+                {highlightRanges.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setActiveExcerptIdx((i) => (i - 1 + highlightRanges.length) % highlightRanges.length)}
+                      className="rounded p-0.5 hover:bg-muted"
+                      title="Previous excerpt"
+                      aria-label="Previous excerpt"
+                    >
+                      <ChevronLeft className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveExcerptIdx((i) => (i + 1) % highlightRanges.length)}
+                      className="rounded p-0.5 hover:bg-muted"
+                      title="Next excerpt"
+                      aria-label="Next excerpt"
+                    >
+                      <ChevronRight className="h-3 w-3" />
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-start justify-between gap-2">
+            <div dir="auto" className="min-w-0 flex-1 text-foreground/90 line-clamp-2">
+              {evidenceMeta.value ? (
+                evidenceMeta.value
+              ) : (
+                <span className="italic text-muted-foreground">
+                  {evidenceMeta.status === 'confirmed_empty' ? 'Not found in document' : 'No value'}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {onToggleVerify && (
+                <button
+                  type="button"
+                  onClick={() => onToggleVerify(evidenceMeta.verifyKey)}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                    evidenceMeta.isVerified
+                      ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                      : 'border-border bg-background hover:bg-muted text-foreground'
+                  }`}
+                  title={evidenceMeta.isVerified ? 'Unmark verified' : 'Mark verified'}
+                >
+                  <CheckCircle2 className="h-3 w-3" />
+                  {evidenceMeta.isVerified ? 'Verified' : 'Verify'}
+                </button>
+              )}
+              {onRetryCell && (
+                <button
+                  type="button"
+                  disabled={retryBusy}
+                  onClick={() => setRetryHintOpen((v) => !v)}
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                  title="Re-extract this cell (with optional hint)"
+                >
+                  <RotateCw className="h-3 w-3" />
+                  Retry
+                </button>
+              )}
+            </div>
+          </div>
+
+          {retryHintOpen && onRetryCell && (
+            <form
+              className="flex items-center gap-1.5 pt-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                onRetryCell(retryHint.trim() || undefined);
+                setRetryHintOpen(false);
+                setRetryHint('');
+              }}
+            >
+              <input
+                type="text"
+                value={retryHint}
+                onChange={(e) => setRetryHint(e.target.value)}
+                placeholder="Optional hint (e.g. 'Check footnote 3')…"
+                className="flex-1 min-w-0 h-7 rounded-md border border-border bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={retryBusy}
+                className="shrink-0 h-7 rounded-md bg-primary px-2.5 text-[11px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                Re-run
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* In-document text search bar */}
+      {enhancedEvidence && docSearchOpen && useInlineText && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-background text-xs shrink-0">
+          <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <input
+            type="text"
+            value={docSearchQuery}
+            onChange={(e) => setDocSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setDocSearchOpen(false);
+                setDocSearchQuery('');
+              } else if (e.key === 'Enter' && docSearchRanges.length > 0) {
+                e.preventDefault();
+                const delta = e.shiftKey ? -1 : 1;
+                setDocSearchIdx((i) => (i + delta + docSearchRanges.length) % docSearchRanges.length);
+              }
+            }}
+            placeholder="Find in document…"
+            className="flex-1 min-w-0 bg-transparent text-xs outline-none"
+            autoFocus
+          />
+          {docSearchQuery.trim().length >= 2 && (
+            <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
+              {docSearchRanges.length === 0
+                ? '0'
+                : `${Math.min(docSearchIdx + 1, docSearchRanges.length)}/${docSearchRanges.length}`}
+            </span>
+          )}
+          <button
+            type="button"
+            disabled={docSearchRanges.length === 0}
+            onClick={() => setDocSearchIdx((i) => (i - 1 + docSearchRanges.length) % docSearchRanges.length)}
+            className="rounded p-0.5 hover:bg-muted disabled:opacity-35"
+            aria-label="Previous document match"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            disabled={docSearchRanges.length === 0}
+            onClick={() => setDocSearchIdx((i) => (i + 1) % docSearchRanges.length)}
+            className="rounded p-0.5 hover:bg-muted disabled:opacity-35"
+            aria-label="Next document match"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDocSearchOpen(false);
+              setDocSearchQuery('');
+            }}
+            className="rounded p-0.5 hover:bg-muted"
+            aria-label="Close document search"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {showHighlightUnsupportedNote && (
         <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-b border-border bg-muted/20">
-          Source highlighting isn&apos;t available for .{ext || 'this'} files — see the figures below for image citations.
+          Source highlighting isn&apos;t available in the native .{ext || 'file'} viewer
+          {hasFigures ? ' — see the figures below for image citations.' : '.'}
         </div>
       )}
 

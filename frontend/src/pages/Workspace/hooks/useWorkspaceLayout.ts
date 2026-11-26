@@ -35,9 +35,10 @@ export function useWorkspaceLayout() {
     () => window.matchMedia(STACKED_QUERY).matches,
   );
   // Explicit close/reopen via a button, independent of chatWidth so it also
-  // works while stacked (where pixel width is meaningless). Not persisted --
-  // same "never restore a workspace with a pane stuck hidden" rule as above.
-  const [isChatCollapsed, setIsChatCollapsed] = useState(false);
+  // works while stacked (where pixel width is meaningless). Starts collapsed so
+  // the workspace opens full-width and users open chat on demand via the
+  // floating Ask AI button.
+  const [isChatCollapsed, setIsChatCollapsed] = useState(true);
 
   useEffect(() => {
     const media = window.matchMedia(STACKED_QUERY);

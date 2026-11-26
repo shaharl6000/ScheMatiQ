@@ -151,6 +151,8 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   onImportProject,
   sessionMissing,
   compactRows,
+  verifiedCells,
+  aiUpdatedCells,
   layoutRevision,
   dataView,
 }: {
@@ -251,6 +253,10 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   // Session id is present in the URL but the backend cannot resolve it.
   sessionMissing?: boolean;
   compactRows?: boolean;
+  // Cell keys ("rowId:colKey") marked human-verified in this browser.
+  verifiedCells?: Set<string>;
+  // Cell keys ("rowId:colKey") recently modified by AI / re-extraction.
+  aiUpdatedCells?: Set<string>;
   layoutRevision: string;
   // Current Data-sheet grouping. Drives the visual cell-merge of the leftmost
   // grouping column: 'by_unit' merges unit_name, 'by_document' merges the
@@ -1260,21 +1266,21 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
     }
     const formatKey = formatKeyAt(row, col);
     const formatClasses = formatKey ? getCellFormatClasses(cellFormats[formatKey]) : '';
-    if (formatClasses) props.className = formatClasses;
-    if (activeSheet === 'data' && column && dataGrounding[row]?.[column.key]) {
-      props.className = [props.className, 'has-grounding'].filter(Boolean).join(' ');
+    const classes: string[] = [];
+    if (formatClasses) classes.push(formatClasses);
+    if (activeSheet === 'data' && column) {
+      const rowId = dataRowIds[row];
+      const cellKey = rowId !== undefined ? `${rowId}:${column.key}` : '';
+      if (dataGrounding[row]?.[column.key]) classes.push('has-grounding');
+      if (dataConfirmedEmpty[row]?.[column.key]) classes.push('cell-confirmed-empty');
+      if (dataUngrounded[row]?.[column.key]) classes.push('cell-ungrounded');
+      if (dataOffList[row]?.[column.key]) classes.push('cell-off-list');
+      if (cellKey && verifiedCells?.has(cellKey)) classes.push('cell-verified');
+      if (cellKey && aiUpdatedCells?.has(cellKey)) classes.push('cell-ai-updated');
     }
-    if (activeSheet === 'data' && column && dataConfirmedEmpty[row]?.[column.key]) {
-      props.className = [props.className, 'cell-confirmed-empty'].filter(Boolean).join(' ');
-    }
-    if (activeSheet === 'data' && column && dataUngrounded[row]?.[column.key]) {
-      props.className = [props.className, 'cell-ungrounded'].filter(Boolean).join(' ');
-    }
-    if (activeSheet === 'data' && column && dataOffList[row]?.[column.key]) {
-      props.className = [props.className, 'cell-off-list'].filter(Boolean).join(' ');
-    }
+    if (classes.length > 0) props.className = classes.join(' ');
     return props;
-  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataUngrounded, formatKeyAt, schemaColumns, sheet]);
+  }, [activeSheet, aiUpdatedCells, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataRowIds, dataUngrounded, formatKeyAt, schemaColumns, sheet, verifiedCells]);
 
   const cellsCallbackRef = useRef(cellsCallback);
   cellsCallbackRef.current = cellsCallback;
@@ -1313,6 +1319,20 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
       } catch { /* selection may be invalid mid-teardown */ }
     }
   }, [applyGroupMerges, formatVersion, gridSize, hotTableRef, sheet.rows, sheetColumns, stableCells]);
+
+  // Repaint cell classes in place when verification or AI-diff highlights change.
+  const visualStyleInitRef = useRef(true);
+  useEffect(() => {
+    if (visualStyleInitRef.current) {
+      visualStyleInitRef.current = false;
+      return;
+    }
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+    try {
+      hot.render();
+    } catch { /* instance may be mid-teardown */ }
+  }, [aiUpdatedCells, hotTableRef, verifiedCells]);
 
   // Recompute row heights in place when the compact-rows toggle flips.
   //
@@ -2389,7 +2409,7 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
     const cellElement = (event.target as HTMLElement | null)?.closest('td');
     if (!cellElement) return;
     const rect = cellElement.getBoundingClientRect();
-    const indicatorSize = 14;
+    const indicatorSize = 26;
     const clickX = event.clientX - rect.left;
     const clickY = event.clientY - rect.top;
     const inIndicatorRegion =

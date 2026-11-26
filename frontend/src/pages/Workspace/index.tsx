@@ -39,16 +39,20 @@ import { useToast } from '@/components/ui/use-toast';
 import StatsDashboard from '@/components/StatsDashboard/StatsDashboard';
 import ScheMatiQMonitor from '@/components/ScheMatiQMonitor/ScheMatiQMonitor';
 import DocumentViewer from '@/components/DocumentViewer/DocumentViewer';
-import DocumentPreview from '@/components/DocumentViewer/DocumentPreview';
+import DocumentPreview, { type EvidenceCellMeta } from '@/components/DocumentViewer/DocumentPreview';
 import DocumentUpload from '@/components/DocumentUpload/DocumentUpload';
 import SkippedDocumentsBanner from '@/components/DataTable/SkippedDocumentsBanner';
+import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
+import { buildExcerptMapping, resolveCellGrounding } from '@/components/DataTable/utils/excerptUtils';
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
 import api, { configAPI, loadAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
+import { formatColumnName } from '@/utils/formatting';
 import { rememberProject } from '@/utils/recentProjects';
 import { saveBlobAs } from '@/utils/saveFile';
 import type {
+  ColumnInfo,
   CostEstimate,
   DataRow,
   FigureExcerpt,
@@ -63,7 +67,8 @@ import type { DocumentListResponse } from '@/types/unit';
 
 import { applyPatches, enablePatches, produceWithPatches } from 'immer';
 
-import { ChatPanel } from './chat/ChatPanel';
+import { ChatPanel, type ChatSelectionContext, type ChatStarterPrompt } from './chat/ChatPanel';
+import type { ChatLinkTargets } from './chat/ChatMessageBody';
 import {
   DATA_LOAD_RETRY_BASE_MS,
   DATA_LOAD_RETRY_MAX_MS,
@@ -82,11 +87,14 @@ import { RowLimitBanner } from './RowLimitBanner';
 import { useEditHistory } from './hooks/useEditHistory';
 import {
   buildExportFilename,
+  categoryAllowedKeys,
   chainDataCommittedCallbacks,
   dataEquals,
+  dataRowFormatIds,
   diffPaginatedData,
   documentDisplayName,
   formatWorkspaceChromeStatus,
+  isOffListValue,
   patchDataCell,
   schemaFromLoadSession,
   selectionArea,
@@ -112,6 +120,7 @@ import type {
   SheetSelection,
   TableDisplayOptions,
   WorkspaceSessionMode,
+  WrongCellScope,
 } from './types';
 
 import './Workspace.css';
@@ -233,6 +242,20 @@ function Workspace() {
   // Undo/redo stack for reversible edits (formatting + cell-value edits),
   // following the Command pattern; each entry owns its inverse and forward.
   const editHistory = useEditHistory();
+  // Per-project human-verified cells ("rowId:colKey"), stored in localStorage.
+  const [verifiedCells, setVerifiedCells] = useState<Set<string>>(() => new Set());
+  // Cell keys ("rowId:colKey") recently touched by AI re-extraction or chat mutations.
+  const [aiUpdatedCells, setAiUpdatedCells] = useState<Set<string>>(() => new Set());
+  const chatMutationSnapshotRef = useRef<PaginatedData | null>(null);
+  // Resizable Source Document panel width.
+  const [sourcePanelWidth, setSourcePanelWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('workspace.sourcePanelWidth'));
+    return Number.isFinite(saved) && saved >= 240 && saved <= 700 ? saved : 390;
+  });
+  const [isDraggingSourceDivider, setIsDraggingSourceDivider] = useState(false);
+  // Spatial Copilot selection pin + focus trigger.
+  const [pinnedChatSelection, setPinnedChatSelection] = useState<ChatSelectionContext | null>(null);
+  const [chatFocusNonce, setChatFocusNonce] = useState(0);
   // Bumped only when authoritative server data is applied (applyData /
   // flushDeferredData), never on an optimistic cell edit. The By Unit view keys
   // its refetch off this instead of `data` so an optimistic edit, which mutates
@@ -882,8 +905,24 @@ function Workspace() {
     if (!snapshot) return;
     const { updates, inverseUpdates } = diffPaginatedData(snapshot, freshData);
     if (updates.length === 0) return;
+    const rowIds = dataRowFormatIds(freshData.rows);
+    const updatedKeys = new Set<string>();
+    updates.forEach((u) => {
+      const idx = freshData.rows.findIndex(
+        (r) =>
+          (r.row_name || r._unit_name || '') === u.rowName &&
+          (!u.sourceDocument || (r._source_document || r._parent_document) === u.sourceDocument),
+      );
+      if (idx >= 0 && rowIds[idx] !== undefined) {
+        updatedKeys.add(`${rowIds[idx]}:${u.column}`);
+      }
+    });
+    if (updatedKeys.size > 0) setAiUpdatedCells(updatedKeys);
     editHistory.push({
-      undo: () => applyCellUpdatesRef.current?.(inverseUpdates),
+      undo: () => {
+        setAiUpdatedCells(new Set());
+        applyCellUpdatesRef.current?.(inverseUpdates);
+      },
       redo: () => applyCellUpdatesRef.current?.(updates),
     });
   }, [editHistory]);
@@ -955,6 +994,8 @@ function Workspace() {
     setDocuments(null);
     setConfig(null);
     setCostEstimate(null);
+    setAiUpdatedCells(new Set());
+    setPinnedChatSelection(null);
     setDataView('by_document');
     setUnitData(emptyData);
     setSheetSelection(null);
@@ -1456,7 +1497,7 @@ function Workspace() {
   // chat satisfied `chatWidth >= innerWidth - 80` on any viewport under 460px,
   // which hid the sheet and -- with the divider removed from the grid flow --
   // dropped the chat into the 8px divider track, rendering an empty workspace.
-  const isSheetHidden = !isStacked && chatWidth >= viewportWidth - 80;
+  const isSheetHidden = !isStacked && !isChatCollapsed && chatWidth >= viewportWidth - 80;
   const isChatHidden = isChatCollapsed || (!isStacked && chatWidth <= 24);
   // Undefined while stacked so the inline style does not outrank the
   // `max-width: 900px` rule in Workspace.css, which is what silently defeated
@@ -1466,7 +1507,7 @@ function Workspace() {
     : isSheetHidden
       ? '0px 8px minmax(0, 1fr)'
       : isChatHidden
-        ? 'minmax(0, 1fr) 8px 0px'
+        ? 'minmax(0, 1fr) 0px 0px'
         : `minmax(0, 1fr) 8px ${chatWidth}px`;
   // The stacked layout's bottom row is otherwise a fixed 340px from
   // Workspace.css. Only override it (same axis the media query controls) to
@@ -1487,6 +1528,7 @@ function Workspace() {
   const openChat = useCallback(() => {
     setIsChatCollapsed(false);
     if (chatWidth <= 24) setChatWidth(380);
+    setChatFocusNonce((n) => n + 1);
   }, [chatWidth, setChatWidth, setIsChatCollapsed]);
   // Symmetric guard for the other direction: closing while chat is full-screen
   // (chatWidth pinned at viewportWidth, so isSheetHidden is also true) would
@@ -1500,9 +1542,10 @@ function Workspace() {
     setIsChatCollapsed(false);
     setChatWidth(380);
   }, [setChatWidth, setIsChatCollapsed]);
-  // Crossing the breakpoint resizes the grid without changing chatWidth, so the
-  // revision has to carry it too or Handsontable keeps stale measurements.
-  const gridLayoutRevision = `${chatWidth}:${isStacked ? 'stacked' : 'split'}:${compactRows ? 'compact' : 'auto'}`;
+  // Crossing the breakpoint or toggling chat/source width resizes the grid without
+  // necessarily changing chatWidth, so the revision has to carry them too or
+  // Handsontable keeps stale measurements.
+  const gridLayoutRevision = `${isChatHidden ? 'chat-hidden' : chatWidth}:${showSourcePanel ? sourcePanelWidth : 0}:${isStacked ? 'stacked' : 'split'}:${compactRows ? 'compact' : 'auto'}`;
   const reextractionPercent = Math.round((reextraction?.progress || 0) * 100);
   const bottombarStatus = reextraction
     ? `Re-extracting ${reextraction.columns.join(', ')} (${reextraction.processedDocuments}/${reextraction.totalDocuments || '?'} docs)`
@@ -1573,7 +1616,10 @@ function Workspace() {
 
   // Documents that produced no observation unit during extraction. Same source
   // the classic flow reads, so it is populated for both live and loaded sessions.
-  const skippedDocuments = session?.statistics?.skipped_documents ?? [];
+  const skippedDocuments = useMemo(
+    () => session?.statistics?.skipped_documents ?? [],
+    [session?.statistics?.skipped_documents],
+  );
   const skippedTotalDocuments =
     (session?.statistics?.total_documents ?? session?.statistics?.total_rows ?? 0) + skippedDocuments.length;
 
@@ -1585,6 +1631,426 @@ function Workspace() {
   const refreshSurfaceSilently = useCallback(() => refresh({ silent: true }), [refresh]);
   const openNewProjectDialog = useCallback(() => setProjectDialogOpen(true), []);
   const openImportPicker = useCallback(() => importInputRef.current?.click(), []);
+
+  // Load per-project verified cells from localStorage when session changes.
+  useEffect(() => {
+    if (!sessionId) {
+      setVerifiedCells(new Set());
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(`workspace.verifiedCells.${sessionId}`);
+      const parsed = saved ? JSON.parse(saved) : [];
+      setVerifiedCells(new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []));
+    } catch {
+      setVerifiedCells(new Set());
+    }
+  }, [sessionId]);
+
+  const toggleVerifyCell = useCallback((verifyKey: string) => {
+    setVerifiedCells((prev) => {
+      const next = new Set(prev);
+      if (next.has(verifyKey)) next.delete(verifyKey);
+      else next.add(verifyKey);
+      if (sessionId) {
+        try {
+          localStorage.setItem(`workspace.verifiedCells.${sessionId}`, JSON.stringify(Array.from(next)));
+        } catch {
+          // ignore storage quota errors
+        }
+      }
+      return next;
+    });
+  }, [sessionId]);
+
+  // Resizable source-document split drag handler.
+  const startSourceDividerDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDraggingSourceDivider(true);
+    const startX = event.clientX;
+    const startWidth = sourcePanelWidth;
+    const handleMove = (moveEvent: PointerEvent) => {
+      const next = Math.min(700, Math.max(240, startWidth + (moveEvent.clientX - startX)));
+      setSourcePanelWidth(next);
+      try { localStorage.setItem('workspace.sourcePanelWidth', String(next)); } catch { /* ignore */ }
+    };
+    const handleUp = () => {
+      setIsDraggingSourceDivider(false);
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+  }, [sourcePanelWidth]);
+
+  // Active rows & non-excerpt schema columns used for Evidence Inspector & Spatial Copilot.
+  const activeDataSet = useMemo(
+    () => (dataView === 'by_unit' ? alignedUnitData : alignedDocData),
+    [alignedDocData, alignedUnitData, dataView],
+  );
+  const nonExcerptSchemaCols = useMemo<ColumnInfo[]>(
+    () =>
+      ((schema?.schema ?? []) as ColumnInfo[]).filter(
+        (c) => !c.name.toLowerCase().endsWith('_excerpt'),
+      ),
+    [schema?.schema],
+  );
+  const activeRowIds = useMemo(() => dataRowFormatIds(activeDataSet.rows), [activeDataSet.rows]);
+
+  // Resolve current Data-sheet selection for Evidence Inspector & Spatial Copilot.
+  const selectionContext = useMemo<{
+    evidenceMeta: EvidenceCellMeta | null;
+    liveChatSelection: ChatSelectionContext | null;
+    wrongScope: WrongCellScope | null;
+    singleCell: {
+      rowName: string;
+      columnKey: string;
+      value: string;
+      sourceDoc?: string;
+    } | null;
+  }>(() => {
+    if (activeSheet !== 'data' || !sheetSelection || sheetSelection.sheet !== 'data') {
+      return { evidenceMeta: null, liveChatSelection: null, wrongScope: null, singleCell: null };
+    }
+    const rows = activeDataSet.rows || [];
+    if (rows.length === 0) {
+      return { evidenceMeta: null, liveChatSelection: null, wrongScope: null, singleCell: null };
+    }
+
+    const hot = hotTableRef.current?.hotInstance;
+    const toPhysical = (visualRow: number) => {
+      if (hot && typeof hot.toPhysicalRow === 'function') {
+        const mapped = hot.toPhysicalRow(visualRow);
+        if (mapped != null && mapped >= 0) return mapped;
+      }
+      return visualRow;
+    };
+
+    const rowNamesSet = new Set<string>();
+    const colKeysSet = new Set<string>();
+    const colLabelsSet = new Set<string>();
+    const allSchemaRows = new Set<string>();
+    const allSchemaCols = new Set<string>();
+    const sampleSnippets: string[] = [];
+
+    let totalCells = 0;
+    let singleCell: { rowName: string; columnKey: string; value: string; sourceDoc?: string } | null = null;
+    let singleColLabel = '';
+    let evidenceMeta: EvidenceCellMeta | null = null;
+    const excerptMapping = buildExcerptMapping(rows);
+
+    for (let vr = sheetSelection.fromRow; vr <= sheetSelection.toRow; vr += 1) {
+      const pr = toPhysical(vr);
+      const row = rows[pr];
+      if (!row) continue;
+      const rowName = String(row.row_name || row._unit_name || '').trim();
+      const sourceDoc = String(row._source_document || row._parent_document || row.papers?.[0] || '').trim();
+      if (rowName) rowNamesSet.add(rowName);
+
+      for (let c = sheetSelection.fromCol; c <= sheetSelection.toCol; c += 1) {
+        totalCells += 1;
+        if (c < 2) continue; // provenance columns
+        const col = nonExcerptSchemaCols[c - 2];
+        if (!col) continue;
+        const label = col.display_name || formatColumnName(col.name);
+        colKeysSet.add(col.name);
+        colLabelsSet.add(label);
+        if (rowName) {
+          allSchemaRows.add(rowName);
+          allSchemaCols.add(col.name);
+        }
+        const raw = row.data?.[col.name];
+        const value = extractDisplayValue(raw);
+        if (sampleSnippets.length < 4 && rowName) {
+          sampleSnippets.push(`${rowName} / ${label} = "${value || '(empty)'}"`);
+        }
+
+        if (
+          vr === sheetSelection.fromRow &&
+          vr === sheetSelection.toRow &&
+          c === sheetSelection.fromCol &&
+          c === sheetSelection.toCol
+        ) {
+          const rowId = activeRowIds[pr] ?? String(pr);
+          const verifyKey = `${rowId}:${col.name}`;
+          const isVerified = verifiedCells.has(verifyKey);
+          const grounding = resolveCellGrounding(row, col.name, excerptMapping);
+          const hasGrounding = Boolean(grounding && grounding.excerpts.length > 0);
+          const isManuallyEdited = Boolean(raw && typeof raw === 'object' && (raw as { manually_edited?: boolean }).manually_edited);
+          const isUngrounded = Boolean(raw && typeof raw === 'object' && (raw as { _ungrounded?: boolean })._ungrounded);
+          const isConfirmedEmpty = Boolean(raw && typeof raw === 'object' && (raw as { _confirmed_empty?: boolean })._confirmed_empty);
+
+          singleCell = {
+            rowName,
+            columnKey: col.name,
+            value,
+            sourceDoc: sourceDoc || undefined,
+          };
+          singleColLabel = label;
+
+          const cellStatus: EvidenceCellMeta['status'] = isManuallyEdited
+            ? 'edited'
+            : hasGrounding
+              ? 'grounded'
+              : isUngrounded
+                ? 'ungrounded'
+                : isConfirmedEmpty
+                  ? 'confirmed_empty'
+                  : value.trim()
+                    ? 'grounded'
+                    : 'empty';
+
+          evidenceMeta = {
+            rowName,
+            columnKey: col.name,
+            columnLabel: label,
+            value,
+            status: cellStatus,
+            isVerified,
+            verifyKey,
+          };
+        }
+      }
+    }
+
+    const rowNames = Array.from(rowNamesSet);
+    const columnKeys = Array.from(colKeysSet);
+    const columnLabels = Array.from(colLabelsSet);
+    const wrongScope: WrongCellScope | null = allSchemaRows.size > 0 && allSchemaCols.size > 0
+      ? {
+          rows: Array.from(allSchemaRows),
+          columns: Array.from(allSchemaCols),
+          previousValue: singleCell ? singleCell.value : undefined,
+        }
+      : null;
+
+    const colCount = sheetSelection.toCol - sheetSelection.fromCol + 1;
+    const liveLabel = singleCell
+      ? `${singleCell.rowName || 'Row'} · ${singleColLabel}`
+      : columnLabels.length === 1
+        ? `${rowNames.length || totalCells} cells · ${columnLabels[0]}`
+        : `${totalCells} cells (${rowNames.length} rows, ${columnLabels.length || colCount} cols)`;
+
+    const liveChatSelection: ChatSelectionContext | null = totalCells > 0
+      ? {
+          label: liveLabel,
+          contextText: `Rows: [${rowNames.slice(0, 10).join(', ')}${rowNames.length > 10 ? ', …' : ''}] | Columns: [${columnKeys.join(', ')}]${
+            sampleSnippets.length ? ` | Samples: ${sampleSnippets.join('; ')}` : ''
+          }`,
+        }
+      : null;
+
+    return { evidenceMeta, liveChatSelection, wrongScope, singleCell };
+  }, [activeDataSet.rows, activeRowIds, activeSheet, nonExcerptSchemaCols, sheetSelection, verifiedCells]);
+
+  // Build clickable deep-link targets for assistant chat replies.
+  const chatLinkTargets = useMemo<ChatLinkTargets>(() => {
+    const columns = new Map<string, string>();
+    const rows = new Map<string, string>();
+    const docs = new Map<string, string>();
+    nonExcerptSchemaCols.forEach((col) => {
+      columns.set(col.name.toLowerCase(), col.name);
+      if (col.display_name) columns.set(col.display_name.toLowerCase(), col.name);
+      columns.set(formatColumnName(col.name).toLowerCase(), col.name);
+    });
+    (activeDataSet.rows || []).forEach((r) => {
+      const rn = String(r.row_name || r._unit_name || '').trim();
+      if (rn) rows.set(rn.toLowerCase(), rn);
+    });
+    (documents?.documents ?? []).forEach((d) => {
+      docs.set(d.name.toLowerCase(), d.name);
+      docs.set(documentDisplayName(d.name).toLowerCase(), d.name);
+    });
+    skippedDocuments.forEach((s) => {
+      docs.set(s.document.toLowerCase(), s.document);
+    });
+    return { columns, rows, docs };
+  }, [activeDataSet.rows, documents?.documents, nonExcerptSchemaCols, skippedDocuments]);
+
+  // State-aware starter prompt chips for ChatPanel.
+  const starterPrompts = useMemo<ChatStarterPrompt[]>(() => {
+    if (!sessionId) return [];
+    const rows = activeDataSet.rows || [];
+    let ungroundedCount = 0;
+    let offlistCount = 0;
+    if (rows.length > 0 && nonExcerptSchemaCols.length > 0) {
+      const allowedByCol = new Map<string, Set<string>>();
+      nonExcerptSchemaCols.forEach((col) => {
+        const keys = categoryAllowedKeys(col);
+        if (keys) allowedByCol.set(col.name, keys);
+      });
+      rows.forEach((row) => {
+        const rowData = row.data || {};
+        nonExcerptSchemaCols.forEach((col) => {
+          const raw = rowData[col.name];
+          if (raw && typeof raw === 'object' && (raw as { _ungrounded?: boolean })._ungrounded) {
+            ungroundedCount += 1;
+          }
+          const allowed = allowedByCol.get(col.name);
+          if (allowed && isOffListValue(raw, allowed)) offlistCount += 1;
+        });
+      });
+    }
+    const chips: ChatStarterPrompt[] = [];
+    if (ungroundedCount > 0) {
+      chips.push({
+        label: `Audit ${ungroundedCount} ungrounded cell${ungroundedCount === 1 ? '' : 's'}`,
+        prompt: 'Inspect the ungrounded cells in this table, explain why they lack quotes, and suggest which ones should be re-extracted or corrected.',
+      });
+    }
+    if (skippedDocuments.length > 0) {
+      chips.push({
+        label: `Why were ${skippedDocuments.length} doc${skippedDocuments.length === 1 ? '' : 's'} skipped?`,
+        prompt: 'List the skipped documents, summarize why they produced no observation units, and advise whether I should adjust the observation unit.',
+      });
+    }
+    if (offlistCount > 0) {
+      chips.push({
+        label: `Review ${offlistCount} off-list value${offlistCount === 1 ? '' : 's'}`,
+        prompt: 'Which categorical cells have values outside allowed_values, and should we normalize them or expand allowed_values?',
+      });
+    }
+    chips.push({
+      label: 'Summarize gaps & completeness',
+      prompt: 'Give me a concise table health summary showing completeness gaps across columns and what to improve next.',
+    });
+    if (chips.length < 4) {
+      chips.push({
+        label: 'Suggest a new column',
+        prompt: 'Based on my research question and current schema, suggest 2-3 high-value columns I could add next.',
+      });
+    }
+    return chips.slice(0, 4);
+  }, [activeDataSet.rows, nonExcerptSchemaCols, sessionId, skippedDocuments.length]);
+
+  const handleUseDocumentSelectionAsValue = useCallback((selectedText: string) => {
+    const cell = selectionContext.singleCell;
+    if (!cell || !applyCellUpdatesRef.current) return;
+    const update: CellUpdate = {
+      rowName: cell.rowName,
+      sourceDocument: cell.sourceDoc,
+      column: cell.columnKey,
+      value: selectedText,
+    };
+    const inverse: CellUpdate = {
+      rowName: cell.rowName,
+      sourceDocument: cell.sourceDoc,
+      column: cell.columnKey,
+      value: cell.value,
+    };
+    applyCellUpdatesRef.current([update]);
+    editHistory.push({
+      undo: () => applyCellUpdatesRef.current?.([inverse]),
+      redo: () => applyCellUpdatesRef.current?.([update]),
+    });
+  }, [editHistory, selectionContext.singleCell]);
+
+  const handleBeforeChatMutation = useCallback(() => {
+    chatMutationSnapshotRef.current = dataRef.current;
+  }, []);
+
+  const handleAfterChatMutation = useCallback(() => {
+    const snapshot = chatMutationSnapshotRef.current;
+    chatMutationSnapshotRef.current = null;
+    if (!snapshot) return;
+    void refresh({
+      silent: true,
+      onCommitted: (freshData) => {
+        const { updates, inverseUpdates } = diffPaginatedData(snapshot, freshData);
+        if (updates.length === 0) return;
+        const rowIds = dataRowFormatIds(freshData.rows);
+        const touched = new Set<string>();
+        updates.forEach((u) => {
+          const idx = freshData.rows.findIndex(
+            (r) =>
+              (r.row_name || r._unit_name || '') === u.rowName &&
+              (!u.sourceDocument || (r._source_document || r._parent_document) === u.sourceDocument),
+          );
+          if (idx >= 0 && rowIds[idx] !== undefined) {
+            touched.add(`${rowIds[idx]}:${u.column}`);
+          }
+        });
+        if (touched.size > 0) setAiUpdatedCells(touched);
+        editHistory.push({
+          undo: () => {
+            setAiUpdatedCells(new Set());
+            applyCellUpdatesRef.current?.(inverseUpdates);
+          },
+          redo: () => applyCellUpdatesRef.current?.(updates),
+        });
+      },
+    });
+  }, [editHistory, refresh]);
+
+  // Alt+E opens/toggles Evidence panel on the Data sheet cleanly without blocking cell typing.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey && !event.metaKey && !event.ctrlKey && event.key.toLowerCase() === 'e') {
+        if (activeSheet !== 'data' || !sessionId) return;
+        event.preventDefault();
+        setShowSourcePanel((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeSheet, sessionId]);
+
+  const jumpToColumn = useCallback((columnName: string) => {
+    setActiveSheet('data');
+    window.requestAnimationFrame(() => {
+      const hot = hotTableRef.current?.hotInstance;
+      if (!hot) return;
+      const schemaCols = (schema?.schema ?? []).filter((c) => !c.name.toLowerCase().endsWith('_excerpt'));
+      const colIdx = schemaCols.findIndex((c) => c.name === columnName);
+      if (colIdx < 0) return;
+      // Data grid has 2 provenance columns (_source_document / _row_name) before schema columns.
+      const gridCol = colIdx + 2;
+      const rowCount = hot.countRows();
+      if (rowCount > 0) {
+        hot.selectCell(0, gridCol);
+        hot.scrollViewportTo(0, gridCol);
+      }
+    });
+  }, [schema?.schema]);
+
+  const jumpToDocument = useCallback((docName: string) => {
+    setActiveSheet('data');
+    setShowSourcePanel(true);
+    window.requestAnimationFrame(() => {
+      const hot = hotTableRef.current?.hotInstance;
+      const rows = (dataView === 'by_unit' ? unitData : data).rows || [];
+      const rowIdx = rows.findIndex((r) => {
+        const raw = r._source_document || r._parent_document || (Array.isArray(r.papers) ? r.papers[0] : '');
+        return raw === docName || documentDisplayName(raw) === documentDisplayName(docName);
+      });
+      if (hot && rowIdx >= 0) {
+        hot.selectCell(rowIdx, 0);
+        hot.scrollViewportTo(rowIdx, 0);
+      }
+    });
+  }, [data, dataView, unitData]);
+
+  const jumpToRow = useCallback((rowName: string) => {
+    setActiveSheet('data');
+    window.requestAnimationFrame(() => {
+      const hot = hotTableRef.current?.hotInstance;
+      const rows = (dataView === 'by_unit' ? unitData : data).rows || [];
+      const targetLower = rowName.trim().toLowerCase();
+      const rowIdx = rows.findIndex((r) => String(r.row_name || r._unit_name || '').trim().toLowerCase() === targetLower);
+      if (hot && rowIdx >= 0) {
+        const visualRow = typeof hot.toVisualRow === 'function' ? hot.toVisualRow(rowIdx) : rowIdx;
+        const r = visualRow != null && visualRow >= 0 ? visualRow : rowIdx;
+        hot.selectCell(r, 0);
+        hot.scrollViewportTo(r, 0);
+      }
+    });
+  }, [data, dataView, unitData]);
+
+  const jumpToChatTarget = useCallback((kind: 'column' | 'row' | 'doc', name: string) => {
+    if (kind === 'column') jumpToColumn(name);
+    else if (kind === 'doc') jumpToDocument(name);
+    else jumpToRow(name);
+  }, [jumpToColumn, jumpToDocument, jumpToRow]);
 
   const dataGridNode = (
     <div className="workspace-grid-wrap">
@@ -1621,6 +2087,8 @@ function Workspace() {
         onImportProject={openImportPicker}
         sessionMissing={sessionMissing}
         compactRows={compactRows}
+        verifiedCells={verifiedCells}
+        aiUpdatedCells={aiUpdatedCells}
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
       />
@@ -1731,12 +2199,32 @@ function Workspace() {
                 onClick={() => setShowSourcePanel((v) => !v)}
                 className="gap-1.5"
                 aria-pressed={showSourcePanel}
-                title="Show the source document for the selected row, side by side with the data"
+                title="Show the source document for the selected row, side by side with the data (Alt+E)"
               >
                 <PanelLeft className="h-4 w-4" />
                 {showSourcePanel ? 'Hide source' : 'Show source document'}
               </Button>
               <span style={{ flex: 1 }} />
+              {aiUpdatedCells.size > 0 && (
+                <span className="workspace-ai-diff-pill">
+                  <span>AI updated {aiUpdatedCells.size} cell{aiUpdatedCells.size === 1 ? '' : 's'}</span>
+                  <button
+                    type="button"
+                    className="underline font-semibold hover:opacity-80"
+                    onClick={undoEdit}
+                  >
+                    Undo
+                  </button>
+                  <button
+                    type="button"
+                    className="opacity-75 hover:opacity-100"
+                    onClick={() => setAiUpdatedCells(new Set())}
+                    aria-label="Clear AI highlight"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              )}
             </div>
           )}
           {activeSheet === 'data' && isDataMissing && (
@@ -1834,7 +2322,10 @@ function Workspace() {
           ) : activeSheet !== 'monitor' ? (
             activeSheet === 'data' && showSourcePanel ? (
               <div className="workspace-data-split">
-                <div className="workspace-source-panel">
+                <div
+                  className="workspace-source-panel"
+                  style={{ flex: `0 0 ${sourcePanelWidth}px`, borderRight: 0 }}
+                >
                   <input
                     ref={sourceDocInputRef}
                     type="file"
@@ -1860,8 +2351,30 @@ function Workspace() {
                           }))
                         : undefined
                     }
+                    enhancedEvidence
+                    evidenceMeta={selectionContext.evidenceMeta}
+                    onToggleVerify={toggleVerifyCell}
+                    onRetryCell={
+                      selectionContext.wrongScope
+                        ? (hint?: string) =>
+                            retryWrongCells({
+                              ...selectionContext.wrongScope!,
+                              customHint: hint,
+                            })
+                        : undefined
+                    }
+                    onUseSelectionAsValue={handleUseDocumentSelectionAsValue}
+                    retryBusy={Boolean(reextraction || rerunStarting)}
                   />
                 </div>
+                <div
+                  className="workspace-source-resizer"
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize source document panel"
+                  onPointerDown={startSourceDividerDrag}
+                  data-dragging={isDraggingSourceDivider}
+                />
                 {dataGridNode}
               </div>
             ) : dataGridNode
@@ -1917,6 +2430,7 @@ function Workspace() {
           aria-label="Resize sheet and chat panes"
           onPointerDown={startDividerDrag}
           data-dragging={isDraggingDivider}
+          data-hidden={isChatHidden}
         />
 
         <div className="workspace-chat-pane" data-hidden={isChatHidden} data-manual-close={isChatCollapsed}>
@@ -1933,18 +2447,33 @@ function Workspace() {
               cancelChatPendingRef.current = cancel;
             }}
             onClose={closeChat}
+            pinnedSelection={pinnedChatSelection}
+            liveSelection={selectionContext.liveChatSelection}
+            onPinLiveSelection={() => {
+              if (selectionContext.liveChatSelection) {
+                setPinnedChatSelection(selectionContext.liveChatSelection);
+              }
+            }}
+            onClearPinnedSelection={() => setPinnedChatSelection(null)}
+            starterPrompts={starterPrompts}
+            linkTargets={chatLinkTargets}
+            onJumpToTarget={jumpToChatTarget}
+            onBeforeChatMutation={handleBeforeChatMutation}
+            onAfterChatMutation={handleAfterChatMutation}
+            focusRequestNonce={chatFocusNonce}
           />
         </div>
 
         {isChatHidden && (
           <button
             type="button"
-            className="workspace-chat-reopen"
+            className="workspace-chat-reopen is-labeled"
             onClick={openChat}
-            title="Open chat"
+            title="Open AI Assistant chat"
             aria-label="Open chat"
           >
             <Bot className="h-4 w-4" />
+            <span>Ask AI</span>
           </button>
         )}
       </div>
