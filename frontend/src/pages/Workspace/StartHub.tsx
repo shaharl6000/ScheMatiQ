@@ -52,6 +52,15 @@ import { DEFAULT_PROVIDER, SHOW_API_KEY_FIELD, WORKSPACE_DEFAULT_ADVANCED } from
 import { buildConfig, formatCost, formatFileSize } from './helpers';
 import type { DocumentSourceInput } from './types';
 
+// Delay before re-estimating after the user types in the question or API key.
+const ESTIMATE_TYPING_DEBOUNCE_MS = 650;
+
+/** Compact cost for the Build button; the full breakdown sits in the line below it. */
+function formatCostShort(estimate: CostEstimate): string {
+  const cost = estimate.total_cost_usd ?? 0;
+  return cost > 0 && cost < 0.01 ? '<$0.01' : `$${cost.toFixed(2)}`;
+}
+
 const ACCEPTED_EXTS = ['.txt', '.md', '.pdf', '.doc', '.docx', '.rtf', '.json'];
 
 function insertPlainTextAtCaret(text: string): void {
@@ -112,6 +121,8 @@ export function StartHub({
   const [estimateError, setEstimateError] = useState<string | null>(null);
   // Bumped to re-run a failed estimate without the user having to edit inputs.
   const [estimateRetry, setEstimateRetry] = useState(0);
+  // Question + API key text used by the last scheduled estimate (see the debounce below).
+  const lastEstimateTextKeyRef = useRef<string | null>(null);
   const [costDetailsOpen, setCostDetailsOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -273,6 +284,14 @@ export function StartHub({
   // Build button stays disabled while the shown estimate is stale: a run must
   // never start without the user having seen the cost of these exact inputs.
   useEffect(() => {
+    // Debounce only free-text edits (question, API key) so typing does not fire
+    // a request per keystroke. Document and settings changes are discrete, so
+    // they re-estimate at once instead of waiting out the typing delay. The text
+    // is tracked even while estimation is off, so typing the question first and
+    // then adding documents estimates immediately.
+    const textKey = `${query}\u0000${apiKey}`;
+    const textChanged = textKey !== lastEstimateTextKeyRef.current;
+    lastEstimateTextKeyRef.current = textKey;
     if (!canStart) {
       setEstimate(null);
       setEstimating(false);
@@ -282,6 +301,7 @@ export function StartHub({
     let cancelled = false;
     setEstimating(true);
     setEstimateError(null);
+    const delay = textChanged ? ESTIMATE_TYPING_DEBOUNCE_MS : 0;
     const timer = window.setTimeout(async () => {
       try {
         const docs: DocumentSourceInput = documentSource === 'cloud'
@@ -303,7 +323,7 @@ export function StartHub({
       } finally {
         if (!cancelled) setEstimating(false);
       }
-    }, 650);
+    }, delay);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -810,7 +830,7 @@ export function StartHub({
                   <>
                     <span>
                       Build Table · {docsSummaryShort}
-                      {estimate && !estimating ? ` · ~${formatCost(estimate)}` : ''}
+                      {estimate && !estimating ? ` · ~${formatCostShort(estimate)}` : ''}
                     </span>
                     <ArrowRight className="h-4 w-4" />
                   </>
@@ -842,7 +862,7 @@ export function StartHub({
                             <>
                               <Sparkles className="h-3 w-3 text-primary" />
                               <span className="tabular-nums font-medium text-foreground">
-                                Est. {formatCost(estimate)}
+                                {formatCost(estimate)}
                               </span>
                               <span className="underline underline-offset-2">
                                 {costDetailsOpen ? 'hide' : 'details'}
