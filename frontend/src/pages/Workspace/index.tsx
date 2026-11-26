@@ -42,13 +42,17 @@ import DocumentViewer from '@/components/DocumentViewer/DocumentViewer';
 import DocumentPreview from '@/components/DocumentViewer/DocumentPreview';
 import DocumentUpload from '@/components/DocumentUpload/DocumentUpload';
 import SkippedDocumentsBanner from '@/components/DataTable/SkippedDocumentsBanner';
+import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
+import { buildExcerptMapping, resolveCellGrounding } from '@/components/DataTable/utils/excerptUtils';
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
-import api, { configAPI, loadAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
+import api, { configAPI, loadAPI, schemaAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
+import { formatColumnName } from '@/utils/formatting';
 import { rememberProject } from '@/utils/recentProjects';
 import { saveBlobAs } from '@/utils/saveFile';
 import type {
+  ColumnInfo,
   CostEstimate,
   DataRow,
   FigureExcerpt,
@@ -64,6 +68,7 @@ import type { DocumentListResponse } from '@/types/unit';
 import { applyPatches, enablePatches, produceWithPatches } from 'immer';
 
 import { ChatPanel } from './chat/ChatPanel';
+import { FloatingSelectionBar, type SelectionActionContext } from './FloatingSelectionBar';
 import {
   DATA_LOAD_RETRY_BASE_MS,
   DATA_LOAD_RETRY_MAX_MS,
@@ -84,6 +89,7 @@ import {
   buildExportFilename,
   chainDataCommittedCallbacks,
   dataEquals,
+  dataRowFormatIds,
   diffPaginatedData,
   documentDisplayName,
   formatWorkspaceChromeStatus,
@@ -233,6 +239,10 @@ function Workspace() {
   // Undo/redo stack for reversible edits (formatting + cell-value edits),
   // following the Command pattern; each entry owns its inverse and forward.
   const editHistory = useEditHistory();
+  // Per-project human-verified cells ("rowId:colKey"), stored in localStorage.
+  const [verifiedCells, setVerifiedCells] = useState<Set<string>>(() => new Set());
+  // Floating selection bar dismiss flag (resets whenever selection changes).
+  const [selectionBarDismissed, setSelectionBarDismissed] = useState(false);
   // Bumped only when authoritative server data is applied (applyData /
   // flushDeferredData), never on an optimistic cell edit. The By Unit view keys
   // its refetch off this instead of `data` so an optimistic edit, which mutates
@@ -1586,6 +1596,219 @@ function Workspace() {
   const openNewProjectDialog = useCallback(() => setProjectDialogOpen(true), []);
   const openImportPicker = useCallback(() => importInputRef.current?.click(), []);
 
+  // Load per-project verified cells from localStorage when session changes.
+  useEffect(() => {
+    if (!sessionId) {
+      setVerifiedCells(new Set());
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(`workspace.verifiedCells.${sessionId}`);
+      const parsed = saved ? JSON.parse(saved) : [];
+      setVerifiedCells(new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []));
+    } catch {
+      setVerifiedCells(new Set());
+    }
+  }, [sessionId]);
+
+  const toggleVerifyCell = useCallback((verifyKey: string) => {
+    setVerifiedCells((prev) => {
+      const next = new Set(prev);
+      if (next.has(verifyKey)) next.delete(verifyKey);
+      else next.add(verifyKey);
+      if (sessionId) {
+        try {
+          localStorage.setItem(`workspace.verifiedCells.${sessionId}`, JSON.stringify(Array.from(next)));
+        } catch {
+          // ignore storage quota errors
+        }
+      }
+      return next;
+    });
+  }, [sessionId]);
+
+  // Reset Floating Selection Bar dismiss whenever selection changes.
+  useEffect(() => {
+    setSelectionBarDismissed(false);
+  }, [sheetSelection]);
+
+  const activeDataSet = useMemo(
+    () => (dataView === 'by_unit' ? alignedUnitData : alignedDocData),
+    [alignedDocData, alignedUnitData, dataView],
+  );
+  const nonExcerptSchemaCols = useMemo<ColumnInfo[]>(
+    () =>
+      ((schema?.schema ?? []) as ColumnInfo[]).filter(
+        (c) => !c.name.toLowerCase().endsWith('_excerpt'),
+      ),
+    [schema?.schema],
+  );
+  const activeRowIds = useMemo(() => dataRowFormatIds(activeDataSet.rows), [activeDataSet.rows]);
+
+  // Resolve current Data-sheet selection for FloatingSelectionBar.
+  const selectionBarContext = useMemo<SelectionActionContext | null>(() => {
+    if (activeSheet !== 'data' || !sheetSelection || sheetSelection.sheet !== 'data') {
+      return null;
+    }
+    const rows = activeDataSet.rows || [];
+    if (rows.length === 0) return null;
+
+    const hot = hotTableRef.current?.hotInstance;
+    const toPhysical = (visualRow: number) => {
+      if (hot && typeof hot.toPhysicalRow === 'function') {
+        const mapped = hot.toPhysicalRow(visualRow);
+        if (mapped != null && mapped >= 0) return mapped;
+      }
+      return visualRow;
+    };
+
+    const rowNamesSet = new Set<string>();
+    const colKeysSet = new Set<string>();
+    const colLabelsSet = new Set<string>();
+    const emptyRows = new Set<string>();
+    const emptyCols = new Set<string>();
+    const allSchemaRows = new Set<string>();
+    const allSchemaCols = new Set<string>();
+
+    let totalCells = 0;
+    let singleCellInfo: SelectionActionContext['singleCell'] | undefined;
+    const excerptMapping = buildExcerptMapping(rows);
+
+    for (let vr = sheetSelection.fromRow; vr <= sheetSelection.toRow; vr += 1) {
+      const pr = toPhysical(vr);
+      const row = rows[pr];
+      if (!row) continue;
+      const rowName = String(row.row_name || row._unit_name || '').trim();
+      const sourceDoc = String(row._source_document || row._parent_document || row.papers?.[0] || '').trim();
+      if (rowName) rowNamesSet.add(rowName);
+
+      for (let c = sheetSelection.fromCol; c <= sheetSelection.toCol; c += 1) {
+        totalCells += 1;
+        if (c < 2) continue; // provenance columns
+        const col = nonExcerptSchemaCols[c - 2];
+        if (!col) continue;
+        const label = col.display_name || formatColumnName(col.name);
+        colKeysSet.add(col.name);
+        colLabelsSet.add(label);
+        if (rowName) {
+          allSchemaRows.add(rowName);
+          allSchemaCols.add(col.name);
+        }
+        const raw = row.data?.[col.name];
+        const value = extractDisplayValue(raw);
+        if (!value.trim() && rowName) {
+          emptyRows.add(rowName);
+          emptyCols.add(col.name);
+        }
+
+        if (
+          vr === sheetSelection.fromRow &&
+          vr === sheetSelection.toRow &&
+          c === sheetSelection.fromCol &&
+          c === sheetSelection.toCol
+        ) {
+          const rowId = activeRowIds[pr] ?? String(pr);
+          const verifyKey = `${rowId}:${col.name}`;
+          const isVerified = verifiedCells.has(verifyKey);
+          const grounding = resolveCellGrounding(row, col.name, excerptMapping);
+          const hasGrounding = Boolean(grounding && grounding.excerpts.length > 0);
+
+          singleCellInfo = {
+            rowName,
+            columnKey: col.name,
+            columnLabel: label,
+            value,
+            sourceDoc: sourceDoc || undefined,
+            verifyKey,
+            isVerified,
+            hasGrounding,
+          };
+        }
+      }
+    }
+
+    if (totalCells === 0) return null;
+
+    const rowNames = Array.from(rowNamesSet);
+    const columnKeys = Array.from(colKeysSet);
+    const columnLabels = Array.from(colLabelsSet);
+    const emptyScope = emptyRows.size > 0 && emptyCols.size > 0
+      ? { rows: Array.from(emptyRows), columns: Array.from(emptyCols) }
+      : null;
+    const wrongScope = allSchemaRows.size > 0 && allSchemaCols.size > 0
+      ? {
+          rows: Array.from(allSchemaRows),
+          columns: Array.from(allSchemaCols),
+          previousValue: singleCellInfo ? singleCellInfo.value : undefined,
+        }
+      : null;
+
+    return {
+      cellCount: totalCells,
+      rowCount: sheetSelection.toRow - sheetSelection.fromRow + 1,
+      colCount: sheetSelection.toCol - sheetSelection.fromCol + 1,
+      rowNames,
+      columnKeys,
+      columnLabels,
+      emptyScope,
+      wrongScope,
+      singleCell: singleCellInfo,
+    };
+  }, [activeDataSet.rows, activeRowIds, activeSheet, nonExcerptSchemaCols, sheetSelection, verifiedCells]);
+
+  const handleMergeSelectedColumns = useCallback(async (columns: string[]) => {
+    if (!sessionId || columns.length < 2) return;
+    const targetName = window.prompt(
+      `Merge ${columns.length} columns (${columns.join(', ')}) into target column name:`,
+      columns[0],
+    )?.trim();
+    if (!targetName) return;
+    try {
+      await schemaAPI.mergeColumns(sessionId, {
+        source_columns: columns,
+        target_column: targetName,
+        merge_strategy: 'concatenate',
+        separator: '; ',
+      });
+      toast({ title: 'Columns merged', description: `Merged into "${targetName}".` });
+      await refresh({ silent: true });
+    } catch (err: any) {
+      toast({
+        title: 'Merge columns failed',
+        description: err?.response?.data?.detail || err?.message || 'Could not merge columns.',
+        variant: 'destructive',
+      });
+    }
+  }, [refresh, sessionId, toast]);
+
+  const handleMergeSelectedUnits = useCallback(async (units: string[]) => {
+    if (!sessionId || units.length < 2) return;
+    const targetName = window.prompt(
+      `Merge ${units.length} rows (${units.slice(0, 4).join(', ')}${units.length > 4 ? '…' : ''}) into unit name:`,
+      units[0],
+    )?.trim();
+    if (!targetName) return;
+    try {
+      await unitsAPI.merge(sessionId, {
+        source_units: units,
+        target_unit: targetName,
+        strategy: 'rename',
+      });
+      toast({ title: 'Units merged', description: `Merged ${units.length} units into "${targetName}".` });
+      await refresh({ silent: true });
+    } catch (err: any) {
+      toast({
+        title: 'Merge units failed',
+        description: err?.response?.data?.detail || err?.message || 'Could not merge observation units.',
+        variant: 'destructive',
+      });
+    }
+  }, [refresh, sessionId, toast]);
+
+  const handleAskAIFromSelection = useCallback((_ctx: SelectionActionContext) => {
+    openChat();
+  }, [openChat]);
+
   const dataGridNode = (
     <div className="workspace-grid-wrap">
       <SpreadsheetSurface
@@ -1621,9 +1844,28 @@ function Workspace() {
         onImportProject={openImportPicker}
         sessionMissing={sessionMissing}
         compactRows={compactRows}
+        verifiedCells={verifiedCells}
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
       />
+      {activeSheet === 'data' &&
+        sessionId &&
+        !selectionBarDismissed &&
+        selectionBarContext && (
+          <FloatingSelectionBar
+            context={selectionBarContext}
+            busy={Boolean(reextraction || rerunStarting)}
+            canInspectColumn={false}
+            onOpenEvidence={openSourcePanel}
+            onToggleVerify={toggleVerifyCell}
+            onFillEmpty={fillEmptyCells}
+            onRetryWrong={retryWrongCells}
+            onAskAI={handleAskAIFromSelection}
+            onMergeColumns={handleMergeSelectedColumns}
+            onMergeUnits={handleMergeSelectedUnits}
+            onDismiss={() => setSelectionBarDismissed(true)}
+          />
+        )}
       {/*
         Show the blocking overlay while a project is loading or importing.
         `loading` only makes sense once a session exists (we're fetching its
