@@ -336,6 +336,18 @@ export function useWorkspaceSocket({
         message.type === 'completed' ||
         message.type === 'reprocessing_completed'
       ) {
+        // An empty schema finishes "successfully" with an empty table. Say why,
+        // so the user knows to rephrase instead of waiting for rows.
+        if (
+          message.type === 'completed' &&
+          (message.data as { no_columns_discovered?: boolean } | undefined)?.no_columns_discovered
+        ) {
+          toast({
+            title: 'No columns found',
+            description: 'Schema discovery found no columns for this question, so no values were extracted. Try rephrasing the question.',
+            variant: 'destructive',
+          });
+        }
         void refresh({ silent: true });
         return;
       }
@@ -377,6 +389,7 @@ export function useWorkspaceSocket({
     setActiveSheet,
     setReextraction,
     settleOperation,
+    toast,
   ]);
 
   return { wsConnected };
