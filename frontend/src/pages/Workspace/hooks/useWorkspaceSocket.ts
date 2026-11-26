@@ -41,6 +41,9 @@ type UseWorkspaceSocketOptions = {
   onReextractionSettled?: (data: PaginatedData) => void;
   // The rewrite produced no data (failed): discard the snapshot with no diff.
   onReextractionDiscard?: () => void;
+  // Called when the backend pauses for observation unit review so the Workspace
+  // can surface a review prompt immediately instead of sitting silently on Data.
+  onObservationUnitReady?: () => void;
 };
 
 // Owns WebSocket connection lifecycle, message routing, and disconnected polling.
@@ -56,6 +59,7 @@ export function useWorkspaceSocket({
   onReextractionStart,
   onReextractionSettled,
   onReextractionDiscard,
+  onObservationUnitReady,
 }: UseWorkspaceSocketOptions) {
   const [wsConnected, setWsConnected] = useState(false);
   const wsConnectedRef = useRef(false);
@@ -350,6 +354,12 @@ export function useWorkspaceSocket({
         return;
       }
 
+      if (message.type === 'observation_unit_ready') {
+        onObservationUnitReady?.();
+        void refresh({ silent: true });
+        return;
+      }
+
       if (
         message.type === 'schema_completed' ||
         message.type === 'schema_updated' ||
@@ -371,6 +381,7 @@ export function useWorkspaceSocket({
     };
   }, [
     markOperationStarted,
+    onObservationUnitReady,
     refresh,
     refreshSilent,
     sessionId,

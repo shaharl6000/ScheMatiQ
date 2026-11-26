@@ -5,7 +5,7 @@ import {
   getDefaultModelForProvider,
   type LLMProviderKey,
 } from '@/constants';
-import { configAPI, loadAPI } from '@/services/api';
+import { cloudAPI, configAPI, loadAPI } from '@/services/api';
 import type { DocumentUploadResult, VisualizationSession } from '@/types';
 import type { DocumentListResponse } from '@/types/unit';
 import { getApiKeyForProvider, getConfiguredProviders } from '@/utils/apiKeyStorage';
@@ -190,6 +190,33 @@ export function useAddDocuments({
     );
   }, [existingDocNames]);
 
+  const addCloudDocuments = useCallback(async (dataset: string, files: string[]) => {
+    if (!sessionId || files.length === 0) return;
+    setAddDocsError(null);
+    setAddDocsNotice(null);
+    try {
+      const result = await cloudAPI.addCloudDocuments(sessionId, dataset, files);
+      const added = result.added_files ?? [];
+      if (added.length > 0) {
+        setAddDocsResult({
+          status: result.status || 'success',
+          message: result.message || `Added ${added.length} cloud document(s).`,
+          uploaded_files: added,
+          warnings: [],
+          documents_directory: result.documents_directory || '',
+          document_extraction: result.document_extraction,
+          failed_files: result.failed_files,
+          errors: result.errors ?? null,
+        });
+      }
+      await refresh({ silent: true });
+    } catch (err: any) {
+      const { message } = describeRequestError(err, 'Failed to add cloud documents');
+      setAddDocsError(message);
+      throw err;
+    }
+  }, [refresh, sessionId]);
+
   const addDocsPending = (addDocsResult?.uploaded_files?.length ?? 0) > 0;
 
   return {
@@ -202,6 +229,7 @@ export function useAddDocuments({
     addDocsPending,
     handleAddDocsFilesChange,
     uploadAddDocuments,
+    addCloudDocuments,
     processAddDocuments,
   };
 }

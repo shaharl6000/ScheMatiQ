@@ -268,6 +268,19 @@ async def _load_document_bytes(session, session_id: str, name: str) -> Tuple[Opt
     return None, None
 
 
+def _known_session_documents(session, session_id: str) -> set[str]:
+    """Allowlist of document names belonging to this session (extracted + skipped)."""
+    known = {d["name"] for d in unit_view_service.get_source_documents(session_id)}
+    stats = getattr(session, "statistics", None)
+    skipped = getattr(stats, "skipped_documents", None) if stats is not None else None
+    if isinstance(skipped, list):
+        for item in skipped:
+            doc_name = item.get("document") if isinstance(item, dict) else getattr(item, "document", None)
+            if isinstance(doc_name, str) and doc_name.strip():
+                known.add(doc_name.strip())
+    return known
+
+
 @router.get(
     "/document-content/{session_id}",
     summary="Serve a source document inline",
@@ -288,8 +301,9 @@ async def get_document_content(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Allowlist: only serve names that are real source documents for this session.
-    known = {d["name"] for d in unit_view_service.get_source_documents(session_id)}
+    # Allowlist: only serve names that are real source documents for this session
+    # (including skipped documents so users can inspect why they were skipped).
+    known = _known_session_documents(session, session_id)
     if name not in known:
         raise HTTPException(status_code=404, detail="Document not found in this session")
 
@@ -745,7 +759,7 @@ async def head_document_content(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    known = {d["name"] for d in unit_view_service.get_source_documents(session_id)}
+    known = _known_session_documents(session, session_id)
     if name not in known:
         raise HTTPException(status_code=404, detail="Document not found in this session")
 

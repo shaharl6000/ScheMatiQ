@@ -2,8 +2,6 @@ import { Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Mail } from 'lucide-react';
 
-import { ThemeToggle } from '@/components/theme/theme-toggle';
-import { TooltipProvider } from '@/components/ui/tooltip';
 import { ViewModeProvider } from './contexts/ViewModeContext';
 import { NavigationGuardProvider } from './contexts/NavigationGuardContext';
 import AppErrorBoundary from '@/components/shared/AppErrorBoundary';
@@ -31,9 +29,7 @@ function AppHeader() {
           </span>
         </div>
 
-        <div className="flex flex-1 items-center justify-end space-x-2">
-          <ThemeToggle />
-        </div>
+        <div className="flex flex-1 items-center justify-end space-x-2" />
       </div>
     </header>
   );
@@ -44,7 +40,6 @@ function App() {
   const isWorkspace = location.pathname === '/' || location.pathname.startsWith('/workspace');
 
   return (
-    <TooltipProvider>
     <NavigationGuardProvider>
     <ViewModeProvider>
       <div className={isWorkspace ? 'h-screen overflow-hidden flex flex-col bg-background' : 'min-h-screen flex flex-col bg-background'}>
@@ -106,7 +101,6 @@ function App() {
       </div>
     </ViewModeProvider>
     </NavigationGuardProvider>
-    </TooltipProvider>
   );
 }
 

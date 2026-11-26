@@ -11,6 +11,7 @@ import {
   Download,
   Italic,
   LifeBuoy,
+  Loader2,
   Printer,
   Quote,
   RotateCw,
@@ -77,6 +78,7 @@ export function SpreadsheetChrome({
   onReportIssue,
   onCite,
   rerunDisabled,
+  estimatingCost,
 }: {
   projectTitle: string;
   sessionStatus: string;
@@ -106,6 +108,7 @@ export function SpreadsheetChrome({
   onReportIssue: () => void;
   onCite: () => void;
   rerunDisabled: boolean;
+  estimatingCost?: boolean;
 }) {
   // Exhaustive by construction: Record<WorkspaceMenuAction, ...> makes TypeScript
   // reject a new menu action that has no handler, which is what previously let
@@ -351,9 +354,19 @@ export function SpreadsheetChrome({
 
         <span className="workspace-toolbar-spacer" />
 
-        <button className="workspace-toolbar-action" type="button" onClick={onEstimateCost} disabled={!canUseProjectActions}>
-          <Sparkles className="h-3.5 w-3.5" />
-          Estimate
+        <button
+          className="workspace-toolbar-action"
+          type="button"
+          onClick={onEstimateCost}
+          disabled={!canUseProjectActions || estimatingCost}
+          title="Estimate remaining extraction cost"
+        >
+          {estimatingCost ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5" />
+          )}
+          {estimatingCost ? 'Estimating…' : 'Estimate'}
         </button>
         <button
           className="workspace-toolbar-action"

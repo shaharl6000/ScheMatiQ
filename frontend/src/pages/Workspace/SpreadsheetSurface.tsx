@@ -151,6 +151,7 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   onImportProject,
   sessionMissing,
   compactRows,
+  extractingColumns,
   layoutRevision,
   dataView,
 }: {
@@ -251,6 +252,8 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
   // Session id is present in the URL but the backend cannot resolve it.
   sessionMissing?: boolean;
   compactRows?: boolean;
+  // Column canonical names currently being extracted/filled (shows shimmer).
+  extractingColumns?: Set<string>;
   layoutRevision: string;
   // Current Data-sheet grouping. Drives the visual cell-merge of the leftmost
   // grouping column: 'by_unit' merges unit_name, 'by_document' merges the
@@ -1273,8 +1276,11 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
     if (activeSheet === 'data' && column && dataOffList[row]?.[column.key]) {
       props.className = [props.className, 'cell-off-list'].filter(Boolean).join(' ');
     }
+    if (activeSheet === 'data' && column && extractingColumns?.has(column.key) && !(dataRows[row]?.[column.key]?.trim())) {
+      props.className = [props.className, 'cell-extracting'].filter(Boolean).join(' ');
+    }
     return props;
-  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataUngrounded, formatKeyAt, schemaColumns, sheet]);
+  }, [activeSheet, cellFormats, dataConfirmedEmpty, dataGrounding, dataOffList, dataRows, dataUngrounded, extractingColumns, formatKeyAt, schemaColumns, sheet]);
 
   const cellsCallbackRef = useRef(cellsCallback);
   cellsCallbackRef.current = cellsCallback;
@@ -1313,6 +1319,20 @@ export const SpreadsheetSurface = memo(function SpreadsheetSurface({
       } catch { /* selection may be invalid mid-teardown */ }
     }
   }, [applyGroupMerges, formatVersion, gridSize, hotTableRef, sheet.rows, sheetColumns, stableCells]);
+
+  // Re-render Handsontable when active extracting columns change so skeleton cells update.
+  const firstExtractingRenderRef = useRef(true);
+  useEffect(() => {
+    if (firstExtractingRenderRef.current) {
+      firstExtractingRenderRef.current = false;
+      return;
+    }
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+    try {
+      hot.render();
+    } catch { /* instance may be mid-teardown */ }
+  }, [extractingColumns, hotTableRef]);
 
   // Recompute row heights in place when the compact-rows toggle flips.
   //

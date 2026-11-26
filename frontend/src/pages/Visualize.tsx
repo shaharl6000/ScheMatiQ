@@ -58,7 +58,6 @@ import LLMSelector from '../components/LLMSelector';
 import { useViewMode } from '../contexts/ViewModeContext';
 import ViewModeToggle from '../components/ViewMode/ViewModeToggle';
 import { useUnits } from '../hooks/useUnits';
-import TableFeedbackWidget from '../components/TableFeedbackWidget/TableFeedbackWidget';
 import { VisualizeGuideDialog } from '../components/VisualizeGuideDialog/VisualizeGuideDialog';
 import {
   INITIAL_CONTINUE_DISCOVERY_STATE,
@@ -160,9 +159,6 @@ const Visualize = () => {
   // Document limit state
   const [maxDocuments, setMaxDocuments] = useState<number | undefined>(undefined);
 
-  // Developer mode state (for conditionally showing feedback widget)
-  const [developerMode, setDeveloperMode] = useState<boolean>(true);
-
   // LLM selection state
   const [showLLMSelector, setShowLLMSelector] = useState(false);
 
@@ -234,12 +230,11 @@ const Visualize = () => {
     }
   }, [sessionId]);
 
-  // Fetch config to get document limit and developer mode
+  // Fetch config to get document limit
   useEffect(() => {
     configAPI.getConfig()
       .then(cfg => {
         setMaxDocuments(cfg.max_documents);
-        setDeveloperMode(cfg.developer_mode);
       })
       .catch(() => {});
   }, []);
@@ -2053,17 +2048,6 @@ const Visualize = () => {
           </TabsContent>
         )}
       </Tabs>
-
-      {/* Table Feedback Widget (release mode only) */}
-      {!developerMode && sessionId && (
-        <TableFeedbackWidget
-          sessionId={sessionId}
-          sessionStatus={session?.status || ''}
-          activeTab={activeTab}
-          tableRowCount={dataResponse?.total_count || 0}
-          tableColumnCount={session?.columns?.length || 0}
-        />
-      )}
 
       {/* LLM Selection Dialog */}
       <LLMSelector

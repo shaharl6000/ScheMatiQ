@@ -425,7 +425,9 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
 
       {showHighlightUnsupportedNote && (
         <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-b border-border bg-muted/20">
-          Source highlighting isn&apos;t available for .{ext || 'this'} files — see the figures below for image citations.
+          {hasFigures
+            ? `Source text highlighting isn't available for .${ext || 'this'} files — see the figures below for image citations.`
+            : `Inline text highlighting isn't available directly inside .${ext || 'this'} previews.`}
         </div>
       )}
 

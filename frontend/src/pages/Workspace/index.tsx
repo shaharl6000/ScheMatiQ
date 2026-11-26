@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   FileUp,
+  Layers,
   Loader2,
   MoreVertical,
   PanelLeft,
@@ -36,6 +37,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
+import { CostBreakdown } from '@/components/CostBreakdown/CostBreakdown';
 import StatsDashboard from '@/components/StatsDashboard/StatsDashboard';
 import ScheMatiQMonitor from '@/components/ScheMatiQMonitor/ScheMatiQMonitor';
 import DocumentViewer from '@/components/DocumentViewer/DocumentViewer';
@@ -44,8 +46,7 @@ import DocumentUpload from '@/components/DocumentUpload/DocumentUpload';
 import SkippedDocumentsBanner from '@/components/DataTable/SkippedDocumentsBanner';
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
-import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
-import api, { configAPI, loadAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
+import api, { loadAPI, schematiqAPI, unitsAPI, describeSkippedAttachments } from '@/services/api';
 import { rememberProject } from '@/utils/recentProjects';
 import { saveBlobAs } from '@/utils/saveFile';
 import type {
@@ -86,6 +87,7 @@ import {
   dataEquals,
   diffPaginatedData,
   documentDisplayName,
+  formatCost,
   formatWorkspaceChromeStatus,
   patchDataCell,
   schemaFromLoadSession,
@@ -95,6 +97,7 @@ import {
 } from './helpers';
 import { NewProjectDialog } from './NewProjectDialog';
 import { PendingRerunBanner } from './PendingRerunBanner';
+import { PipelineStepper } from './PipelineStepper';
 import { CiteDialog } from './CiteDialog';
 import { KeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
 import { ProjectDetailsDialog } from './ProjectDetailsDialog';
@@ -188,8 +191,10 @@ function Workspace() {
   const [unitData, setUnitData] = useState<PaginatedData>(emptyData);
   const [documents, setDocuments] = useState<DocumentListResponse | null>(null);
   const [config, setConfig] = useState<ScheMatiQConfig | null>(null);
-  const [developerMode, setDeveloperMode] = useState(false);
   const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
+  const [estimatingCost, setEstimatingCost] = useState(false);
+  const [costDialogOpen, setCostDialogOpen] = useState(false);
+  const [obsUnitReviewAlert, setObsUnitReviewAlert] = useState(false);
   const [loading, setLoading] = useState(false);
   // Separate from `loading`: structure (status/schema) is ready and the grid
   // chrome is shown, but the heavy row payload is still streaming in. Lets the
@@ -793,6 +798,7 @@ function Workspace() {
     addDocsPending,
     handleAddDocsFilesChange,
     uploadAddDocuments,
+    addCloudDocuments,
     processAddDocuments,
   } = useAddDocuments({
     sessionId,
@@ -894,6 +900,15 @@ function Workspace() {
     reextractionSnapshotRef.current = null;
   }, []);
 
+  const onObservationUnitReady = useCallback(() => {
+    setObsUnitReviewAlert(true);
+    toast({
+      title: 'Observation unit ready for review',
+      description: 'Review or confirm the discovered observation unit in the Monitor tab to continue schema discovery.',
+      duration: 6000,
+    });
+  }, [toast]);
+
   useWorkspaceSocket({
     sessionId,
     reextraction,
@@ -905,7 +920,16 @@ function Workspace() {
     onReextractionStart,
     onReextractionSettled,
     onReextractionDiscard,
+    onObservationUnitReady,
   });
+
+  useEffect(() => {
+    if (status?.status === 'observation_unit_review') {
+      setObsUnitReviewAlert(true);
+    } else if (status?.status && status.status !== 'observation_unit_review') {
+      setObsUnitReviewAlert(false);
+    }
+  }, [status?.status]);
 
   useEffect(() => {
     setProjectDialogOpen(!sessionId);
@@ -930,14 +954,6 @@ function Workspace() {
     };
   }, []);
 
-  // Fetch app-level developer mode so the table feedback widget can be hidden
-  // for developers (parity with the classic flow).
-  useEffect(() => {
-    configAPI.getConfig()
-      .then((cfg) => setDeveloperMode(Boolean(cfg?.developer_mode)))
-      .catch(() => {});
-  }, []);
-
   useEffect(() => {
     // Reset session-scoped view/data so a freshly imported/loaded session
     // never renders the previous session's sheet, schema, or rows.
@@ -955,6 +971,9 @@ function Workspace() {
     setDocuments(null);
     setConfig(null);
     setCostEstimate(null);
+    setCostDialogOpen(false);
+    setEstimatingCost(false);
+    setObsUnitReviewAlert(false);
     setDataView('by_document');
     setUnitData(emptyData);
     setSheetSelection(null);
@@ -1109,7 +1128,7 @@ function Workspace() {
   }, [refresh, requestedMode, sessionId]);
 
   const estimateCurrentCost = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId || estimatingCost) return;
     if (sessionMode === 'load') {
       toast({
         title: 'No pending extraction cost',
@@ -1117,9 +1136,41 @@ function Workspace() {
       });
       return;
     }
-    const estimate = await schematiqAPI.estimateCost(sessionId);
-    setCostEstimate(estimate);
-  }, [sessionId, sessionMode, toast]);
+    setEstimatingCost(true);
+    try {
+      const estimate = await schematiqAPI.estimateCost(sessionId);
+      setCostEstimate(estimate);
+      setCostDialogOpen(true);
+    } catch (err: any) {
+      toast({
+        title: 'Could not estimate cost',
+        description: err?.response?.data?.detail || err?.message || 'Cost estimate request failed.',
+        variant: 'destructive',
+      });
+    } finally {
+      setEstimatingCost(false);
+    }
+  }, [estimatingCost, sessionId, sessionMode, toast]);
+
+  const handleStopPipeline = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      await schematiqAPI.stop(sessionId);
+      toast({ title: 'Stopping pipeline', description: 'Saving partial progress and stopping.' });
+      await refresh({ silent: true });
+    } catch (err: any) {
+      toast({
+        title: 'Could not stop pipeline',
+        description: err?.response?.data?.detail || err?.message || 'Stop request failed.',
+        variant: 'destructive',
+      });
+    }
+  }, [refresh, sessionId, toast]);
+
+  const extractingColumns = useMemo<Set<string> | undefined>(() => {
+    if (!reextraction?.columns?.length) return undefined;
+    return new Set(reextraction.columns);
+  }, [reextraction?.columns]);
 
   useEffect(() => {
     let next: CellFormatMap = {};
@@ -1621,6 +1672,7 @@ function Workspace() {
         onImportProject={openImportPicker}
         sessionMissing={sessionMissing}
         compactRows={compactRows}
+        extractingColumns={extractingColumns}
         layoutRevision={gridLayoutRevision}
         dataView={dataView}
       />
@@ -1687,7 +1739,40 @@ function Workspace() {
         onReportIssue={() => setReportOpen(true)}
         onCite={() => setCiteOpen(true)}
         rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
+        estimatingCost={estimatingCost}
       />
+
+      {sessionId && (
+        <PipelineStepper
+          status={status}
+          reextraction={reextraction}
+          stoppingReextraction={stoppingReextraction}
+          onStopReextraction={stopReextraction}
+          onStopPipeline={canRunPipeline ? () => void handleStopPipeline() : undefined}
+          onOpenMonitor={() => setActiveSheet('monitor')}
+        />
+      )}
+
+      {obsUnitReviewAlert && sessionId && activeSheet !== 'monitor' && (
+        <div className="workspace-followup-banner workspace-obs-review-banner" role="status">
+          <div className="workspace-followup-banner-copy">
+            <strong>Observation unit ready for review</strong>
+            <span>
+              The pipeline paused so you can confirm or edit the discovered observation unit before schema discovery continues.
+            </span>
+          </div>
+          <div className="workspace-followup-banner-actions">
+            <button
+              className="workspace-followup-action workspace-followup-action-primary"
+              type="button"
+              onClick={() => setActiveSheet('monitor')}
+            >
+              <Layers className="h-3.5 w-3.5" />
+              Review &amp; Continue
+            </button>
+          </div>
+        </div>
+      )}
 
       {pendingRerunKind && (
         <PendingRerunBanner
@@ -1810,6 +1895,7 @@ function Workspace() {
                     uploadedFiles={addDocsFiles}
                     loading={addDocsUploading}
                     onUpload={uploadAddDocuments}
+                    onCloudDocumentsAdd={addCloudDocuments}
                     canUpload={Boolean(sessionId) && !addDocsProcessing}
                     uploadResult={addDocsResult}
                     sessionId={sessionId}
@@ -2097,6 +2183,23 @@ function Workspace() {
         activeSheet={activeSheet}
       />
 
+      <Dialog open={costDialogOpen} onOpenChange={setCostDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Estimated Project Cost</DialogTitle>
+            <DialogDescription>
+              {costEstimate ? formatCost(costEstimate) : 'Cost estimate breakdown for this session.'}
+            </DialogDescription>
+          </DialogHeader>
+          {costEstimate && <CostBreakdown estimate={costEstimate} />}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCostDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={Boolean(reextractConfirm)}
         onOpenChange={(open) => {
@@ -2158,20 +2261,6 @@ function Workspace() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Table feedback widget (release mode only) — parity with the classic flow */}
-      {!developerMode && sessionId && (
-        <TableFeedbackWidget
-          sessionId={sessionId}
-          sessionStatus={session?.status || ''}
-          activeTab={activeSheet}
-          tableRowCount={data?.total_count || 0}
-          tableColumnCount={session?.columns?.length || 0}
-          // Sheet side, clear of the 52px bottombar, so it never lands on the
-          // chat composer in the bottom-right of the workspace.
-          anchorClassName="fixed bottom-20 left-6 z-50"
-        />
-      )}
     </div>
   );
 }

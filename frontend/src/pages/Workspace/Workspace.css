@@ -1676,3 +1676,43 @@
   font-size: 0.75rem;
   color: hsl(var(--muted-foreground));
 }
+
+/* Observation Unit Review attention banner */
+.workspace-obs-review-banner {
+  background: hsl(262 85% 97%);
+  border-bottom-color: hsl(262 55% 84%);
+  color: hsl(262 50% 26%);
+}
+
+.workspace-obs-review-banner .workspace-followup-banner-copy strong {
+  color: hsl(262 58% 20%);
+}
+
+/* Live 3-stage pipeline progress stepper */
+.workspace-pipeline-stepper {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(262 75% 98%);
+}
+
+/* Shimmering skeleton for empty cells in columns currently being extracted */
+@keyframes workspace-cell-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.workspace-hot .handsontable td.cell-extracting {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted) / 0.3) 25%,
+    hsl(262 80% 65% / 0.16) 50%,
+    hsl(var(--muted) / 0.3) 75%
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: workspace-cell-shimmer 1.6s ease-in-out infinite;
+}
